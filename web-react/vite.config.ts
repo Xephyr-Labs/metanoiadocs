@@ -2,6 +2,7 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { vanillaExtractPlugin } from '@vanilla-extract/vite-plugin';
 import wasm from 'vite-plugin-wasm';
+import { VitePWA } from 'vite-plugin-pwa';
 
 // BlockSuite ships thousands of ESM sub-packages that Vite's dep-optimizer must
 // NOT pre-bundle (they use import.meta / wasm / vanilla-extract). This exclude
@@ -83,7 +84,34 @@ const blocksuiteExclude = [
 
 export default defineConfig({
   // React lives in src/**; BlockSuite web components mount imperatively via a ref.
-  plugins: [react(), wasm(), vanillaExtractPlugin()],
+  plugins: [
+    react(),
+    wasm(),
+    vanillaExtractPlugin(),
+    VitePWA({
+      registerType: 'autoUpdate',
+      includeAssets: ['pwa-192.png', 'pwa-512.png'],
+      manifest: {
+        name: 'MetanoiaDocs',
+        short_name: 'Metanoia',
+        description: 'Self-hosted, real-time collaborative docs workspace.',
+        theme_color: '#2383e2',
+        background_color: '#ffffff',
+        display: 'standalone',
+        start_url: '/',
+        icons: [
+          { src: 'pwa-192.png', sizes: '192x192', type: 'image/png', purpose: 'any maskable' },
+          { src: 'pwa-512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
+        ],
+      },
+      workbox: {
+        // The editor chunk is large; allow it in the precache so the app loads offline.
+        maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
+        // Never let the SPA navigation fallback swallow the API, live sync, or share links.
+        navigateFallbackDenylist: [/^\/api/, /^\/sync/, /^\/share/],
+      },
+    }),
+  ],
   esbuild: { target: 'es2018' },
   // The Express API + Hocuspocus ws server run separately (docker: 127.0.0.1:8092).
   // Proxy /api and /sync so the frontend is same-origin and the session cookie works.
