@@ -102,10 +102,12 @@ export function Sidebar() {
             { icon: LogOut, label: 'Log out', danger: true, onSelect: () => auth.logout() },
           ]}
           trigger={
-            <button className="group flex h-9 w-full items-center gap-2 rounded-md px-1.5 text-left transition-colors duration-120 hover:bg-hover">
-              <LogoMark size={22} />
+            <button className="group flex h-9 w-full items-center gap-2 rounded-md px-2 text-left transition-colors duration-120 hover:bg-hover">
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center">
+                <LogoMark size={20} />
+              </span>
               <span className="flex-1 truncate text-[14px] font-semibold text-ink">{activeWs.name}</span>
-              <ChevronDown size={15} className="text-faint opacity-0 transition-opacity group-hover:opacity-100" />
+              <ChevronDown size={15} className="shrink-0 text-faint opacity-0 transition-opacity group-hover:opacity-100" />
             </button>
           }
         />
