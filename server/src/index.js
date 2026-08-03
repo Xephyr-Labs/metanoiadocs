@@ -22,7 +22,8 @@ import {
 } from './db.js';
 import { requestMagicLink, consumeMagicLink, sendInviteEmail, sendNotificationEmail } from './auth.js';
 import { getSetting, setSetting } from './db.js';
-import { buildDocState, appendToDocState, extractText } from './blocks.js';
+import { buildDocState, appendToDocState, extractText, extractBlocks } from './blocks.js';
+import { topTerms, extractSignals, findMentions, simhash } from './intelligence.js';
 import OpenAI from 'openai';
 
 const PORT = Number(process.env.PORT || 3000);
@@ -830,11 +831,70 @@ app.post('/api/ai', requireUser, async (req, res) => {
 // ── search ──────────────────────────────────────────────────────────────────
 // The client posts extracted plain text whenever a doc changes; search queries
 // the generated tsvector, scoped to docs the user can actually see.
+
+// Best-effort per-doc signal computation. Reads the persisted Yjs (true block
+// structure incl. todos); falls back to the posted plain text if absent. Never
+// throws into the caller — a bad doc must not fail the save.
+async function computeAndStoreSignals(docId, fallbackText = '') {
+  try {
+    let title = '';
+    let blocks = [];
+    const st = await pool.query('SELECT state FROM doc_states WHERE doc_id = $1', [docId]);
+    if (st.rows[0]?.state) {
+      ({ title, blocks } = extractBlocks(st.rows[0].state));
+    } else {
+      blocks = String(fallbackText).split('\n').filter(Boolean)
+        .map((text) => ({ flavour: 'affine:paragraph', type: 'text', checked: false, text }));
+    }
+    const flatText = (title + '\n' + blocks.map((b) => b.text).join('\n')).trim();
+    const terms = topTerms(flatText, 30);
+    const signals = extractSignals(blocks);
+
+    const others = await pool.query(
+      'SELECT id, title FROM docs WHERE id <> $1 AND deleted_at IS NULL', [docId],
+    );
+    const mentions = findMentions(flatText, others.rows);
+    const hash = simhash(terms);
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('DELETE FROM doc_terms WHERE doc_id = $1', [docId]);
+      for (const { term, tf } of terms) {
+        await client.query(
+          'INSERT INTO doc_terms (doc_id, term, tf) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
+          [docId, term, tf],
+        );
+      }
+      await client.query(
+        `INSERT INTO doc_signals (doc_id, tasks, decisions, risks, deadlines, mentions, simhash, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7, now())
+         ON CONFLICT (doc_id) DO UPDATE SET
+           tasks=EXCLUDED.tasks, decisions=EXCLUDED.decisions, risks=EXCLUDED.risks,
+           deadlines=EXCLUDED.deadlines, mentions=EXCLUDED.mentions, simhash=EXCLUDED.simhash,
+           updated_at=now()`,
+        [docId, JSON.stringify(signals.tasks), JSON.stringify(signals.decisions),
+         JSON.stringify(signals.risks), JSON.stringify(signals.deadlines),
+         JSON.stringify(mentions), hash],
+      );
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+  } catch (e) {
+    console.error('[intelligence] signal compute failed for', docId, e.message);
+  }
+}
+
 app.put('/api/docs/:id/text', requireUser, async (req, res) => {
   if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
-  await pool.query('UPDATE docs SET search_text = $1 WHERE id = $2',
-    [String(req.body?.text || '').slice(0, 100000), req.params.id]);
+  const text = String(req.body?.text || '').slice(0, 100000);
+  await pool.query('UPDATE docs SET search_text = $1 WHERE id = $2', [text, req.params.id]);
   res.json({ ok: true });
+  computeAndStoreSignals(req.params.id, text); // best-effort, after response
 });
 
 app.get('/api/search', requireUser, async (req, res) => {
