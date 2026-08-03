@@ -22,6 +22,7 @@ import {
 } from './db.js';
 import { requestMagicLink, consumeMagicLink, sendInviteEmail, sendNotificationEmail } from './auth.js';
 import { getSetting, setSetting } from './db.js';
+import { buildDocState, appendToDocState, extractText } from './blocks.js';
 import OpenAI from 'openai';
 
 const PORT = Number(process.env.PORT || 3000);
@@ -72,8 +73,27 @@ function sessionToken(req) {
   return cookie.parse(req.headers.cookie || '')[COOKIE] || null;
 }
 
+const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');
+
+// Resolve a request to a user via the session cookie OR an `Authorization: Bearer
+// <token>` personal access token (for programmatic clients like the MCP server).
+async function userForRequest(req) {
+  const cookieUser = await userForSession(sessionToken(req));
+  if (cookieUser) return cookieUser;
+  const auth = req.headers.authorization || '';
+  const m = auth.match(/^Bearer\s+(.+)$/i);
+  if (!m) return null;
+  const { rows } = await pool.query(
+    `SELECT u.* FROM api_tokens t JOIN users u ON u.id = t.user_id WHERE t.token_hash = $1`,
+    [sha256(m[1].trim())]
+  );
+  if (!rows[0]) return null;
+  pool.query('UPDATE api_tokens SET last_used_at = now() WHERE token_hash = $1', [sha256(m[1].trim())]).catch(() => {});
+  return rows[0];
+}
+
 async function requireUser(req, res, next) {
-  const user = await userForSession(sessionToken(req));
+  const user = await userForRequest(req);
   if (!user) return res.status(401).json({ error: 'unauthorized' });
   req.user = user;
   next();
@@ -215,6 +235,32 @@ app.get('/api/users', requireUser, async (_req, res) => {
   res.json(rows);
 });
 
+// ── personal access tokens (for the MCP server / programmatic clients) ───────
+app.get('/api/tokens', requireUser, async (req, res) => {
+  const { rows } = await pool.query(
+    'SELECT id, name, created_at, last_used_at FROM api_tokens WHERE user_id = $1 ORDER BY created_at DESC',
+    [req.user.id]
+  );
+  res.json(rows);
+});
+
+// Mint a token. The plaintext is returned ONCE; only its hash is stored.
+app.post('/api/tokens', requireUser, async (req, res) => {
+  const name = String(req.body?.name || '').trim().slice(0, 60) || 'API token';
+  const secret = 'mtn_' + crypto.randomBytes(24).toString('base64url');
+  const id = crypto.randomUUID();
+  await pool.query(
+    'INSERT INTO api_tokens (id, user_id, name, token_hash) VALUES ($1, $2, $3, $4)',
+    [id, req.user.id, name, sha256(secret)]
+  );
+  res.json({ id, name, token: secret });
+});
+
+app.delete('/api/tokens/:id', requireUser, async (req, res) => {
+  await pool.query('DELETE FROM api_tokens WHERE id = $1 AND user_id = $2', [req.params.id, req.user.id]);
+  res.json({ ok: true });
+});
+
 // Update your own display name (the avatar is derived from it).
 app.patch('/api/me', requireUser, async (req, res) => {
   const name = String(req.body?.name || '').trim().slice(0, 80);
@@ -291,17 +337,26 @@ app.post('/api/docs', requireUser, async (req, res) => {
   const title = String(req.body?.title || 'Untitled').slice(0, 200);
   const icon = String(req.body?.icon || '📄').slice(0, 8);
   const parentId = req.body?.parentId || null;
+  const visibility = req.body?.visibility === 'private' ? 'private' : 'team';
+  // Optional markdown body (used by the MCP server / API clients). Built into a
+  // BlockSuite Yjs state so the doc opens with real content.
+  const content = typeof req.body?.content === 'string' ? req.body.content : null;
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     await client.query(
-      'INSERT INTO docs (id, title, icon, created_by, parent_id) VALUES ($1, $2, $3, $4, $5)',
-      [id, title, icon, req.user.id, parentId]
+      'INSERT INTO docs (id, title, icon, created_by, parent_id, visibility) VALUES ($1, $2, $3, $4, $5, $6)',
+      [id, title, icon, req.user.id, parentId, visibility]
     );
     await client.query(
       `INSERT INTO doc_access (doc_id, user_id, role) VALUES ($1, $2, 'owner')`,
       [id, req.user.id]
     );
+    if (content) {
+      const state = Buffer.from(buildDocState(title, content));
+      await client.query('INSERT INTO doc_states (doc_id, state) VALUES ($1, $2)', [id, state]);
+      await client.query('UPDATE docs SET search_text = $1 WHERE id = $2', [content.slice(0, 100000), id]);
+    }
     await client.query('COMMIT');
   } catch (e) {
     await client.query('ROLLBACK');
@@ -309,7 +364,46 @@ app.post('/api/docs', requireUser, async (req, res) => {
   } finally {
     client.release();
   }
-  res.json({ id, title, icon, parent_id: parentId, role: 'owner', visibility: 'team', shared: false, favorite: false });
+  res.json({ id, title, icon, parent_id: parentId, role: 'owner', visibility, shared: false, favorite: false });
+});
+
+// Read a doc's title + plain text (decoded from the Yjs state; used by API clients).
+app.get('/api/docs/:id/text', requireUser, async (req, res) => {
+  if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
+  const d = await pool.query('SELECT title FROM docs WHERE id = $1 AND deleted_at IS NULL', [req.params.id]);
+  if (!d.rows[0]) return res.status(404).json({ error: 'not found' });
+  const s = await pool.query('SELECT state FROM doc_states WHERE doc_id = $1', [req.params.id]);
+  let text = '';
+  if (s.rows[0]) { try { text = extractText(s.rows[0].state).text; } catch { /* empty */ } }
+  res.json({ id: req.params.id, title: d.rows[0].title, text });
+});
+
+// Write markdown content to a doc: mode 'append' (default) or 'replace'. Editors
+// see the change on their next open/reload (this writes the persisted state).
+app.post('/api/docs/:id/content', requireUser, async (req, res) => {
+  if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
+  const markdown = String(req.body?.markdown || '');
+  const mode = req.body?.mode === 'replace' ? 'replace' : 'append';
+  const d = await pool.query('SELECT title FROM docs WHERE id = $1 AND deleted_at IS NULL', [req.params.id]);
+  if (!d.rows[0]) return res.status(404).json({ error: 'not found' });
+  const cur = await pool.query('SELECT state FROM doc_states WHERE doc_id = $1', [req.params.id]);
+  let state;
+  if (mode === 'replace' || !cur.rows[0]) {
+    state = Buffer.from(buildDocState(d.rows[0].title, markdown));
+  } else {
+    state = Buffer.from(appendToDocState(cur.rows[0].state, markdown));
+  }
+  await pool.query(
+    `INSERT INTO doc_states (doc_id, state, updated_at) VALUES ($1, $2, now())
+     ON CONFLICT (doc_id) DO UPDATE SET state = EXCLUDED.state, updated_at = now()`,
+    [req.params.id, state]
+  );
+  // Keep search current from the freshly-decoded text.
+  try {
+    const { text } = extractText(state);
+    await pool.query('UPDATE docs SET search_text = $1, updated_at = now() WHERE id = $2', [text.slice(0, 100000), req.params.id]);
+  } catch { /* noop */ }
+  res.json({ ok: true });
 });
 
 // Toggle a doc between team-visible and private (owner only). Private keeps only

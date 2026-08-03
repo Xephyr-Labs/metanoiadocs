@@ -127,6 +127,10 @@ export const docsApi = {
     req(`/docs/${id}/share`, { method: 'POST', body: JSON.stringify({ email }) }),
   users: (): Promise<UserRow[]> => req('/users'),
   updateMe: (name: string) => req('/me', { method: 'PATCH', body: JSON.stringify({ name }) }),
+  listTokens: (): Promise<{ id: string; name: string; created_at: string; last_used_at: string | null }[]> => req('/tokens'),
+  createToken: (name: string): Promise<{ id: string; name: string; token: string }> =>
+    req('/tokens', { method: 'POST', body: JSON.stringify({ name }) }),
+  deleteToken: (id: string) => req(`/tokens/${id}`, { method: 'DELETE' }),
   setUserRole: (id: string, role: 'admin' | 'collaborator') =>
     req(`/users/${id}/role`, { method: 'PATCH', body: JSON.stringify({ role }) }),
   removeUser: (id: string) => req(`/users/${id}`, { method: 'DELETE' }),

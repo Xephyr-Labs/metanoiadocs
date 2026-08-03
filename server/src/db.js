@@ -185,6 +185,18 @@ export async function initSchema() {
     );
     CREATE INDEX IF NOT EXISTS notifications_user_idx
       ON notifications(user_id, created_at DESC);
+
+    -- Personal access tokens for programmatic access (e.g. the MCP server).
+    -- Only the sha256 hash is stored; the plaintext is shown once at creation.
+    CREATE TABLE IF NOT EXISTS api_tokens (
+      id           TEXT PRIMARY KEY,
+      user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name         TEXT NOT NULL DEFAULT '',
+      token_hash   TEXT NOT NULL UNIQUE,
+      created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+      last_used_at TIMESTAMPTZ
+    );
+    CREATE INDEX IF NOT EXISTS api_tokens_user_idx ON api_tokens(user_id);
   `);
 }
 

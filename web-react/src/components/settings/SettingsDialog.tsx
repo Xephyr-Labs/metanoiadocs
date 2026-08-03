@@ -1,9 +1,12 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
+  Copy,
   Info,
+  KeyRound,
   Moon,
   MoreHorizontal,
+  Plus,
   Settings2,
   Shield,
   Sun,
@@ -22,8 +25,10 @@ import { useAuth } from '../../store/auth';
 import { sendInvite } from '../../lib/api';
 import { docsApi, type UserRow } from '../../lib/docsApi';
 import { avatarFor } from '../../lib/avatar';
+import { relativeTime } from '../../lib/time';
 import { cn } from '../../lib/cn';
 import { Button } from '../ui/Button';
+import { IconButton } from '../ui/IconButton';
 import { LogoMark } from '../brand/Logo';
 import { Menu } from '../ui/Menu';
 import { SegmentedControl } from '../ui/SegmentedControl';
@@ -37,7 +42,7 @@ function Avatar({ name, size = 32 }: { name: string; size?: number }) {
   );
 }
 
-type SectionId = 'account' | 'preferences' | 'members' | 'about';
+type SectionId = 'account' | 'preferences' | 'tokens' | 'members' | 'about';
 
 const NAV: { group: string; items: { id: SectionId; label: string; icon: typeof Settings2 }[] }[] = [
   {
@@ -45,6 +50,7 @@ const NAV: { group: string; items: { id: SectionId; label: string; icon: typeof 
     items: [
       { id: 'account', label: 'My account', icon: Users },
       { id: 'preferences', label: 'Preferences', icon: Settings2 },
+      { id: 'tokens', label: 'API tokens', icon: KeyRound },
     ],
   },
   {
@@ -305,9 +311,93 @@ function About() {
   );
 }
 
+function Tokens() {
+  const [rows, setRows] = useState<{ id: string; name: string; created_at: string; last_used_at: string | null }[] | null>(null);
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [fresh, setFresh] = useState<string | null>(null); // plaintext shown once
+  const [copied, setCopied] = useState(false);
+
+  const load = () => docsApi.listTokens().then(setRows).catch(() => setRows([]));
+  useEffect(() => { load(); }, []);
+
+  const create = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const t = await docsApi.createToken(name.trim() || 'API token');
+      setFresh(t.token);
+      setName('');
+      load();
+    } finally { setBusy(false); }
+  };
+  const revoke = async (id: string) => {
+    if (!window.confirm('Revoke this token? Anything using it will stop working.')) return;
+    await docsApi.deleteToken(id).catch(() => {});
+    load();
+  };
+
+  return (
+    <div>
+      <SectionTitle>API tokens</SectionTitle>
+      <p className="mb-5 text-[13px] text-muted">
+        Personal access tokens let programmatic clients — like the MetanoiaDocs MCP server — act as you. They carry your access; keep them secret.
+      </p>
+
+      <div className="border-b border-line pb-3">
+        <div className="flex gap-2">
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && create()}
+            placeholder="Token name (e.g. Claude MCP)…"
+            className="h-8 flex-1 rounded-md bg-surface px-3 text-[13px] outline-none ring-1 ring-inset ring-line placeholder:text-faint focus:ring-2 focus:ring-accent"
+          />
+          <Button variant="primary" size="sm" onClick={create} disabled={busy}
+            leftIcon={busy ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}>Create</Button>
+        </div>
+        {fresh && (
+          <div className="mt-3 rounded-lg border border-accent/40 bg-accent-soft/50 p-3">
+            <p className="mb-1.5 text-[12px] font-medium text-ink">Copy your token now — it won't be shown again.</p>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 truncate rounded bg-canvas px-2 py-1.5 text-[12px] text-ink ring-1 ring-inset ring-line">{fresh}</code>
+              <IconButton
+                icon={copied ? <Check size={15} className="text-accent" /> : <Copy size={15} />}
+                label="Copy"
+                onClick={() => { navigator.clipboard?.writeText(fresh); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="divide-y divide-line">
+        {rows === null ? (
+          <div className="flex justify-center py-8"><Loader2 size={16} className="animate-spin text-faint" /></div>
+        ) : rows.length === 0 ? (
+          <p className="py-6 text-center text-[13px] text-faint">No tokens yet.</p>
+        ) : rows.map((t) => (
+          <div key={t.id} className="flex items-center gap-3 py-3">
+            <KeyRound size={16} className="shrink-0 text-faint" />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-[13px] font-medium text-ink">{t.name}</p>
+              <p className="truncate text-[12px] text-faint">
+                Created {relativeTime(t.created_at)}
+                {t.last_used_at ? ` · last used ${relativeTime(t.last_used_at)}` : ' · never used'}
+              </p>
+            </div>
+            <button onClick={() => revoke(t.id)} className="rounded-md px-2 py-1 text-[12px] text-danger hover:bg-danger/10">Revoke</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 const BODIES: Record<SectionId, () => JSX.Element> = {
   account: Account,
   preferences: Preferences,
+  tokens: Tokens,
   members: Members,
   about: About,
 };

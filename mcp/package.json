@@ -1,0 +1,15 @@
+{
+  "name": "metanoiadocs-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for MetanoiaDocs — lets AI agents search, read, and write your docs.",
+  "type": "module",
+  "bin": {
+    "metanoiadocs-mcp": "src/index.js"
+  },
+  "files": ["src"],
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "zod": "^3.23.0"
+  }
+}
