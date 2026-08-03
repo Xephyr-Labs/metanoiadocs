@@ -197,6 +197,30 @@ export async function initSchema() {
       last_used_at TIMESTAMPTZ
     );
     CREATE INDEX IF NOT EXISTS api_tokens_user_idx ON api_tokens(user_id);
+
+    -- Intelligence layer: per-doc term vector + extracted signals. Computed
+    -- synchronously on the /text save. Best-effort; never blocks a save.
+    CREATE EXTENSION IF NOT EXISTS pg_trgm;
+    CREATE INDEX IF NOT EXISTS docs_title_trgm_idx ON docs USING GIN (title gin_trgm_ops);
+
+    CREATE TABLE IF NOT EXISTS doc_terms (
+      doc_id TEXT NOT NULL REFERENCES docs(id) ON DELETE CASCADE,
+      term   TEXT NOT NULL,
+      tf     INT  NOT NULL DEFAULT 1,
+      PRIMARY KEY (doc_id, term)
+    );
+    CREATE INDEX IF NOT EXISTS doc_terms_term_idx ON doc_terms(term);
+
+    CREATE TABLE IF NOT EXISTS doc_signals (
+      doc_id     TEXT PRIMARY KEY REFERENCES docs(id) ON DELETE CASCADE,
+      tasks      JSONB NOT NULL DEFAULT '[]',
+      decisions  JSONB NOT NULL DEFAULT '[]',
+      risks      JSONB NOT NULL DEFAULT '[]',
+      deadlines  JSONB NOT NULL DEFAULT '[]',
+      mentions   JSONB NOT NULL DEFAULT '[]',
+      simhash    TEXT,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
   `);
 }
 
