@@ -902,19 +902,40 @@ app.get('/api/search', requireUser, async (req, res) => {
   const q = String(req.query.q || '').trim();
   if (!q) return res.json([]);
   const { rows } = await pool.query(
-    `SELECT d.id, d.title,
-            ts_headline('english', d.search_text, plainto_tsquery('english', $2),
+    `WITH scoped AS (
+       SELECT d.id, d.title, d.search_text
+         FROM docs d
+         LEFT JOIN doc_access a ON a.doc_id=d.id AND a.user_id=$1
+        WHERE d.deleted_at IS NULL AND (a.user_id IS NOT NULL OR d.visibility='team')
+     ),
+     fts AS (
+       SELECT id, title, search_text, 1 AS pri,
+              ts_rank(to_tsvector('english', coalesce(title,'')||' '||coalesce(search_text,'')),
+                      plainto_tsquery('english', $2)) AS rank
+         FROM scoped
+        WHERE to_tsvector('english', coalesce(title,'')||' '||coalesce(search_text,''))
+              @@ plainto_tsquery('english', $2)
+     ),
+     fuzzy AS (
+       SELECT id, title, search_text, 2 AS pri,
+              GREATEST(similarity(title,$2), similarity(left(search_text,2000),$2)) AS rank
+         FROM scoped
+        WHERE title % $2 OR left(search_text,2000) % $2
+     ),
+     merged AS (
+       SELECT DISTINCT ON (id) id, title, search_text, pri, rank
+         FROM (SELECT * FROM fts UNION ALL SELECT * FROM fuzzy) u
+        ORDER BY id, pri, rank DESC
+     )
+     SELECT id, title,
+            ts_headline('english', search_text, plainto_tsquery('english', $2),
                         'MaxWords=18, MinWords=6, ShortWord=2') AS snippet
-       FROM docs d
-       LEFT JOIN doc_access a ON a.doc_id = d.id AND a.user_id = $1
-      WHERE d.deleted_at IS NULL
-        AND (a.user_id IS NOT NULL OR d.visibility = 'team')
-        AND d.search_tsv @@ plainto_tsquery('english', $2)
-      ORDER BY ts_rank(d.search_tsv, plainto_tsquery('english', $2)) DESC
+       FROM merged
+      ORDER BY pri, rank DESC
       LIMIT 20`,
-    [req.user.id, q]
+    [req.user.id, q],
   );
-  res.json(rows);
+  res.json(rows.map((r) => ({ id: r.id, title: r.title, snippet: r.snippet })));
 });
 
 // Everything the Intelligence rail needs, in one round-trip. All access-scoped.
