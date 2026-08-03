@@ -12,6 +12,7 @@ import {
   MoreHorizontal,
   PanelLeft,
   PanelRight,
+  Share2,
   Star,
   Sun,
   Trash2,
@@ -123,17 +124,20 @@ export function TopBar() {
             onClick={() => ws.setRightPanel(ws.rightPanel === 'comments' ? null : 'comments')}
           />
           <IconButton
+            className="hidden sm:inline-flex"
             icon={<Star size={17} className={cn(page.favorite && 'fill-amber-400 text-amber-400')} />}
             label={page.favorite ? 'Remove from Favorites' : 'Add to Favorites'}
             onClick={() => ws.toggleFavorite(page.id)}
           />
           <IconButton
+            className="hidden sm:inline-flex"
             icon={ws.theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
             label={ws.theme === 'dark' ? 'Light mode' : 'Dark mode'}
             keys={['⌘', 'J']}
             onClick={ws.toggleTheme}
           />
           <IconButton
+            className="hidden sm:inline-flex"
             icon={<PanelRight size={17} />}
             label="Side panel"
             active={!!ws.rightPanel}
@@ -142,7 +146,14 @@ export function TopBar() {
           <Menu
             align="end"
             items={[
-              { icon: Link2, label: 'Copy link', onSelect: () => navigator.clipboard?.writeText(location.href) },
+              // On phones the toolbar icons collapse in here so the bar isn't crammed.
+              ...(isMobile ? [
+                { icon: Share2, label: 'Share', onSelect: () => ws.setShareOpen(true) },
+                { icon: Star, label: page.favorite ? 'Remove from Favorites' : 'Add to Favorites', onSelect: () => ws.toggleFavorite(page.id) },
+                { icon: ws.theme === 'dark' ? Sun : Moon, label: ws.theme === 'dark' ? 'Light mode' : 'Dark mode', onSelect: ws.toggleTheme },
+                { icon: PanelRight, label: 'Outline & details', onSelect: () => ws.setRightPanel(ws.rightPanel ? null : 'outline') },
+              ] : []),
+              { icon: Link2, label: 'Copy link', separatorBefore: isMobile, onSelect: () => navigator.clipboard?.writeText(location.href) },
               { icon: Copy, label: 'Version history', onSelect: () => ws.setRightPanel('history') },
               { icon: ArrowUpRight, label: 'Open in new tab', onSelect: () => window.open(location.href, '_blank') },
               { icon: Trash2, label: 'Move to Trash', danger: true, separatorBefore: true, onSelect: () => ws.deletePage(page.id) },

@@ -35,7 +35,9 @@ export function EditorArea() {
 
   return (
     <div className="relative flex h-full flex-col bg-canvas">
-      <div className="flex h-9 shrink-0 items-center justify-between px-4">
+      {/* Edgeless (canvas) needs a pointer and full-width is moot on a phone —
+          hide this whole row on mobile. */}
+      <div className="hidden h-9 shrink-0 items-center justify-between px-4 md:flex">
         <SegmentedControl
           aria-label="Editor mode"
           value={ws.mode}
