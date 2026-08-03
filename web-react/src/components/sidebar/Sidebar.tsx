@@ -104,7 +104,7 @@ export function Sidebar() {
           trigger={
             <button className="group flex h-9 w-full items-center gap-2 rounded-md px-2 text-left transition-colors duration-120 hover:bg-hover">
               <span className="flex h-5 w-5 shrink-0 items-center justify-center">
-                <LogoMark size={20} />
+                <LogoMark size={16} />
               </span>
               <span className="flex-1 truncate text-[14px] font-semibold text-ink">{activeWs.name}</span>
               <ChevronDown size={15} className="shrink-0 text-faint opacity-0 transition-opacity group-hover:opacity-100" />
