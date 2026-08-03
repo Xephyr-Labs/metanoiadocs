@@ -268,7 +268,7 @@ export function SettingsDialog() {
               />
             </Dialog.Overlay>
             <Dialog.Content asChild aria-describedby={undefined}>
-              <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center p-4">
+              <div onClick={(e) => e.target === e.currentTarget && ws.setSettingsOpen(false)} className="fixed inset-0 z-50 flex items-center justify-center p-4">
               <motion.div
                 initial={{ opacity: 0, scale: 0.98, y: 8 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}

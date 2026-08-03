@@ -104,7 +104,7 @@ export function CommandPalette() {
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.12 }} className="fixed inset-0 z-50 bg-overlay backdrop-blur-[2px]" />
             </Dialog.Overlay>
             <Dialog.Content onKeyDown={onKey} aria-describedby={undefined} asChild>
-              <div className="pointer-events-none fixed inset-0 z-50 flex items-start justify-center p-4 pt-[14vh]">
+              <div onClick={(e) => e.target === e.currentTarget && ws.setPaletteOpen(false)} className="fixed inset-0 z-50 flex items-start justify-center p-4 pt-[14vh]">
                 <motion.div
                   initial={{ opacity: 0, scale: 0.98, y: -8 }}
                   animate={{ opacity: 1, scale: 1, y: 0 }}
