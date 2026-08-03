@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { tokenize, topTerms, extractSignals, findMentions, simhash, hamming } from './intelligence.js';
+import { buildDocState, extractBlocks } from './blocks.js';
 
 test('tokenize drops stopwords, short words, punctuation', () => {
   assert.deepEqual(tokenize('The Kubernetes cluster is on!'), ['kubernetes', 'cluster']);
@@ -45,4 +46,14 @@ test('simhash of similar term sets is near, different is far', () => {
   const c = simhash(topTerms('completely unrelated words here banana', 30));
   // Relative invariant: a near-identical set is closer than an unrelated one.
   assert.ok(hamming(a, b) < hamming(a, c));
+});
+
+test('extractBlocks returns todos with checked state and title', () => {
+  const state = buildDocState('Plan', '# Heading\n- [ ] open task\n- [x] done task\nplain line');
+  const { title, blocks } = extractBlocks(Buffer.from(state));
+  assert.equal(title, 'Plan');
+  const todos = blocks.filter((b) => b.flavour === 'affine:list' && b.type === 'todo');
+  assert.equal(todos.length, 2);
+  assert.equal(todos[0].checked, false);
+  assert.equal(todos[1].checked, true);
 });
