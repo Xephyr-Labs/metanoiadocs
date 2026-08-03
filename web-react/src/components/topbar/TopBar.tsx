@@ -103,7 +103,7 @@ export function TopBar() {
               trigger={
                 <button className="flex h-7 items-center gap-1.5 rounded-md px-2 text-[13px] font-medium text-muted transition-colors hover:bg-hover">
                   {page.visibility === 'private' ? <Lock size={14} /> : <Globe size={14} />}
-                  <span className="hidden sm:inline">{page.visibility === 'private' ? 'Private' : 'Team'}</span>
+                  <span>{page.visibility === 'private' ? 'Private' : 'Team'}</span>
                   <ChevronDown size={13} className="text-faint" />
                 </button>
               }

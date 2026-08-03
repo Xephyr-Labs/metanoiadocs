@@ -1,3 +1,4 @@
+import '@fontsource-variable/inter'; // self-hosted Inter — no Google Fonts CDN
 import { createRoot } from 'react-dom/client';
 import App from './App';
 import { AuthScreen } from './components/auth/AuthScreen';
