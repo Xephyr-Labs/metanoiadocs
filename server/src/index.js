@@ -215,6 +215,51 @@ app.get('/api/users', requireUser, async (_req, res) => {
   res.json(rows);
 });
 
+// Update your own display name (the avatar is derived from it).
+app.patch('/api/me', requireUser, async (req, res) => {
+  const name = String(req.body?.name || '').trim().slice(0, 80);
+  if (!name) return res.status(400).json({ error: 'name required' });
+  await pool.query('UPDATE users SET name = $1 WHERE id = $2', [name, req.user.id]);
+  res.json({ ok: true, name });
+});
+
+// Admin: change a member's role. Guards against demoting yourself or the last admin.
+app.patch('/api/users/:id/role', requireUser, requireAdmin, async (req, res) => {
+  const role = req.body?.role === 'admin' ? 'admin' : 'collaborator';
+  if (req.params.id === req.user.id && role !== 'admin') {
+    return res.status(400).json({ error: "You can't demote yourself." });
+  }
+  if (role === 'collaborator') {
+    const admins = await pool.query("SELECT count(*)::int AS n FROM users WHERE role = 'admin'");
+    if (admins.rows[0].n <= 1) return res.status(400).json({ error: 'The workspace needs at least one admin.' });
+  }
+  await pool.query('UPDATE users SET role = $1 WHERE id = $2', [role, req.params.id]);
+  res.json({ ok: true, role });
+});
+
+// Admin: remove a member. Their owned docs transfer to you so nothing is orphaned.
+app.delete('/api/users/:id', requireUser, requireAdmin, async (req, res) => {
+  if (req.params.id === req.user.id) return res.status(400).json({ error: "You can't remove yourself." });
+  const target = await pool.query('SELECT 1 FROM users WHERE id = $1', [req.params.id]);
+  if (!target.rowCount) return res.status(404).json({ error: 'User not found.' });
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const owned = await client.query("SELECT doc_id FROM doc_access WHERE user_id = $1 AND role = 'owner'", [req.params.id]);
+    for (const r of owned.rows) {
+      await client.query(
+        `INSERT INTO doc_access (doc_id, user_id, role) VALUES ($1, $2, 'owner')
+         ON CONFLICT (doc_id, user_id) DO UPDATE SET role = 'owner'`,
+        [r.doc_id, req.user.id]
+      );
+    }
+    await client.query('UPDATE docs SET created_by = $1 WHERE created_by = $2', [req.user.id, req.params.id]);
+    await client.query('DELETE FROM users WHERE id = $1', [req.params.id]); // cascades sessions + remaining access
+    await client.query('COMMIT');
+  } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
+  res.json({ ok: true });
+});
+
 // ── docs ──────────────────────────────────────────────────────────────────
 app.get('/api/docs', requireUser, async (req, res) => {
   const { rows } = await pool.query(

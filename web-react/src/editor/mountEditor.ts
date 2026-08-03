@@ -15,6 +15,7 @@ import {
   CommunityCanvasTextFonts,
 } from '@blocksuite/affine/shared/services';
 import { HocuspocusProvider } from '@hocuspocus/provider';
+import { IndexeddbPersistence } from 'y-indexeddb';
 import { Signal } from '@preact/signals-core';
 import { takePendingSeed } from './pendingSeed';
 
@@ -105,6 +106,12 @@ export async function mountEditor(root: HTMLElement, { docId, title, mode, userN
     parameters: share ? { doc: docId, share } : { doc: docId },
     awareness: collection.awarenessStore.awareness,
   });
+
+  // Local-first persistence: edits are written to IndexedDB, so the doc opens
+  // instantly and survives being offline; Hocuspocus merges everything back on
+  // reconnect (Yjs is a CRDT, so offline + remote edits combine without conflict).
+  // Public read-only viewers don't need a local cache.
+  const idb = share ? null : new IndexeddbPersistence(`mn-doc-${docId}`, doc.spaceDoc);
 
   const palette = ['#2383e2', '#12b8a0', '#e8794b', '#b84be8', '#4b9be8', '#e84b7a'];
   const cid = collection.awarenessStore.awareness.clientID;
@@ -213,6 +220,7 @@ export async function mountEditor(root: HTMLElement, { docId, title, mode, userN
       if (timer) clearTimeout(timer);
       try { doc.spaceDoc.off('update', push); } catch { /* noop */ }
       try { provider.destroy(); } catch { /* noop */ }
+      try { idb?.destroy(); } catch { /* noop */ }
       try { collection.dispose?.(); } catch { /* noop */ }
       root.replaceChildren();
     },

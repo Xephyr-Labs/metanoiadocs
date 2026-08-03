@@ -19,6 +19,7 @@ interface AuthState {
   login: (username: string, password: string) => Promise<Result>;
   signup: (name: string, username: string, email: string, password: string) => Promise<Result>;
   logout: () => Promise<void>;
+  updateName: (name: string) => Promise<Result>;
 }
 
 const Ctx = createContext<AuthState | null>(null);
@@ -84,9 +85,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }, []);
 
+  const updateName = useCallback(async (name: string): Promise<Result> => {
+    const res = await fetch('/api/me', {
+      method: 'PATCH',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    if (!res.ok) return { ok: false, error: 'Could not update your name.' };
+    setUser((u) => (u ? { ...u, name } : u));
+    return { ok: true };
+  }, []);
+
   const value = useMemo<AuthState>(
-    () => ({ user, loading, login, signup, logout }),
-    [user, loading, login, signup, logout],
+    () => ({ user, loading, login, signup, logout, updateName }),
+    [user, loading, login, signup, logout, updateName],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

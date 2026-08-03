@@ -3,8 +3,12 @@ import { AnimatePresence, motion } from 'framer-motion';
 import {
   Info,
   Moon,
+  MoreHorizontal,
   Settings2,
+  Shield,
   Sun,
+  Trash2,
+  UserMinus,
   Users,
   X,
   Check,
@@ -21,6 +25,7 @@ import { avatarFor } from '../../lib/avatar';
 import { cn } from '../../lib/cn';
 import { Button } from '../ui/Button';
 import { LogoMark } from '../brand/Logo';
+import { Menu } from '../ui/Menu';
 import { SegmentedControl } from '../ui/SegmentedControl';
 
 function Avatar({ name, size = 32 }: { name: string; size?: number }) {
@@ -90,20 +95,52 @@ function SectionTitle({ children }: { children: ReactNode }) {
 /* ---- section bodies -------------------------------------------------- */
 
 function Account() {
-  const { user } = useAuth();
+  const { user, updateName } = useAuth();
+  const [name, setName] = useState(user?.name ?? '');
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const dirty = name.trim() !== (user?.name ?? '') && name.trim().length > 0;
+
+  const save = async () => {
+    if (!dirty || busy) return;
+    setBusy(true);
+    const res = await updateName(name.trim());
+    setBusy(false);
+    if (res.ok) { setSaved(true); setTimeout(() => setSaved(false), 1800); }
+  };
+
   return (
     <div>
       <SectionTitle>My account</SectionTitle>
       <p className="mb-5 text-[13px] text-muted">Your profile and how others see you.</p>
       <div className="mb-6 flex items-center gap-4">
-        <Avatar name={user?.name || 'You'} size={64} />
+        <Avatar name={name || user?.name || 'You'} size={64} />
         <div>
-          <p className="text-[15px] font-semibold text-ink">{user?.name}</p>
+          <p className="text-[15px] font-semibold text-ink">{name || user?.name}</p>
           <p className="text-[13px] text-muted">@{user?.username}</p>
         </div>
       </div>
       <div className="divide-y divide-line border-t border-line">
-        <Row title="Name" control={<span className="text-[13px] text-ink">{user?.name}</span>} />
+        <Row
+          title="Name"
+          desc="Shown to teammates; your avatar is drawn from it."
+          control={
+            <div className="flex items-center gap-2">
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && save()}
+                className="h-8 w-40 rounded-md bg-surface px-2.5 text-[13px] text-ink outline-none ring-1 ring-inset ring-line focus:ring-2 focus:ring-accent"
+              />
+              {dirty ? (
+                <Button size="sm" variant="primary" onClick={save} disabled={busy}
+                  leftIcon={busy ? <Loader2 size={14} className="animate-spin" /> : undefined}>Save</Button>
+              ) : saved ? (
+                <span className="flex items-center gap-1 text-[12px] text-accent"><Check size={13} /> Saved</span>
+              ) : null}
+            </div>
+          }
+        />
         <Row title="Username" control={<span className="text-[13px] text-muted">@{user?.username}</span>} />
         <Row title="Email" desc="Used to sign in and for notifications." control={<span className="text-[13px] text-muted">{user?.email}</span>} />
       </div>
@@ -152,7 +189,18 @@ function Members() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
-  useEffect(() => { docsApi.users().then(setRows).catch(() => setRows([])); }, []);
+  const reload = () => docsApi.users().then(setRows).catch(() => setRows([]));
+  useEffect(() => { reload(); /* eslint-disable-next-line */ }, []);
+  const isAdmin = user?.role === 'admin';
+  const changeRole = async (m: UserRow, role: 'admin' | 'collaborator') => {
+    await docsApi.setUserRole(m.id, role).catch(() => {});
+    reload();
+  };
+  const remove = async (m: UserRow) => {
+    if (!window.confirm(`Remove ${m.name || m.email} from the workspace? Their pages transfer to you.`)) return;
+    await docsApi.removeUser(m.id).catch(() => {});
+    reload();
+  };
 
   const invite = async () => {
     if (busy) return;
@@ -203,7 +251,25 @@ function Members() {
               <p className="truncate text-[13px] font-medium text-ink">{m.name} {m.id === user?.id && <span className="text-faint">(you)</span>}</p>
               <p className="truncate text-[12px] text-faint">{m.email}</p>
             </div>
-            {m.role === 'admin' ? (
+            {isAdmin && m.id !== user?.id ? (
+              <Menu
+                align="end"
+                items={[
+                  m.role === 'admin'
+                    ? { icon: UserMinus, label: 'Make collaborator', onSelect: () => changeRole(m, 'collaborator') }
+                    : { icon: Shield, label: 'Make admin', onSelect: () => changeRole(m, 'admin') },
+                  { icon: Trash2, label: 'Remove from workspace', danger: true, separatorBefore: true, onSelect: () => remove(m) },
+                ]}
+                trigger={
+                  <button className="flex items-center gap-1.5 rounded-md px-1.5 py-1 hover:bg-hover">
+                    <span className={cn('rounded-full px-2 py-0.5 text-2xs font-medium', m.role === 'admin' ? 'bg-accent-soft text-accent' : 'text-muted')}>
+                      {m.role === 'admin' ? 'Admin' : 'Collaborator'}
+                    </span>
+                    <MoreHorizontal size={15} className="text-faint" />
+                  </button>
+                }
+              />
+            ) : m.role === 'admin' ? (
               <span className="rounded-full bg-accent-soft px-2 py-0.5 text-2xs font-medium text-accent">Admin</span>
             ) : (
               <span className="text-[13px] text-muted">Collaborator</span>

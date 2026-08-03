@@ -126,6 +126,10 @@ export const docsApi = {
   shareWith: (id: string, email: string) =>
     req(`/docs/${id}/share`, { method: 'POST', body: JSON.stringify({ email }) }),
   users: (): Promise<UserRow[]> => req('/users'),
+  updateMe: (name: string) => req('/me', { method: 'PATCH', body: JSON.stringify({ name }) }),
+  setUserRole: (id: string, role: 'admin' | 'collaborator') =>
+    req(`/users/${id}/role`, { method: 'PATCH', body: JSON.stringify({ role }) }),
+  removeUser: (id: string) => req(`/users/${id}`, { method: 'DELETE' }),
 
   publicGet: (id: string): Promise<{ token: string | null }> => req(`/docs/${id}/public`),
   publicEnable: (id: string): Promise<{ token: string }> => req(`/docs/${id}/public`, { method: 'POST' }),
