@@ -3,7 +3,6 @@ import { AnimatePresence, motion } from 'framer-motion';
 import {
   Bell,
   Blocks,
-  ChevronDown,
   Info,
   Moon,
   Settings2,
@@ -24,7 +23,6 @@ import { avatarFor } from '../../lib/avatar';
 import { cn } from '../../lib/cn';
 import { Button } from '../ui/Button';
 import { LogoMark } from '../brand/Logo';
-import { Menu } from '../ui/Menu';
 import { SegmentedControl } from '../ui/SegmentedControl';
 
 function Avatar({ name, size = 32 }: { name: string; size?: number }) {
@@ -89,21 +87,6 @@ function Row({ title, desc, control }: { title: string; desc?: string; control: 
   );
 }
 
-function Select({ value, options, onChange }: { value: string; options: string[]; onChange: (v: string) => void }) {
-  return (
-    <Menu
-      align="end"
-      width={180}
-      items={options.map((o) => ({ label: o, onSelect: () => onChange(o) }))}
-      trigger={
-        <button className="flex h-8 items-center gap-1.5 rounded-md px-2.5 text-[13px] text-ink ring-1 ring-inset ring-line transition-colors hover:bg-hover">
-          {value} <ChevronDown size={14} className="text-faint" />
-        </button>
-      }
-    />
-  );
-}
-
 function SectionTitle({ children }: { children: ReactNode }) {
   return <h2 className="mb-1 text-[17px] font-semibold text-ink">{children}</h2>;
 }
@@ -134,7 +117,12 @@ function Account() {
 
 function Preferences() {
   const ws = useWorkspace();
-  const [prefs, setPrefs] = useState({ week: true, small: false });
+  const [small, setSmall] = useState(() => localStorage.getItem('mn-text-size') === 'small');
+  const toggleSmall = (v: boolean) => {
+    setSmall(v);
+    localStorage.setItem('mn-text-size', v ? 'small' : '');
+    document.documentElement.dataset.textSize = v ? 'small' : '';
+  };
   return (
     <div>
       <SectionTitle>Preferences</SectionTitle>
@@ -142,7 +130,7 @@ function Preferences() {
       <div className="divide-y divide-line border-t border-line">
         <Row
           title="Appearance"
-          desc="Match your system or pick a theme."
+          desc="Pick a light or dark theme."
           control={
             <SegmentedControl
               aria-label="Theme"
@@ -155,10 +143,7 @@ function Preferences() {
             />
           }
         />
-        <Row title="Start week on Monday" control={<Switch on={prefs.week} onChange={(v) => setPrefs((p) => ({ ...p, week: v }))} />} />
-        <Row title="Smaller text" desc="Reduce the editor font size." control={<Switch on={prefs.small} onChange={(v) => setPrefs((p) => ({ ...p, small: v }))} />} />
-        <Row title="Language" control={<Select value="English" options={['English', 'Español', 'Français', 'Deutsch', '日本語']} onChange={() => {}} />} />
-        <Row title="Timezone" control={<Select value="Asia/Dhaka" options={['Asia/Dhaka', 'UTC', 'America/New_York', 'Europe/London']} onChange={() => {}} />} />
+        <Row title="Smaller text" desc="Reduce the editor font size." control={<Switch on={small} onChange={toggleSmall} />} />
       </div>
     </div>
   );

@@ -146,6 +146,12 @@ affine-editor-container * {
   border-color: inherit;
 }
 
+/* "Smaller text" preference — shrinks the editor body font (headings keep their
+ * scale). Toggled via document.documentElement[data-text-size]. */
+:root[data-text-size="small"] affine-editor-container {
+  --affine-font-base: 14px;
+}
+
 /* Tighten BlockSuite's tall default title padding so the page title sits close
  * under our header metadata (its default 38px top reads as a dead gap). */
 affine-editor-container .doc-title-container {

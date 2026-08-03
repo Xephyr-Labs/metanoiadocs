@@ -6,6 +6,11 @@ import { AuthProvider, useAuth } from './store/auth';
 import { WorkspaceProvider } from './store/workspace';
 import './index.css';
 
+// Apply the saved "smaller text" preference before first paint (no flash).
+if (localStorage.getItem('mn-text-size') === 'small') {
+  document.documentElement.dataset.textSize = 'small';
+}
+
 // Auth gate: no session -> login/signup; otherwise the workspace. WorkspaceProvider
 // mounts only when authenticated so per-user state starts fresh on login.
 function Root() {
