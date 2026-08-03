@@ -95,6 +95,22 @@ export interface InboxRow {
   doc_icon: string;
 }
 
+export interface Intelligence {
+  related: { id: string; title: string; icon: string; score: number }[];
+  tasks: { text: string; checked: boolean }[];
+  decisions: { text: string; unresolved: boolean }[];
+  risks: { text: string }[];
+  deadlines: { text: string; date: string | null }[];
+  suggestedTags: { name: string; exists: boolean; tagId?: string }[];
+  suggestedLinks: { id: string; title: string; count: number }[];
+  changedDeps: { id: string; title: string; updated_at: string }[];
+  duplicateOf: { id: string; title: string; similarity: number } | null;
+  stale: { months: number } | null;
+  collaborators: { id: string; name: string }[];
+  templates: { id: string; title: string }[];
+  terminology: { term: string; suggest: string; count: number }[];
+}
+
 export const docsApi = {
   list: (): Promise<DocRow[]> => req('/docs'),
   create: (body: { title?: string; icon?: string; parentId?: string | null }): Promise<DocRow> =>
@@ -140,6 +156,7 @@ export const docsApi = {
   publicDisable: (id: string) => req(`/docs/${id}/public`, { method: 'DELETE' }),
 
   search: (q: string): Promise<SearchRow[]> => req(`/search?q=${encodeURIComponent(q)}`),
+  intelligence: (id: string): Promise<Intelligence> => req(`/docs/${id}/intelligence`),
 
   comments: (id: string): Promise<CommentRow[]> => req(`/docs/${id}/comments`),
   addComment: (id: string, body: string, parentId?: string) =>

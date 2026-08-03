@@ -150,6 +150,45 @@ export function extractText(existing) {
   return { title, text: lines.join('\n') };
 }
 
+/** Decode a doc_states buffer to {title, blocks[]} with flavour/type/checked, tree order. */
+export function extractBlocks(existing) {
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, new Uint8Array(existing));
+  const blocksMap = doc.getMap('blocks');
+  const get = (id) => blocksMap.get(id);
+  const textOf = (b) => {
+    const t = b.get('prop:text');
+    return t instanceof Y.Text ? t.toString() : '';
+  };
+  let page = null, title = '';
+  for (const [, b] of blocksMap) {
+    if (b instanceof Y.Map && b.get('sys:flavour') === 'affine:page') {
+      page = b;
+      const t = b.get('prop:title');
+      title = t instanceof Y.Text ? t.toString() : '';
+      break;
+    }
+  }
+  const out = [];
+  const walk = (id) => {
+    const b = get(id);
+    if (!(b instanceof Y.Map)) return;
+    const fl = b.get('sys:flavour');
+    if (fl === 'affine:paragraph' || fl === 'affine:list' || fl === 'affine:code') {
+      out.push({
+        flavour: fl,
+        type: b.get('prop:type') || 'text',
+        checked: !!b.get('prop:checked'),
+        text: textOf(b),
+      });
+    }
+    const kids = b.get('sys:children');
+    if (kids instanceof Y.Array) for (const c of kids.toArray()) walk(c);
+  };
+  if (page) { const kids = page.get('sys:children'); if (kids instanceof Y.Array) for (const c of kids.toArray()) walk(c); }
+  return { title, blocks: out };
+}
+
 /** Append markdown blocks to an existing doc_states buffer. Returns new state. */
 export function appendToDocState(existing, markdown) {
   const doc = new Y.Doc();

@@ -22,7 +22,8 @@ import {
 } from './db.js';
 import { requestMagicLink, consumeMagicLink, sendInviteEmail, sendNotificationEmail } from './auth.js';
 import { getSetting, setSetting } from './db.js';
-import { buildDocState, appendToDocState, extractText } from './blocks.js';
+import { buildDocState, appendToDocState, extractText, extractBlocks } from './blocks.js';
+import { topTerms, extractSignals, findMentions, simhash, hamming } from './intelligence.js';
 import OpenAI from 'openai';
 
 const PORT = Number(process.env.PORT || 3000);
@@ -30,8 +31,21 @@ const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
 const COOKIE = 'md_session';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WEB_DIST = path.resolve(__dirname, '../../web-react/dist');
+const STALE_MONTHS = Number(process.env.STALE_MONTHS || 6);
 
 await initSchema();
+
+// One-shot backfill: compute signals for docs that don't have them yet. Runs
+// sequentially in the background so a large workspace doesn't stampede the pool.
+(async () => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT d.id FROM docs d LEFT JOIN doc_signals s ON s.doc_id=d.id
+        WHERE d.deleted_at IS NULL AND s.doc_id IS NULL`);
+    for (const r of rows) await computeAndStoreSignals(r.id);
+    if (rows.length) console.log('[intelligence] backfilled signals for', rows.length, 'docs');
+  } catch (e) { console.error('[intelligence] backfill failed', e.message); }
+})();
 
 // Seed the admin account (admin / admin123) once. Admins can invite; everyone
 // else joins as a collaborator via an invitation only.
@@ -830,30 +844,240 @@ app.post('/api/ai', requireUser, async (req, res) => {
 // ── search ──────────────────────────────────────────────────────────────────
 // The client posts extracted plain text whenever a doc changes; search queries
 // the generated tsvector, scoped to docs the user can actually see.
+
+// Best-effort per-doc signal computation. Reads the persisted Yjs (true block
+// structure incl. todos); falls back to the posted plain text if absent. Never
+// throws into the caller — a bad doc must not fail the save.
+async function computeAndStoreSignals(docId, fallbackText = '') {
+  try {
+    let title = '';
+    let blocks = [];
+    const st = await pool.query('SELECT state FROM doc_states WHERE doc_id = $1', [docId]);
+    if (st.rows[0]?.state) {
+      ({ title, blocks } = extractBlocks(st.rows[0].state));
+    } else {
+      blocks = String(fallbackText).split('\n').filter(Boolean)
+        .map((text) => ({ flavour: 'affine:paragraph', type: 'text', checked: false, text }));
+    }
+    const flatText = (title + '\n' + blocks.map((b) => b.text).join('\n')).trim();
+    const terms = topTerms(flatText, 30);
+    const signals = extractSignals(blocks);
+
+    const others = await pool.query(
+      'SELECT id, title FROM docs WHERE id <> $1 AND deleted_at IS NULL', [docId],
+    );
+    const mentions = findMentions(flatText, others.rows);
+    const hash = terms.length ? simhash(terms) : null;
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('DELETE FROM doc_terms WHERE doc_id = $1', [docId]);
+      for (const { term, tf } of terms) {
+        await client.query(
+          'INSERT INTO doc_terms (doc_id, term, tf) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
+          [docId, term, tf],
+        );
+      }
+      await client.query(
+        `INSERT INTO doc_signals (doc_id, tasks, decisions, risks, deadlines, mentions, simhash, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7, now())
+         ON CONFLICT (doc_id) DO UPDATE SET
+           tasks=EXCLUDED.tasks, decisions=EXCLUDED.decisions, risks=EXCLUDED.risks,
+           deadlines=EXCLUDED.deadlines, mentions=EXCLUDED.mentions, simhash=EXCLUDED.simhash,
+           updated_at=now()`,
+        [docId, JSON.stringify(signals.tasks), JSON.stringify(signals.decisions),
+         JSON.stringify(signals.risks), JSON.stringify(signals.deadlines),
+         JSON.stringify(mentions), hash],
+      );
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+  } catch (e) {
+    console.error('[intelligence] signal compute failed for', docId, e.message);
+  }
+}
+
 app.put('/api/docs/:id/text', requireUser, async (req, res) => {
   if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
-  await pool.query('UPDATE docs SET search_text = $1 WHERE id = $2',
-    [String(req.body?.text || '').slice(0, 100000), req.params.id]);
+  const text = String(req.body?.text || '').slice(0, 100000);
+  await pool.query('UPDATE docs SET search_text = $1 WHERE id = $2', [text, req.params.id]);
   res.json({ ok: true });
+  computeAndStoreSignals(req.params.id, text); // best-effort, after response
 });
 
 app.get('/api/search', requireUser, async (req, res) => {
   const q = String(req.query.q || '').trim();
   if (!q) return res.json([]);
   const { rows } = await pool.query(
-    `SELECT d.id, d.title,
-            ts_headline('english', d.search_text, plainto_tsquery('english', $2),
+    `WITH scoped AS (
+       SELECT d.id, d.title, d.search_text, d.search_tsv
+         FROM docs d
+         LEFT JOIN doc_access a ON a.doc_id=d.id AND a.user_id=$1
+        WHERE d.deleted_at IS NULL AND (a.user_id IS NOT NULL OR d.visibility='team')
+     ),
+     fts AS (
+       SELECT id, title, search_text, 1 AS pri,
+              ts_rank(search_tsv, plainto_tsquery('english', $2)) AS rank
+         FROM scoped
+        WHERE search_tsv @@ plainto_tsquery('english', $2)
+     ),
+     fuzzy AS (
+       SELECT id, title, search_text, 2 AS pri,
+              GREATEST(similarity(title,$2), similarity(left(search_text,2000),$2)) AS rank
+         FROM scoped
+        WHERE title % $2 OR left(search_text,2000) % $2
+     ),
+     merged AS (
+       SELECT DISTINCT ON (id) id, title, search_text, pri, rank
+         FROM (SELECT * FROM fts UNION ALL SELECT * FROM fuzzy) u
+        ORDER BY id, pri, rank DESC
+     )
+     SELECT id, title,
+            ts_headline('english', search_text, plainto_tsquery('english', $2),
                         'MaxWords=18, MinWords=6, ShortWord=2') AS snippet
-       FROM docs d
-       LEFT JOIN doc_access a ON a.doc_id = d.id AND a.user_id = $1
-      WHERE d.deleted_at IS NULL
-        AND (a.user_id IS NOT NULL OR d.visibility = 'team')
-        AND d.search_tsv @@ plainto_tsquery('english', $2)
-      ORDER BY ts_rank(d.search_tsv, plainto_tsquery('english', $2)) DESC
+       FROM merged
+      ORDER BY pri, rank DESC
       LIMIT 20`,
-    [req.user.id, q]
+    [req.user.id, q],
   );
-  res.json(rows);
+  res.json(rows.map((r) => ({ id: r.id, title: r.title, snippet: r.snippet })));
+});
+
+// Everything the Intelligence rail needs, in one round-trip. All access-scoped.
+app.get('/api/docs/:id/intelligence', requireUser, async (req, res) => {
+  const id = req.params.id;
+  const uid = req.user.id;
+  if (!(await grantOn(id, uid))) return res.status(403).json({ error: 'forbidden' });
+
+  // Visibility predicate reused across sub-queries.
+  const visJoin = `LEFT JOIN doc_access a ON a.doc_id = d.id AND a.user_id = $2`;
+  const visWhere = `d.deleted_at IS NULL AND (a.user_id IS NOT NULL OR d.visibility='team')`;
+
+  const sig = (await pool.query('SELECT * FROM doc_signals WHERE doc_id=$1', [id])).rows[0] || {};
+
+  // Related: shared-term overlap weighted by rarity (query-time IDF).
+  const related = (await pool.query(
+    `WITH df AS (SELECT term, count(DISTINCT doc_id)::float AS n FROM doc_terms GROUP BY term),
+          mine AS (SELECT term, tf FROM doc_terms WHERE doc_id=$1)
+     SELECT d.id, d.title, d.icon,
+            sum(mine.tf * dt.tf / GREATEST(df.n,1)) AS score
+       FROM mine
+       JOIN doc_terms dt ON dt.term=mine.term AND dt.doc_id<>$1
+       JOIN df ON df.term=mine.term
+       JOIN docs d ON d.id=dt.doc_id
+       ${visJoin}
+      WHERE ${visWhere}
+      GROUP BY d.id, d.title, d.icon
+      ORDER BY score DESC
+      LIMIT 5`, [id, uid])).rows;
+
+  // Suggested tags: top terms that name (or nearly name) tags or are strong terms.
+  const myTerms = (await pool.query('SELECT term, tf FROM doc_terms WHERE doc_id=$1 ORDER BY tf DESC LIMIT 8', [id])).rows;
+  const tagRows = (await pool.query('SELECT id, lower(name) name FROM tags')).rows;
+  const tagByName = new Map(tagRows.map((t) => [t.name, t.id]));
+  const suggestedTags = myTerms.slice(0, 5).map((t) => ({
+    name: t.term, exists: tagByName.has(t.term), tagId: tagByName.get(t.term) || undefined,
+  }));
+
+  // Suggested links + changed deps derive from stored mentions.
+  const mentions = Array.isArray(sig.mentions) ? sig.mentions : [];
+  const mentionIds = mentions.map((m) => m.id);
+  let suggestedLinks = [];
+  let changedDeps = [];
+  if (mentionIds.length) {
+    const accessible = (await pool.query(
+      `SELECT d.id, d.title, d.icon, d.updated_at
+         FROM docs d ${visJoin}
+        WHERE d.id = ANY($1) AND ${visWhere}`, [mentionIds, uid])).rows;
+    const byId = new Map(accessible.map((d) => [d.id, d]));
+    suggestedLinks = mentions.filter((m) => byId.has(m.id))
+      .map((m) => ({ id: m.id, title: byId.get(m.id).title, count: m.count }));
+    const selfUpdated = (await pool.query('SELECT updated_at FROM docs WHERE id=$1', [id])).rows[0]?.updated_at;
+    changedDeps = accessible
+      .filter((d) => selfUpdated && new Date(d.updated_at) > new Date(selfUpdated))
+      .map((d) => ({ id: d.id, title: d.title, updated_at: d.updated_at }));
+  }
+
+  // Duplicate: nearest simhash (Hamming ≤3) among accessible docs, computed in JS.
+  let duplicateOf = null;
+  if (sig.simhash) {
+    const cand = (await pool.query(
+      `SELECT d.id, d.title, s.simhash
+         FROM doc_signals s JOIN docs d ON d.id=s.doc_id
+         ${visJoin}
+        WHERE s.doc_id<>$1 AND s.simhash IS NOT NULL AND ${visWhere}`, [id, uid])).rows;
+    let best = null;
+    for (const c of cand) {
+      const dist = hamming(sig.simhash, c.simhash);
+      if (dist <= 3 && (!best || dist < best.dist)) best = { id: c.id, title: c.title, dist };
+    }
+    if (best) duplicateOf = { id: best.id, title: best.title, similarity: 1 - best.dist / 64 };
+  }
+
+  // Stale badge.
+  const selfRow = (await pool.query('SELECT updated_at FROM docs WHERE id=$1', [id])).rows[0];
+  let stale = null;
+  if (selfRow) {
+    const months = (Date.now() - new Date(selfRow.updated_at).getTime()) / (1000 * 60 * 60 * 24 * 30);
+    if (months > STALE_MONTHS) stale = { months: Math.round(months) };
+  }
+
+  // Collaborators: editors of related docs not already shared here.
+  let collaborators = [];
+  if (related.length) {
+    const relIds = related.map((r) => r.id);
+    collaborators = (await pool.query(
+      `SELECT DISTINCT u.id, u.name FROM users u
+         WHERE u.id IN (
+           SELECT created_by FROM docs WHERE id = ANY($1) AND created_by IS NOT NULL
+           UNION SELECT user_id FROM doc_access WHERE doc_id = ANY($1)
+         )
+         AND u.id NOT IN (SELECT user_id FROM doc_access WHERE doc_id=$2)
+         AND u.id <> $3
+       LIMIT 5`, [relIds, id, uid])).rows;
+  }
+
+  // Templates: docs tagged 'template' overlapping this doc's terms.
+  const templates = (await pool.query(
+    `WITH mine AS (SELECT term, tf FROM doc_terms WHERE doc_id=$1)
+     SELECT d.id, d.title, sum(mine.tf*dt.tf) AS score
+       FROM mine JOIN doc_terms dt ON dt.term=mine.term AND dt.doc_id<>$1
+       JOIN docs d ON d.id=dt.doc_id
+       ${visJoin}
+       JOIN doc_tags g ON g.doc_id=d.id
+       JOIN tags t ON t.id=g.tag_id AND lower(t.name)='template'
+      WHERE ${visWhere}
+      GROUP BY d.id, d.title ORDER BY score DESC LIMIT 3`, [id, uid])).rows
+    .map((r) => ({ id: r.id, title: r.title }));
+
+  // Terminology: my terms that are trigram-near a much-more-frequent workspace term.
+  // df is scoped to docs the user can access (no private-doc term leaks) and the
+  // count is cast ::int so it serializes as a JSON number, not a bigint string.
+  const terminology = (await pool.query(
+    `WITH acc AS (
+       SELECT d.id FROM docs d
+         LEFT JOIN doc_access a ON a.doc_id=d.id AND a.user_id=$2
+        WHERE d.deleted_at IS NULL AND (a.user_id IS NOT NULL OR d.visibility='team')
+     ),
+          mine AS (SELECT term FROM doc_terms WHERE doc_id=$1),
+          df AS (SELECT term, count(DISTINCT doc_id)::int n FROM doc_terms
+                  WHERE doc_id IN (SELECT id FROM acc) GROUP BY term)
+     SELECT m.term, o.term AS suggest, o.n AS count
+       FROM mine m
+       JOIN df self ON self.term=m.term
+       JOIN df o ON o.term<>m.term AND similarity(o.term,m.term) > 0.55 AND o.n >= self.n*3
+      ORDER BY o.n DESC LIMIT 3`, [id, uid])).rows;
+
+  res.json({
+    related: related.map((r) => ({ id: r.id, title: r.title, icon: r.icon, score: Number(r.score) })),
+    tasks: sig.tasks || [], decisions: sig.decisions || [], risks: sig.risks || [], deadlines: sig.deadlines || [],
+    suggestedTags, suggestedLinks, changedDeps, duplicateOf, stale, collaborators, templates, terminology,
+  });
 });
 
 // ── blob storage (images, attachments) ──────────────────────────────────────

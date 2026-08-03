@@ -32,10 +32,12 @@ an original Node/Postgres backend — real-time sync, no proprietary server code
 - **Team & private pages** — every doc is team-visible by default; flip any page to **Private** (owner-only) from the top bar.
 - **Comments & @-mentions** — threaded, block-anchored comments; @-mention teammates for an in-app + email notification.
 - **Organize** — nested page tree with drag-reorder, colored **tags**, favorites, and folders.
-- **Find anything** — full-text search and a ⌘K command palette.
+- **Find anything** — hybrid full-text + fuzzy (typo-tolerant) search and a ⌘K command palette.
+- **Ambient intelligence** — a per-doc rail that surfaces related pages, auto tag & link suggestions, and extracted tasks / decisions / risks / deadlines, plus duplicate & stale detection. Computed locally in Postgres on save — **no LLM, no external calls**.
 - **Version history** — automatic + manual snapshots, non-destructive restore.
 - **Public share links** — publish any page read-only, server-enforced.
 - **AI assist** — optional OpenAI-compatible copilot, configured in Settings (bring your own key).
+- **MCP server** — let AI agents (Claude Desktop/Code, Cursor, …) search, read, and write your docs as you, over the [Model Context Protocol](https://modelcontextprotocol.io). See [`mcp/`](mcp/).
 - **Templates** — Daily Journal, Project Plan, OKRs, Retrospective, 1:1, Brainstorm, Roadmap, Reading Notes, and more.
 - **Invite-only auth** — username/password or magic-link sign-in; admins invite by email.
 - **Polished UX** — minimalist line-icon UI, dark mode, and fully mobile-responsive.
@@ -73,6 +75,7 @@ All configuration is environment variables (see [`.env.example`](.env.example)):
 | `ADMIN_PASSWORD` | | `admin123` (with a warning) | Seeded admin's password — **set this before exposing the instance.** |
 | `AUTH_DEV_MODE` | | `true` | Log sign-in/invite links instead of emailing them. |
 | `ALLOWED_EMAIL_DOMAINS` | | `*` | Comma-separated allowlist for sign-in; `*` = any, empty = deny-all. |
+| `STALE_MONTHS` | | `6` | A doc untouched this many months shows a "stale" badge in the intelligence rail. |
 | `SMTP_HOST` … `SMTP_FROM` | | — | SMTP for real emails (needed once `AUTH_DEV_MODE=false`). |
 
 For production, put a TLS reverse proxy (Caddy, nginx, Traefik) in front of `:8092`
@@ -91,11 +94,13 @@ Browser ── HTTPS ─┤  Express — REST API  ·  Hocuspocus /sync (Yjs)  �
 | Path | What it is |
 |---|---|
 | `web-react/` | React 18 + Vite + TypeScript + Tailwind + Radix, BlockSuite 0.22.4 editor. |
-| `server/` | Express + Postgres + Hocuspocus (Yjs) sync + magic-link/password auth. |
-| `docker-compose.yaml` | `db` + one-shot `web-build` + `server` (serves API, `/sync`, and the built UI). |
+| `server/` | Express + Postgres + Hocuspocus (Yjs) sync + magic-link/password auth. Owns the intelligence layer (`intelligence.js`) and search. |
+| `mcp/` | Stdio MCP server exposing the workspace to AI agents via personal API tokens. |
+| `docker-compose.yaml` | `db` + `server` (a multi-stage image builds the UI, then serves API, `/sync`, and the built SPA from one container). |
 
 The schema is idempotent — it's created/migrated on every server boot, so there are
-no manual migration steps.
+no manual migration steps. Per-doc intelligence signals are computed synchronously on
+each save and backfilled for existing docs on the first boot after upgrading.
 
 ## 🛠️ Development
 
