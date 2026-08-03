@@ -867,7 +867,7 @@ async function computeAndStoreSignals(docId, fallbackText = '') {
       'SELECT id, title FROM docs WHERE id <> $1 AND deleted_at IS NULL', [docId],
     );
     const mentions = findMentions(flatText, others.rows);
-    const hash = simhash(terms);
+    const hash = terms.length ? simhash(terms) : null;
 
     const client = await pool.connect();
     try {

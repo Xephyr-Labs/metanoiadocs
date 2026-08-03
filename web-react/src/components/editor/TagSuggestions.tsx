@@ -7,9 +7,10 @@ const dismissKey = (pageId: string) => `mn-tagsug-dismiss-${pageId}`;
 
 export function TagSuggestions({ pageId, suggested }: { pageId: string; suggested: Intelligence['suggestedTags'] }) {
   const ws = useWorkspace();
-  const [dismissed, setDismissed] = useState<Set<string>>(
-    () => new Set(JSON.parse(localStorage.getItem(dismissKey(pageId)) || '[]')),
-  );
+  const [dismissed, setDismissed] = useState<Set<string>>(() => {
+    try { return new Set(JSON.parse(localStorage.getItem(dismissKey(pageId)) || '[]')); }
+    catch { return new Set(); }
+  });
   const dismiss = (name: string) => {
     const next = new Set(dismissed).add(name);
     setDismissed(next);
