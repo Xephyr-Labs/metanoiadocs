@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
+import { motion } from 'framer-motion';
 import {
   Sparkles, CheckSquare, Flag, AlertTriangle, Calendar, Link as LinkIcon,
   RefreshCw, Users, LayoutTemplate, SpellCheck, PanelRightClose, PanelRightOpen,
@@ -29,7 +29,7 @@ export function IntelligenceRail({ data, loading }: { data: Intelligence | null;
     icon: typeof Sparkles; label: string; count: number; children: ReactNode;
   }) =>
     count ? (
-      <div className="border-b border-line/60 px-3 py-2">
+      <div className="border-b border-line px-3 py-2">
         <div className="mb-1 flex items-center gap-1.5 text-xs font-medium text-muted">
           <Icon size={13} /> {label} <span className="ml-auto tabular-nums">{count}</span>
         </div>
@@ -57,7 +57,7 @@ export function IntelligenceRail({ data, loading }: { data: Intelligence | null;
       </div>
 
       {(data?.duplicateOf || data?.stale) && (
-        <div className="flex flex-wrap gap-1 border-b border-line/60 px-3 py-2 text-xs">
+        <div className="flex flex-wrap gap-1 border-b border-line px-3 py-2 text-xs">
           {data?.duplicateOf && (
             <button onClick={() => ws.select(data.duplicateOf!.id)}
               className="flex items-center gap-1 rounded bg-amber-500/10 px-1.5 py-0.5 text-amber-600">
@@ -65,7 +65,7 @@ export function IntelligenceRail({ data, loading }: { data: Intelligence | null;
             </button>
           )}
           {data?.stale && (
-            <span className="flex items-center gap-1 rounded bg-muted/10 px-1.5 py-0.5 text-muted">
+            <span className="flex items-center gap-1 rounded bg-hover px-1.5 py-0.5 text-muted">
               <Clock size={11} /> {data.stale.months} mo old
             </span>
           )}
@@ -74,51 +74,49 @@ export function IntelligenceRail({ data, loading }: { data: Intelligence | null;
 
       {loading && !data && (
         <div className="space-y-2 p-3">
-          {[0, 1, 2].map((i) => <div key={i} className="h-4 animate-pulse rounded bg-muted/20" />)}
+          {[0, 1, 2].map((i) => <div key={i} className="h-4 animate-pulse rounded bg-hover" />)}
         </div>
       )}
 
       {data && (
-        <AnimatePresence>
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-            <Section icon={Sparkles} label="Related" count={data.related.length}>
-              {data.related.map((r) => <Row key={r.id} id={r.id} title={r.title} onCopy />)}
-            </Section>
-            <Section icon={CheckSquare} label="Tasks" count={data.tasks.length}>
-              {data.tasks.map((t, i) => (
-                <div key={i} className={t.checked ? 'text-muted line-through' : ''}>
-                  {t.checked ? '☑' : '☐'} {t.text}
-                </div>
-              ))}
-            </Section>
-            <Section icon={Flag} label="Decisions" count={data.decisions.length}>
-              {data.decisions.map((d, i) => (
-                <div key={i}>{d.text}{d.unresolved && <span className="ml-1 rounded bg-amber-500/10 px-1 text-[10px] text-amber-600">unresolved</span>}</div>
-              ))}
-            </Section>
-            <Section icon={AlertTriangle} label="Risks" count={data.risks.length}>
-              {data.risks.map((r, i) => <div key={i}>{r.text}</div>)}
-            </Section>
-            <Section icon={Calendar} label="Deadlines" count={data.deadlines.length}>
-              {data.deadlines.map((d, i) => <div key={i}>{d.date && <b className="mr-1">{d.date}</b>}{d.text}</div>)}
-            </Section>
-            <Section icon={LinkIcon} label="Missing links" count={data.suggestedLinks.length}>
-              {data.suggestedLinks.map((l) => <Row key={l.id} id={l.id} title={l.title} onCopy />)}
-            </Section>
-            <Section icon={RefreshCw} label="Changed deps" count={data.changedDeps.length}>
-              {data.changedDeps.map((d) => <Row key={d.id} id={d.id} title={d.title} />)}
-            </Section>
-            <Section icon={Users} label="Collaborators" count={data.collaborators.length}>
-              {data.collaborators.map((c) => <div key={c.id}>{c.name}</div>)}
-            </Section>
-            <Section icon={LayoutTemplate} label="Templates" count={data.templates.length}>
-              {data.templates.map((t) => <Row key={t.id} id={t.id} title={t.title} />)}
-            </Section>
-            <Section icon={SpellCheck} label="Terminology" count={data.terminology.length}>
-              {data.terminology.map((t, i) => <div key={i} className="text-muted">{t.term} → <b>{t.suggest}</b> ({t.count}×)</div>)}
-            </Section>
-          </motion.div>
-        </AnimatePresence>
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+          <Section icon={Sparkles} label="Related" count={data.related.length}>
+            {data.related.map((r) => <Row key={r.id} id={r.id} title={r.title} onCopy />)}
+          </Section>
+          <Section icon={CheckSquare} label="Tasks" count={data.tasks.length}>
+            {data.tasks.map((t, i) => (
+              <div key={i} className={t.checked ? 'text-muted line-through' : ''}>
+                {t.checked ? '☑' : '☐'} {t.text}
+              </div>
+            ))}
+          </Section>
+          <Section icon={Flag} label="Decisions" count={data.decisions.length}>
+            {data.decisions.map((d, i) => (
+              <div key={i}>{d.text}{d.unresolved && <span className="ml-1 rounded bg-amber-500/10 px-1 text-[10px] text-amber-600">unresolved</span>}</div>
+            ))}
+          </Section>
+          <Section icon={AlertTriangle} label="Risks" count={data.risks.length}>
+            {data.risks.map((r, i) => <div key={i}>{r.text}</div>)}
+          </Section>
+          <Section icon={Calendar} label="Deadlines" count={data.deadlines.length}>
+            {data.deadlines.map((d, i) => <div key={i}>{d.date && <b className="mr-1">{d.date}</b>}{d.text}</div>)}
+          </Section>
+          <Section icon={LinkIcon} label="Missing links" count={data.suggestedLinks.length}>
+            {data.suggestedLinks.map((l) => <Row key={l.id} id={l.id} title={l.title} onCopy />)}
+          </Section>
+          <Section icon={RefreshCw} label="Changed deps" count={data.changedDeps.length}>
+            {data.changedDeps.map((d) => <Row key={d.id} id={d.id} title={d.title} />)}
+          </Section>
+          <Section icon={Users} label="Collaborators" count={data.collaborators.length}>
+            {data.collaborators.map((c) => <div key={c.id}>{c.name}</div>)}
+          </Section>
+          <Section icon={LayoutTemplate} label="Templates" count={data.templates.length}>
+            {data.templates.map((t) => <Row key={t.id} id={t.id} title={t.title} />)}
+          </Section>
+          <Section icon={SpellCheck} label="Terminology" count={data.terminology.length}>
+            {data.terminology.map((t, i) => <div key={i} className="text-muted">{t.term} → <b>{t.suggest}</b> ({t.count}×)</div>)}
+          </Section>
+        </motion.div>
       )}
     </aside>
   );
