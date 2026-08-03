@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { FileText, Maximize2, Minimize2, PencilRuler, Plus } from 'lucide-react';
 import { useAuth } from '../../store/auth';
@@ -23,7 +23,11 @@ export function EditorArea() {
     if (refreshTimer.current) clearTimeout(refreshTimer.current);
     refreshTimer.current = setTimeout(() => setRefreshKey((k) => k + 1), 2000);
   };
-  const intel = useIntelligence(page?.id ?? null, refreshKey);
+  useEffect(() => () => { if (refreshTimer.current) clearTimeout(refreshTimer.current); }, []);
+
+  // The rail is hidden below md, so skip fetching intelligence data for it there.
+  const showRail = typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches;
+  const intel = useIntelligence(showRail ? (page?.id ?? null) : null, refreshKey);
 
   if (!page) {
     return (
@@ -104,7 +108,7 @@ export function EditorArea() {
               </motion.div>
             </div>
             <div className="hidden shrink-0 md:block">
-              <IntelligenceRail data={intel.data} loading={intel.loading} />
+              <IntelligenceRail data={intel.data} loading={intel.loading} error={intel.error} />
             </div>
           </div>
         )}

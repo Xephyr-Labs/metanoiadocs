@@ -5,3 +5,6 @@ db_data/
 .env
 *.log
 .DS_Store
+
+# SDD scratch workspace (not part of the repo)
+.superpowers/

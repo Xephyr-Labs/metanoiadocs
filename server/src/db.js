@@ -221,6 +221,9 @@ export async function initSchema() {
       simhash    TEXT,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
+    ALTER TABLE doc_signals ADD COLUMN IF NOT EXISTS summary TEXT NOT NULL DEFAULT '';
+    ALTER TABLE doc_signals ADD COLUMN IF NOT EXISTS keyphrases JSONB NOT NULL DEFAULT '[]';
+    CREATE INDEX IF NOT EXISTS doc_terms_term_trgm_idx ON doc_terms USING GIN (term gin_trgm_ops);
   `);
 }
 

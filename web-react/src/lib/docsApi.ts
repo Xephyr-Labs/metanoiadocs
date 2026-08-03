@@ -96,6 +96,8 @@ export interface InboxRow {
 }
 
 export interface Intelligence {
+  summary: string;
+  keyphrases: string[];
   related: { id: string; title: string; icon: string; score: number }[];
   tasks: { text: string; checked: boolean }[];
   decisions: { text: string; unresolved: boolean }[];

@@ -16,7 +16,8 @@ export function TagSuggestions({ pageId, suggested }: { pageId: string; suggeste
     setDismissed(next);
     localStorage.setItem(dismissKey(pageId), JSON.stringify([...next]));
   };
-  const shown = suggested.filter((s) => !dismissed.has(s.name)).slice(0, 4);
+  const appliedNames = new Set((ws.currentPage?.tags ?? []).map((t) => t.name));
+  const shown = suggested.filter((s) => !dismissed.has(s.name) && !appliedNames.has(s.name)).slice(0, 4);
   if (!shown.length) return null;
   return (
     <div className="mt-1 flex flex-wrap items-center gap-1.5">

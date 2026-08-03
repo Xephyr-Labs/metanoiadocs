@@ -23,8 +23,11 @@ import {
 import { requestMagicLink, consumeMagicLink, sendInviteEmail, sendNotificationEmail } from './auth.js';
 import { getSetting, setSetting } from './db.js';
 import { buildDocState, appendToDocState, extractText, extractBlocks } from './blocks.js';
-import { topTerms, extractSignals, findMentions, simhash, hamming } from './intelligence.js';
+import { topTerms, extractSignals, findMentions, simhash, hamming, keyphrases, summarize, tokenize } from './intelligence.js';
 import OpenAI from 'openai';
+
+process.on('unhandledRejection', (e) => console.error('[proc] unhandledRejection', e?.message || e));
+process.on('uncaughtException',  (e) => console.error('[proc] uncaughtException', e?.message || e));
 
 const PORT = Number(process.env.PORT || 3000);
 const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
@@ -39,10 +42,15 @@ await initSchema();
 // sequentially in the background so a large workspace doesn't stampede the pool.
 (async () => {
   try {
+    const titles = (await pool.query('SELECT id, title FROM docs WHERE deleted_at IS NULL')).rows;
     const { rows } = await pool.query(
       `SELECT d.id FROM docs d LEFT JOIN doc_signals s ON s.doc_id=d.id
         WHERE d.deleted_at IS NULL AND s.doc_id IS NULL`);
-    for (const r of rows) await computeAndStoreSignals(r.id);
+    let n = 0;
+    for (const r of rows) {
+      await computeAndStoreSignals(r.id, '', titles);
+      if (++n % 25 === 0) await new Promise((res) => setImmediate(res)); // yield to the event loop
+    }
     if (rows.length) console.log('[intelligence] backfilled signals for', rows.length, 'docs');
   } catch (e) { console.error('[intelligence] backfill failed', e.message); }
 })();
@@ -71,6 +79,8 @@ async function seedAdmin() {
 await seedAdmin();
 
 const app = express();
+// Express 4 doesn't catch rejected promises from async handlers — wrap them.
+const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 app.use(express.json());
 
 // Liveness + readiness probe (no auth). Checks the DB round-trips.
@@ -848,7 +858,7 @@ app.post('/api/ai', requireUser, async (req, res) => {
 // Best-effort per-doc signal computation. Reads the persisted Yjs (true block
 // structure incl. todos); falls back to the posted plain text if absent. Never
 // throws into the caller — a bad doc must not fail the save.
-async function computeAndStoreSignals(docId, fallbackText = '') {
+async function computeAndStoreSignals(docId, fallbackText = '', titles = null) {
   try {
     let title = '';
     let blocks = [];
@@ -860,35 +870,41 @@ async function computeAndStoreSignals(docId, fallbackText = '') {
         .map((text) => ({ flavour: 'affine:paragraph', type: 'text', checked: false, text }));
     }
     const flatText = (title + '\n' + blocks.map((b) => b.text).join('\n')).trim();
-    const terms = topTerms(flatText, 30);
+    const scanText = flatText.slice(0, 100000);
+    const terms = topTerms(scanText, 30);
     const signals = extractSignals(blocks);
+    const summary = summarize(blocks.filter((b) => b.flavour !== 'affine:code').map((b) => b.text).join(' ').slice(0, 100000), 3);
+    const kps = keyphrases(scanText, 8);
 
-    const others = await pool.query(
-      'SELECT id, title FROM docs WHERE id <> $1 AND deleted_at IS NULL', [docId],
-    );
-    const mentions = findMentions(flatText, others.rows);
+    const others = titles
+      ? titles.filter((t) => t.id !== docId)
+      : (await pool.query('SELECT id, title FROM docs WHERE id <> $1 AND deleted_at IS NULL', [docId])).rows;
+    const mentions = findMentions(scanText, others);
     const hash = terms.length ? simhash(terms) : null;
 
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
       await client.query('DELETE FROM doc_terms WHERE doc_id = $1', [docId]);
-      for (const { term, tf } of terms) {
+      if (terms.length) {
         await client.query(
-          'INSERT INTO doc_terms (doc_id, term, tf) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
-          [docId, term, tf],
+          `INSERT INTO doc_terms (doc_id, term, tf)
+           SELECT $1, t, f FROM unnest($2::text[], $3::int[]) AS x(t, f)
+           ON CONFLICT DO NOTHING`,
+          [docId, terms.map((t) => t.term), terms.map((t) => t.tf)],
         );
       }
       await client.query(
-        `INSERT INTO doc_signals (doc_id, tasks, decisions, risks, deadlines, mentions, simhash, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7, now())
+        `INSERT INTO doc_signals (doc_id, tasks, decisions, risks, deadlines, mentions, simhash, summary, keyphrases, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, now())
          ON CONFLICT (doc_id) DO UPDATE SET
            tasks=EXCLUDED.tasks, decisions=EXCLUDED.decisions, risks=EXCLUDED.risks,
            deadlines=EXCLUDED.deadlines, mentions=EXCLUDED.mentions, simhash=EXCLUDED.simhash,
+           summary=EXCLUDED.summary, keyphrases=EXCLUDED.keyphrases,
            updated_at=now()`,
         [docId, JSON.stringify(signals.tasks), JSON.stringify(signals.decisions),
          JSON.stringify(signals.risks), JSON.stringify(signals.deadlines),
-         JSON.stringify(mentions), hash],
+         JSON.stringify(mentions), hash, summary, JSON.stringify(kps)],
       );
       await client.query('COMMIT');
     } catch (e) {
@@ -902,17 +918,34 @@ async function computeAndStoreSignals(docId, fallbackText = '') {
   }
 }
 
-app.put('/api/docs/:id/text', requireUser, async (req, res) => {
+app.put('/api/docs/:id/text', requireUser, wrap(async (req, res) => {
   if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
   const text = String(req.body?.text || '').slice(0, 100000);
   await pool.query('UPDATE docs SET search_text = $1 WHERE id = $2', [text, req.params.id]);
   res.json({ ok: true });
   computeAndStoreSignals(req.params.id, text); // best-effort, after response
-});
+}));
 
-app.get('/api/search', requireUser, async (req, res) => {
+app.get('/api/search', requireUser, wrap(async (req, res) => {
   const q = String(req.query.q || '').trim();
   if (!q) return res.json([]);
+
+  // Co-occurrence query expansion: pull the strongest terms that co-occur with
+  // the query's own terms across the corpus, OR them in to widen recall (must
+  // not AND into the query — that would narrow results instead).
+  let expansionOr = null;
+  try {
+    const qterms = tokenize(q);
+    if (qterms.length) {
+      const ex = (await pool.query(
+        `SELECT dt2.term, count(*) c
+           FROM doc_terms dt1 JOIN doc_terms dt2 ON dt2.doc_id = dt1.doc_id AND dt2.term <> dt1.term
+          WHERE dt1.term = ANY($1)
+          GROUP BY dt2.term ORDER BY c DESC LIMIT 3`, [qterms])).rows.map((r) => r.term);
+      expansionOr = ex.length ? ex.join(' | ') : null;
+    }
+  } catch { /* expansion is best-effort */ }
+
   const { rows } = await pool.query(
     `WITH scoped AS (
        SELECT d.id, d.title, d.search_text, d.search_tsv
@@ -924,7 +957,8 @@ app.get('/api/search', requireUser, async (req, res) => {
        SELECT id, title, search_text, 1 AS pri,
               ts_rank(search_tsv, plainto_tsquery('english', $2)) AS rank
          FROM scoped
-        WHERE search_tsv @@ plainto_tsquery('english', $2)
+        WHERE search_tsv @@ (CASE WHEN $3 IS NULL THEN plainto_tsquery('english',$2)
+                                   ELSE plainto_tsquery('english',$2) || to_tsquery('english',$3) END)
      ),
      fuzzy AS (
        SELECT id, title, search_text, 2 AS pri,
@@ -943,13 +977,13 @@ app.get('/api/search', requireUser, async (req, res) => {
        FROM merged
       ORDER BY pri, rank DESC
       LIMIT 20`,
-    [req.user.id, q],
+    [req.user.id, q, expansionOr],
   );
   res.json(rows.map((r) => ({ id: r.id, title: r.title, snippet: r.snippet })));
-});
+}));
 
 // Everything the Intelligence rail needs, in one round-trip. All access-scoped.
-app.get('/api/docs/:id/intelligence', requireUser, async (req, res) => {
+app.get('/api/docs/:id/intelligence', requireUser, wrap(async (req, res) => {
   const id = req.params.id;
   const uid = req.user.id;
   if (!(await grantOn(id, uid))) return res.status(403).json({ error: 'forbidden' });
@@ -976,13 +1010,31 @@ app.get('/api/docs/:id/intelligence', requireUser, async (req, res) => {
       ORDER BY score DESC
       LIMIT 5`, [id, uid])).rows;
 
-  // Suggested tags: top terms that name (or nearly name) tags or are strong terms.
-  const myTerms = (await pool.query('SELECT term, tf FROM doc_terms WHERE doc_id=$1 ORDER BY tf DESC LIMIT 8', [id])).rows;
-  const tagRows = (await pool.query('SELECT id, lower(name) name FROM tags')).rows;
-  const tagByName = new Map(tagRows.map((t) => [t.name, t.id]));
-  const suggestedTags = myTerms.slice(0, 5).map((t) => ({
-    name: t.term, exists: tagByName.has(t.term), tagId: tagByName.get(t.term) || undefined,
-  }));
+  // Centroid auto-tag: rank existing tags by term-overlap between this doc and
+  // the docs already carrying each tag (weighted by rarity). Access-scoped.
+  const centroidTags = (await pool.query(
+    `WITH mine AS (SELECT term, tf FROM doc_terms WHERE doc_id=$1),
+          df AS (SELECT term, count(DISTINCT doc_id)::float n FROM doc_terms GROUP BY term)
+     SELECT t.id AS "tagId", t.name, sum(mine.tf * dt.tf / GREATEST(df.n,1)) AS score
+       FROM mine
+       JOIN doc_terms dt ON dt.term = mine.term AND dt.doc_id <> $1
+       JOIN df ON df.term = mine.term
+       JOIN doc_tags g ON g.doc_id = dt.doc_id
+       JOIN tags t ON t.id = g.tag_id
+       JOIN docs d ON d.id = dt.doc_id
+       LEFT JOIN doc_access a ON a.doc_id = d.id AND a.user_id = $2
+      WHERE d.deleted_at IS NULL AND (a.user_id IS NOT NULL OR d.visibility='team')
+        AND t.id NOT IN (SELECT tag_id FROM doc_tags WHERE doc_id=$1)
+      GROUP BY t.id, t.name ORDER BY score DESC LIMIT 4`, [id, uid])).rows;
+  // Keyphrase-derived new-tag ideas (not already a tag, not already applied).
+  const kps = Array.isArray(sig.keyphrases) ? sig.keyphrases : [];
+  const existingTagNames = new Set((await pool.query('SELECT lower(name) n FROM tags')).rows.map((r) => r.n));
+  const kpTags = kps.filter((p) => p.length <= 30 && !existingTagNames.has(p.toLowerCase())).slice(0, 3)
+    .map((p) => ({ name: p, exists: false }));
+  const suggestedTags = [
+    ...centroidTags.map((t) => ({ name: t.name, exists: true, tagId: t.tagId })),
+    ...kpTags,
+  ].slice(0, 5);
 
   // Suggested links + changed deps derive from stored mentions.
   const mentions = Array.isArray(sig.mentions) ? sig.mentions : [];
@@ -1077,8 +1129,9 @@ app.get('/api/docs/:id/intelligence', requireUser, async (req, res) => {
     related: related.map((r) => ({ id: r.id, title: r.title, icon: r.icon, score: Number(r.score) })),
     tasks: sig.tasks || [], decisions: sig.decisions || [], risks: sig.risks || [], deadlines: sig.deadlines || [],
     suggestedTags, suggestedLinks, changedDeps, duplicateOf, stale, collaborators, templates, terminology,
+    summary: sig.summary || '', keyphrases: kps,
   });
-});
+}));
 
 // ── blob storage (images, attachments) ──────────────────────────────────────
 // BlockSuite addresses blobs by sha256, so the key space is global and safe to
@@ -1292,6 +1345,13 @@ app.delete('/api/comments/:cid', requireUser, async (req, res) => {
 
 app.use(express.static(WEB_DIST));
 app.get('*', (_req, res) => res.sendFile(path.join(WEB_DIST, 'index.html')));
+
+// Last-resort error handler so a thrown/rejected route returns 500 instead of crashing.
+app.use((err, req, res, next) => {
+  console.error('[api] unhandled route error', err?.message || err);
+  if (res.headersSent) return next(err);
+  res.status(500).json({ error: 'internal error' });
+});
 
 // ── realtime sync ─────────────────────────────────────────────────────────
 const hocuspocus = new Hocuspocus({
