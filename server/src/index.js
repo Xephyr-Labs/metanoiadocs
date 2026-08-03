@@ -35,6 +35,18 @@ const STALE_MONTHS = Number(process.env.STALE_MONTHS || 6);
 
 await initSchema();
 
+// One-shot backfill: compute signals for docs that don't have them yet. Runs
+// sequentially in the background so a large workspace doesn't stampede the pool.
+(async () => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT d.id FROM docs d LEFT JOIN doc_signals s ON s.doc_id=d.id
+        WHERE d.deleted_at IS NULL AND s.doc_id IS NULL`);
+    for (const r of rows) await computeAndStoreSignals(r.id);
+    if (rows.length) console.log('[intelligence] backfilled signals for', rows.length, 'docs');
+  } catch (e) { console.error('[intelligence] backfill failed', e.message); }
+})();
+
 // Seed the admin account (admin / admin123) once. Admins can invite; everyone
 // else joins as a collaborator via an invitation only.
 async function seedAdmin() {
