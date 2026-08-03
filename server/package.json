@@ -1,0 +1,21 @@
+{
+  "name": "metanoiadocs-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "@hocuspocus/extension-database": "^2.15.2",
+    "@hocuspocus/server": "^2.15.2",
+    "bcryptjs": "^2.4.3",
+    "cookie": "^1.0.2",
+    "express": "^4.21.2",
+    "nodemailer": "^6.10.0",
+    "openai": "^7.3.0",
+    "pg": "^8.13.1",
+    "ws": "^8.18.0",
+    "yjs": "^13.6.21"
+  }
+}

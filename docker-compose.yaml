@@ -1,0 +1,61 @@
+name: metanoiadocs
+
+# One command brings up the whole app:  docker compose up -d
+# Then open http://localhost:8092 — the server serves the React UI and the API.
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: metanoia
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: metanoiadocs
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U metanoia -d metanoiadocs"]
+      interval: 5s
+      retries: 20
+
+  # One-shot: build the React front-end into web-react/dist, then exit.
+  # (First run installs deps + builds — a few minutes; later runs are cached.)
+  web-build:
+    image: node:22
+    working_dir: /app/web-react
+    volumes:
+      - ./web-react:/app/web-react
+    command: sh -c "npm install --no-audit --no-fund && npm run build"
+
+  server:
+    image: node:22
+    restart: unless-stopped
+    working_dir: /app/server
+    volumes:
+      - ./server:/app/server
+      - ./web-react:/app/web-react
+    command: sh -c "npm install --omit=dev --no-audit --no-fund && npm start"
+    environment:
+      PORT: "3000"
+      BASE_URL: ${BASE_URL:-http://localhost:8092}
+      DATABASE_URL: postgresql://metanoia:${DB_PASSWORD}@db:5432/metanoiadocs
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      AUTH_DEV_MODE: ${AUTH_DEV_MODE:-true}
+      ALLOWED_EMAIL_DOMAINS: ${ALLOWED_EMAIL_DOMAINS:-*}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-MetanoiaDocs <no-reply@example.com>}
+    ports:
+      - "8092:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+      web-build:
+        condition: service_completed_successfully
+
+volumes:
+  db_data:

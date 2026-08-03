@@ -1,0 +1,6 @@
+<svg width="96" height="96" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="MetanoiaDocs">
+  <rect width="32" height="32" rx="7.5" fill="#2383e2"/>
+  <path d="M22 6h4l0 4z" fill="#ffffff" fill-opacity="0.28"/>
+  <path d="M8 23V12.4c0-.5.62-.74.95-.36L16 19.5l7.05-7.46c.33-.38.95-.14.95.36V23"
+        stroke="#ffffff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
