@@ -1,8 +1,6 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
-  Bell,
-  Blocks,
   Info,
   Moon,
   Settings2,
@@ -34,7 +32,7 @@ function Avatar({ name, size = 32 }: { name: string; size?: number }) {
   );
 }
 
-type SectionId = 'account' | 'preferences' | 'notifications' | 'members' | 'connections' | 'about';
+type SectionId = 'account' | 'preferences' | 'members' | 'about';
 
 const NAV: { group: string; items: { id: SectionId; label: string; icon: typeof Settings2 }[] }[] = [
   {
@@ -42,14 +40,12 @@ const NAV: { group: string; items: { id: SectionId; label: string; icon: typeof 
     items: [
       { id: 'account', label: 'My account', icon: Users },
       { id: 'preferences', label: 'Preferences', icon: Settings2 },
-      { id: 'notifications', label: 'Notifications', icon: Bell },
     ],
   },
   {
     group: 'Workspace',
     items: [
       { id: 'members', label: 'Members', icon: Users },
-      { id: 'connections', label: 'Connections', icon: Blocks },
       { id: 'about', label: 'About', icon: Info },
     ],
   },
@@ -149,22 +145,6 @@ function Preferences() {
   );
 }
 
-function Notifications() {
-  const [n, setN] = useState({ mentions: true, comments: true, digest: false, mobile: true });
-  return (
-    <div>
-      <SectionTitle>Notifications</SectionTitle>
-      <p className="mb-5 text-[13px] text-muted">Choose what you get notified about.</p>
-      <div className="divide-y divide-line border-t border-line">
-        <Row title="Mentions" desc="When someone @-mentions you." control={<Switch on={n.mentions} onChange={(v) => setN((s) => ({ ...s, mentions: v }))} />} />
-        <Row title="Comments & replies" control={<Switch on={n.comments} onChange={(v) => setN((s) => ({ ...s, comments: v }))} />} />
-        <Row title="Mobile push" control={<Switch on={n.mobile} onChange={(v) => setN((s) => ({ ...s, mobile: v }))} />} />
-        <Row title="Weekly email digest" desc="A Monday summary of your workspace." control={<Switch on={n.digest} onChange={(v) => setN((s) => ({ ...s, digest: v }))} />} />
-      </div>
-    </div>
-  );
-}
-
 function Members() {
   const { user } = useAuth();
   const [rows, setRows] = useState<UserRow[] | null>(null);
@@ -235,43 +215,6 @@ function Members() {
   );
 }
 
-function Connections() {
-  const apps = [
-    { name: 'Google Drive', desc: 'Embed and preview Drive files.', on: true, color: '#1a73e8', letter: 'G' },
-    { name: 'Slack', desc: 'Send page updates to channels.', on: false, color: '#4a154b', letter: 'S' },
-    { name: 'GitHub', desc: 'Link issues and pull requests.', on: true, color: '#24292f', letter: 'GH' },
-    { name: 'Figma', desc: 'Embed live design frames.', on: false, color: '#f24e1e', letter: 'F' },
-  ];
-  const [state, setState] = useState(apps);
-  return (
-    <div>
-      <SectionTitle>Connections</SectionTitle>
-      <p className="mb-5 text-[13px] text-muted">Connect the tools your team already uses.</p>
-      <div className="space-y-2">
-        {state.map((a, i) => (
-          <div key={a.name} className="flex items-center gap-3 rounded-lg border border-line p-3">
-            <span className="flex h-9 w-9 items-center justify-center rounded-md text-[13px] font-bold text-white" style={{ background: a.color }}>
-              {a.letter}
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="text-[13px] font-medium text-ink">{a.name}</p>
-              <p className="truncate text-[12px] text-muted">{a.desc}</p>
-            </div>
-            <Button
-              variant={a.on ? 'secondary' : 'primary'}
-              size="sm"
-              leftIcon={a.on ? <Check size={14} /> : undefined}
-              onClick={() => setState((s) => s.map((x, xi) => (xi === i ? { ...x, on: !x.on } : x)))}
-            >
-              {a.on ? 'Connected' : 'Connect'}
-            </Button>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function About() {
   const rows = [
     ['Plan', 'Free · unlimited members, forever'],
@@ -299,9 +242,7 @@ function About() {
 const BODIES: Record<SectionId, () => JSX.Element> = {
   account: Account,
   preferences: Preferences,
-  notifications: Notifications,
   members: Members,
-  connections: Connections,
   about: About,
 };
 
