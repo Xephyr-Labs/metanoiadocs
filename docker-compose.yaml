@@ -1,7 +1,8 @@
 name: metanoiadocs
 
-# One command brings up the whole app:  docker compose up -d
-# Then open http://localhost:8092 — the server serves the React UI and the API.
+# Production stack. One image serves the React UI, the REST API, and the /sync
+# WebSocket:  docker compose up -d --build  →  http://localhost:8092
+# (Front it with a TLS reverse proxy and set BASE_URL=https://your.domain.)
 
 services:
   db:
@@ -18,23 +19,11 @@ services:
       interval: 5s
       retries: 20
 
-  # One-shot: build the React front-end into web-react/dist, then exit.
-  # (First run installs deps + builds — a few minutes; later runs are cached.)
-  web-build:
-    image: node:22
-    working_dir: /app/web-react
-    volumes:
-      - ./web-react:/app/web-react
-    command: sh -c "npm install --no-audit --no-fund && npm run build"
-
   server:
-    image: node:22
+    build:
+      context: .
+      dockerfile: Dockerfile
     restart: unless-stopped
-    working_dir: /app/server
-    volumes:
-      - ./server:/app/server
-      - ./web-react:/app/web-react
-    command: sh -c "npm install --omit=dev --no-audit --no-fund && npm start"
     environment:
       PORT: "3000"
       BASE_URL: ${BASE_URL:-http://localhost:8092}
@@ -54,8 +43,12 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      web-build:
-        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
 
 volumes:
   db_data:

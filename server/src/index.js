@@ -58,6 +58,16 @@ await seedAdmin();
 const app = express();
 app.use(express.json());
 
+// Liveness + readiness probe (no auth). Checks the DB round-trips.
+app.get('/health', async (_req, res) => {
+  try {
+    await pool.query('SELECT 1');
+    res.json({ ok: true });
+  } catch {
+    res.status(503).json({ ok: false });
+  }
+});
+
 function sessionToken(req) {
   return cookie.parse(req.headers.cookie || '')[COOKIE] || null;
 }
