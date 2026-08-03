@@ -33,7 +33,7 @@ function Row({ id, depth }: { id: PageId; depth: number }) {
         }}
         className={cn(
           'group/row flex h-[27px] cursor-pointer items-center rounded-md pr-1 text-[14px] transition-colors duration-120',
-          selected ? 'bg-selected text-ink' : 'text-muted hover:bg-hover',
+          selected ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-hover',
         )}
         style={{ paddingLeft: 8 + depth * 16 }}
       >
@@ -58,10 +58,10 @@ function Row({ id, depth }: { id: PageId; depth: number }) {
           />
         </button>
 
-        <span className="mr-1.5 flex h-5 w-5 shrink-0 items-center justify-center text-faint">
+        <span className={cn('mr-1.5 flex h-5 w-5 shrink-0 items-center justify-center', selected ? 'text-accent' : 'text-faint')}>
           <DocIcon hasChildren={hasChildren} size={16} className="" />
         </span>
-        <span className={cn('flex-1 truncate', selected && 'font-medium text-ink')}>
+        <span className={cn('flex-1 truncate', selected && 'font-medium text-accent')}>
           {page.title}
         </span>
 

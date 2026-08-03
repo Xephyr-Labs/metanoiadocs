@@ -28,9 +28,9 @@ function NavItem({ icon, label, onClick, trailing, active }: { icon: ReactNode; 
     <button
       type="button"
       onClick={onClick}
-      className={cn('group flex h-[29px] w-full items-center gap-2 rounded-md px-2 text-[14px] transition-colors duration-120', active ? 'bg-selected text-ink' : 'text-muted hover:bg-hover')}
+      className={cn('group flex h-[29px] w-full items-center gap-2 rounded-md px-2 text-[14px] transition-colors duration-120', active ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-hover')}
     >
-      <span className="flex h-5 w-5 shrink-0 items-center justify-center text-faint group-hover:text-muted">{icon}</span>
+      <span className={cn('flex h-5 w-5 shrink-0 items-center justify-center', active ? 'text-accent' : 'text-faint group-hover:text-muted')}>{icon}</span>
       <span className="flex-1 truncate text-left">{label}</span>
       {trailing}
     </button>
@@ -54,7 +54,7 @@ function DocRow({ id }: { id: string }) {
     <button
       type="button"
       onClick={() => ws.select(id)}
-      className={cn('flex h-[27px] w-full items-center gap-1.5 rounded-md px-2 text-[14px] transition-colors duration-120', ws.currentId === id ? 'bg-selected text-ink' : 'text-muted hover:bg-hover')}
+      className={cn('flex h-[27px] w-full items-center gap-1.5 rounded-md px-2 text-[14px] transition-colors duration-120', ws.currentId === id ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-hover')}
     >
       <DocIcon hasChildren={p.children.length > 0} size={16} />
       <span className="flex-1 truncate text-left">{p.title}</span>
@@ -91,7 +91,7 @@ export function Sidebar() {
   };
 
   return (
-    <aside className="relative flex h-full shrink-0 flex-col bg-surface-2" style={{ width: ws.sidebarWidth }}>
+    <aside className="relative flex h-full shrink-0 flex-col bg-canvas" style={{ width: ws.sidebarWidth }}>
       {/* workspace switcher */}
       <div className="px-2 pt-2.5">
         <Menu
@@ -106,7 +106,7 @@ export function Sidebar() {
               <span className="flex h-5 w-5 shrink-0 items-center justify-center">
                 <LogoMark size={16} />
               </span>
-              <span className="flex-1 truncate text-[14px] font-semibold text-ink">{activeWs.name}</span>
+              <span className="flex-1 truncate text-[14px] font-semibold leading-none text-ink">{activeWs.name}</span>
               <ChevronDown size={15} className="shrink-0 text-faint opacity-0 transition-opacity group-hover:opacity-100" />
             </button>
           }
@@ -195,7 +195,7 @@ export function Sidebar() {
                   key={t.id}
                   type="button"
                   onClick={() => ws.setTagFilter(t.id)}
-                  className="flex h-[27px] w-full items-center gap-2 rounded-md px-2 text-[14px] text-muted transition-colors duration-120 hover:bg-hover"
+                  className="flex h-[27px] w-full items-center gap-2 rounded-md px-2 text-[14px] text-ink transition-colors duration-120 hover:bg-hover"
                 >
                   <span className={cn('h-2.5 w-2.5 shrink-0 rounded-full', swatch(t.color).dot)} />
                   <span className="flex-1 truncate text-left">{t.name}</span>
@@ -214,7 +214,7 @@ export function Sidebar() {
                 key={t.id}
                 type="button"
                 onClick={() => ws.createFromTemplate(t)}
-                className="flex h-[27px] w-full items-center gap-1.5 rounded-md px-2 text-[14px] text-muted transition-colors duration-120 hover:bg-hover"
+                className="flex h-[27px] w-full items-center gap-1.5 rounded-md px-2 text-[14px] text-ink transition-colors duration-120 hover:bg-hover"
               >
                 <span className="text-[15px] leading-none">{t.icon}</span>
                 <span className="flex-1 truncate text-left">{t.name}</span>
