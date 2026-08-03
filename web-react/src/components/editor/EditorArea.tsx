@@ -2,7 +2,7 @@ import { motion } from 'framer-motion';
 import { FileText, Maximize2, Minimize2, PencilRuler, Plus } from 'lucide-react';
 import { useAuth } from '../../store/auth';
 import { useWorkspace } from '../../store/workspace';
-import { BlockSuiteEditor } from '../../editor/BlockSuiteEditor';
+import { LazyEditor } from '../../editor/LazyEditor';
 import { Button } from '../ui/Button';
 import { EmptyState } from '../ui/EmptyState';
 import { IconButton } from '../ui/IconButton';
@@ -57,7 +57,7 @@ export function EditorArea() {
       <div className="relative min-h-0 flex-1">
         {edgeless ? (
           <div className="absolute inset-0">
-            <BlockSuiteEditor
+            <LazyEditor
               key={page.id}
               docId={page.id}
               title={page.title}
@@ -76,7 +76,7 @@ export function EditorArea() {
             >
               <PageHeader page={page} fullWidth={ws.fullWidth} />
               <div className="pb-40">
-                <BlockSuiteEditor
+                <LazyEditor
                   docId={page.id}
                   title={page.title}
                   mode="page"

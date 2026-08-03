@@ -4,7 +4,7 @@ import { cn } from '../lib/cn';
 import { PageSkeleton } from '../components/ui/Skeleton';
 import { mountEditor } from './mountEditor';
 
-interface Props {
+export interface EditorProps {
   docId: string;
   title: string;
   mode: EditorMode;
@@ -18,7 +18,7 @@ interface Props {
  * React boundary around the imperative BlockSuite editor. Remounts per doc,
  * flips mode in place. Content persists + syncs via Hocuspocus inside mountEditor.
  */
-export function BlockSuiteEditor({ docId, title, mode, userName, share, fullWidth, onTitle }: Props) {
+export function BlockSuiteEditor({ docId, title, mode, userName, share, fullWidth, onTitle }: EditorProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const instRef = useRef<Awaited<ReturnType<typeof mountEditor>> | null>(null);
   const [loading, setLoading] = useState(true);

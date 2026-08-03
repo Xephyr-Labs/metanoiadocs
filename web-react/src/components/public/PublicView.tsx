@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { FileWarning, Globe } from 'lucide-react';
-import { BlockSuiteEditor } from '../../editor/BlockSuiteEditor';
+import { LazyEditor } from '../../editor/LazyEditor';
 import { Logo } from '../brand/Logo';
 
 interface Doc {
@@ -63,7 +63,7 @@ export function PublicView({ token }: { token: string }) {
       <main className="scrollarea min-h-0 flex-1 overflow-y-auto">
         {doc ? (
           <div className="pb-40 pt-10">
-            <BlockSuiteEditor docId={doc.id} title={doc.title} mode="page" userName="Guest" share={token} />
+            <LazyEditor docId={doc.id} title={doc.title} mode="page" userName="Guest" share={token} />
           </div>
         ) : (
           <div className="flex h-full items-center justify-center">
