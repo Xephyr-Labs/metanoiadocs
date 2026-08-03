@@ -23,7 +23,7 @@ import {
 import { requestMagicLink, consumeMagicLink, sendInviteEmail, sendNotificationEmail } from './auth.js';
 import { getSetting, setSetting } from './db.js';
 import { buildDocState, appendToDocState, extractText, extractBlocks } from './blocks.js';
-import { topTerms, extractSignals, findMentions, simhash } from './intelligence.js';
+import { topTerms, extractSignals, findMentions, simhash, hamming } from './intelligence.js';
 import OpenAI from 'openai';
 
 const PORT = Number(process.env.PORT || 3000);
@@ -31,6 +31,7 @@ const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
 const COOKIE = 'md_session';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WEB_DIST = path.resolve(__dirname, '../../web-react/dist');
+const STALE_MONTHS = Number(process.env.STALE_MONTHS || 6);
 
 await initSchema();
 
@@ -914,6 +915,130 @@ app.get('/api/search', requireUser, async (req, res) => {
     [req.user.id, q]
   );
   res.json(rows);
+});
+
+// Everything the Intelligence rail needs, in one round-trip. All access-scoped.
+app.get('/api/docs/:id/intelligence', requireUser, async (req, res) => {
+  const id = req.params.id;
+  const uid = req.user.id;
+  if (!(await grantOn(id, uid))) return res.status(403).json({ error: 'forbidden' });
+
+  // Visibility predicate reused across sub-queries.
+  const visJoin = `LEFT JOIN doc_access a ON a.doc_id = d.id AND a.user_id = $2`;
+  const visWhere = `d.deleted_at IS NULL AND (a.user_id IS NOT NULL OR d.visibility='team')`;
+
+  const sig = (await pool.query('SELECT * FROM doc_signals WHERE doc_id=$1', [id])).rows[0] || {};
+
+  // Related: shared-term overlap weighted by rarity (query-time IDF).
+  const related = (await pool.query(
+    `WITH df AS (SELECT term, count(DISTINCT doc_id)::float AS n FROM doc_terms GROUP BY term),
+          mine AS (SELECT term, tf FROM doc_terms WHERE doc_id=$1)
+     SELECT d.id, d.title, d.icon,
+            sum(mine.tf * dt.tf / GREATEST(df.n,1)) AS score
+       FROM mine
+       JOIN doc_terms dt ON dt.term=mine.term AND dt.doc_id<>$1
+       JOIN df ON df.term=mine.term
+       JOIN docs d ON d.id=dt.doc_id
+       ${visJoin}
+      WHERE ${visWhere}
+      GROUP BY d.id, d.title, d.icon
+      ORDER BY score DESC
+      LIMIT 5`, [id, uid])).rows;
+
+  // Suggested tags: top terms that name (or nearly name) tags or are strong terms.
+  const myTerms = (await pool.query('SELECT term, tf FROM doc_terms WHERE doc_id=$1 ORDER BY tf DESC LIMIT 8', [id])).rows;
+  const tagRows = (await pool.query('SELECT id, lower(name) name FROM tags')).rows;
+  const tagByName = new Map(tagRows.map((t) => [t.name, t.id]));
+  const suggestedTags = myTerms.slice(0, 5).map((t) => ({
+    name: t.term, exists: tagByName.has(t.term), tagId: tagByName.get(t.term) || undefined,
+  }));
+
+  // Suggested links + changed deps derive from stored mentions.
+  const mentions = Array.isArray(sig.mentions) ? sig.mentions : [];
+  const mentionIds = mentions.map((m) => m.id);
+  let suggestedLinks = [];
+  let changedDeps = [];
+  if (mentionIds.length) {
+    const accessible = (await pool.query(
+      `SELECT d.id, d.title, d.icon, d.updated_at
+         FROM docs d ${visJoin}
+        WHERE d.id = ANY($1) AND ${visWhere}`, [mentionIds, uid])).rows;
+    const byId = new Map(accessible.map((d) => [d.id, d]));
+    suggestedLinks = mentions.filter((m) => byId.has(m.id))
+      .map((m) => ({ id: m.id, title: byId.get(m.id).title, count: m.count }));
+    const selfUpdated = (await pool.query('SELECT updated_at FROM docs WHERE id=$1', [id])).rows[0]?.updated_at;
+    changedDeps = accessible
+      .filter((d) => selfUpdated && new Date(d.updated_at) > new Date(selfUpdated))
+      .map((d) => ({ id: d.id, title: d.title, updated_at: d.updated_at }));
+  }
+
+  // Duplicate: nearest simhash (Hamming ≤3) among accessible docs, computed in JS.
+  let duplicateOf = null;
+  if (sig.simhash) {
+    const cand = (await pool.query(
+      `SELECT d.id, d.title, s.simhash
+         FROM doc_signals s JOIN docs d ON d.id=s.doc_id
+         ${visJoin}
+        WHERE s.doc_id<>$1 AND s.simhash IS NOT NULL AND ${visWhere}`, [id, uid])).rows;
+    let best = null;
+    for (const c of cand) {
+      const dist = hamming(sig.simhash, c.simhash);
+      if (dist <= 3 && (!best || dist < best.dist)) best = { id: c.id, title: c.title, dist };
+    }
+    if (best) duplicateOf = { id: best.id, title: best.title, similarity: 1 - best.dist / 64 };
+  }
+
+  // Stale badge.
+  const selfRow = (await pool.query('SELECT updated_at FROM docs WHERE id=$1', [id])).rows[0];
+  let stale = null;
+  if (selfRow) {
+    const months = (Date.now() - new Date(selfRow.updated_at).getTime()) / (1000 * 60 * 60 * 24 * 30);
+    if (months > STALE_MONTHS) stale = { months: Math.round(months) };
+  }
+
+  // Collaborators: editors of related docs not already shared here.
+  let collaborators = [];
+  if (related.length) {
+    const relIds = related.map((r) => r.id);
+    collaborators = (await pool.query(
+      `SELECT DISTINCT u.id, u.name FROM users u
+         WHERE u.id IN (
+           SELECT created_by FROM docs WHERE id = ANY($1) AND created_by IS NOT NULL
+           UNION SELECT user_id FROM doc_access WHERE doc_id = ANY($1)
+         )
+         AND u.id NOT IN (SELECT user_id FROM doc_access WHERE doc_id=$2)
+         AND u.id <> $3
+       LIMIT 5`, [relIds, id, uid])).rows;
+  }
+
+  // Templates: docs tagged 'template' overlapping this doc's terms.
+  const templates = (await pool.query(
+    `WITH mine AS (SELECT term, tf FROM doc_terms WHERE doc_id=$1)
+     SELECT d.id, d.title, sum(mine.tf*dt.tf) AS score
+       FROM mine JOIN doc_terms dt ON dt.term=mine.term AND dt.doc_id<>$1
+       JOIN docs d ON d.id=dt.doc_id
+       ${visJoin}
+       JOIN doc_tags g ON g.doc_id=d.id
+       JOIN tags t ON t.id=g.tag_id AND lower(t.name)='template'
+      WHERE ${visWhere}
+      GROUP BY d.id, d.title ORDER BY score DESC LIMIT 3`, [id, uid])).rows
+    .map((r) => ({ id: r.id, title: r.title }));
+
+  // Terminology: my terms that are trigram-near a much-more-frequent workspace term.
+  const terminology = (await pool.query(
+    `WITH mine AS (SELECT term FROM doc_terms WHERE doc_id=$1),
+          df AS (SELECT term, count(DISTINCT doc_id) n FROM doc_terms GROUP BY term)
+     SELECT m.term, o.term AS suggest, o.n AS count
+       FROM mine m
+       JOIN df self ON self.term=m.term
+       JOIN df o ON o.term<>m.term AND similarity(o.term,m.term) > 0.55 AND o.n >= self.n*3
+      ORDER BY o.n DESC LIMIT 3`, [id])).rows;
+
+  res.json({
+    related: related.map((r) => ({ id: r.id, title: r.title, icon: r.icon, score: Number(r.score) })),
+    tasks: sig.tasks || [], decisions: sig.decisions || [], risks: sig.risks || [], deadlines: sig.deadlines || [],
+    suggestedTags, suggestedLinks, changedDeps, duplicateOf, stale, collaborators, templates, terminology,
+  });
 });
 
 // ── blob storage (images, attachments) ──────────────────────────────────────
