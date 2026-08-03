@@ -903,18 +903,16 @@ app.get('/api/search', requireUser, async (req, res) => {
   if (!q) return res.json([]);
   const { rows } = await pool.query(
     `WITH scoped AS (
-       SELECT d.id, d.title, d.search_text
+       SELECT d.id, d.title, d.search_text, d.search_tsv
          FROM docs d
          LEFT JOIN doc_access a ON a.doc_id=d.id AND a.user_id=$1
         WHERE d.deleted_at IS NULL AND (a.user_id IS NOT NULL OR d.visibility='team')
      ),
      fts AS (
        SELECT id, title, search_text, 1 AS pri,
-              ts_rank(to_tsvector('english', coalesce(title,'')||' '||coalesce(search_text,'')),
-                      plainto_tsquery('english', $2)) AS rank
+              ts_rank(search_tsv, plainto_tsquery('english', $2)) AS rank
          FROM scoped
-        WHERE to_tsvector('english', coalesce(title,'')||' '||coalesce(search_text,''))
-              @@ plainto_tsquery('english', $2)
+        WHERE search_tsv @@ plainto_tsquery('english', $2)
      ),
      fuzzy AS (
        SELECT id, title, search_text, 2 AS pri,
