@@ -1,8 +1,11 @@
+import { useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { FileText, Maximize2, Minimize2, PencilRuler, Plus } from 'lucide-react';
 import { useAuth } from '../../store/auth';
 import { useWorkspace } from '../../store/workspace';
 import { LazyEditor } from '../../editor/LazyEditor';
+import { useIntelligence } from '../../hooks/useIntelligence';
+import { IntelligenceRail } from '../intelligence/IntelligenceRail';
 import { Button } from '../ui/Button';
 import { EmptyState } from '../ui/EmptyState';
 import { IconButton } from '../ui/IconButton';
@@ -13,6 +16,14 @@ export function EditorArea() {
   const ws = useWorkspace();
   const auth = useAuth();
   const page = ws.currentPage;
+
+  const [refreshKey, setRefreshKey] = useState(0);
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const bumpSoon = () => {
+    if (refreshTimer.current) clearTimeout(refreshTimer.current);
+    refreshTimer.current = setTimeout(() => setRefreshKey((k) => k + 1), 2000);
+  };
+  const intel = useIntelligence(page?.id ?? null, refreshKey);
 
   if (!page) {
     return (
@@ -66,28 +77,35 @@ export function EditorArea() {
               mode="edgeless"
               userName={auth.user?.name ?? 'You'}
               onTitle={(t) => ws.applyTitleFromEditor(page.id, t)}
+              onSaved={bumpSoon}
             />
           </div>
         ) : (
-          <div className="scrollarea absolute inset-0 overflow-y-auto">
-            <motion.div
-              key={page.id}
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-            >
-              <PageHeader page={page} fullWidth={ws.fullWidth} />
-              <div className="pb-40">
-                <LazyEditor
-                  docId={page.id}
-                  title={page.title}
-                  mode="page"
-                  userName={auth.user?.name ?? 'You'}
-                  fullWidth={ws.fullWidth}
-                  onTitle={(t) => ws.applyTitleFromEditor(page.id, t)}
-                />
-              </div>
-            </motion.div>
+          <div className="absolute inset-0 flex">
+            <div className="scrollarea flex-1 overflow-y-auto">
+              <motion.div
+                key={page.id}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+              >
+                <PageHeader page={page} fullWidth={ws.fullWidth} suggested={intel.data?.suggestedTags ?? []} />
+                <div className="pb-40">
+                  <LazyEditor
+                    docId={page.id}
+                    title={page.title}
+                    mode="page"
+                    userName={auth.user?.name ?? 'You'}
+                    fullWidth={ws.fullWidth}
+                    onTitle={(t) => ws.applyTitleFromEditor(page.id, t)}
+                    onSaved={bumpSoon}
+                  />
+                </div>
+              </motion.div>
+            </div>
+            <div className="hidden shrink-0 md:block">
+              <IntelligenceRail data={intel.data} loading={intel.loading} />
+            </div>
           </div>
         )}
       </div>

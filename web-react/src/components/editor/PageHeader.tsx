@@ -1,11 +1,13 @@
 import { Users } from 'lucide-react';
 import type { Page } from '../../lib/types';
+import type { Intelligence } from '../../lib/docsApi';
 import { relativeTime } from '../../lib/time';
 import { DocIcon } from '../ui/DocIcon';
 import { TagChips } from './TagChips';
+import { TagSuggestions } from './TagSuggestions';
 
 /** Icon + metadata band above the BlockSuite content. Title is BlockSuite's own. */
-export function PageHeader({ page, fullWidth }: { page: Page; fullWidth: boolean }) {
+export function PageHeader({ page, fullWidth, suggested }: { page: Page; fullWidth: boolean; suggested: Intelligence['suggestedTags'] }) {
   return (
     <div
       className={[
@@ -29,6 +31,7 @@ export function PageHeader({ page, fullWidth }: { page: Page; fullWidth: boolean
       </div>
 
       <TagChips page={page} />
+      <TagSuggestions pageId={page.id} suggested={suggested} />
     </div>
   );
 }

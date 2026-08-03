@@ -66,6 +66,7 @@ interface MountArgs {
   userName: string;
   share?: string; // public read-only share token
   onTitle?: (title: string) => void;
+  onSaved?: () => void;
 }
 
 function docModeService(editor: { mode: string }, mode: 'page' | 'edgeless') {
@@ -80,7 +81,7 @@ function docModeService(editor: { mode: string }, mode: 'page' | 'edgeless') {
   };
 }
 
-export async function mountEditor(root: HTMLElement, { docId, title, mode, userName, share, onTitle }: MountArgs) {
+export async function mountEditor(root: HTMLElement, { docId, title, mode, userName, share, onTitle, onSaved }: MountArgs) {
   installEffects();
   const viewManager = getTestViewManager();
   const storeManager = getTestStoreManager();
@@ -195,7 +196,7 @@ export async function mountEditor(root: HTMLElement, { docId, title, mode, userN
         method: 'PUT', credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: text.slice(0, 100000) }),
-      }).catch(() => {});
+      }).then(() => onSaved?.()).catch(() => {});
       if (docTitle && docTitle !== lastTitle) {
         lastTitle = docTitle;
         onTitle?.(docTitle);

@@ -12,13 +12,14 @@ export interface EditorProps {
   share?: string;
   fullWidth?: boolean;
   onTitle?: (title: string) => void;
+  onSaved?: () => void;
 }
 
 /**
  * React boundary around the imperative BlockSuite editor. Remounts per doc,
  * flips mode in place. Content persists + syncs via Hocuspocus inside mountEditor.
  */
-export function BlockSuiteEditor({ docId, title, mode, userName, share, fullWidth, onTitle }: EditorProps) {
+export function BlockSuiteEditor({ docId, title, mode, userName, share, fullWidth, onTitle, onSaved }: EditorProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const instRef = useRef<Awaited<ReturnType<typeof mountEditor>> | null>(null);
   const [loading, setLoading] = useState(true);
@@ -27,6 +28,8 @@ export function BlockSuiteEditor({ docId, title, mode, userName, share, fullWidt
   titleRef.current = title;
   const onTitleRef = useRef(onTitle);
   onTitleRef.current = onTitle;
+  const onSavedRef = useRef(onSaved);
+  onSavedRef.current = onSaved;
 
   useEffect(() => {
     let alive = true;
@@ -40,6 +43,7 @@ export function BlockSuiteEditor({ docId, title, mode, userName, share, fullWidt
       userName,
       share,
       onTitle: (t) => onTitleRef.current?.(t),
+      onSaved: () => onSavedRef.current?.(),
     })
       .then((inst) => {
         if (!alive) { inst.destroy(); return; }
