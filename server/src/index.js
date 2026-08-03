@@ -1025,14 +1025,22 @@ app.get('/api/docs/:id/intelligence', requireUser, async (req, res) => {
     .map((r) => ({ id: r.id, title: r.title }));
 
   // Terminology: my terms that are trigram-near a much-more-frequent workspace term.
+  // df is scoped to docs the user can access (no private-doc term leaks) and the
+  // count is cast ::int so it serializes as a JSON number, not a bigint string.
   const terminology = (await pool.query(
-    `WITH mine AS (SELECT term FROM doc_terms WHERE doc_id=$1),
-          df AS (SELECT term, count(DISTINCT doc_id) n FROM doc_terms GROUP BY term)
+    `WITH acc AS (
+       SELECT d.id FROM docs d
+         LEFT JOIN doc_access a ON a.doc_id=d.id AND a.user_id=$2
+        WHERE d.deleted_at IS NULL AND (a.user_id IS NOT NULL OR d.visibility='team')
+     ),
+          mine AS (SELECT term FROM doc_terms WHERE doc_id=$1),
+          df AS (SELECT term, count(DISTINCT doc_id)::int n FROM doc_terms
+                  WHERE doc_id IN (SELECT id FROM acc) GROUP BY term)
      SELECT m.term, o.term AS suggest, o.n AS count
        FROM mine m
        JOIN df self ON self.term=m.term
        JOIN df o ON o.term<>m.term AND similarity(o.term,m.term) > 0.55 AND o.n >= self.n*3
-      ORDER BY o.n DESC LIMIT 3`, [id])).rows;
+      ORDER BY o.n DESC LIMIT 3`, [id, uid])).rows;
 
   res.json({
     related: related.map((r) => ({ id: r.id, title: r.title, icon: r.icon, score: Number(r.score) })),
