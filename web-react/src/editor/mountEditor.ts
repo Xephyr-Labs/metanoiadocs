@@ -21,6 +21,8 @@ import { IndexeddbPersistence } from 'y-indexeddb';
 import { Signal } from '@preact/signals-core';
 import { takePendingSeed } from './pendingSeed';
 import { attachMermaidPreviews } from './mermaidPreview';
+import { chartEffects, chartViewExtensions } from './chart';
+import { MetanoiaChartBlockSchema, MetanoiaChartBlockSchemaExtension } from './chart/chart-model';
 
 let effectsInstalled = false;
 function installEffects() {
@@ -86,14 +88,18 @@ function docModeService(editor: { mode: string }, mode: 'page' | 'edgeless') {
 
 export async function mountEditor(root: HTMLElement, { docId, title, mode, userName, share, onTitle, onSaved }: MountArgs) {
   installEffects();
+  chartEffects(); // register the metanoia:chart custom elements once
   const viewManager = getTestViewManager();
   const storeManager = getTestStoreManager();
 
   const schema = new Schema();
   schema.register(AffineSchemas);
+  schema.register([MetanoiaChartBlockSchema]);
 
   const collection = new TestWorkspace({ id: docId, blobSources: { main: new HttpBlobSource(share) } });
-  collection.storeExtensions = storeManager.get('store');
+  // Register the chart schema into the store's DI (this is the channel the
+  // collection actually uses; the standalone `schema` above is not wired in).
+  collection.storeExtensions = [...storeManager.get('store'), MetanoiaChartBlockSchemaExtension];
   collection.start();
   collection.meta.initialize();
 
@@ -200,8 +206,8 @@ export async function mountEditor(root: HTMLElement, { docId, title, mode, userN
         }),
     },
   ];
-  editor.pageSpecs = [...viewManager.get('page'), ...common];
-  editor.edgelessSpecs = [...viewManager.get('edgeless'), ...common];
+  editor.pageSpecs = [...viewManager.get('page'), ...chartViewExtensions, ...common];
+  editor.edgelessSpecs = [...viewManager.get('edgeless'), ...chartViewExtensions, ...common];
 
   root.replaceChildren(editor);
   await editor.updateComplete;
