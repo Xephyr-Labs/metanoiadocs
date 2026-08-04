@@ -37,29 +37,40 @@ function Row({ id, depth }: { id: PageId; depth: number }) {
         )}
         style={{ paddingLeft: 8 + depth * 16 }}
       >
-        {/* chevron / spacer */}
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            if (hasChildren) ws.toggleExpand(id);
-          }}
-          className={cn(
-            'flex h-5 w-5 shrink-0 items-center justify-center rounded text-faint',
-            hasChildren ? 'hover:bg-line-strong/60' : 'pointer-events-none',
-            hasChildren && (hover || selected) ? 'opacity-100' : 'opacity-0',
+        {/* One icon slot shared by the doc icon and the expand chevron — the
+            chevron overlays the icon on hover/select. Keeps every top-level row's
+            icon in the SAME column as the nav + Recent icons above, instead of a
+            reserved chevron slot pushing the whole tree ~20px to the right. */}
+        <span className="relative mr-1.5 flex h-5 w-5 shrink-0 items-center justify-center">
+          <span
+            className={cn(
+              'flex items-center justify-center transition-opacity',
+              selected ? 'text-accent' : 'text-faint',
+              hasChildren && (hover || selected) && 'opacity-0',
+            )}
+          >
+            <DocIcon hasChildren={hasChildren} size={16} className="" />
+          </span>
+          {hasChildren && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                ws.toggleExpand(id);
+              }}
+              className={cn(
+                'absolute inset-0 flex items-center justify-center rounded text-faint transition-opacity hover:bg-line-strong/60',
+                hover || selected ? 'opacity-100' : 'opacity-0',
+              )}
+              aria-label={page.expanded ? 'Collapse' : 'Expand'}
+              tabIndex={-1}
+            >
+              <ChevronRight
+                size={14}
+                className={cn('transition-transform duration-150', page.expanded && 'rotate-90')}
+              />
+            </button>
           )}
-          aria-label={page.expanded ? 'Collapse' : 'Expand'}
-          tabIndex={-1}
-        >
-          <ChevronRight
-            size={14}
-            className={cn('transition-transform duration-150', page.expanded && 'rotate-90')}
-          />
-        </button>
-
-        <span className={cn('mr-1.5 flex h-5 w-5 shrink-0 items-center justify-center', selected ? 'text-accent' : 'text-faint')}>
-          <DocIcon hasChildren={hasChildren} size={16} className="" />
         </span>
         <span className={cn('flex-1 truncate', selected && 'font-medium text-accent')}>
           {page.title}
