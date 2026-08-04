@@ -29,7 +29,7 @@ export default function App() {
 
   return (
     <TooltipProvider delayDuration={280} skipDelayDuration={200}>
-      <div className="flex h-screen w-screen overflow-hidden bg-canvas text-ink">
+      <div className="flex h-screen w-full overflow-hidden bg-canvas text-ink">
         {/* inline sidebar (desktop) */}
         <AnimatePresence initial={false}>
           {showInlineSidebar && (

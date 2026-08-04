@@ -15,14 +15,11 @@ export function PageHeader({ page, fullWidth, suggested }: { page: Page; fullWid
         fullWidth ? 'max-w-none px-[clamp(40px,7vw,120px)]' : 'max-w-[var(--reading-w)] px-6',
       ].join(' ')}
     >
-      <div className="pt-14">
-        <div className="flex h-[56px] w-[56px] items-center justify-center text-faint">
-          <DocIcon hasChildren={page.children.length > 0} size={44} className="" />
-        </div>
-      </div>
-
-      <div className="mt-3 flex items-center gap-3 text-2xs text-faint">
-        <span>Edited {relativeTime(page.updatedAt)}</span>
+      {/* Quiet marker + metadata in one tight group above the title — no dead
+          zone. Responsive top gap: small on phones, a little more on desktop. */}
+      <div className="flex items-center gap-2 pt-6 text-2xs text-faint md:pt-9">
+        <DocIcon hasChildren={page.children.length > 0} size={18} />
+        <span className="tabular-nums">Edited {relativeTime(page.updatedAt)}</span>
         {page.shared && (
           <span className="flex items-center gap-1 text-accent">
             <Users size={12} /> Shared

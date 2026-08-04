@@ -27,7 +27,7 @@ export const IconButton = forwardRef<HTMLButtonElement, Props>(function IconButt
           'inline-flex shrink-0 items-center justify-center rounded-md text-muted transition-colors duration-120 ease-out',
           'hover:bg-hover hover:text-ink active:bg-selected disabled:pointer-events-none disabled:opacity-40',
           size === 'sm' ? 'h-6 w-6' : 'h-7 w-7',
-          active && 'bg-hover text-ink',
+          active && 'bg-accent-soft text-accent hover:bg-accent-soft hover:text-accent',
           tone === 'danger' && 'hover:bg-danger/10 hover:text-danger',
           className,
         )}

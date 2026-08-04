@@ -83,13 +83,15 @@ function Switch({ on, onChange }: { on: boolean; onChange: (v: boolean) => void 
 }
 
 function Row({ title, desc, control }: { title: string; desc?: string; control: ReactNode }) {
+  // Stack title/desc above the control on phones so neither gets crushed into a
+  // narrow column; side-by-side from 600px up.
   return (
-    <div className="flex items-center justify-between gap-6 py-3.5">
+    <div className="flex flex-col gap-2 py-3.5 min-[600px]:flex-row min-[600px]:items-center min-[600px]:justify-between min-[600px]:gap-6">
       <div className="min-w-0">
         <p className="text-[13px] font-medium text-ink">{title}</p>
         {desc && <p className="mt-0.5 text-[12px] leading-snug text-muted">{desc}</p>}
       </div>
-      <div className="shrink-0">{control}</div>
+      <div className="w-full min-[600px]:w-auto min-[600px]:shrink-0">{control}</div>
     </div>
   );
 }
@@ -136,7 +138,7 @@ function Account() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && save()}
-                className="h-8 w-40 rounded-md bg-surface px-2.5 text-[13px] text-ink outline-none ring-1 ring-inset ring-line focus:ring-2 focus:ring-accent"
+                className="h-8 w-full rounded-md bg-surface px-2.5 text-[13px] text-ink outline-none ring-1 ring-inset ring-line focus:ring-2 focus:ring-accent min-[600px]:w-40"
               />
               {dirty ? (
                 <Button size="sm" variant="primary" onClick={save} disabled={busy}
@@ -451,7 +453,7 @@ export function SettingsDialog() {
                             onClick={() => setSection(it.id)}
                             className={cn(
                               'flex h-8 shrink-0 items-center gap-2.5 whitespace-nowrap rounded-md px-2.5 text-[13px] transition-colors duration-120 md:w-full md:px-2',
-                              section === it.id ? 'bg-selected font-medium text-ink' : 'text-muted hover:bg-hover',
+                              section === it.id ? 'bg-accent-soft font-medium text-accent' : 'text-muted hover:bg-hover',
                             )}
                           >
                             <it.icon size={15} className="shrink-0 opacity-80" />
