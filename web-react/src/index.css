@@ -127,23 +127,6 @@ textarea:focus-visible,
  * We don't touch its internals; we only paint its CSS surface so it
  * inherits our canvas + typography instead of its default chrome.
  * ------------------------------------------------------------------ */
-/* BlockSuite's floating popovers, slash/@-menus, and format toolbars render in
- * portals OUTSIDE affine-editor-container, so vars scoped to that element don't
- * reach them — they fell back to BlockSuite's default white. Map the overlay/
- * panel/text vars at :root (they reference our tokens, which flip under .dark)
- * so every floating surface themes correctly in dark mode too. */
-:root {
-  --affine-background-overlay-panel-color: var(--surface);
-  --affine-background-primary-color: var(--canvas);
-  --affine-background-secondary-color: var(--surface);
-  --affine-background-tertiary-color: var(--hover);
-  --affine-text-primary-color: var(--ink);
-  --affine-text-secondary-color: var(--muted);
-  --affine-border-color: var(--line);
-  --affine-hover-color: var(--hover);
-  --affine-popover-shadow: var(--shadow-pop, 0 2px 4px rgba(15, 15, 15, 0.04), 0 8px 24px rgba(15, 15, 15, 0.1), 0 0 0 1px var(--line));
-}
-
 affine-editor-container {
   --affine-background-primary-color: var(--canvas);
   --affine-background-secondary-color: var(--surface);

@@ -13,7 +13,9 @@ import {
   FontConfigExtension,
   FeatureFlagService,
   CommunityCanvasTextFonts,
+  ThemeExtensionIdentifier,
 } from '@blocksuite/affine/shared/services';
+import { ColorScheme } from '@blocksuite/affine/model';
 import { HocuspocusProvider } from '@hocuspocus/provider';
 import { IndexeddbPersistence } from 'y-indexeddb';
 import { Signal } from '@preact/signals-core';
@@ -173,10 +175,29 @@ export async function mountEditor(root: HTMLElement, { docId, title, mode, userN
   editor.mode = mode;
   store.get(FeatureFlagService).setFlag('enable_advanced_block_visibility', true);
 
+  // Follow the app's dark/light toggle (a `dark` class on <html>) so BlockSuite's
+  // own themed surfaces — floating toolbars, slash/@ menus, popovers — switch too.
+  // Without this, BlockSuite stays in its default light theme and those portaled
+  // widgets render white on our dark canvas.
+  const appScheme = () => (document.documentElement.classList.contains('dark') ? ColorScheme.Dark : ColorScheme.Light);
+  const themeSignal = new Signal<ColorScheme>(appScheme());
+  const themeObserver = new MutationObserver(() => {
+    const s = appScheme();
+    if (themeSignal.value !== s) themeSignal.value = s;
+  });
+  themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+
   const common = [
     FontConfigExtension(CommunityCanvasTextFonts),
     EditorSettingExtension({ setting$: new Signal({}) }),
     { setup: (di: { override: (a: unknown, b: unknown) => void }) => di.override(DocModeProvider, docModeService(editor, mode)) },
+    {
+      setup: (di: { override: (a: unknown, b: unknown) => void }) =>
+        di.override(ThemeExtensionIdentifier, {
+          getAppTheme: () => themeSignal,
+          getEdgelessTheme: () => themeSignal,
+        }),
+    },
   ];
   editor.pageSpecs = [...viewManager.get('page'), ...common];
   editor.edgelessSpecs = [...viewManager.get('edgeless'), ...common];
@@ -219,6 +240,7 @@ export async function mountEditor(root: HTMLElement, { docId, title, mode, userN
     setMode(m: 'page' | 'edgeless') { editor.mode = m; },
     destroy() {
       if (timer) clearTimeout(timer);
+      try { themeObserver.disconnect(); } catch { /* noop */ }
       try { doc.spaceDoc.off('update', push); } catch { /* noop */ }
       try { provider.destroy(); } catch { /* noop */ }
       try { idb?.destroy(); } catch { /* noop */ }
