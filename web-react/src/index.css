@@ -26,22 +26,32 @@
   --topbar-h: 45px;
   --reading-w: 720px;
 
+  /* One display face for document title + headings; Inter stays the UI face.
+   * Fraunces at opsz high, soft/wonk 0 = a crisp high-contrast editorial serif. */
+  --font-display: 'Fraunces Variable', 'Fraunces', Georgia, ui-serif, serif;
+
+  /* One motion family across drawers, dialogs, menus, page transitions. */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur: 200ms;
+
   color-scheme: light;
 }
 
 .dark {
+  /* Wider lightness steps between canvas → surface → hover → selected so active
+   * rows, hovers and panels are locatable instead of melting into the canvas. */
   --canvas: #191919;
-  --surface: #202020;
+  --surface: #232323;
   --surface-2: #1e1e1e;
-  --hover: #2c2c2c;
-  --selected: #333331;
+  --hover: #313131;
+  --selected: #3a3a38;
   --ink: #e9e9e7;
-  --muted: #9b9b9b;
-  --faint: #6f6f6f;
-  --line: #2f2f2d;
-  --line-strong: #3a3a37;
+  --muted: #a5a5a3;
+  --faint: #757573;
+  --line: #333331;
+  --line-strong: #424240;
   --accent: #4a9eea;
-  --accent-soft: #1c3049;
+  --accent-soft: #1d3a57;
   --danger: #e06c66;
   --overlay: rgba(0, 0, 0, 0.5);
 
@@ -153,6 +163,61 @@ affine-editor-container {
 
 affine-editor-container * {
   border-color: inherit;
+}
+
+/* ------------------------------------------------------------------ *
+ * Document typography — make the document the hero. Title + headings
+ * use the display serif; body stays Inter. Clear H1/H2/H3 steps and a
+ * generous body measure/line-height distinguish content from chrome.
+ * ------------------------------------------------------------------ */
+affine-editor-container .doc-title-container,
+affine-editor-container .doc-title-container * {
+  font-family: var(--font-display) !important;
+  font-optical-sizing: auto;
+  font-weight: 600 !important;
+  letter-spacing: -0.015em;
+  line-height: 1.12 !important;
+}
+affine-editor-container .doc-title-container {
+  font-size: clamp(30px, 4.6vw, 46px) !important;
+}
+/* Long titles/headings must wrap inside a long word rather than overflow. */
+affine-editor-container .doc-title-container,
+affine-editor-container affine-paragraph {
+  overflow-wrap: anywhere;
+}
+/* Headings h1–h6: display face, heavier than body. BlockSuite tags the level as
+ * a CLASS on the rich-text wrapper (.h1/.h2/…), NOT a data-type attribute. */
+affine-editor-container .affine-paragraph-rich-text-wrapper.h1,
+affine-editor-container .affine-paragraph-rich-text-wrapper.h2,
+affine-editor-container .affine-paragraph-rich-text-wrapper.h3,
+affine-editor-container .affine-paragraph-rich-text-wrapper.h4,
+affine-editor-container .affine-paragraph-rich-text-wrapper.h5,
+affine-editor-container .affine-paragraph-rich-text-wrapper.h6 {
+  font-family: var(--font-display);
+  letter-spacing: -0.012em;
+  font-weight: 600;
+  line-height: 1.25;
+}
+/* Explicit, visibly-stepped heading scale (BlockSuite 0.22 sizes the level via
+ * the .h1–.h6 class, not the --affine-font-h* vars, so set font-size here). */
+affine-editor-container .affine-paragraph-rich-text-wrapper.h1 { font-size: 2rem !important; }
+affine-editor-container .affine-paragraph-rich-text-wrapper.h2 { font-size: 1.55rem !important; }
+affine-editor-container .affine-paragraph-rich-text-wrapper.h3 { font-size: 1.28rem !important; }
+affine-editor-container .affine-paragraph-rich-text-wrapper.h4 { font-size: 1.14rem !important; }
+affine-editor-container .affine-paragraph-rich-text-wrapper.h5 { font-size: 1.02rem !important; }
+affine-editor-container .affine-paragraph-rich-text-wrapper.h6 { font-size: 0.92rem !important; letter-spacing: 0; }
+/* Comfortable body rhythm. */
+affine-editor-container affine-note { --affine-line-height: 1.72; }
+
+/* Tables (and any wide block) must scroll inside their own box on small
+ * screens instead of forcing the page to scroll sideways. */
+affine-editor-container affine-table,
+affine-editor-container affine-database,
+affine-editor-container .affine-table-container,
+affine-editor-container .affine-database-block-table {
+  max-width: 100%;
+  overflow-x: auto;
 }
 
 /* "Smaller text" preference — shrinks the editor body font (headings keep their

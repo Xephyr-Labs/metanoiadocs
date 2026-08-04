@@ -1,5 +1,6 @@
 import {
   ChevronDown,
+  ChevronRight,
   ChevronsLeftRight,
   Home,
   Inbox,
@@ -43,6 +44,25 @@ function SectionLabel({ children, action }: { children: ReactNode; action?: Reac
       <span className="text-[11px] font-semibold uppercase tracking-wide text-faint">{children}</span>
       {action}
     </div>
+  );
+}
+
+/** A section label that toggles its body — used to fold Templates away when the
+ *  document tree is long, so the tree isn't buried under a wall of items. */
+function CollapsibleSection({ label, defaultOpen, children }: { label: string; defaultOpen: boolean; children: ReactNode }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="group flex h-6 w-full items-center gap-1 px-2 text-[11px] font-semibold uppercase tracking-wide text-faint hover:text-muted"
+      >
+        <ChevronRight size={12} className={cn('transition-transform duration-150', open && 'rotate-90')} />
+        {label}
+      </button>
+      {open && <div className="mt-0.5">{children}</div>}
+    </>
   );
 }
 
@@ -133,20 +153,20 @@ export function Sidebar() {
       {/* scroll region */}
       <div className="scrollarea mt-3 flex-1 overflow-y-auto px-2 pb-2">
         {ws.recentIds.length > 0 && (
-          <section className="mb-3">
+          <section className="mb-[18px]">
             <SectionLabel>Recent</SectionLabel>
             <div className="space-y-px">{ws.recentIds.map((id) => <DocRow key={id} id={id} />)}</div>
           </section>
         )}
 
         {ws.favoriteIds.length > 0 && (
-          <section className="mb-3">
+          <section className="mb-[18px]">
             <SectionLabel>Favorites</SectionLabel>
             <div className="space-y-px">{ws.favoriteIds.map((id) => <DocRow key={id} id={id} />)}</div>
           </section>
         )}
 
-        <section className="mb-3">
+        <section className="mb-[18px]">
           <SectionLabel
             action={
               <button type="button" onClick={() => ws.createPage(null)} className="flex h-5 w-5 items-center justify-center rounded text-faint hover:bg-hover hover:text-muted" aria-label="New page">
@@ -166,28 +186,28 @@ export function Sidebar() {
         </section>
 
         {ws.privateRootIds.length > 0 && (
-          <section className="mb-3">
+          <section className="mb-[18px]">
             <SectionLabel>Private</SectionLabel>
             <PageTree roots={ws.privateRootIds} />
           </section>
         )}
 
         {ws.sharedRootIds.length > 0 && (
-          <section className="mb-3">
+          <section className="mb-[18px]">
             <SectionLabel>Public links</SectionLabel>
             <div className="space-y-px">{ws.sharedRootIds.map((id) => <DocRow key={id} id={id} />)}</div>
           </section>
         )}
 
         {ws.libraryRootIds.length > 0 && (
-          <section className="mb-3">
+          <section className="mb-[18px]">
             <SectionLabel>Shared with me</SectionLabel>
             <PageTree roots={ws.libraryRootIds} />
           </section>
         )}
 
         {ws.allTags.length > 0 && (
-          <section className="mb-3">
+          <section className="mb-[18px]">
             <SectionLabel>Tags</SectionLabel>
             <div className="space-y-px">
               {ws.allTags.map((t) => (
@@ -206,8 +226,8 @@ export function Sidebar() {
           </section>
         )}
 
-        <section className="mb-1">
-          <SectionLabel>Templates</SectionLabel>
+        <section className="mb-1 mt-1">
+          <CollapsibleSection label="Templates" defaultOpen={ws.workspaceRootIds.length <= 8}>
           <div className="space-y-px">
             {templates.map((t) => (
               <button
@@ -222,6 +242,7 @@ export function Sidebar() {
               </button>
             ))}
           </div>
+          </CollapsibleSection>
         </section>
       </div>
 
