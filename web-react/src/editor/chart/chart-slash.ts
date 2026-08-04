@@ -24,11 +24,14 @@ export const chartSlashMenuConfig: SlashMenuConfig = {
       when: ({ model }) => model.store.schema.flavourSchemaMap.has(CHART_FLAVOUR),
       action: ({ std, model }) => {
         const store = std.store;
-        const parent = model ? store.getParent(model) : null;
         const props = { ...defaultChartProps() };
-        if (!parent) { store.addBlock(CHART_FLAVOUR, props, store.root ?? undefined); return; }
-        const index = parent.children.findIndex((c: { id: string }) => c.id === model.id) + 1;
-        store.addBlock(CHART_FLAVOUR, props, parent, index);
+        const parent = model ? store.getParent(model) : null;
+        if (parent) {
+          const index = parent.children.findIndex((c: { id: string }) => c.id === model.id) + 1;
+          store.addBlock(CHART_FLAVOUR, props, parent, index);
+        } else if (store.root) {
+          store.addBlock(CHART_FLAVOUR, props, store.root);
+        }
       },
     },
   ],

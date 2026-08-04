@@ -8,6 +8,7 @@ import type { ExtensionType } from '@blocksuite/store';
 import { literal } from 'lit/static-html.js';
 import { CHART_FLAVOUR } from './chart-model';
 import { chartSlashMenuConfig } from './chart-slash';
+import { chartToolbarExtension } from './chart-toolbar';
 
 export const chartViewExtensions: ExtensionType[] = [
   FlavourExtension(CHART_FLAVOUR),
@@ -18,4 +19,5 @@ export const chartViewExtensions: ExtensionType[] = [
       : literal`metanoia-chart`;
   }),
   SlashMenuConfigExtension(CHART_FLAVOUR, chartSlashMenuConfig),
+  chartToolbarExtension,
 ];

@@ -78,7 +78,7 @@ export function normalizeChartProps(raw: unknown): ChartBlockProps {
     title: typeof o.title === 'string' ? o.title.slice(0, 300) : d.title,
     dataSource,
     xField: typeof o.xField === 'string' ? o.xField : undefined,
-    yFields: yFields.length ? yFields : (dataSource.sourceType === 'inline' ? [] : []),
+    yFields,
     groupField: typeof o.groupField === 'string' && o.groupField ? o.groupField : undefined,
     aggregation,
     showLegend: typeof o.showLegend === 'boolean' ? o.showLegend : d.showLegend,

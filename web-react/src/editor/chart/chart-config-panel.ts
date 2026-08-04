@@ -65,12 +65,16 @@ export class MetanoiaChartConfig extends LitElement {
   private model: MetanoiaChartBlockModel | null = null;
   private store: AnyStore | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
+  private pendingPatch: Partial<ChartBlockProps> = {};
 
   @state() private accessor draft: ChartBlockProps | null = null;
   @state() private accessor advancedText = '';
   @state() private accessor advancedError = '';
 
   openFor(model: MetanoiaChartBlockModel, store: AnyStore): void {
+    // Flush any pending edit to the PREVIOUS chart before switching models, so a
+    // debounced patch can't land on the wrong block.
+    if (this.timer) { clearTimeout(this.timer); this.flush(); }
     this.model = model; this.store = store;
     this.draft = normalizeChartProps((model as any).props ?? model);
     this.advancedText = this.draft.advancedOptions ? JSON.stringify(this.draft.advancedOptions, null, 2) : '';
@@ -78,17 +82,30 @@ export class MetanoiaChartConfig extends LitElement {
     this.setAttribute('open', '');
   }
 
-  close(): void { this.removeAttribute('open'); }
+  close(): void {
+    if (this.timer) { clearTimeout(this.timer); this.flush(); } // persist a queued edit now
+    this.removeAttribute('open');
+  }
 
-  // Debounced transactional commit so rapid edits become few undo steps.
+  // Debounced transactional commit so rapid edits become few undo steps. Patches
+  // ACCUMULATE between flushes — otherwise changing field A then field B within
+  // the debounce window would drop A (the timer for A gets cleared).
   private commit(patch: Partial<ChartBlockProps>): void {
     if (!this.draft) return;
     this.draft = { ...this.draft, ...patch };
+    this.pendingPatch = { ...this.pendingPatch, ...patch };
     this.requestUpdate();
     if (this.timer) clearTimeout(this.timer);
-    this.timer = setTimeout(() => {
-      if (this.model && this.store?.updateBlock) this.store.updateBlock(this.model, { ...patch });
-    }, 250);
+    this.timer = setTimeout(() => this.flush(), 250);
+  }
+
+  private flush(): void {
+    const patch = this.pendingPatch;
+    this.pendingPatch = {};
+    this.timer = null;
+    if (this.model && this.store?.updateBlock && Object.keys(patch).length) {
+      this.store.updateBlock(this.model, patch);
+    }
   }
 
   private commitInline(mutate: (d: InlineChartData) => void): void {
@@ -218,7 +235,7 @@ export class MetanoiaChartConfig extends LitElement {
             ${views.map((v) => html`<option value=${v.id} ?selected=${v.id === src.viewId}>${v.name || v.id}</option>`)}
           </select>` : ''}
         ${current ? html`<button class="linklike" style="margin-top:6px" @click=${() => this.openSourceDatabase(src.databaseBlockId)}>Open source database →</button>` : ''}
-        <div class="hint">Reads all rows; view-scoped filtering is not yet applied (see docs).</div>
+        <div class="hint">A selected view's column visibility, sort and filter are applied.</div>
       </div>`;
   }
 

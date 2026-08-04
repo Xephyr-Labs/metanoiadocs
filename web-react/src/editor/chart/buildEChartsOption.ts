@@ -25,8 +25,9 @@ function aggregate(vals: number[], agg: Aggregation): number | null {
   switch (agg) {
     case 'sum': return vals.reduce((a, b) => a + b, 0);
     case 'avg': return vals.reduce((a, b) => a + b, 0) / vals.length;
-    case 'min': return Math.min(...vals);
-    case 'max': return Math.max(...vals);
+    // reduce, not Math.min(...vals) — spreading a huge bucket overflows the arg limit.
+    case 'min': return vals.reduce((a, b) => (b < a ? b : a), vals[0]);
+    case 'max': return vals.reduce((a, b) => (b > a ? b : a), vals[0]);
     case 'none': default: return vals[vals.length - 1]; // no aggregation: last wins per category
   }
 }
@@ -47,9 +48,9 @@ function seriesValues(rows: Row[], catField: string, valField: string, categorie
   for (const r of rows) {
     const c = r[catField] == null ? '' : String(r[catField]);
     const v = toNum(r[valField]);
-    if (v === null && agg !== 'count') continue;
     const arr = buckets.get(c) ?? [];
     if (v !== null) arr.push(v);
+    else if (agg === 'count') arr.push(0); // count rows, including ones with an empty Y cell
     buckets.set(c, arr);
   }
   return categories.map((c) => aggregate(buckets.get(c) ?? [], agg));

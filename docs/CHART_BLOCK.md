@@ -46,7 +46,7 @@ export class MetanoiaChartBlockModel
 Wired in `mountEditor.ts` (three touch-points, same pattern as any BlockSuite block):
 
 ```ts
-chartEffects();                                  // define custom elements once
+chartEffects();                                  // define custom elements + allow chart on surface
 schema.register([MetanoiaChartBlockSchema]);     // standalone schema
 collection.storeExtensions = [...storeManager.get('store'), MetanoiaChartBlockSchemaExtension]; // store DI
 editor.pageSpecs     = [...viewManager.get('page'),     ...chartViewExtensions, ...common];
@@ -54,7 +54,13 @@ editor.edgelessSpecs = [...viewManager.get('edgeless'), ...chartViewExtensions, 
 ```
 
 `chartViewExtensions` = `FlavourExtension` + one parent-aware `BlockViewExtension`
-+ `SlashMenuConfigExtension`.
++ `SlashMenuConfigExtension` + `ToolbarModuleExtension` (block toolbar: Configure,
+Open source database).
+
+`chartEffects()` also registers the flavour as an allowed **surface child**
+(`SurfaceBlockSchema.model.children.push('metanoia:chart')`) — required so a chart
+can be a standalone edgeless element (the surface schema's children is a closed
+allowlist).
 
 ## Page and Edgeless rendering
 
@@ -71,7 +77,13 @@ BlockViewExtension('metanoia:chart', model =>
 Both views host the **same** `<metanoia-chart-canvas>` with the same `model` +
 `store`, so a chart is a single block/data-model in both modes. The canvas reads
 config from `model.props`, resolves data, and renders; it self-refreshes on
-`model.propsUpdated`, on theme flips, and on resize.
+`model.propsUpdated`, on theme flips, and on resize (renders are serialized so
+overlapping refreshes can't double-initialize ECharts).
+
+A chart inserted via `/chart` lives in the page flow (a note) and renders in both
+modes. A chart parented directly to `affine:surface` renders as a standalone,
+selectable, **resizable** edgeless gfx element (resize handles + edgeless toolbar
+come free from the selected-rect widget for any `GfxBlockElementModel`).
 
 **Interaction vs selection** (canvas): the ECharts container is
 `pointer-events: none` by default, so a click selects/moves the block. Double-click
@@ -84,7 +96,12 @@ ring, and routes hover/zoom/legend to ECharts. **Esc** or a click outside exits.
 
 - **inline** — rows/columns straight from the block.
 - **database** — reads `columns`, `cells`, and child-row order off the
-  `affine:database` model. Handles deleted/inaccessible sources gracefully.
+  `affine:database` model. When a `viewId` is selected, it applies that table
+  view's **column visibility/order, sort, and filter** (`applyView`); the filter
+  evaluator faithfully mirrors `@blocksuite/data-view`'s operators (its matcher
+  registry isn't exported for reuse) and keeps rows on any unrecognized operator,
+  matching data-view's own fallback. Handles deleted/inaccessible sources
+  gracefully (`resolveDatabase` never throws).
 
 ### Adding a new external data-source adapter
 
@@ -122,22 +139,17 @@ Full editor-integration behaviours (mount lifecycle, resize, block insertion,
 persistence, Page/Edgeless render) are verified in the running app via Playwright
 rather than a headless BlockSuite harness (none is configured in this repo).
 
-## Known limitations / TODO
+## Remaining caveats
 
-- **Standalone Edgeless gfx element.** A chart inserted via `/chart` lives in a
-  note and renders interactively in both Page and Edgeless (inside the note). A
-  chart parented directly to `affine:surface` (a free-floating, individually
-  drag-resizable canvas element) does **not** yet render: BlockSuite 0.22.4's
-  edgeless-root block portal does not pick up the custom gfx flavour from just
-  `FlavourExtension` + a `GfxBlockComponent` view (image works via additional
-  internal wiring). The gfx model + `metanoia-edgeless-chart` component are in
-  place; the missing piece is the edgeless-root surface-block-portal registration
-  for a custom flavour. **TODO:** register the chart flavour with the edgeless
-  root's block portal (investigate `affine-block-root/src/edgeless`).
-- **Database view filtering.** `data-source.ts` reads **all** rows from an
-  `affine:database` model. View-scoped filters/sort/grouping live in
-  `@blocksuite/data-view`'s runtime, not the model, so `viewId` is persisted and
-  selectable but not yet applied. **TODO** marked in `data-source.ts`.
-- **Toolbar "Insert chart".** Insertion is via the `/chart` slash command. A
-  global toolbar entry (`ToolbarModuleExtension`) can be added the same way the
-  image block does.
+- **Filter operator coverage.** `evalFilter` in `data-source.ts` covers the
+  common string/number/boolean/empty operators. Any operator it doesn't
+  recognize keeps the row (never wrongly hides data). Select/multi-select
+  filters compare stored option **ids**, not labels.
+- **Database title column.** Row values come from `cells`; a database's title
+  column (stored as the child block's text, not in `cells`) reads as `null`.
+- **Config panel field lists for database sources.** The X/Y/group selects fall
+  back to already-selected fields until the chart has resolved data; they don't
+  yet live-enumerate a freshly-picked database's columns.
+- **Insertion.** Charts are inserted via the `/chart` slash command (a chart
+  block, not a global toolbar button). Per-chart actions live on the block
+  toolbar (Configure, Open source database).

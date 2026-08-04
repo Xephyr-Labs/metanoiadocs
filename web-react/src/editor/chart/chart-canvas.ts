@@ -74,6 +74,15 @@ export class MetanoiaChartCanvas extends LitElement {
     else if (slot?.subscribe) { const d = slot.subscribe(() => this.refresh()); this.modelUnsub = () => d?.unsubscribe?.(); }
     document.addEventListener('keydown', this.onKeydown);
     document.addEventListener('pointerdown', this.onDocPointerDown, true);
+    // On reconnect (BlockSuite can move block elements), firstUpdated won't run
+    // again — re-establish the resize observer + a render.
+    if (this.hasUpdated) void this.updateComplete.then(() => { this.ensureResizeObserver(); void this.refresh(); });
+  }
+
+  private ensureResizeObserver(): void {
+    if (this.ro || this.disposed) return;
+    const el = this.containerRef.value;
+    if (el) { this.ro = new ResizeObserver(() => this.chart?.resize()); this.ro.observe(el); }
   }
 
   override disconnectedCallback(): void {
@@ -89,11 +98,7 @@ export class MetanoiaChartCanvas extends LitElement {
   }
 
   override firstUpdated(): void {
-    const el = this.containerRef.value;
-    if (el) {
-      this.ro = new ResizeObserver(() => this.chart?.resize());
-      this.ro.observe(el);
-    }
+    this.ensureResizeObserver();
     void this.refresh();
   }
 
@@ -101,8 +106,20 @@ export class MetanoiaChartCanvas extends LitElement {
     if (changed.has('model') || changed.has('store')) void this.refresh();
   }
 
-  /** Public: force a re-resolve + re-render (called by the host block on update). */
+  private rendering = false;
+  private queued = false;
+
+  /** Public: force a re-resolve + re-render (called by the host block on update).
+   *  Serialized so overlapping calls can't double-initialize ECharts. */
   async refresh(): Promise<void> {
+    if (this.disposed) return;
+    if (this.rendering) { this.queued = true; return; }
+    this.rendering = true;
+    try { await this.doRefresh(); }
+    finally { this.rendering = false; if (this.queued && !this.disposed) { this.queued = false; void this.refresh(); } }
+  }
+
+  private async doRefresh(): Promise<void> {
     if (this.disposed) return;
     const model = this.model;
     if (!model) return;

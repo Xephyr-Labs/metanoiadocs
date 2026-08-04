@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildEChartsOption } from './buildEChartsOption';
+import { resolveChartData } from './data-source';
 import {
   migrateChartProps, mergeAdvancedOptions, normalizeChartProps, sanitizeAdvancedOptions,
 } from './chart-schema';
@@ -79,6 +80,18 @@ describe('buildEChartsOption — cartesian', () => {
     expect(dataOf(o, 0)).toEqual(expected);
   });
 
+  it('count counts rows, including ones with an empty Y cell', () => {
+    const withNulls = [{ month: 'Jan', revenue: 5 }, { month: 'Jan', revenue: null }, { month: 'Feb', revenue: 3 }];
+    const o = buildEChartsOption(props({ yFields: ['revenue'], aggregation: 'count' }), withNulls);
+    expect(dataOf(o, 0)).toEqual([2, 1]); // Jan = 2 rows (one empty), Feb = 1
+  });
+
+  it('min/max over a large bucket does not throw', () => {
+    const many = Array.from({ length: 200_000 }, (_, i) => ({ month: 'Jan', revenue: i }));
+    expect(() => buildEChartsOption(props({ yFields: ['revenue'], aggregation: 'max' }), many)).not.toThrow();
+    expect(dataOf(buildEChartsOption(props({ yFields: ['revenue'], aggregation: 'max' }), many), 0)).toEqual([199_999]);
+  });
+
   it('group-by yields one series per group value', () => {
     const o = buildEChartsOption(props({ yFields: ['revenue'], groupField: 'region', aggregation: 'sum' }), rows);
     const names = seriesArr(o).map((s) => (s as { name: string }).name).sort();
@@ -126,6 +139,57 @@ describe('invalid / empty data', () => {
     const o = buildEChartsOption(props(), []);
     expect(Array.isArray(seriesArr(o))).toBe(true);
     seriesArr(o).forEach((s) => expect((s as { data: unknown[] }).data).toEqual([]));
+  });
+});
+
+describe('data-source — database + view application', () => {
+  const model = {
+    flavour: 'affine:database',
+    children: [{ id: 'r1' }, { id: 'r2' }, { id: 'r3' }],
+    props: {
+      columns: [{ id: 'c1', name: 'Name' }, { id: 'c2', name: 'Score' }, { id: 'c3', name: 'Secret' }],
+      cells: {
+        r1: { c1: { value: 'Alice' }, c2: { value: 30 }, c3: { value: 'x' } },
+        r2: { c1: { value: 'Bob' }, c2: { value: 10 }, c3: { value: 'y' } },
+        r3: { c1: { value: 'Cara' }, c2: { value: 20 }, c3: { value: 'z' } },
+      },
+      views: [{
+        id: 'v1', name: 'V', mode: 'table',
+        columns: [{ id: 'c1' }, { id: 'c2' }, { id: 'c3', hide: true }],
+        filter: { type: 'group', op: 'and', conditions: [{ type: 'filter', left: { type: 'ref', name: 'c2' }, function: 'greatThan', args: [{ type: 'literal', value: 15 }] }] },
+        sort: { sortBy: [{ ref: { type: 'ref', name: 'c2' }, desc: true }], manuallySort: [] },
+      }],
+    },
+  };
+  const store = { getModelById: (id: string) => (id === 'db' ? model : null) };
+
+  it('reads all rows/columns without a view', () => {
+    const r = resolveChartData(store as any, { sourceType: 'database', databaseBlockId: 'db' });
+    expect(r.ok).toBe(true);
+    expect(r.columns).toEqual(['Name', 'Score', 'Secret']);
+    expect(r.rows).toHaveLength(3);
+  });
+
+  it('applies view filter + sort + column visibility', () => {
+    const r = resolveChartData(store as any, { sourceType: 'database', databaseBlockId: 'db', viewId: 'v1' });
+    expect(r.columns).toEqual(['Name', 'Score']);      // c3 hidden
+    expect(r.rows).toEqual([                             // c2>15, sorted desc
+      { Name: 'Alice', Score: 30 },
+      { Name: 'Cara', Score: 20 },
+    ]);
+  });
+
+  it('unknown filter operator keeps rows (no wrong hiding)', () => {
+    const m2 = { ...model, props: { ...model.props, views: [{ ...model.props.views[0], filter: { type: 'group', op: 'and', conditions: [{ type: 'filter', left: { type: 'ref', name: 'c2' }, function: 'someFutureOp', args: [{ type: 'literal', value: 1 }] }] }, sort: undefined, columns: undefined }] } };
+    const s2 = { getModelById: (id: string) => (id === 'db' ? m2 : null) };
+    const r = resolveChartData(s2 as any, { sourceType: 'database', databaseBlockId: 'db', viewId: 'v1' });
+    expect(r.rows).toHaveLength(3); // unknown op -> all kept
+  });
+
+  it('deleted / inaccessible database -> ok:false with message', () => {
+    const r = resolveChartData(store as any, { sourceType: 'database', databaseBlockId: 'gone' });
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/deleted|inaccessible/i);
   });
 });
 
