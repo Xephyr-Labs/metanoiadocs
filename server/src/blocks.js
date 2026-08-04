@@ -142,6 +142,12 @@ export function buildDocState(title, markdown) {
   const doc = new Y.Doc();
   const blocks = doc.getMap('blocks');
   const descs = parseMarkdown(markdown);
+  // Drop a leading heading that just repeats the title — the page title already
+  // renders it, so keeping it would duplicate the title in the body.
+  if (descs.length && descs[0].flavour === 'affine:paragraph' && /^h[1-6]$/.test(descs[0].type || '')
+      && String(title || '').trim() && (descs[0].text || '').trim() === String(title).trim()) {
+    descs.shift();
+  }
   if (descs.length === 0) descs.push({ flavour: 'affine:paragraph', type: 'text', text: '' });
   const childIds = descs.map((d) => makeBlock(blocks, d));
   const noteId = makeNote(blocks, childIds);

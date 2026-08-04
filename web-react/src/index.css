@@ -210,6 +210,30 @@ affine-editor-container .affine-paragraph-rich-text-wrapper.h6 { font-size: 0.92
 /* Comfortable body rhythm. */
 affine-editor-container affine-note { --affine-line-height: 1.72; }
 
+/* Read-only mermaid diagram preview rendered under its ```mermaid code block. */
+affine-editor-container .mn-mermaid {
+  margin: 4px 0 12px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+  overflow-x: auto;
+  text-align: center;
+  user-select: none;
+}
+affine-editor-container .mn-mermaid svg {
+  max-width: 100%;
+  height: auto;
+}
+affine-editor-container .mn-mermaid.mn-mermaid-err {
+  text-align: left;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 30%, var(--line));
+}
+
 /* Tables (and any wide block) must scroll inside their own box on small
  * screens instead of forcing the page to scroll sideways. */
 affine-editor-container affine-table,

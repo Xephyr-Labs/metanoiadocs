@@ -20,6 +20,7 @@ import { HocuspocusProvider } from '@hocuspocus/provider';
 import { IndexeddbPersistence } from 'y-indexeddb';
 import { Signal } from '@preact/signals-core';
 import { takePendingSeed } from './pendingSeed';
+import { attachMermaidPreviews } from './mermaidPreview';
 
 let effectsInstalled = false;
 function installEffects() {
@@ -205,6 +206,15 @@ export async function mountEditor(root: HTMLElement, { docId, title, mode, userN
   root.replaceChildren(editor);
   await editor.updateComplete;
 
+  // Render read-only diagram previews under ```mermaid code blocks. Mermaid is
+  // dynamically imported inside here, so it only loads for docs that use it.
+  const detachMermaid = attachMermaidPreviews({
+    store,
+    root: editor,
+    isDark: () => themeSignal.value === ColorScheme.Dark,
+    onChange: (cb) => { doc.spaceDoc.on('update', cb); return () => doc.spaceDoc.off('update', cb); },
+  });
+
   // Debounced sync of title (sidebar) + plain text (search) back to the server.
   let timer: ReturnType<typeof setTimeout> | null = null;
   let lastTitle = title;
@@ -240,6 +250,7 @@ export async function mountEditor(root: HTMLElement, { docId, title, mode, userN
     setMode(m: 'page' | 'edgeless') { editor.mode = m; },
     destroy() {
       if (timer) clearTimeout(timer);
+      try { detachMermaid(); } catch { /* noop */ }
       try { themeObserver.disconnect(); } catch { /* noop */ }
       try { doc.spaceDoc.off('update', push); } catch { /* noop */ }
       try { provider.destroy(); } catch { /* noop */ }
