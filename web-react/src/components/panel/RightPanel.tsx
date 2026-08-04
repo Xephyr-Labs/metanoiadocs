@@ -230,9 +230,11 @@ function OutlineTab() {
       const host = document.querySelector('affine-editor-container');
       if (!host) return;
       const out: { level: number; text: string }[] = [];
+      // BlockSuite marks the heading level as a class (h1…h6) on the paragraph's
+      // rich-text wrapper — there is no data-type attribute to read.
       host.querySelectorAll('affine-paragraph').forEach((el) => {
-        const type = (el.getAttribute('data-type') || el.className.match(/\bh[1-3]\b/)?.[0] || '').replace('h', '');
-        const lvl = Number(type);
+        const wrapper = el.querySelector('.affine-paragraph-rich-text-wrapper');
+        const lvl = Number(wrapper?.className.match(/\bh([1-6])\b/)?.[1] || 0);
         const text = (el as HTMLElement).innerText.trim();
         if (lvl >= 1 && lvl <= 3 && text) out.push({ level: lvl, text });
       });
