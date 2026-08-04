@@ -127,6 +127,15 @@ textarea:focus-visible,
  * We don't touch its internals; we only paint its CSS surface so it
  * inherits our canvas + typography instead of its default chrome.
  * ------------------------------------------------------------------ */
+/* BlockSuite's floating format toolbar/popovers use box-shadow: var(--affine-
+ * overlay-shadow), which is undefined here → no shadow, so the white toolbar
+ * vanishes against our white editor. Define it (custom props inherit through
+ * BlockSuite's shadow DOM) as a hairline ring + soft shadow — theme-aware via
+ * --line — so floating surfaces read distinctly in both light and dark. */
+:root {
+  --affine-overlay-shadow: 0 0 0 1px var(--line), 0 6px 20px -8px rgba(0, 0, 0, 0.28);
+}
+
 affine-editor-container {
   --affine-background-primary-color: var(--canvas);
   --affine-background-secondary-color: var(--surface);

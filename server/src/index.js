@@ -626,11 +626,10 @@ app.post('/api/docs/:id/restore', requireUser, async (req, res) => {
 // Soft-delete a doc (owner only). Children re-parent to top level via the
 // ON DELETE SET NULL fk only on hard delete, so here we just detach them.
 app.delete('/api/docs/:id', requireUser, async (req, res) => {
-  const grant = await pool.query(
-    'SELECT role FROM doc_access WHERE doc_id = $1 AND user_id = $2',
-    [req.params.id, req.user.id]
-  );
-  if (grant.rows[0]?.role !== 'owner') return res.status(403).json({ error: 'forbidden' });
+  // Delete is a soft-delete to trash (recoverable), so any member who can edit
+  // the doc may remove it — team docs by any member, private docs by the owner
+  // or anyone it's shared with. Matches the team-editable model (grantOn).
+  if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
   // Detach children then soft-delete atomically, so a crash between the two can't
   // leave children orphaned under a still-live parent.
   const client = await pool.connect();
