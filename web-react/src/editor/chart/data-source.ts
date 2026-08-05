@@ -23,7 +23,7 @@ type AnyStore = {
   blocks?: Map<string, unknown> | Record<string, unknown>;
 };
 
-function findModelById(store: AnyStore, id: string): any {
+export function findModelById(store: AnyStore, id: string): any {
   if (!store) return null;
   const direct = store.getModelById?.(id);
   if (direct) return direct;

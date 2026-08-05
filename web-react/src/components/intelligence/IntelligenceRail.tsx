@@ -10,6 +10,7 @@ import { useWorkspace } from '../../store/workspace';
 import { cn } from '../../lib/cn';
 
 const RAIL_KEY = 'mn-rail-open';
+const MORE_KEY = 'mn-rail-more';
 
 // Hoisted to module scope: these don't close over component state, so they
 // must not be redefined (and remounted) on every render.
@@ -54,8 +55,11 @@ export function IntelligenceRail({ data, loading, error, onClose }: {
   const ws = useWorkspace();
   const drawer = !!onClose;
   const [open, setOpen] = useState(() => localStorage.getItem(RAIL_KEY) !== '0');
-  const [more, setMore] = useState(false);
+  // Both the rail and the "More signals" disclosure persist, so the rail comes
+  // back the way you left it instead of re-collapsing on every doc switch.
+  const [more, setMore] = useState(() => localStorage.getItem(MORE_KEY) === '1');
   const toggle = () => { const n = !open; setOpen(n); localStorage.setItem(RAIL_KEY, n ? '1' : '0'); };
+  const toggleMore = () => { const n = !more; setMore(n); localStorage.setItem(MORE_KEY, n ? '1' : '0'); };
 
   // Inline collapsed state: a thin strip that re-opens the rail. (Drawer mode
   // has no collapsed strip — its close button dismisses the whole drawer.)
@@ -143,13 +147,13 @@ export function IntelligenceRail({ data, loading, error, onClose }: {
           {/* Lower-value signals disclosed on demand — keeps the rail scannable. */}
           {(data.risks.length + data.changedDeps.length + data.collaborators.length + data.templates.length + data.terminology.length) > 0 && (
             <div>
-              {!more ? (
-                <button onClick={() => setMore(true)}
-                  className="flex w-full items-center gap-1.5 px-3.5 py-2.5 text-[12px] font-medium text-muted hover:text-ink">
-                  <ChevronDown size={13} /> More signals
-                </button>
-              ) : (
-                <div className="divide-y divide-line">
+              <button onClick={toggleMore} aria-expanded={more}
+                className="flex w-full items-center gap-1.5 px-3.5 py-2.5 text-[12px] font-medium text-muted hover:text-ink">
+                <ChevronDown size={13} className={cn('transition-transform', more && 'rotate-180')} />
+                {more ? 'Fewer signals' : 'More signals'}
+              </button>
+              {more && (
+                <div className="divide-y divide-line border-t border-line">
                   <Section icon={AlertTriangle} label="Risks" count={data.risks.length}>
                     {data.risks.map((r, i) => <div key={i}>{r.text}</div>)}
                   </Section>

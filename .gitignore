@@ -8,3 +8,6 @@ db_data/
 
 # SDD scratch workspace (not part of the repo)
 .superpowers/
+
+# local design review scratch — never commit
+docs/improvmenets.md

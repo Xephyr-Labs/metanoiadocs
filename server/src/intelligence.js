@@ -52,6 +52,20 @@ const snip = (t, re) => {
   return t.slice(i, i + 200).trim();
 };
 
+/**
+ * Fallback block list for a doc with no persisted Yjs state: one block per
+ * non-empty line. `- [ ]` / `- [x]` markers become real todo blocks — otherwise
+ * every task in such a doc is read as a plain paragraph and never extracted.
+ */
+export function blocksFromText(text) {
+  return String(text || '').split('\n').filter(Boolean).map((line) => {
+    const todo = /^\s*[-*]\s*\[([ xX])\]\s*(.*)$/.exec(line);
+    return todo
+      ? { flavour: 'affine:list', type: 'todo', checked: todo[1] !== ' ', text: todo[2] }
+      : { flavour: 'affine:paragraph', type: 'text', checked: false, text: line };
+  });
+}
+
 export function extractSignals(blocks) {
   const tasks = [];
   const decisions = [];
@@ -85,6 +99,32 @@ export function extractSignals(blocks) {
     }
   }
   return { tasks, decisions, risks, deadlines };
+}
+
+/**
+ * Wrap an async `fn(key, ...args)` so that, per key, at most one call runs at a
+ * time and queued calls collapse to the newest one. Without this, two saves of
+ * the same doc race and the slower (older) computation can overwrite the newer
+ * result. Returns a scheduler with the same arguments as `fn`.
+ */
+export function coalesceByKey(fn) {
+  const running = new Map(); // key -> { args: pending args | null, done: Promise }
+  return function schedule(key, ...args) {
+    const cur = running.get(key);
+    if (cur) { cur.args = args; return cur.done; } // newest queued call wins
+    const entry = { args: null, done: null };
+    running.set(key, entry);
+    entry.done = (async () => {
+      let next = args;
+      while (next) {
+        await fn(key, ...next);
+        next = entry.args;
+        entry.args = null;
+      }
+      running.delete(key);
+    })();
+    return entry.done;
+  };
 }
 
 // Generic single-word doc titles that are too common to count as a real mention.

@@ -23,7 +23,7 @@ import {
 import { requestMagicLink, consumeMagicLink, sendInviteEmail, sendNotificationEmail } from './auth.js';
 import { getSetting, setSetting } from './db.js';
 import { buildDocState, appendToDocState, extractText, extractBlocks } from './blocks.js';
-import { topTerms, extractSignals, findMentions, simhash, hamming, keyphrases, summarize, tokenize } from './intelligence.js';
+import { topTerms, extractSignals, findMentions, simhash, hamming, keyphrases, summarize, tokenize, coalesceByKey, blocksFromText } from './intelligence.js';
 import OpenAI from 'openai';
 
 process.on('unhandledRejection', (e) => console.error('[proc] unhandledRejection', e?.message || e));
@@ -865,8 +865,7 @@ async function computeAndStoreSignals(docId, fallbackText = '', titles = null) {
     if (st.rows[0]?.state) {
       ({ title, blocks } = extractBlocks(st.rows[0].state));
     } else {
-      blocks = String(fallbackText).split('\n').filter(Boolean)
-        .map((text) => ({ flavour: 'affine:paragraph', type: 'text', checked: false, text }));
+      blocks = blocksFromText(fallbackText); // honours `- [ ]` / `- [x]` markers
     }
     const flatText = (title + '\n' + blocks.map((b) => b.text).join('\n')).trim();
     const scanText = flatText.slice(0, 100000);
@@ -917,12 +916,17 @@ async function computeAndStoreSignals(docId, fallbackText = '', titles = null) {
   }
 }
 
+// Rapid saves of one doc must not race: only one computation per doc runs at a
+// time and queued ones collapse to the newest text, so an older, slower run can
+// never overwrite fresher terms/signals.
+const scheduleSignals = coalesceByKey(computeAndStoreSignals);
+
 app.put('/api/docs/:id/text', requireUser, wrap(async (req, res) => {
   if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
   const text = String(req.body?.text || '').slice(0, 100000);
   await pool.query('UPDATE docs SET search_text = $1 WHERE id = $2', [text, req.params.id]);
   res.json({ ok: true });
-  computeAndStoreSignals(req.params.id, text); // best-effort, after response
+  scheduleSignals(req.params.id, text); // best-effort, after response
 }));
 
 app.get('/api/search', requireUser, wrap(async (req, res) => {

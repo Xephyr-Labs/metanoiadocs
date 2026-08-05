@@ -11,10 +11,18 @@ import { createRef, ref } from 'lit/directives/ref.js';
 import type { EChartsInstance } from './echarts-setup';
 import { buildEChartsOption } from './buildEChartsOption';
 import { normalizeChartProps } from './chart-schema';
-import { resolveChartData, type ResolvedData } from './data-source';
+import { findModelById, resolveChartData, type ResolvedData } from './data-source';
 import type { MetanoiaChartBlockModel } from './chart-model';
 
 type ChartState = 'ok' | 'empty' | 'invalid' | 'error' | 'loading';
+
+/** BlockSuite slots are `.on()` in some versions and `.subscribe()` in others —
+ *  both shapes appear on models here. Returns an unsubscribe, or null. */
+function onSlot(slot: any, fn: () => void): (() => void) | null {
+  if (slot?.on) { const d = slot.on(fn); return () => d?.dispose?.(); }
+  if (slot?.subscribe) { const d = slot.subscribe(fn); return () => d?.unsubscribe?.(); }
+  return null;
+}
 
 @customElement('metanoia-chart-canvas')
 export class MetanoiaChartCanvas extends LitElement {
@@ -56,6 +64,8 @@ export class MetanoiaChartCanvas extends LitElement {
   private ro: ResizeObserver | null = null;
   private themeObs: MutationObserver | null = null;
   private modelUnsub: (() => void) | null = null;
+  private sourceUnsub: (() => void) | null = null;
+  private watchedSourceId: string | null = null;
   private currentTheme: 'dark' | 'light' = 'light';
   private lastKey = '';
   private disposed = false;
@@ -68,10 +78,7 @@ export class MetanoiaChartCanvas extends LitElement {
     this.themeObs = new MutationObserver(() => this.refresh());
     this.themeObs.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
     // Refresh when the block's props change (config edits / collaboration).
-    const m = this.model as any;
-    const slot = m?.propsUpdated;
-    if (slot?.on) { const d = slot.on(() => this.refresh()); this.modelUnsub = () => d?.dispose?.(); }
-    else if (slot?.subscribe) { const d = slot.subscribe(() => this.refresh()); this.modelUnsub = () => d?.unsubscribe?.(); }
+    this.modelUnsub = onSlot((this.model as any)?.propsUpdated, () => this.refresh());
     document.addEventListener('keydown', this.onKeydown);
     document.addEventListener('pointerdown', this.onDocPointerDown, true);
     // On reconnect (BlockSuite can move block elements), firstUpdated won't run
@@ -92,6 +99,7 @@ export class MetanoiaChartCanvas extends LitElement {
     this.themeObs?.disconnect(); this.themeObs = null;
     try { this.modelUnsub?.(); } catch { /* noop */ }
     this.modelUnsub = null;
+    this.unwatchSource();
     document.removeEventListener('keydown', this.onKeydown);
     document.removeEventListener('pointerdown', this.onDocPointerDown, true);
     this.chart?.dispose(); this.chart = null; // prevent leaks
@@ -103,6 +111,9 @@ export class MetanoiaChartCanvas extends LitElement {
   }
 
   override updated(changed: PropertyValues): void {
+    // A new store means the watched model came from the old one — drop it so the
+    // next refresh re-resolves the subscription against the new store.
+    if (changed.has('store')) this.unwatchSource();
     if (changed.has('model') || changed.has('store')) void this.refresh();
   }
 
@@ -124,6 +135,7 @@ export class MetanoiaChartCanvas extends LitElement {
     const model = this.model;
     if (!model) return;
     const config = normalizeChartProps((model as any).props ?? model);
+    this.watchSource(config.dataSource.sourceType === 'database' ? config.dataSource.databaseBlockId : null);
     const resolved: ResolvedData = resolveChartData(this.store as any, config.dataSource);
 
     if (!resolved.ok) { this.setState('error', resolved.error ?? 'Data source unavailable.'); return; }
@@ -133,6 +145,31 @@ export class MetanoiaChartCanvas extends LitElement {
 
     this.chartState = 'ok'; this.message = '';
     await this.renderChart(config, resolved.rows);
+  }
+
+  /** Subscribe to the referenced database block so edits over there (cells,
+   *  columns, view filter/sort, rows added or removed) re-render this chart.
+   *  Without it a chart only refreshed when its OWN props changed. Re-subscribes
+   *  when the chart is pointed at a different database; a no-op when unchanged,
+   *  so calling it from every refresh can't loop. */
+  private watchSource(id: string | null): void {
+    if (id === this.watchedSourceId) return;
+    this.unwatchSource();
+    this.watchedSourceId = id;
+    if (!id) return;
+    const db = findModelById(this.store as any, id);
+    if (!db) return; // resolveChartData reports the missing-source state
+    const offs = [
+      onSlot(db.propsUpdated, () => this.refresh()),   // cells, columns, views
+      onSlot(db.childrenUpdated, () => this.refresh()), // rows added / removed
+    ].filter(Boolean) as Array<() => void>;
+    this.sourceUnsub = () => offs.forEach((off) => { try { off(); } catch { /* noop */ } });
+  }
+
+  private unwatchSource(): void {
+    try { this.sourceUnsub?.(); } catch { /* noop */ }
+    this.sourceUnsub = null;
+    this.watchedSourceId = null;
   }
 
   private setState(s: ChartState, msg: string): void {

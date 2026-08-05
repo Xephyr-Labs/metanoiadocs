@@ -10,6 +10,7 @@ import {
   type Aggregation, type ChartBlockProps, type ChartType, type InlineChartData,
 } from './chart-types';
 import { normalizeChartProps, sanitizeAdvancedOptions } from './chart-schema';
+import { resolveChartData } from './data-source';
 import type { MetanoiaChartBlockModel } from './chart-model';
 
 type AnyStore = {
@@ -141,7 +142,7 @@ export class MetanoiaChartConfig extends LitElement {
     const d = this.draft;
     if (!d) return html``;
     const inline = d.dataSource.sourceType === 'inline' ? d.dataSource : null;
-    const cols = inline ? inline.columns : [];
+    const cols = this.knownColumns();
     const yset = new Set(d.yFields);
 
     return html`
@@ -176,18 +177,18 @@ export class MetanoiaChartConfig extends LitElement {
             <div class="field"><label>X field</label>
               <select @change=${(e: Event) => this.commit({ xField: (e.target as HTMLSelectElement).value || undefined })}>
                 <option value="">—</option>
-                ${(cols.length ? cols : this.knownColumns()).map((c) => html`<option value=${c} ?selected=${d.xField === c}>${c}</option>`)}
+                ${cols.map((c) => html`<option value=${c} ?selected=${d.xField === c}>${c}</option>`)}
               </select></div>
             <div class="field"><label>Group by</label>
               <select @change=${(e: Event) => this.commit({ groupField: (e.target as HTMLSelectElement).value || undefined })}>
                 <option value="">None</option>
-                ${(cols.length ? cols : this.knownColumns()).map((c) => html`<option value=${c} ?selected=${d.groupField === c}>${c}</option>`)}
+                ${cols.map((c) => html`<option value=${c} ?selected=${d.groupField === c}>${c}</option>`)}
               </select></div>
           </div>
 
           <div class="field"><label>Y fields (series)</label>
             <div class="checks">
-              ${(cols.length ? cols : this.knownColumns()).map((c) => html`
+              ${cols.map((c) => html`
                 <label class="check"><input type="checkbox" ?checked=${yset.has(c)}
                   @change=${(e: Event) => this.toggleY(c, (e.target as HTMLInputElement).checked)}>${c}</label>`)}
             </div></div>
@@ -269,11 +270,13 @@ export class MetanoiaChartConfig extends LitElement {
       </div>`;
   }
 
+  /** Selectable field names for the X / group / Y pickers. Resolved from the
+   *  actual data source (inline columns, or the referenced database's visible
+   *  columns for the chosen view), plus any already-selected field so a stale
+   *  selection stays visible instead of silently vanishing from the select. */
   private knownColumns(): string[] {
-    // For database sources we don't have inline columns; fall back to any fields
-    // the user already selected so the selects aren't empty.
     const d = this.draft; if (!d) return [];
-    const s = new Set<string>();
+    const s = new Set<string>(resolveChartData(this.store as any, d.dataSource).columns);
     if (d.xField) s.add(d.xField);
     if (d.groupField) s.add(d.groupField);
     d.yFields.forEach((y) => s.add(y));

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { tokenize, topTerms, extractSignals, findMentions, simhash, hamming, keyphrases, summarize } from './intelligence.js';
+import { tokenize, topTerms, extractSignals, findMentions, simhash, hamming, keyphrases, summarize, coalesceByKey, blocksFromText } from './intelligence.js';
 import { buildDocState, extractBlocks } from './blocks.js';
 
 test('tokenize drops stopwords, short words, punctuation', () => {
@@ -107,4 +107,43 @@ test('summarize returns a subset of sentences, capped', () => {
   const s = summarize(t, 2);
   assert.ok(s.length > 0 && s.length < t.length);
   assert.ok(!/cats are unrelated/i.test(s)); // the off-topic sentence should rank last
+});
+
+test('blocksFromText turns todo markers into extractable tasks', () => {
+  const blocks = blocksFromText('Notes\n- [ ] Ship the release notes\n* [x] Reviewed the plan\n- a plain bullet');
+  assert.deepEqual(blocks.map((b) => `${b.flavour}:${b.type}`), [
+    'affine:paragraph:text', 'affine:list:todo', 'affine:list:todo', 'affine:paragraph:text',
+  ]);
+  const s = extractSignals(blocks);
+  assert.deepEqual(s.tasks, [
+    { text: 'Ship the release notes', checked: false },
+    { text: 'Reviewed the plan', checked: true },
+  ]);
+});
+
+test('coalesceByKey serializes per key and keeps only the newest queued call', async () => {
+  const seen = [];
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const schedule = coalesceByKey(async (_key, text) => {
+    seen.push(text);
+    if (seen.length === 1) await gate; // hold the first run open
+  });
+
+  const first = schedule('doc-a', 'v1');
+  schedule('doc-a', 'v2'); // queued...
+  schedule('doc-a', 'v3'); // ...then superseded before it ever ran
+  await schedule('doc-b', 'other'); // a different key is not blocked
+  release();
+  await first;
+
+  assert.deepEqual(seen, ['v1', 'other', 'v3']); // never ['v1','other','v2','v3']
+});
+
+test('coalesceByKey runs again after the queue drains', async () => {
+  const seen = [];
+  const schedule = coalesceByKey(async (_key, text) => { seen.push(text); });
+  await schedule('doc', 'a');
+  await schedule('doc', 'b');
+  assert.deepEqual(seen, ['a', 'b']);
 });
