@@ -24,6 +24,7 @@ import { useAuth } from '../../store/auth';
 import { useWorkspace } from '../../store/workspace';
 import { Menu } from '../ui/Menu';
 import { PageTree } from './PageTree';
+import { FolderTree } from './FolderTree';
 
 function NavItem({ icon, label, onClick, trailing, active }: { icon: ReactNode; label: string; onClick?: () => void; trailing?: ReactNode; active?: boolean }) {
   return (
@@ -218,20 +219,20 @@ export function Sidebar() {
         </section>
 
         <section className="mb-5">
-          <SectionLabel
+            <SectionLabel
             action={
-              <button type="button" onClick={() => ws.createPage(null)} className="flex h-5 w-5 items-center justify-center rounded text-faint hover:bg-hover hover:text-muted" aria-label="New page">
+              <button type="button" onClick={() => ws.createFolder(null)} className="flex h-5 w-5 items-center justify-center rounded text-faint hover:bg-hover hover:text-muted" aria-label="New folder">
                 <Plus size={14} />
               </button>
             }
           >
-            Workspace
+            Folders
           </SectionLabel>
-          {ws.workspaceRootIds.length ? (
-            <PageTree roots={ws.workspaceRootIds} />
+          {ws.folderRootIds.length || ws.unfiledIds.length ? (
+            <FolderTree roots={ws.folderRootIds} unfiled={ws.unfiledIds} />
           ) : (
-            <button onClick={() => ws.createPage(null)} className="mt-0.5 flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-[13px] text-faint hover:bg-hover hover:text-muted">
-              <Plus size={14} /> New page
+            <button onClick={() => ws.createFolder(null)} className="mt-0.5 flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-[13px] text-faint hover:bg-hover hover:text-muted">
+              <Plus size={14} /> New folder
             </button>
           )}
         </section>

@@ -73,6 +73,24 @@ export async function initSchema() {
     -- Sidebar tree: a doc may nest under another. NULL = top level.
     ALTER TABLE docs ADD COLUMN IF NOT EXISTS parent_id TEXT
       REFERENCES docs(id) ON DELETE SET NULL;
+    CREATE TABLE IF NOT EXISTS folders (
+      id          TEXT PRIMARY KEY,
+      name        TEXT NOT NULL DEFAULT 'Untitled folder',
+      parent_id   TEXT REFERENCES folders(id) ON DELETE SET NULL,
+      position    INT NOT NULL DEFAULT 0,
+      created_by  TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+      deleted_at  TIMESTAMPTZ,
+      source_doc_id TEXT UNIQUE REFERENCES docs(id) ON DELETE SET NULL
+    );
+    ALTER TABLE docs ADD COLUMN IF NOT EXISTS folder_id TEXT
+      REFERENCES folders(id) ON DELETE SET NULL;
+    CREATE INDEX IF NOT EXISTS folders_parent_idx ON folders(parent_id, position);
+    CREATE INDEX IF NOT EXISTS docs_folder_idx ON docs(folder_id, position);
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      key        TEXT PRIMARY KEY,
+      applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
     ALTER TABLE docs ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
     -- Per-doc emoji shown in the sidebar/header.
     ALTER TABLE docs ADD COLUMN IF NOT EXISTS icon TEXT NOT NULL DEFAULT '📄';
@@ -274,6 +292,22 @@ export async function initSchema() {
     );
     CREATE INDEX IF NOT EXISTS tasks_board_idx
       ON tasks(project_id, status, position) WHERE deleted_at IS NULL;
+    -- Sprints: a task with sprint_id IS NULL sits in the backlog.
+    CREATE TABLE IF NOT EXISTS sprints (
+      id         TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      name       TEXT NOT NULL DEFAULT 'Sprint',
+      start_at   DATE,
+      end_at     DATE,
+      state      TEXT NOT NULL DEFAULT 'planned', -- planned | active | done
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS sprints_project_idx ON sprints(project_id, state);
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS sprint_id TEXT
+      REFERENCES sprints(id) ON DELETE SET NULL;
+    -- epic | story | task | bug. Epics group children via the existing parent_id.
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'task';
+    CREATE INDEX IF NOT EXISTS tasks_sprint_idx ON tasks(sprint_id) WHERE deleted_at IS NULL;
     CREATE INDEX IF NOT EXISTS tasks_assignee_idx
       ON tasks(assignee_id, due_at) WHERE deleted_at IS NULL;
 
@@ -286,6 +320,43 @@ export async function initSchema() {
     );
     CREATE INDEX IF NOT EXISTS task_deps_rev_idx ON task_deps(depends_on_id);
   `);
+
+  await normalizeLegacyFolderImport();
+}
+
+async function normalizeLegacyFolderImport() {
+  const marker = 'folders-keep-documents-at-root-v2';
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    // Claiming the marker inside the transaction makes the migration exactly-once
+    // even if two instances boot at the same time: the loser gets rowCount 0.
+    const claimed = await client.query(
+      'INSERT INTO schema_migrations (key) VALUES ($1) ON CONFLICT (key) DO NOTHING',
+      [marker]
+    );
+    if (!claimed.rowCount) {
+      await client.query('ROLLBACK');
+      return;
+    }
+    const autoFolders = await client.query(
+      'SELECT id FROM folders WHERE source_doc_id IS NOT NULL AND deleted_at IS NULL'
+    );
+    const ids = autoFolders.rows.map((row) => row.id);
+    if (ids.length) {
+      // The previous migration made folders out of documents. Undo only those
+      // generated folders, never a folder the user created explicitly.
+      await client.query('UPDATE docs SET folder_id = NULL WHERE folder_id = ANY($1)', [ids]);
+      await client.query('UPDATE folders SET parent_id = NULL WHERE parent_id = ANY($1) AND source_doc_id IS NULL', [ids]);
+      await client.query('UPDATE folders SET deleted_at = now() WHERE id = ANY($1)', [ids]);
+    }
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
 }
 
 export async function findOrCreateUser(email) {

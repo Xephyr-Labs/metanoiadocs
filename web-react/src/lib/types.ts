@@ -12,6 +12,7 @@ export interface Page {
   title: string;
   icon: string;
   parentId: PageId | null;
+  folderId: string | null;
   position: number;
   shared: boolean;
   favorite: boolean;
@@ -20,6 +21,16 @@ export interface Page {
   updatedAt: string;
   tags: Tag[];
   children: PageId[];
+  expanded?: boolean;
+}
+
+export interface Folder {
+  id: string;
+  name: string;
+  parentId: string | null;
+  position: number;
+  documentIds: PageId[];
+  children: string[];
   expanded?: boolean;
 }
 

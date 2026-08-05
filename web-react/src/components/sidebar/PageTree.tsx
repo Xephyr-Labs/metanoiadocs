@@ -106,10 +106,10 @@ function Row({ id, depth }: { id: PageId; depth: number }) {
             type="button"
             onClick={(e) => {
               e.stopPropagation();
-              ws.createPage(id);
+              ws.createPage(null);
             }}
             className="flex h-5 w-5 items-center justify-center rounded text-faint hover:bg-line-strong/60 hover:text-muted"
-            aria-label="Add page inside"
+            aria-label="New page"
           >
             <Plus size={15} />
           </button>

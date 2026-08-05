@@ -8,11 +8,11 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { docsApi, type DocRow } from '../lib/docsApi';
+import { docsApi, type DocRow, type FolderRow } from '../lib/docsApi';
 import { tasksApi, type ProjectRow } from '../lib/tasksApi';
 import { setPendingSeed } from '../editor/pendingSeed';
 import type { Template } from '../data/templates';
-import type { EditorMode, Page, PageId, Tag } from '../lib/types';
+import type { EditorMode, Folder, Page, PageId, Tag } from '../lib/types';
 
 export type RightTab = 'comments' | 'outline' | 'details' | 'history' | 'ai';
 
@@ -28,6 +28,9 @@ interface WorkspaceState {
   refreshProjects: () => Promise<void>;
 
   pages: Record<PageId, Page>;
+  folders: Record<string, Folder>;
+  folderRootIds: string[];
+  unfiledIds: PageId[];
   rootIds: PageId[];
   workspaceRootIds: PageId[];
   privateRootIds: PageId[];
@@ -66,7 +69,12 @@ interface WorkspaceState {
   setVisibility: (id: PageId, visibility: 'team' | 'private') => void;
   rename: (id: PageId, title: string) => void;
   applyTitleFromEditor: (id: PageId, title: string) => void;
-  createPage: (parentId: PageId | null) => Promise<PageId | null>;
+  createPage: (folderId: string | null) => Promise<PageId | null>;
+  movePage: (id: PageId, folderId: string | null) => Promise<void>;
+  createFolder: (parentId: string | null) => Promise<string | null>;
+  renameFolder: (id: string, name: string) => Promise<void>;
+  toggleFolder: (id: string) => void;
+  deleteFolder: (id: string) => Promise<void>;
   createFromTemplate: (t: Template) => Promise<PageId | null>;
   deletePage: (id: PageId) => void;
   restorePage: (id: PageId) => Promise<void>;
@@ -91,14 +99,15 @@ interface WorkspaceState {
 
 const Ctx = createContext<WorkspaceState | null>(null);
 
-function buildPages(rows: DocRow[], expanded: Set<PageId>): Record<PageId, Page> {
+function buildPages(rows: DocRow[]): Record<PageId, Page> {
   const map: Record<PageId, Page> = {};
   for (const r of rows) {
     map[r.id] = {
       id: r.id,
       title: r.title || 'Untitled',
       icon: r.icon || '📄',
-      parentId: r.parent_id,
+      parentId: null,
+      folderId: r.folder_id ?? null,
       position: r.position,
       shared: !!r.shared,
       favorite: !!r.favorite,
@@ -107,18 +116,36 @@ function buildPages(rows: DocRow[], expanded: Set<PageId>): Record<PageId, Page>
       updatedAt: r.updated_at,
       tags: r.tags ?? [],
       children: [],
-      expanded: expanded.has(r.id),
+  };
+  }
+  return map;
+}
+
+function buildFolders(rows: FolderRow[], expanded: Set<string>, pages: Record<PageId, Page>): Record<string, Folder> {
+  const map: Record<string, Folder> = {};
+  for (const row of rows) {
+    map[row.id] = {
+      id: row.id,
+      name: row.name,
+      parentId: row.parent_id,
+      position: row.position,
+      documentIds: [],
+      children: [],
+      expanded: expanded.has(row.id),
     };
   }
-  const sorted = [...rows].sort((a, b) => a.position - b.position);
-  for (const r of sorted) {
-    if (r.parent_id && map[r.parent_id]) map[r.parent_id].children.push(r.id);
+  for (const page of Object.values(pages)) {
+    if (page.folderId && map[page.folderId]) map[page.folderId].documentIds.push(page.id);
+  }
+  for (const row of [...rows].sort((a, b) => a.position - b.position || a.name.localeCompare(b.name))) {
+    if (row.parent_id && map[row.parent_id]) map[row.parent_id].children.push(row.id);
   }
   return map;
 }
 
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [pages, setPages] = useState<Record<PageId, Page>>({});
+  const [folders, setFolders] = useState<Record<string, Folder>>({});
   const [currentId, setCurrentId] = useState<PageId | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -160,24 +187,24 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     localStorage.setItem('mn-theme', theme);
   }, [theme]);
 
-  const applyRows = useCallback((rows: DocRow[]) => {
-    const expanded = new Set(
-      Object.values(pagesRef.current).filter((p) => p.expanded).map((p) => p.id),
-    );
-    const next = buildPages(rows, expanded);
+  const folderExpandedRef = useRef<Set<string>>(new Set());
+
+  const applyRows = useCallback((rows: DocRow[], folderRows: FolderRow[]) => {
+    const next = buildPages(rows);
+    const nextFolders = buildFolders(folderRows, folderExpandedRef.current, next);
     setPages(next);
+    setFolders(nextFolders);
     setCurrentId((cur) => {
       if (cur && next[cur]) return cur;
       const last = localStorage.getItem('mn-last-doc');
       if (last && next[last]) return last;
-      const firstRoot = rows.find((r) => !r.parent_id) || rows[0];
-      return firstRoot?.id ?? null;
+      return rows[0]?.id ?? null;
     });
   }, []);
 
   const refresh = useCallback(async () => {
-    const rows = await docsApi.list();
-    applyRows(rows);
+    const [rows, folderRows] = await Promise.all([docsApi.list(), docsApi.folders().catch(() => [])]);
+    applyRows(rows, folderRows);
   }, [applyRows]);
 
   // Initial load. Brand-new accounts have no docs -> seed a first page so the
@@ -192,7 +219,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           await docsApi.create({ title: 'Getting Started', icon: '👋' });
           rows = await docsApi.list();
         }
-        applyRows(rows);
+        applyRows(rows, await docsApi.folders().catch(() => []));
         refreshTags();
         refreshUnread();
         refreshProjects();
@@ -261,11 +288,14 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setPages((p) => (p[id] && p[id].title !== clean ? { ...p, [id]: { ...p[id], title: clean } } : p));
   }, []);
 
-  const createPage = useCallback(async (parentId: PageId | null): Promise<PageId | null> => {
+  const createPage = useCallback(async (folderId: string | null): Promise<PageId | null> => {
     try {
-      const row = await docsApi.create({ title: 'Untitled', parentId });
+      const row = await docsApi.create({ title: 'Untitled', folderId });
       await refresh();
-      if (parentId) setPages((p) => (p[parentId] ? { ...p, [parentId]: { ...p[parentId], expanded: true } } : p));
+      if (folderId) {
+        folderExpandedRef.current.add(folderId);
+        setFolders((f) => (f[folderId] ? { ...f, [folderId]: { ...f[folderId], expanded: true } } : f));
+      }
       setCurrentId(row.id);
       setView('doc');
       localStorage.setItem('mn-last-doc', row.id);
@@ -274,6 +304,39 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       setError(e instanceof Error ? e.message : 'Could not create page.');
       return null;
     }
+  }, [refresh]);
+
+  const createFolder = useCallback(async (parentId: string | null): Promise<string | null> => {
+    try {
+      const row = await docsApi.createFolder({ name: 'New folder', parentId });
+      folderExpandedRef.current.add(row.id);
+      if (parentId) folderExpandedRef.current.add(parentId);
+      await refresh();
+      return row.id;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not create folder.');
+      return null;
+    }
+  }, [refresh]);
+
+  const movePage = useCallback(async (id: PageId, folderId: string | null) => {
+    await docsApi.patch(id, { folderId }).catch(() => {});
+    await refresh();
+  }, [refresh]);
+
+  const renameFolder = useCallback(async (id: string, name: string) => {
+    await docsApi.patchFolder(id, { name }).catch(() => refresh());
+    await refresh();
+  }, [refresh]);
+
+  const toggleFolder = useCallback((id: string) => {
+    folderExpandedRef.current.has(id) ? folderExpandedRef.current.delete(id) : folderExpandedRef.current.add(id);
+    setFolders((f) => (f[id] ? { ...f, [id]: { ...f[id], expanded: !f[id].expanded } } : f));
+  }, []);
+
+  const deleteFolder = useCallback(async (id: string) => {
+    await docsApi.removeFolder(id).catch(() => {});
+    await refresh();
   }, [refresh]);
 
   const createFromTemplate = useCallback(async (t: Template): Promise<PageId | null> => {
@@ -377,7 +440,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const rootIds = useMemo(
     () =>
       Object.values(pages)
-        .filter((p) => !p.parentId)
+        .filter((p) => !p.folderId)
         .sort((a, b) => a.position - b.position || a.title.localeCompare(b.title))
         .map((p) => p.id),
     [pages],
@@ -410,30 +473,38 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   );
   const liveRecentIds = useMemo(() => recentIds.filter((id) => pages[id]).slice(0, 5), [recentIds, pages]);
   const currentPage = currentId ? pages[currentId] ?? null : null;
+  const folderRootIds = useMemo(
+    () => Object.values(folders).filter((folder) => !folder.parentId).sort((a, b) => a.position - b.position || a.name.localeCompare(b.name)).map((folder) => folder.id),
+    [folders],
+  );
+  const unfiledIds = useMemo(
+    () => Object.values(pages).filter((p) => !p.folderId).sort((a, b) => a.position - b.position || a.title.localeCompare(b.title)).map((p) => p.id),
+    [pages],
+  );
 
   const value = useMemo<WorkspaceState>(
     () => ({
-      pages, rootIds, workspaceRootIds, privateRootIds, sharedRootIds, libraryRootIds, favoriteIds, recentIds: liveRecentIds,
+      pages, folders, folderRootIds, unfiledIds, rootIds, workspaceRootIds, privateRootIds, sharedRootIds, libraryRootIds, favoriteIds, recentIds: liveRecentIds,
       allTags, tagFilter, unreadCount, refreshUnread, markInboxRead,
       currentId, currentPage, loading, error, workspaceId,
       view, activeProjectId, openHome, openProject, projects, refreshProjects,
       sidebarCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
       settingsOpen, trashOpen, inboxOpen, mode, fullWidth, theme,
       refresh, select, toggleExpand, toggleFavorite, setVisibility, rename, applyTitleFromEditor,
-      createPage, createFromTemplate, deletePage, restorePage,
+      createPage, movePage, createFolder, renameFolder, toggleFolder, deleteFolder, createFromTemplate, deletePage, restorePage,
       refreshTags, addTagToPage, removeTagFromPage, setTagFilter,
       setSidebarCollapsed, setSidebarWidth, setMobileDrawer, setRightPanel, setPaletteOpen,
       setShareOpen, setSettingsOpen, setTrashOpen, setInboxOpen, setMode, setFullWidth, toggleTheme,
     }),
     [
-      pages, rootIds, workspaceRootIds, privateRootIds, sharedRootIds, libraryRootIds, favoriteIds, liveRecentIds,
+      pages, folders, folderRootIds, unfiledIds, rootIds, workspaceRootIds, privateRootIds, sharedRootIds, libraryRootIds, favoriteIds, liveRecentIds,
       allTags, tagFilter, unreadCount, refreshUnread, markInboxRead,
       currentId, currentPage, loading, error, workspaceId,
       view, activeProjectId, openHome, openProject, projects, refreshProjects,
       sidebarCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
       settingsOpen, trashOpen, inboxOpen, mode, fullWidth, theme,
       refresh, select, toggleExpand, toggleFavorite, setVisibility, rename, applyTitleFromEditor,
-      createPage, createFromTemplate, deletePage, restorePage,
+      createPage, movePage, createFolder, renameFolder, toggleFolder, deleteFolder, createFromTemplate, deletePage, restorePage,
       refreshTags, addTagToPage, removeTagFromPage, toggleTheme,
     ],
   );

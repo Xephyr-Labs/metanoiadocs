@@ -26,6 +26,7 @@ import { buildDocState, appendToDocState, extractText, extractBlocks } from './b
 import { topTerms, extractSignals, findMentions, simhash, hamming, keyphrases, summarize, tokenize, coalesceByKey, blocksFromText } from './intelligence.js';
 import { registerTaskRoutes } from './tasks.js';
 import { registerHomeRoutes } from './home.js';
+import { registerFolderRoutes, visibleFolder } from './folders-routes.js';
 import OpenAI from 'openai';
 
 process.on('unhandledRejection', (e) => console.error('[proc] unhandledRejection', e?.message || e));
@@ -83,6 +84,14 @@ await seedAdmin();
 const app = express();
 // Express 4 doesn't catch rejected promises from async handlers — wrap them.
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+// Apply wrap centrally: every route handler registered from here on is covered,
+// so a rejected await can never leave a request hanging until client timeout.
+// Route methods only — error middleware (4-arg, via app.use) must keep its arity.
+for (const method of ['get', 'post', 'put', 'patch', 'delete']) {
+  const orig = app[method].bind(app);
+  app[method] = (path, ...handlers) =>
+    orig(path, ...handlers.map((h) => (typeof h === 'function' ? wrap(h) : h)));
+}
 app.use(express.json());
 
 // Liveness + readiness probe (no auth). Checks the DB round-trips.
@@ -335,7 +344,7 @@ app.delete('/api/users/:id', requireUser, requireAdmin, async (req, res) => {
 // ── docs ──────────────────────────────────────────────────────────────────
 app.get('/api/docs', requireUser, async (req, res) => {
   const { rows } = await pool.query(
-    `SELECT d.id, d.title, d.icon, d.parent_id, d.position, d.updated_at,
+    `SELECT d.id, d.title, d.icon, d.folder_id, d.position, d.updated_at,
             coalesce(a.role, 'editor') AS role, d.visibility,
             (d.share_token IS NOT NULL) AS shared,
             (f.doc_id IS NOT NULL) AS favorite,
@@ -362,17 +371,20 @@ app.post('/api/docs', requireUser, async (req, res) => {
   const id = crypto.randomUUID();
   const title = String(req.body?.title || 'Untitled').slice(0, 200);
   const icon = String(req.body?.icon || '📄').slice(0, 8);
-  const parentId = req.body?.parentId || null;
+  const folderId = typeof req.body?.folderId === 'string' ? req.body.folderId : null;
   const visibility = req.body?.visibility === 'private' ? 'private' : 'team';
   // Optional markdown body (used by the MCP server / API clients). Built into a
   // BlockSuite Yjs state so the doc opens with real content.
   const content = typeof req.body?.content === 'string' ? req.body.content : null;
+  if (folderId && !(await visibleFolder(folderId, req.user.id))) {
+    return res.status(403).json({ error: 'folder not accessible' });
+  }
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     await client.query(
-      'INSERT INTO docs (id, title, icon, created_by, parent_id, visibility) VALUES ($1, $2, $3, $4, $5, $6)',
-      [id, title, icon, req.user.id, parentId, visibility]
+      'INSERT INTO docs (id, title, icon, created_by, folder_id, visibility) VALUES ($1, $2, $3, $4, $5, $6)',
+      [id, title, icon, req.user.id, folderId, visibility]
     );
     await client.query(
       `INSERT INTO doc_access (doc_id, user_id, role) VALUES ($1, $2, 'owner')`,
@@ -390,7 +402,7 @@ app.post('/api/docs', requireUser, async (req, res) => {
   } finally {
     client.release();
   }
-  res.json({ id, title, icon, parent_id: parentId, role: 'owner', visibility, shared: false, favorite: false });
+  res.json({ id, title, icon, parent_id: null, folder_id: folderId, role: 'owner', visibility, shared: false, favorite: false });
 });
 
 // Read a doc's title + plain text (decoded from the Yjs state; used by API clients).
@@ -579,22 +591,13 @@ app.patch('/api/docs/:id', requireUser, async (req, res) => {
     vals.push(req.body.icon.slice(0, 8));
     sets.push(`icon = $${vals.length}`);
   }
-  if ('parentId' in (req.body || {})) {
-    const parentId = req.body.parentId || null;
-    if (parentId === req.params.id) {
-      return res.status(400).json({ error: 'cannot nest a doc under itself' });
+  if ('folderId' in (req.body || {})) {
+    const folderId = typeof req.body.folderId === 'string' ? req.body.folderId : null;
+    if (folderId && !(await visibleFolder(folderId, req.user.id))) {
+      return res.status(403).json({ error: 'folder not accessible' });
     }
-    // Walk up from the proposed parent; if we hit this doc, it's a cycle.
-    let cur = parentId;
-    while (cur) {
-      if (cur === req.params.id) {
-        return res.status(400).json({ error: 'move would create a cycle' });
-      }
-      const up = await pool.query('SELECT parent_id FROM docs WHERE id = $1', [cur]);
-      cur = up.rows[0]?.parent_id || null;
-    }
-    vals.push(parentId);
-    sets.push(`parent_id = $${vals.length}`);
+    vals.push(folderId);
+    sets.push(`folder_id = $${vals.length}`);
   }
   if (!sets.length) return res.json({ ok: true });
   vals.push(req.params.id);
@@ -646,42 +649,6 @@ app.delete('/api/docs/:id', requireUser, async (req, res) => {
   } finally {
     client.release();
   }
-  res.json({ ok: true });
-});
-
-// Drag-reorder in the sidebar tree. The client sends the destination parent and
-// the full new order of that parent's children; we write parent_id + position
-// by index. One moved doc is enough to change, but rewriting the whole sibling
-// group keeps positions dense and the payload trivial to compute client-side.
-app.post('/api/docs/reorder', requireUser, async (req, res) => {
-  const parentId = req.body?.parentId || null;
-  const ids = Array.isArray(req.body?.ids) ? req.body.ids.filter(x => typeof x === 'string') : [];
-  if (!ids.length) return res.json({ ok: true });
-
-  // Cycle guard: parentId must not be one of the docs being (re)parented, nor a
-  // descendant of one — walking up from parentId must never hit an id in the set.
-  const moving = new Set(ids);
-  let cur = parentId;
-  while (cur) {
-    if (moving.has(cur)) return res.status(400).json({ error: 'move would create a cycle' });
-    const up = await pool.query('SELECT parent_id FROM docs WHERE id = $1', [cur]);
-    cur = up.rows[0]?.parent_id || null;
-  }
-
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    for (let i = 0; i < ids.length; i++) {
-      await client.query(
-        `UPDATE docs SET parent_id = $1, position = $2
-          WHERE id = $3 AND (
-            visibility = 'team'
-            OR EXISTS (SELECT 1 FROM doc_access WHERE doc_id = $3 AND user_id = $4))`,
-        [parentId, i, ids[i], req.user.id]
-      );
-    }
-    await client.query('COMMIT');
-  } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
   res.json({ ok: true });
 });
 
@@ -1353,6 +1320,7 @@ app.use(express.static(WEB_DIST));
 // is long enough. Must register before the SPA catch-all below.
 registerTaskRoutes(app, { requireUser, wrap });
 registerHomeRoutes(app, { requireUser, wrap });
+registerFolderRoutes(app, { requireUser, wrap });
 
 app.get('*', (_req, res) => res.sendFile(path.join(WEB_DIST, 'index.html')));
 

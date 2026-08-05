@@ -34,6 +34,7 @@ export interface DocRow {
   title: string;
   icon: string;
   parent_id: string | null;
+  folder_id: string | null;
   position: number;
   updated_at: string;
   role: string;
@@ -41,6 +42,21 @@ export interface DocRow {
   shared: boolean;
   favorite: boolean;
   tags: TagRow[];
+}
+
+export interface FolderRow {
+  id: string;
+  name: string;
+  parent_id: string | null;
+  position: number;
+  created_by: string | null;
+  created_at: string;
+  document_count: number;
+  folder_count: number;
+}
+
+export function normalizeFolderRows(value: unknown): FolderRow[] {
+  return Array.isArray(value) ? value as FolderRow[] : [];
 }
 
 export interface AccessRow {
@@ -115,13 +131,17 @@ export interface Intelligence {
 
 export const docsApi = {
   list: (): Promise<DocRow[]> => req('/docs'),
-  create: (body: { title?: string; icon?: string; parentId?: string | null }): Promise<DocRow> =>
+  folders: async (): Promise<FolderRow[]> => normalizeFolderRows(await req('/folders')),
+  createFolder: (body: { name: string; parentId?: string | null }): Promise<FolderRow> =>
+    req('/folders', { method: 'POST', body: JSON.stringify(body) }),
+  patchFolder: (id: string, body: { name?: string; parentId?: string | null }) =>
+    req(`/folders/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  removeFolder: (id: string) => req(`/folders/${id}`, { method: 'DELETE' }),
+  create: (body: { title?: string; icon?: string; folderId?: string | null }): Promise<DocRow> =>
     req('/docs', { method: 'POST', body: JSON.stringify(body) }),
-  patch: (id: string, body: { title?: string; icon?: string; parentId?: string | null }) =>
+  patch: (id: string, body: { title?: string; icon?: string; folderId?: string | null }) =>
     req(`/docs/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   remove: (id: string) => req(`/docs/${id}`, { method: 'DELETE' }),
-  reorder: (parentId: string | null, ids: string[]) =>
-    req('/docs/reorder', { method: 'POST', body: JSON.stringify({ parentId, ids }) }),
   trash: (): Promise<{ id: string; title: string; icon: string; deleted_at: string }[]> => req('/docs/trash'),
   restore: (id: string) => req(`/docs/${id}/restore`, { method: 'POST' }),
   inbox: (): Promise<InboxRow[]> => req('/inbox'),
