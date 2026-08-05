@@ -81,11 +81,13 @@ function PanelInner() {
   return (
     <div className="flex h-full w-full flex-col md:w-[320px]">
       <div className="flex h-[45px] shrink-0 items-center gap-0.5 border-b border-line px-2">
-        <div className="scrollarea flex flex-1 items-center gap-0.5 overflow-x-auto">
+        <div className="no-scrollbar flex flex-1 items-center gap-0.5 overflow-x-auto">
           {TABS.map((t) => (
             <button
               key={t.id}
               type="button"
+              // Keep the active tab visible — five tabs overflow the 320px strip.
+              ref={(el) => { if (ws.rightPanel === t.id) el?.scrollIntoView({ inline: 'nearest', block: 'nearest' }); }}
               onClick={() => ws.setRightPanel(t.id)}
               className={cn('flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-[13px] font-medium transition-colors duration-120', ws.rightPanel === t.id ? 'bg-hover text-ink' : 'text-muted hover:bg-hover')}
             >
@@ -98,7 +100,10 @@ function PanelInner() {
       </div>
 
       <div className="scrollarea min-h-0 flex-1 overflow-y-auto">
-        {!docId ? (
+        {ws.rightPanel === 'ai' ? (
+          // AI chat is not doc-scoped — it must work from Home too.
+          <AITab />
+        ) : !docId ? (
           <EmptyState icon={Info} title="No page open" />
         ) : ws.rightPanel === 'comments' ? (
           <CommentsTab docId={docId} />
@@ -108,8 +113,6 @@ function PanelInner() {
           <DetailsTab />
         ) : ws.rightPanel === 'history' ? (
           <HistoryTab docId={docId} />
-        ) : ws.rightPanel === 'ai' ? (
-          <AITab />
         ) : null}
       </div>
     </div>

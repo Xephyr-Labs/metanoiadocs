@@ -13,7 +13,7 @@ export function Card({ title, action, children, className }: {
   className?: string;
 }) {
   return (
-    <section className={cn('rounded-xl bg-surface p-4 shadow-subtle', className)}>
+    <section className={cn('rounded-xl border border-line bg-canvas p-4', className)}>
       {(title || action) && (
         <header className="mb-3 flex items-center justify-between">
           <h2 className="text-[13px] font-semibold uppercase tracking-wide text-faint">{title}</h2>
@@ -27,7 +27,7 @@ export function Card({ title, action, children, className }: {
 
 export function StatTile({ label, value, tone }: { label: string; value: number; tone?: 'danger' | 'accent' }) {
   return (
-    <div className="rounded-xl bg-surface px-4 py-3 shadow-subtle">
+    <div className="px-1">
       <p
         className={cn(
           'font-display text-[26px] leading-8',
@@ -75,7 +75,7 @@ export function ProjectCard({ project, onOpen }: { project: ProjectRow; onOpen: 
     <button
       type="button"
       onClick={onOpen}
-      className="flex items-center gap-3 rounded-xl bg-surface p-4 text-left shadow-subtle transition-colors duration-120 hover:bg-hover"
+      className="flex items-center gap-3 rounded-xl border border-line bg-canvas p-4 text-left transition-colors duration-120 hover:border-accent/50 hover:bg-accent-soft/50"
     >
       <span className="text-[20px] leading-none">{project.icon}</span>
       <span className="min-w-0 flex-1">
@@ -98,7 +98,7 @@ export function DocCard({ doc, onOpen }: {
     <button
       type="button"
       onClick={onOpen}
-      className="flex h-full flex-col justify-between gap-3 rounded-xl bg-surface p-4 text-left shadow-subtle transition-colors duration-120 hover:bg-hover"
+      className="flex h-full min-h-[132px] flex-col justify-between gap-3 rounded-lg border border-line bg-canvas p-4 text-left transition-colors duration-120 hover:border-accent/50 hover:bg-accent-soft/50"
     >
       <span className="text-[20px] leading-none">{doc.icon || '📄'}</span>
       <span className="min-w-0">

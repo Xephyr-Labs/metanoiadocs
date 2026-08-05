@@ -20,6 +20,8 @@ import { ColorScheme } from '@blocksuite/affine/model';
 import { HocuspocusProvider } from '@hocuspocus/provider';
 import { IndexeddbPersistence } from 'y-indexeddb';
 import { Signal } from '@preact/signals-core';
+import { avatarFor } from '../lib/avatar';
+import { attachPresence } from './presence';
 import { takePendingSeed } from './pendingSeed';
 import { docPlainText } from './docText';
 import { attachMermaidPreviews } from './mermaidPreview';
@@ -126,12 +128,34 @@ export async function mountEditor(root: HTMLElement, { docId, title, mode, userN
   // Public read-only viewers don't need a local cache.
   const idb = share ? null : new IndexeddbPersistence(`mn-doc-${docId}`, doc.spaceDoc);
 
-  const palette = ['#2383e2', '#12b8a0', '#e8794b', '#b84be8', '#4b9be8', '#e84b7a'];
-  const cid = collection.awarenessStore.awareness.clientID;
+  // Name + color ride on awareness: BlockSuite paints remote carets/selections
+  // with them, and the TopBar avatar stack reads them via attachPresence.
+  // avatarFor keeps the color stable per person (matches their avatar) instead
+  // of varying per tab.
+  const displayName = userName || 'Someone';
   collection.awarenessStore.awareness.setLocalStateField('user', {
-    name: userName || 'Someone',
-    color: palette[cid % palette.length],
+    name: displayName,
+    color: avatarFor(displayName).color,
   });
+  const detachPresence = attachPresence(collection.awarenessStore.awareness);
+
+  // Kill BlockSuite's hover tooltips ("Bold", "Underline", …). They portal into
+  // body as .blocksuite-portal divs with the tooltip inside a shadow root, so
+  // CSS can't reach them — hide each tooltip portal as it appears instead.
+  const tooltipKiller = new MutationObserver((muts) => {
+    for (const m of muts) {
+      m.addedNodes.forEach((n) => {
+        if (
+          n instanceof HTMLElement &&
+          n.classList.contains('blocksuite-portal') &&
+          n.shadowRoot?.querySelector('.affine-tooltip')
+        ) {
+          n.style.display = 'none';
+        }
+      });
+    }
+  });
+  tooltipKiller.observe(document.body, { childList: true });
 
   await new Promise<void>((resolve) => {
     let done = false;
@@ -265,6 +289,8 @@ export async function mountEditor(root: HTMLElement, { docId, title, mode, userN
     setMode(m: 'page' | 'edgeless') { editor.mode = m; },
     destroy() {
       if (timer) clearTimeout(timer);
+      try { tooltipKiller.disconnect(); } catch { /* noop */ }
+      try { detachPresence(); } catch { /* noop */ }
       try { detachMermaid(); } catch { /* noop */ }
       try { themeObserver.disconnect(); } catch { /* noop */ }
       try { virtualKeyboard.dispose(); } catch { /* noop */ }

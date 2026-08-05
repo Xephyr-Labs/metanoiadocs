@@ -10,8 +10,8 @@
   --canvas: #ffffff;
   --surface: #f7f7f5;
   --surface-2: #fbfbfa;
-  --hover: #efefed;
-  --selected: #e8e8e5;
+  --hover: #eff6fd;
+  --selected: #e2effb;
   --ink: #37352f;
   --muted: #787774;
   --faint: #9b9a97;
@@ -43,8 +43,8 @@
   --canvas: #191919;
   --surface: #232323;
   --surface-2: #1e1e1e;
-  --hover: #313131;
-  --selected: #3a3a38;
+  --hover: #22364d;
+  --selected: #274261;
   --ink: #e9e9e7;
   --muted: #a5a5a3;
   --faint: #757573;
@@ -101,6 +101,14 @@ body {
 .scrollarea:hover::-webkit-scrollbar-thumb {
   background: var(--line-strong);
   background-clip: padding-box;
+}
+
+/* Scroll containers that should never show a scrollbar (e.g. tab strips). */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
 }
 
 /* Focus ring — soft, accessible, only on keyboard nav. */

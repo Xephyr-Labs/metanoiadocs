@@ -61,7 +61,7 @@ export function Home() {
       <div className="mx-auto max-w-[1100px] px-6 py-8 md:px-10">
         <header className="mb-6 flex items-end justify-between gap-4">
           <div>
-            <h1 className="font-display text-[28px] leading-9 text-ink">
+            <h1 className="font-display text-[22px] leading-7 text-ink md:text-[28px] md:leading-9">
               {greeting(new Date().getHours())}, {(auth.user?.name || auth.user?.username || 'there').split(' ')[0]}
             </h1>
             <p className="mt-0.5 text-[13px] text-muted">
@@ -88,21 +88,24 @@ export function Home() {
           </div>
         ) : (
           <>
-            <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4">
+            {recents.length > 0 && (
+              <section className="mb-8">
+                <div className="mb-3 flex items-baseline justify-between gap-4">
+                  <h2 className="text-[13px] font-semibold text-ink">Jump back in</h2>
+                  <span className="text-2xs text-faint">Recently opened</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4">
+                  {recents.map((d) => <DocCard key={d.id} doc={d} onOpen={() => ws.select(d.id)} />)}
+                </div>
+              </section>
+            )}
+
+            <div className="mb-8 grid grid-cols-2 gap-x-6 gap-y-3 border-y border-line py-4 md:grid-cols-4">
               <StatTile label="My open tasks" value={Number(data.stats.my_open)} />
               <StatTile label="Overdue" value={Number(data.stats.my_overdue)} tone="danger" />
               <StatTile label="Due this week" value={Number(data.stats.my_week)} tone="accent" />
               <StatTile label="Docs touched this week" value={Number(data.stats.docs_week)} />
             </div>
-
-            {recents.length > 0 && (
-              <section className="mb-6">
-                <h2 className="mb-3 text-[13px] font-semibold uppercase tracking-wide text-faint">Jump back in</h2>
-                <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                  {recents.map((d) => <DocCard key={d.id} doc={d} onOpen={() => ws.select(d.id)} />)}
-                </div>
-              </section>
-            )}
 
             {/* items-start so a short My-tasks card doesn't stretch to match a
                 long activity feed and leave a wall of empty panel. */}

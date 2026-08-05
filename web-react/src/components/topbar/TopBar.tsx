@@ -13,11 +13,14 @@ import {
   PanelLeft,
   PanelRight,
   Share2,
+  Sparkles,
   Star,
   Sun,
   Trash2,
 } from 'lucide-react';
 import type { Page } from '../../lib/types';
+import { avatarFor } from '../../lib/avatar';
+import { usePresence } from '../../editor/presence';
 import { relativeTime } from '../../lib/time';
 import { useWorkspace } from '../../store/workspace';
 import { cn } from '../../lib/cn';
@@ -26,6 +29,38 @@ import { Button } from '../ui/Button';
 import { DocIcon } from '../ui/DocIcon';
 import { IconButton } from '../ui/IconButton';
 import { Menu } from '../ui/Menu';
+
+/** Google-Docs-style stack of everyone else currently in the open doc. */
+function PresenceStack() {
+  const people = usePresence();
+  // One avatar per person, even when they have the doc open in several tabs.
+  const unique = [...new Map(people.map((p) => [p.name, p])).values()];
+  if (unique.length === 0) return null;
+  const shown = unique.slice(0, 3);
+  const extra = unique.length - shown.length;
+  return (
+    <div className="mr-0.5 flex items-center -space-x-1.5" aria-label={`Also here: ${unique.map((p) => p.name).join(', ')}`}>
+      {shown.map((p) => (
+        <span
+          key={p.name}
+          title={p.name}
+          className="flex h-[22px] w-[22px] items-center justify-center rounded-full text-[9px] font-semibold text-white ring-2 ring-canvas"
+          style={{ background: p.color }}
+        >
+          {avatarFor(p.name).initials}
+        </span>
+      ))}
+      {extra > 0 && (
+        <span
+          title={unique.slice(3).map((p) => p.name).join(', ')}
+          className="flex h-[22px] w-[22px] items-center justify-center rounded-full bg-surface text-[9px] font-semibold text-muted ring-2 ring-canvas"
+        >
+          +{extra}
+        </span>
+      )}
+    </div>
+  );
+}
 
 function ancestry(pages: Record<string, Page>, id: string): Page[] {
   const chain: Page[] = [];
@@ -95,15 +130,23 @@ export function TopBar() {
         )}
       </nav>
 
-      {/* Non-doc views still need the theme toggle, which otherwise only lives
-          inside the doc action cluster below. */}
+      {/* Non-doc views keep a small global cluster: Ask AI + theme. Without it
+          the top-right is empty on Home (the sign-in landing view). */}
       {!page && (
-        <IconButton
-          icon={ws.theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
-          label={ws.theme === 'dark' ? 'Light mode' : 'Dark mode'}
-          keys={['⌘', 'J']}
-          onClick={ws.toggleTheme}
-        />
+        <div className="flex shrink-0 items-center gap-0.5">
+          <IconButton
+            icon={<Sparkles size={17} />}
+            label="Ask AI"
+            active={ws.rightPanel === 'ai'}
+            onClick={() => ws.setRightPanel(ws.rightPanel === 'ai' ? null : 'ai')}
+          />
+          <IconButton
+            icon={ws.theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
+            label={ws.theme === 'dark' ? 'Light mode' : 'Dark mode'}
+            keys={['⌘', 'J']}
+            onClick={ws.toggleTheme}
+          />
+        </div>
       )}
 
       {page && (
@@ -111,6 +154,7 @@ export function TopBar() {
           <span className="mr-1 hidden items-center gap-1 text-2xs text-faint md:flex">
             <Cloud size={13} /> Edited {relativeTime(page.updatedAt)}
           </span>
+          <PresenceStack />
           {page.role === 'owner' ? (
             <Menu
               align="end"
@@ -136,6 +180,12 @@ export function TopBar() {
           <Button variant="ghost" size="sm" onClick={() => ws.setShareOpen(true)} className="hidden sm:inline-flex">
             Share
           </Button>
+          <IconButton
+            icon={<Sparkles size={17} />}
+            label="Ask AI"
+            active={ws.rightPanel === 'ai'}
+            onClick={() => ws.setRightPanel(ws.rightPanel === 'ai' ? null : 'ai')}
+          />
           <IconButton
             icon={<MessageSquareText size={17} />}
             label="Comments"
