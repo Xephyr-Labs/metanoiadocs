@@ -17,6 +17,7 @@ import { avatarFor } from '../../lib/avatar';
 import { swatch } from '../../lib/tagColors';
 import { LogoMark } from '../brand/Logo';
 import { DocIcon } from '../ui/DocIcon';
+import { tasksApi } from '../../lib/tasksApi';
 import { workspaces } from '../../data/mock';
 import { templates } from '../../data/templates';
 import { useAuth } from '../../store/auth';
@@ -91,6 +92,14 @@ export function Sidebar() {
   const dragging = useRef(false);
   const [, force] = useState(0);
 
+  const createProject = async () => {
+    const name = window.prompt('Project name')?.trim();
+    if (!name) return;
+    const p = await tasksApi.createProject({ name }).catch(() => null);
+    await ws.refreshProjects();
+    if (p) ws.openProject(p.id);
+  };
+
   const onResizeStart = (e: React.MouseEvent) => {
     e.preventDefault();
     dragging.current = true;
@@ -136,7 +145,7 @@ export function Sidebar() {
       {/* primary nav */}
       <div className="px-2 pt-2">
         <NavItem icon={<Search size={16} />} label="Search" onClick={() => ws.setPaletteOpen(true)} trailing={<span className="text-2xs text-faint">⌘K</span>} />
-        <NavItem icon={<Home size={16} />} label="Home" onClick={() => ws.rootIds[0] && ws.select(ws.rootIds[0])} />
+        <NavItem icon={<Home size={16} />} label="Home" active={ws.view === 'home'} onClick={ws.openHome} />
         <NavItem
           icon={<Inbox size={16} />}
           label="Inbox"
@@ -165,6 +174,48 @@ export function Sidebar() {
             <div className="space-y-px">{ws.favoriteIds.map((id) => <DocRow key={id} id={id} />)}</div>
           </section>
         )}
+
+        <section className="mb-5">
+          <SectionLabel
+            action={
+              <button type="button" onClick={createProject} className="flex h-5 w-5 items-center justify-center rounded text-faint hover:bg-hover hover:text-muted" aria-label="New project">
+                <Plus size={14} />
+              </button>
+            }
+          >
+            Projects
+          </SectionLabel>
+          {ws.projects.length ? (
+            <div className="space-y-px">
+              {ws.projects.map((p) => {
+                const open = Number(p.total) - Number(p.done);
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => ws.openProject(p.id)}
+                    className={cn(
+                      'flex h-8 w-full items-center gap-1.5 rounded-md px-2 text-[14px] leading-5 transition-colors duration-120',
+                      ws.view === 'project' && ws.activeProjectId === p.id ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-hover',
+                    )}
+                  >
+                    <span className="text-[15px] leading-none">{p.icon}</span>
+                    <span className="flex h-5 flex-1 !self-center items-center truncate text-left">{p.name}</span>
+                    {Number(p.overdue) > 0 ? (
+                      <span className="shrink-0 text-2xs font-semibold text-danger">{p.overdue}</span>
+                    ) : open > 0 ? (
+                      <span className="shrink-0 text-2xs text-faint">{open}</span>
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <button onClick={createProject} className="mt-0.5 flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-[13px] text-faint hover:bg-hover hover:text-muted">
+              <Plus size={14} /> New project
+            </button>
+          )}
+        </section>
 
         <section className="mb-5">
           <SectionLabel

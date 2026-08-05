@@ -24,6 +24,8 @@ import { requestMagicLink, consumeMagicLink, sendInviteEmail, sendNotificationEm
 import { getSetting, setSetting } from './db.js';
 import { buildDocState, appendToDocState, extractText, extractBlocks } from './blocks.js';
 import { topTerms, extractSignals, findMentions, simhash, hamming, keyphrases, summarize, tokenize, coalesceByKey, blocksFromText } from './intelligence.js';
+import { registerTaskRoutes } from './tasks.js';
+import { registerHomeRoutes } from './home.js';
 import OpenAI from 'openai';
 
 process.on('unhandledRejection', (e) => console.error('[proc] unhandledRejection', e?.message || e));
@@ -1347,6 +1349,11 @@ app.delete('/api/comments/:cid', requireUser, async (req, res) => {
 });
 
 app.use(express.static(WEB_DIST));
+// Projects/tasks and the home dashboard live in their own modules — this file
+// is long enough. Must register before the SPA catch-all below.
+registerTaskRoutes(app, { requireUser, wrap });
+registerHomeRoutes(app, { requireUser, wrap });
+
 app.get('*', (_req, res) => res.sendFile(path.join(WEB_DIST, 'index.html')));
 
 // Last-resort error handler so a thrown/rejected route returns 500 instead of crashing.
@@ -1387,7 +1394,13 @@ const hocuspocus = new Hocuspocus({
            ON CONFLICT (doc_id) DO UPDATE SET state = EXCLUDED.state, updated_at = now()`,
           [documentName, buf]
         );
-        await pool.query('UPDATE docs SET updated_at = now() WHERE id = $1', [documentName]);
+        // Record who saved, so the activity feed can attribute a plain edit.
+        // 'public' is the share-link guest — not a real user row.
+        const actor = context?.user?.id && context.user.id !== 'public' ? context.user.id : null;
+        await pool.query(
+          'UPDATE docs SET updated_at = now(), updated_by = coalesce($2, updated_by) WHERE id = $1',
+          [documentName, actor]
+        );
         // Auto-snapshot a version at most once per ~8 min of active editing, so
         // history accrues without a row per keystroke.
         const last = await pool.query(

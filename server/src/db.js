@@ -224,6 +224,67 @@ export async function initSchema() {
     ALTER TABLE doc_signals ADD COLUMN IF NOT EXISTS summary TEXT NOT NULL DEFAULT '';
     ALTER TABLE doc_signals ADD COLUMN IF NOT EXISTS keyphrases JSONB NOT NULL DEFAULT '[]';
     CREATE INDEX IF NOT EXISTS doc_terms_term_trgm_idx ON doc_terms USING GIN (term gin_trgm_ops);
+
+    -- Who last saved a doc. docs.updated_at already exists but carries no actor,
+    -- so the activity feed cannot attribute a plain save without this.
+    ALTER TABLE docs ADD COLUMN IF NOT EXISTS updated_by TEXT
+      REFERENCES users(id) ON DELETE SET NULL;
+
+    -- ── tasks ───────────────────────────────────────────────────────────────
+    -- A project is a board. doc_id links it back to the page it was imported
+    -- from (or a page written about it); NULL for projects created in-app.
+    CREATE TABLE IF NOT EXISTS projects (
+      id          TEXT PRIMARY KEY,
+      name        TEXT NOT NULL DEFAULT 'Untitled project',
+      icon        TEXT NOT NULL DEFAULT '📋',
+      color       TEXT NOT NULL DEFAULT 'blue',
+      doc_id      TEXT REFERENCES docs(id) ON DELETE SET NULL,
+      position    INT NOT NULL DEFAULT 0,
+      created_by  TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+      archived_at TIMESTAMPTZ
+    );
+    -- One project per source doc, so the importer is idempotent.
+    CREATE UNIQUE INDEX IF NOT EXISTS projects_doc_idx
+      ON projects(doc_id) WHERE doc_id IS NOT NULL;
+
+    -- Four fixed statuses on purpose. Per-project custom columns are a real
+    -- feature with real cost; add them when someone actually asks.
+    CREATE TABLE IF NOT EXISTS tasks (
+      id          TEXT PRIMARY KEY,
+      project_id  TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      title       TEXT NOT NULL DEFAULT '',
+      status      TEXT NOT NULL DEFAULT 'todo',
+      assignee_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      start_at    DATE,
+      due_at      DATE,
+      priority    INT NOT NULL DEFAULT 0,
+      progress    INT NOT NULL DEFAULT 0,
+      points      INT,
+      milestone   BOOLEAN NOT NULL DEFAULT false,
+      doc_id      TEXT REFERENCES docs(id) ON DELETE SET NULL,
+      parent_id   TEXT REFERENCES tasks(id) ON DELETE CASCADE,
+      position    INT NOT NULL DEFAULT 0,
+      created_by  TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_by  TEXT REFERENCES users(id) ON DELETE SET NULL,
+      done_at     TIMESTAMPTZ,
+      deleted_at  TIMESTAMPTZ
+    );
+    CREATE INDEX IF NOT EXISTS tasks_board_idx
+      ON tasks(project_id, status, position) WHERE deleted_at IS NULL;
+    CREATE INDEX IF NOT EXISTS tasks_assignee_idx
+      ON tasks(assignee_id, due_at) WHERE deleted_at IS NULL;
+
+    -- task depends on depends_on_id: the edge points backwards in time.
+    CREATE TABLE IF NOT EXISTS task_deps (
+      task_id       TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      depends_on_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      PRIMARY KEY (task_id, depends_on_id),
+      CHECK (task_id <> depends_on_id)
+    );
+    CREATE INDEX IF NOT EXISTS task_deps_rev_idx ON task_deps(depends_on_id);
   `);
 }
 

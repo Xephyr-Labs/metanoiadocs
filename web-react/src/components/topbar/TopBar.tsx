@@ -42,7 +42,10 @@ function ancestry(pages: Record<string, Page>, id: string): Page[] {
 
 export function TopBar() {
   const ws = useWorkspace();
-  const page = ws.currentPage;
+  // Home and project views keep currentPage around for "continue where you left
+  // off", but the doc breadcrumb and doc actions must not follow them there.
+  const page = ws.view === 'doc' ? ws.currentPage : null;
+  const project = ws.view === 'project' ? ws.projects.find((p) => p.id === ws.activeProjectId) : null;
   const isMobile = useMediaQuery('(max-width: 767px)');
 
   return (
@@ -82,10 +85,26 @@ export function TopBar() {
               </div>
             );
           })
+        ) : project ? (
+          <span className="flex items-center gap-1.5 px-1.5 font-medium text-ink">
+            <span className="text-[15px] leading-none">{project.icon}</span>
+            {project.name}
+          </span>
         ) : (
-          <span className="px-1.5 text-muted">Metanoia</span>
+          <span className="px-1.5 text-muted">{ws.view === 'home' ? 'Home' : 'Metanoia'}</span>
         )}
       </nav>
+
+      {/* Non-doc views still need the theme toggle, which otherwise only lives
+          inside the doc action cluster below. */}
+      {!page && (
+        <IconButton
+          icon={ws.theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
+          label={ws.theme === 'dark' ? 'Light mode' : 'Dark mode'}
+          keys={['⌘', 'J']}
+          onClick={ws.toggleTheme}
+        />
+      )}
 
       {page && (
         <div className="flex shrink-0 items-center gap-0.5">

@@ -2,6 +2,8 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { useEffect } from 'react';
 import { CommandPalette } from './components/palette/CommandPalette';
 import { EditorArea } from './components/editor/EditorArea';
+import { Home } from './components/home/Home';
+import { ProjectView } from './components/project/ProjectView';
 import { RightPanel } from './components/panel/RightPanel';
 import { SettingsDialog } from './components/settings/SettingsDialog';
 import { ShareDialog } from './components/share/ShareDialog';
@@ -49,7 +51,7 @@ export default function App() {
         <div className="flex min-w-0 flex-1 flex-col">
           <TopBar />
           <main className="min-h-0 flex-1">
-            <EditorArea />
+            {ws.view === 'home' ? <Home /> : ws.view === 'project' ? <ProjectView /> : <EditorArea />}
           </main>
         </div>
 

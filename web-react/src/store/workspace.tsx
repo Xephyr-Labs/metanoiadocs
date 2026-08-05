@@ -9,13 +9,24 @@ import {
   type ReactNode,
 } from 'react';
 import { docsApi, type DocRow } from '../lib/docsApi';
+import { tasksApi, type ProjectRow } from '../lib/tasksApi';
 import { setPendingSeed } from '../editor/pendingSeed';
 import type { Template } from '../data/templates';
 import type { EditorMode, Page, PageId, Tag } from '../lib/types';
 
 export type RightTab = 'comments' | 'outline' | 'details' | 'history' | 'ai';
 
+/** Which surface fills the main column. Cheaper than a router for three screens. */
+export type View = 'home' | 'doc' | 'project';
+
 interface WorkspaceState {
+  view: View;
+  activeProjectId: string | null;
+  openHome: () => void;
+  openProject: (id: string) => void;
+  projects: ProjectRow[];
+  refreshProjects: () => Promise<void>;
+
   pages: Record<PageId, Page>;
   rootIds: PageId[];
   workspaceRootIds: PageId[];
@@ -116,6 +127,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const bootstrapped = useRef(false);
 
   const [workspaceId] = useState('ws-metanoia');
+  // Sign-in lands on the dashboard, never inside a document. currentId is still
+  // restored below so Home can offer "continue where you left off".
+  const [view, setView] = useState<View>('home');
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+  const [projects, setProjects] = useState<ProjectRow[]>([]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(260);
   const [mobileDrawerOpen, setMobileDrawer] = useState(false);
@@ -179,6 +195,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         applyRows(rows);
         refreshTags();
         refreshUnread();
+        refreshProjects();
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Failed to load documents.');
       } finally {
@@ -187,8 +204,24 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     })();
   }, [applyRows]);
 
+  const refreshProjects = useCallback(async () => {
+    setProjects(await tasksApi.projects().catch(() => []));
+  }, []);
+
+  const openHome = useCallback(() => {
+    setView('home');
+    setMobileDrawer(false);
+  }, []);
+
+  const openProject = useCallback((id: string) => {
+    setActiveProjectId(id);
+    setView('project');
+    setMobileDrawer(false);
+  }, []);
+
   const select = useCallback((id: PageId) => {
     setCurrentId(id);
+    setView('doc');
     localStorage.setItem('mn-last-doc', id);
     setMobileDrawer(false);
     setRecentIds((prev) => {
@@ -234,6 +267,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       await refresh();
       if (parentId) setPages((p) => (p[parentId] ? { ...p, [parentId]: { ...p[parentId], expanded: true } } : p));
       setCurrentId(row.id);
+      setView('doc');
       localStorage.setItem('mn-last-doc', row.id);
       return row.id;
     } catch (e) {
@@ -248,6 +282,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       setPendingSeed(row.id, t.blocks); // consumed by mountEditor on first mount
       await refresh();
       setCurrentId(row.id);
+      setView('doc');
       localStorage.setItem('mn-last-doc', row.id);
       return row.id;
     } catch (e) {
@@ -260,6 +295,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     await docsApi.restore(id).catch(() => {});
     await refresh();
     setCurrentId(id);
+    setView('doc');
   }, [refresh]);
 
   const refreshUnread = useCallback(async () => {
@@ -380,6 +416,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       pages, rootIds, workspaceRootIds, privateRootIds, sharedRootIds, libraryRootIds, favoriteIds, recentIds: liveRecentIds,
       allTags, tagFilter, unreadCount, refreshUnread, markInboxRead,
       currentId, currentPage, loading, error, workspaceId,
+      view, activeProjectId, openHome, openProject, projects, refreshProjects,
       sidebarCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
       settingsOpen, trashOpen, inboxOpen, mode, fullWidth, theme,
       refresh, select, toggleExpand, toggleFavorite, setVisibility, rename, applyTitleFromEditor,
@@ -392,6 +429,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       pages, rootIds, workspaceRootIds, privateRootIds, sharedRootIds, libraryRootIds, favoriteIds, liveRecentIds,
       allTags, tagFilter, unreadCount, refreshUnread, markInboxRead,
       currentId, currentPage, loading, error, workspaceId,
+      view, activeProjectId, openHome, openProject, projects, refreshProjects,
       sidebarCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
       settingsOpen, trashOpen, inboxOpen, mode, fullWidth, theme,
       refresh, select, toggleExpand, toggleFavorite, setVisibility, rename, applyTitleFromEditor,
