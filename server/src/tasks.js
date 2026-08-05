@@ -4,8 +4,16 @@ import crypto from 'node:crypto';
 import { pool } from './db.js';
 
 export const STATUSES = ['todo', 'doing', 'review', 'done'];
+export const KINDS = ['epic', 'story', 'task', 'bug'];
 
 const isStatus = (s) => STATUSES.includes(s);
+const isKind = (k) => KINDS.includes(k);
+
+/** Sprint's project, or null. Guards cross-project task→sprint assignment. */
+async function sprintProject(sprintId) {
+  const { rows } = await pool.query('SELECT project_id FROM sprints WHERE id = $1', [sprintId]);
+  return rows[0]?.project_id ?? null;
+}
 
 /** YYYY-MM-DD or null. Rejects anything else rather than storing a bad date. */
 export function toDate(v) {
@@ -175,6 +183,11 @@ export function registerTaskRoutes(app, { requireUser, wrap }) {
     if (!startAt.ok || !dueAt.ok) {
       return res.status(400).json({ error: 'startAt/dueAt must be YYYY-MM-DD' });
     }
+    const kind = isKind(req.body?.kind) ? req.body.kind : 'task';
+    const sprintId = typeof req.body?.sprintId === 'string' ? req.body.sprintId : null;
+    if (sprintId && (await sprintProject(sprintId)) !== projectId) {
+      return res.status(400).json({ error: 'sprint is not in this project' });
+    }
     const id = crypto.randomUUID();
     // Append to the bottom of its column.
     const { rows: pos } = await pool.query(
@@ -185,8 +198,8 @@ export function registerTaskRoutes(app, { requireUser, wrap }) {
     const { rows } = await pool.query(
       `INSERT INTO tasks (id, project_id, title, status, assignee_id, start_at, due_at,
                           priority, progress, points, milestone, doc_id, parent_id,
-                          position, created_by, updated_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$15) RETURNING *`,
+                          kind, sprint_id, position, created_by, updated_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$17) RETURNING *`,
       [
         id, projectId,
         String(req.body?.title || '').slice(0, 500),
@@ -199,6 +212,7 @@ export function registerTaskRoutes(app, { requireUser, wrap }) {
         !!req.body?.milestone,
         req.body?.docId || null,
         req.body?.parentId || null,
+        kind, sprintId,
         pos[0].n, req.user.id,
       ]
     );
@@ -232,6 +246,45 @@ export function registerTaskRoutes(app, { requireUser, wrap }) {
     if (b.milestone !== undefined) set('milestone', !!b.milestone);
     if (b.docId !== undefined) set('doc_id', b.docId || null);
     if (b.position !== undefined) set('position', Number(b.position) || 0);
+    if (b.kind !== undefined) {
+      if (!isKind(b.kind)) return res.status(400).json({ error: 'bad kind' });
+      set('kind', b.kind);
+    }
+    if (b.sprintId !== undefined) {
+      const sprintId = typeof b.sprintId === 'string' ? b.sprintId : null;
+      if (sprintId) {
+        const { rows: t } = await pool.query('SELECT project_id FROM tasks WHERE id = $1', [req.params.id]);
+        if (!t[0]) return res.status(404).json({ error: 'not found' });
+        if ((await sprintProject(sprintId)) !== t[0].project_id) {
+          return res.status(400).json({ error: 'sprint is not in this project' });
+        }
+      }
+      set('sprint_id', sprintId);
+    }
+    if (b.parentId !== undefined) {
+      const parentId = typeof b.parentId === 'string' ? b.parentId : null;
+      if (parentId) {
+        if (parentId === req.params.id) return res.status(400).json({ error: 'a task cannot be its own parent' });
+        const { rows: pair } = await pool.query(
+          'SELECT id, project_id FROM tasks WHERE id = ANY($1) AND deleted_at IS NULL',
+          [[req.params.id, parentId]]
+        );
+        if (pair.length !== 2 || pair[0].project_id !== pair[1].project_id) {
+          return res.status(400).json({ error: 'parent must be a task in the same project' });
+        }
+        // Walk up from the proposed parent (seen guards pre-broken data);
+        // reaching this task means the move would close a loop.
+        const seen = new Set();
+        let cur = parentId;
+        while (cur && !seen.has(cur)) {
+          seen.add(cur);
+          const { rows: up } = await pool.query('SELECT parent_id FROM tasks WHERE id = $1', [cur]);
+          cur = up[0]?.parent_id || null;
+          if (cur === req.params.id) return res.status(400).json({ error: 'that would create a cycle' });
+        }
+      }
+      set('parent_id', parentId);
+    }
     if (!sets.length) return res.json({ ok: true });
 
     sets.push('updated_at = now()');
@@ -248,6 +301,93 @@ export function registerTaskRoutes(app, { requireUser, wrap }) {
 
   app.delete('/api/tasks/:id', requireUser, wrap(async (req, res) => {
     await pool.query('UPDATE tasks SET deleted_at = now() WHERE id = $1', [req.params.id]);
+    res.json({ ok: true });
+  }));
+
+  // ── sprints ─────────────────────────────────────────────────────────────
+  // Rows plus per-sprint rollups so the backlog view needs no second query.
+  app.get('/api/projects/:id/sprints', requireUser, wrap(async (req, res) => {
+    const { rows } = await pool.query(
+      `SELECT s.*,
+              count(t.id) FILTER (WHERE t.deleted_at IS NULL) AS total,
+              count(t.id) FILTER (WHERE t.deleted_at IS NULL AND t.status = 'done') AS done,
+              coalesce(sum(t.points) FILTER (WHERE t.deleted_at IS NULL), 0) AS points,
+              coalesce(sum(t.points) FILTER (WHERE t.deleted_at IS NULL AND t.status = 'done'), 0) AS points_done
+         FROM sprints s
+         LEFT JOIN tasks t ON t.sprint_id = s.id
+        WHERE s.project_id = $1
+        GROUP BY s.id
+        ORDER BY (s.state = 'active') DESC, s.start_at ASC NULLS LAST, s.created_at ASC`,
+      [req.params.id]
+    );
+    res.json(rows);
+  }));
+
+  app.post('/api/projects/:id/sprints', requireUser, wrap(async (req, res) => {
+    const startAt = readDate(req.body?.startAt);
+    const endAt = readDate(req.body?.endAt);
+    if (!startAt.ok || !endAt.ok) return res.status(400).json({ error: 'startAt/endAt must be YYYY-MM-DD' });
+    const { rows } = await pool.query(
+      `INSERT INTO sprints (id, project_id, name, start_at, end_at)
+       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+      [crypto.randomUUID(), req.params.id, String(req.body?.name || 'Sprint').slice(0, 200), startAt.value, endAt.value]
+    );
+    res.json({ ...rows[0], total: '0', done: '0', points: '0', points_done: '0' });
+  }));
+
+  app.patch('/api/sprints/:id', requireUser, wrap(async (req, res) => {
+    const b = req.body || {};
+    const { rows: cur } = await pool.query('SELECT * FROM sprints WHERE id = $1', [req.params.id]);
+    if (!cur[0]) return res.status(404).json({ error: 'not found' });
+    const sets = [];
+    const vals = [];
+    const set = (sql, v) => { vals.push(v); sets.push(`${sql} = $${vals.length}`); };
+    if (b.name !== undefined) set('name', String(b.name).slice(0, 200));
+    for (const [key, col] of [['startAt', 'start_at'], ['endAt', 'end_at']]) {
+      if (b[key] === undefined) continue;
+      const d = readDate(b[key]);
+      if (!d.ok) return res.status(400).json({ error: `${key} must be YYYY-MM-DD` });
+      set(col, d.value);
+    }
+    if (b.state !== undefined) {
+      if (!['planned', 'active', 'done'].includes(b.state)) return res.status(400).json({ error: 'bad state' });
+      set('state', b.state);
+    }
+    if (!sets.length) return res.json({ ok: true });
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      if (b.state === 'active') {
+        // One active sprint per project — starting this one parks any other.
+        await client.query(
+          `UPDATE sprints SET state = 'planned' WHERE project_id = $1 AND state = 'active' AND id <> $2`,
+          [cur[0].project_id, req.params.id]
+        );
+      }
+      if (b.state === 'done') {
+        // Completing a sprint returns unfinished work to the backlog.
+        await client.query(
+          `UPDATE tasks SET sprint_id = NULL WHERE sprint_id = $1 AND status <> 'done' AND deleted_at IS NULL`,
+          [req.params.id]
+        );
+      }
+      vals.push(req.params.id);
+      const { rows } = await client.query(
+        `UPDATE sprints SET ${sets.join(', ')} WHERE id = $${vals.length} RETURNING *`, vals
+      );
+      await client.query('COMMIT');
+      res.json(rows[0]);
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+  }));
+
+  // Hard delete; the FK sets tasks.sprint_id NULL, i.e. back to the backlog.
+  app.delete('/api/sprints/:id', requireUser, wrap(async (req, res) => {
+    await pool.query('DELETE FROM sprints WHERE id = $1', [req.params.id]);
     res.json({ ok: true });
   }));
 

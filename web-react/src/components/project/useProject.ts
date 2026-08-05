@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
 import { docsApi, type UserRow } from '../../lib/docsApi';
-import { tasksApi, type TaskPatch, type TaskRow } from '../../lib/tasksApi';
+import { tasksApi, type SprintRow, type SprintState, type TaskPatch, type TaskRow } from '../../lib/tasksApi';
 
 /**
- * One source of tasks for all four views, so a drag on the board updates the
+ * One source of tasks for all views, so a drag on the board updates the
  * gantt without a second fetch. Mutations apply locally first and re-sync from
  * the server on failure — the same optimistic pattern the doc store uses.
  */
 export function useProject(projectId: string | null) {
   const [tasks, setTasks] = useState<TaskRow[]>([]);
+  const [sprints, setSprints] = useState<SprintRow[]>([]);
   const [users, setUsers] = useState<UserRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -16,7 +17,12 @@ export function useProject(projectId: string | null) {
   const refresh = useCallback(async () => {
     if (!projectId) return;
     try {
-      setTasks(await tasksApi.projectTasks(projectId));
+      const [t, s] = await Promise.all([
+        tasksApi.projectTasks(projectId),
+        tasksApi.sprints(projectId).catch(() => [] as SprintRow[]),
+      ]);
+      setTasks(t);
+      setSprints(s);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not load tasks.');
@@ -39,6 +45,8 @@ export function useProject(projectId: string | null) {
     try {
       const row = await tasksApi.patchTask(id, body);
       setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...row } : t)));
+      // Sprint rollups (points, done counts) live server-side.
+      if (body.sprintId !== undefined || body.status !== undefined || body.points !== undefined) refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not save that change.');
       refresh();
@@ -76,7 +84,37 @@ export function useProject(projectId: string | null) {
     await tasksApi.removeDep(id, dependsOn).catch(() => refresh());
   }, [refresh]);
 
-  return { tasks, users, loading, error, setError, refresh, patch, create, remove, addDep, removeDep };
+  const createSprint = useCallback(async (name: string) => {
+    if (!projectId) return;
+    try {
+      const row = await tasksApi.createSprint(projectId, { name });
+      setSprints((prev) => [...prev, row]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not create that sprint.');
+    }
+  }, [projectId]);
+
+  const patchSprint = useCallback(async (id: string, body: Partial<{ name: string; startAt: string | null; endAt: string | null; state: SprintState }>) => {
+    try {
+      await tasksApi.patchSprint(id, body);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not update that sprint.');
+    }
+    // State changes move tasks (complete → backlog) and reorder — resync both.
+    refresh();
+  }, [refresh]);
+
+  const deleteSprint = useCallback(async (id: string) => {
+    setSprints((prev) => prev.filter((s) => s.id !== id));
+    setTasks((prev) => prev.map((t) => (t.sprint_id === id ? { ...t, sprint_id: null } : t)));
+    await tasksApi.deleteSprint(id).catch(() => refresh());
+  }, [refresh]);
+
+  return {
+    tasks, sprints, users, loading, error, setError, refresh,
+    patch, create, remove, addDep, removeDep,
+    createSprint, patchSprint, deleteSprint,
+  };
 }
 
 /** Map the PATCH body onto row fields so the optimistic update looks right. */
@@ -91,6 +129,9 @@ function localShape(body: TaskPatch, users: UserRow[]): Partial<TaskRow> {
   if (body.points !== undefined) out.points = body.points;
   if (body.milestone !== undefined) out.milestone = body.milestone;
   if (body.position !== undefined) out.position = body.position;
+  if (body.kind !== undefined) out.kind = body.kind;
+  if (body.sprintId !== undefined) out.sprint_id = body.sprintId;
+  if (body.parentId !== undefined) out.parent_id = body.parentId;
   if (body.assigneeId !== undefined) {
     out.assignee_id = body.assigneeId;
     out.assignee_name = users.find((u) => u.id === body.assigneeId)?.name ?? null;

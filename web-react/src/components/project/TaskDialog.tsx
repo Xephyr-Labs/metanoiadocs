@@ -4,12 +4,13 @@ import { Link2, Trash2, X } from 'lucide-react';
 import { useState } from 'react';
 import type { UserRow } from '../../lib/docsApi';
 import { cn } from '../../lib/cn';
-import { STATUSES, STATUS_LABEL, type TaskPatch, type TaskRow, type TaskStatus } from '../../lib/tasksApi';
+import { KINDS, KIND_LABEL, STATUSES, STATUS_LABEL, type SprintRow, type TaskKind, type TaskPatch, type TaskRow, type TaskStatus } from '../../lib/tasksApi';
 import { IconButton } from '../ui/IconButton';
 
 interface Props {
   task: TaskRow | null;
   tasks: TaskRow[];
+  sprints: SprintRow[];
   users: UserRow[];
   onClose: () => void;
   onPatch: (id: string, body: TaskPatch) => void;
@@ -23,12 +24,13 @@ const label = 'mb-1 block text-2xs font-semibold uppercase tracking-wide text-fa
 
 /** Full task editor. Everything here also exists inline in the table; this is
  *  where the fields that don't fit a column (dependencies, notes) live. */
-export function TaskDialog({ task, tasks, users, onClose, onPatch, onDelete, onAddDep, onRemoveDep }: Props) {
+export function TaskDialog({ task, tasks, sprints, users, onClose, onPatch, onDelete, onAddDep, onRemoveDep }: Props) {
   const [depPick, setDepPick] = useState('');
   if (!task) return null;
 
   const candidates = tasks.filter((t) => t.id !== task.id && !task.deps.includes(t.id));
   const byId = new Map(tasks.map((t) => [t.id, t]));
+  const epics = tasks.filter((t) => t.kind === 'epic' && t.id !== task.id);
 
   return (
     <Dialog.Root open onOpenChange={(v) => !v && onClose()}>
@@ -56,6 +58,28 @@ export function TaskDialog({ task, tasks, users, onClose, onPatch, onDelete, onA
 
             <div className="scrollarea flex-1 space-y-4 overflow-y-auto p-4">
               <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <span className={label}>Type</span>
+                  <select className={field} value={task.kind} onChange={(e) => onPatch(task.id, { kind: e.target.value as TaskKind })}>
+                    {KINDS.map((k) => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <span className={label}>Sprint</span>
+                  <select className={field} value={task.sprint_id ?? ''} onChange={(e) => onPatch(task.id, { sprintId: e.target.value || null })}>
+                    <option value="">Backlog</option>
+                    {sprints.map((s) => <option key={s.id} value={s.id}>{s.name}{s.state === 'active' ? ' (active)' : ''}</option>)}
+                  </select>
+                </div>
+                {task.kind !== 'epic' && (
+                  <div className="col-span-2">
+                    <span className={label}>Epic</span>
+                    <select className={field} value={task.parent_id ?? ''} onChange={(e) => onPatch(task.id, { parentId: e.target.value || null })}>
+                      <option value="">No epic</option>
+                      {epics.map((t) => <option key={t.id} value={t.id}>{t.title || 'Untitled'}</option>)}
+                    </select>
+                  </div>
+                )}
                 <div>
                   <span className={label}>Status</span>
                   <select className={field} value={task.status} onChange={(e) => onPatch(task.id, { status: e.target.value as TaskStatus })}>

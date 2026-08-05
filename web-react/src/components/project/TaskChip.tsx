@@ -2,7 +2,24 @@ import { Diamond, Link2 } from 'lucide-react';
 import { avatarFor } from '../../lib/avatar';
 import { cn } from '../../lib/cn';
 import { todayISO } from '../../lib/gantt';
-import type { TaskRow } from '../../lib/tasksApi';
+import { KIND_LABEL, type TaskKind, type TaskRow } from '../../lib/tasksApi';
+
+const KIND_STYLE: Record<TaskKind, string> = {
+  epic: 'bg-[#b84be8]/15 text-[#b84be8]',
+  story: 'bg-accent-soft text-accent',
+  task: 'bg-surface text-muted',
+  bug: 'bg-danger/10 text-danger',
+};
+
+/** Small colored type chip (epic/story/task/bug). Plain tasks stay unbadged. */
+export function KindBadge({ kind, always }: { kind: TaskKind; always?: boolean }) {
+  if (kind === 'task' && !always) return null;
+  return (
+    <span className={cn('shrink-0 rounded px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide', KIND_STYLE[kind])}>
+      {KIND_LABEL[kind]}
+    </span>
+  );
+}
 
 export const shortDate = (iso: string | null) =>
   iso
@@ -53,6 +70,10 @@ export function TaskChip({ task, onOpen, compact }: { task: TaskRow; onOpen: () 
       )}
 
       <div className="mt-2 flex items-center gap-2">
+        <KindBadge kind={task.kind} />
+        {task.points != null && (
+          <span className="rounded-full bg-surface px-1.5 text-2xs font-medium text-muted" title="Story points">{task.points}</span>
+        )}
         {task.due_at && (
           <span className={cn('text-2xs', overdue ? 'font-medium text-danger' : 'text-faint')}>
             {shortDate(task.due_at)}

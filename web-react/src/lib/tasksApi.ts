@@ -31,6 +31,31 @@ export const STATUS_LABEL: Record<TaskStatus, string> = {
   done: 'Done',
 };
 
+export type TaskKind = 'epic' | 'story' | 'task' | 'bug';
+export const KINDS: TaskKind[] = ['epic', 'story', 'task', 'bug'];
+export const KIND_LABEL: Record<TaskKind, string> = {
+  epic: 'Epic',
+  story: 'Story',
+  task: 'Task',
+  bug: 'Bug',
+};
+
+export type SprintState = 'planned' | 'active' | 'done';
+
+export interface SprintRow {
+  id: string;
+  project_id: string;
+  name: string;
+  start_at: string | null;
+  end_at: string | null;
+  state: SprintState;
+  /** Postgres aggregates arrive as strings. */
+  total: string;
+  done: string;
+  points: string;
+  points_done: string;
+}
+
 export interface ProjectRow {
   id: string;
   name: string;
@@ -58,6 +83,9 @@ export interface TaskRow {
   points: number | null;
   milestone: boolean;
   doc_id: string | null;
+  parent_id: string | null;
+  kind: TaskKind;
+  sprint_id: string | null;
   position: number;
   done_at: string | null;
   deps: string[];
@@ -75,6 +103,9 @@ export interface TaskPatch {
   milestone?: boolean;
   docId?: string | null;
   position?: number;
+  kind?: TaskKind;
+  sprintId?: string | null;
+  parentId?: string | null;
 }
 
 export interface ActivityRow {
@@ -127,6 +158,13 @@ export const tasksApi = {
   patchTask: (id: string, b: TaskPatch): Promise<TaskRow> =>
     req(`/tasks/${id}`, { method: 'PATCH', ...body(b) }),
   deleteTask: (id: string) => req(`/tasks/${id}`, { method: 'DELETE' }),
+
+  sprints: (projectId: string): Promise<SprintRow[]> => req(`/projects/${projectId}/sprints`),
+  createSprint: (projectId: string, b: { name: string; startAt?: string | null; endAt?: string | null }): Promise<SprintRow> =>
+    req(`/projects/${projectId}/sprints`, { method: 'POST', ...body(b) }),
+  patchSprint: (id: string, b: Partial<{ name: string; startAt: string | null; endAt: string | null; state: SprintState }>): Promise<SprintRow> =>
+    req(`/sprints/${id}`, { method: 'PATCH', ...body(b) }),
+  deleteSprint: (id: string) => req(`/sprints/${id}`, { method: 'DELETE' }),
 
   addDep: (id: string, dependsOn: string) =>
     req(`/tasks/${id}/deps`, { method: 'POST', ...body({ dependsOn }) }),
