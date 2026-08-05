@@ -32,7 +32,7 @@ function Row({ id, depth }: { id: PageId; depth: number }) {
           if (e.key === 'ArrowLeft' && hasChildren && page.expanded) ws.toggleExpand(id);
         }}
         className={cn(
-          'group/row flex h-[27px] cursor-pointer items-center rounded-md pr-1 text-[14px] transition-colors duration-120',
+          'group/row flex h-8 cursor-pointer items-center rounded-md pr-1 text-[14px] transition-colors duration-120',
           selected ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-hover',
         )}
         style={{ paddingLeft: 8 + depth * 16 }}

@@ -29,7 +29,7 @@ function NavItem({ icon, label, onClick, trailing, active }: { icon: ReactNode; 
     <button
       type="button"
       onClick={onClick}
-      className={cn('group flex h-[29px] w-full items-center gap-2 rounded-md px-2 text-[14px] transition-colors duration-120', active ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-hover')}
+      className={cn('group flex h-8 w-full items-center gap-2 rounded-md px-2 text-[14px] transition-colors duration-120', active ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-hover')}
     >
       <span className={cn('flex h-5 w-5 shrink-0 items-center justify-center', active ? 'text-accent' : 'text-faint group-hover:text-muted')}>{icon}</span>
       <span className="flex-1 truncate text-left">{label}</span>
@@ -40,7 +40,7 @@ function NavItem({ icon, label, onClick, trailing, active }: { icon: ReactNode; 
 
 function SectionLabel({ children, action }: { children: ReactNode; action?: ReactNode }) {
   return (
-    <div className="flex h-6 items-center justify-between px-2">
+    <div className="flex h-7 items-center justify-between px-2">
       <span className="text-[11px] font-semibold uppercase tracking-wide text-faint">{children}</span>
       {action}
     </div>
@@ -56,7 +56,7 @@ function CollapsibleSection({ label, defaultOpen, children }: { label: string; d
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="group flex h-6 w-full items-center gap-1 px-2 text-[11px] font-semibold uppercase tracking-wide text-faint hover:text-muted"
+        className="group flex h-7 w-full items-center gap-1 px-2 text-[11px] font-semibold uppercase tracking-wide text-faint hover:text-muted"
       >
         <ChevronRight size={12} className={cn('transition-transform duration-150', open && 'rotate-90')} />
         {label}
@@ -74,7 +74,7 @@ function DocRow({ id }: { id: string }) {
     <button
       type="button"
       onClick={() => ws.select(id)}
-      className={cn('flex h-[27px] w-full items-center gap-1.5 rounded-md px-2 text-[14px] transition-colors duration-120', ws.currentId === id ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-hover')}
+      className={cn('flex h-8 w-full items-center gap-1.5 rounded-md px-2 text-[14px] transition-colors duration-120', ws.currentId === id ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-hover')}
     >
       <DocIcon hasChildren={p.children.length > 0} size={16} />
       <span className="flex-1 truncate text-left">{p.title}</span>
@@ -113,7 +113,7 @@ export function Sidebar() {
   return (
     <aside className="relative flex h-full shrink-0 flex-col bg-canvas" style={{ width: ws.sidebarWidth }}>
       {/* workspace switcher */}
-      <div className="px-2 pt-2.5">
+      <div className="flex h-[45px] shrink-0 items-center px-2">
         <Menu
           width={248}
           items={[
@@ -122,7 +122,7 @@ export function Sidebar() {
             { icon: LogOut, label: 'Log out', danger: true, onSelect: () => auth.logout() },
           ]}
           trigger={
-            <button className="group flex h-[29px] w-full items-center gap-2 rounded-md px-2 text-left transition-colors duration-120 hover:bg-hover">
+            <button className="group flex h-8 w-full items-center gap-2 rounded-md px-2 text-left transition-colors duration-120 hover:bg-hover">
               <span className="flex h-5 w-5 shrink-0 items-center justify-center">
                 <LogoMark size={16} />
               </span>
@@ -134,7 +134,7 @@ export function Sidebar() {
       </div>
 
       {/* primary nav */}
-      <div className="px-2 pt-1.5">
+      <div className="px-2 pt-2">
         <NavItem icon={<Search size={16} />} label="Search" onClick={() => ws.setPaletteOpen(true)} trailing={<span className="text-2xs text-faint">⌘K</span>} />
         <NavItem icon={<Home size={16} />} label="Home" onClick={() => ws.rootIds[0] && ws.select(ws.rootIds[0])} />
         <NavItem
@@ -151,22 +151,22 @@ export function Sidebar() {
       </div>
 
       {/* scroll region */}
-      <div className="scrollarea mt-3 flex-1 overflow-y-auto px-2 pb-2">
+      <div className="scrollarea mt-4 flex-1 overflow-y-auto px-2 pb-2">
         {ws.recentIds.length > 0 && (
-          <section className="mb-[18px]">
+          <section className="mb-5">
             <SectionLabel>Recent</SectionLabel>
             <div className="space-y-px">{ws.recentIds.map((id) => <DocRow key={id} id={id} />)}</div>
           </section>
         )}
 
         {ws.favoriteIds.length > 0 && (
-          <section className="mb-[18px]">
+          <section className="mb-5">
             <SectionLabel>Favorites</SectionLabel>
             <div className="space-y-px">{ws.favoriteIds.map((id) => <DocRow key={id} id={id} />)}</div>
           </section>
         )}
 
-        <section className="mb-[18px]">
+        <section className="mb-5">
           <SectionLabel
             action={
               <button type="button" onClick={() => ws.createPage(null)} className="flex h-5 w-5 items-center justify-center rounded text-faint hover:bg-hover hover:text-muted" aria-label="New page">
@@ -186,28 +186,28 @@ export function Sidebar() {
         </section>
 
         {ws.privateRootIds.length > 0 && (
-          <section className="mb-[18px]">
+          <section className="mb-5">
             <SectionLabel>Private</SectionLabel>
             <PageTree roots={ws.privateRootIds} />
           </section>
         )}
 
         {ws.sharedRootIds.length > 0 && (
-          <section className="mb-[18px]">
+          <section className="mb-5">
             <SectionLabel>Public links</SectionLabel>
             <div className="space-y-px">{ws.sharedRootIds.map((id) => <DocRow key={id} id={id} />)}</div>
           </section>
         )}
 
         {ws.libraryRootIds.length > 0 && (
-          <section className="mb-[18px]">
+          <section className="mb-5">
             <SectionLabel>Shared with me</SectionLabel>
             <PageTree roots={ws.libraryRootIds} />
           </section>
         )}
 
         {ws.allTags.length > 0 && (
-          <section className="mb-[18px]">
+          <section className="mb-5">
             <SectionLabel>Tags</SectionLabel>
             <div className="space-y-px">
               {ws.allTags.map((t) => (
@@ -215,7 +215,7 @@ export function Sidebar() {
                   key={t.id}
                   type="button"
                   onClick={() => ws.setTagFilter(t.id)}
-                  className="flex h-[27px] w-full items-center gap-2 rounded-md px-2 text-[14px] text-ink transition-colors duration-120 hover:bg-hover"
+                  className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-[14px] text-ink transition-colors duration-120 hover:bg-hover"
                 >
                   <span className={cn('h-2.5 w-2.5 shrink-0 rounded-full', swatch(t.color).dot)} />
                   <span className="flex-1 truncate text-left">{t.name}</span>
@@ -226,7 +226,7 @@ export function Sidebar() {
           </section>
         )}
 
-        <section className="mb-1 mt-1">
+        <section className="mb-1 mt-2">
           <CollapsibleSection label="Templates" defaultOpen={ws.workspaceRootIds.length <= 8}>
           <div className="space-y-px">
             {templates.map((t) => (
@@ -234,7 +234,7 @@ export function Sidebar() {
                 key={t.id}
                 type="button"
                 onClick={() => ws.createFromTemplate(t)}
-                className="flex h-[27px] w-full items-center gap-1.5 rounded-md px-2 text-[14px] text-ink transition-colors duration-120 hover:bg-hover"
+                className="flex h-8 w-full items-center gap-1.5 rounded-md px-2 text-[14px] text-ink transition-colors duration-120 hover:bg-hover"
               >
                 <span className="text-[15px] leading-none">{t.icon}</span>
                 <span className="flex-1 truncate text-left">{t.name}</span>
