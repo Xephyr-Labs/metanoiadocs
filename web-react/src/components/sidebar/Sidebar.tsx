@@ -29,10 +29,10 @@ function NavItem({ icon, label, onClick, trailing, active }: { icon: ReactNode; 
     <button
       type="button"
       onClick={onClick}
-      className={cn('group flex h-8 w-full items-center gap-2 rounded-md px-2 text-[14px] transition-colors duration-120', active ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-hover')}
+      className={cn('group flex h-8 w-full items-center gap-2 rounded-md px-2 text-[14px] leading-5 transition-colors duration-120', active ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-hover')}
     >
       <span className={cn('flex h-5 w-5 shrink-0 items-center justify-center', active ? 'text-accent' : 'text-faint group-hover:text-muted')}>{icon}</span>
-      <span className="flex-1 truncate text-left">{label}</span>
+      <span className="flex-1 translate-y-px truncate text-left">{label}</span>
       {trailing}
     </button>
   );
@@ -74,10 +74,10 @@ function DocRow({ id }: { id: string }) {
     <button
       type="button"
       onClick={() => ws.select(id)}
-      className={cn('flex h-8 w-full items-center gap-1.5 rounded-md px-2 text-[14px] transition-colors duration-120', ws.currentId === id ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-hover')}
+      className={cn('flex h-8 w-full items-center gap-1.5 rounded-md px-2 text-[14px] leading-5 transition-colors duration-120', ws.currentId === id ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-hover')}
     >
       <DocIcon hasChildren={p.children.length > 0} size={16} />
-      <span className="flex-1 truncate text-left">{p.title}</span>
+      <span className="flex-1 translate-y-px truncate text-left">{p.title}</span>
       {p.favorite && <Star size={13} className="shrink-0 fill-current text-amber-400" />}
     </button>
   );
@@ -122,11 +122,11 @@ export function Sidebar() {
             { icon: LogOut, label: 'Log out', danger: true, onSelect: () => auth.logout() },
           ]}
           trigger={
-            <button className="group flex h-8 w-full items-center gap-2 rounded-md px-2 text-left transition-colors duration-120 hover:bg-hover">
+            <button className="group flex h-8 w-full items-center gap-2 rounded-md px-2 text-left leading-5 transition-colors duration-120 hover:bg-hover">
               <span className="flex h-5 w-5 shrink-0 items-center justify-center">
                 <LogoMark size={16} />
               </span>
-              <span className="flex-1 truncate text-[14px] font-semibold text-ink">{activeWs.name}</span>
+              <span className="flex-1 translate-y-px truncate text-[14px] font-semibold text-ink">{activeWs.name}</span>
               <ChevronDown size={15} className="shrink-0 text-faint opacity-0 transition-opacity group-hover:opacity-100" />
             </button>
           }
@@ -215,10 +215,10 @@ export function Sidebar() {
                   key={t.id}
                   type="button"
                   onClick={() => ws.setTagFilter(t.id)}
-                  className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-[14px] text-ink transition-colors duration-120 hover:bg-hover"
+                  className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-[14px] leading-5 text-ink transition-colors duration-120 hover:bg-hover"
                 >
                   <span className={cn('h-2.5 w-2.5 shrink-0 rounded-full', swatch(t.color).dot)} />
-                  <span className="flex-1 truncate text-left">{t.name}</span>
+                  <span className="flex-1 translate-y-px truncate text-left">{t.name}</span>
                   {t.count ? <span className="text-2xs text-faint">{t.count}</span> : null}
                 </button>
               ))}
@@ -234,10 +234,10 @@ export function Sidebar() {
                 key={t.id}
                 type="button"
                 onClick={() => ws.createFromTemplate(t)}
-                className="flex h-8 w-full items-center gap-1.5 rounded-md px-2 text-[14px] text-ink transition-colors duration-120 hover:bg-hover"
+                className="flex h-8 w-full items-center gap-1.5 rounded-md px-2 text-[14px] leading-5 text-ink transition-colors duration-120 hover:bg-hover"
               >
                 <span className="text-[15px] leading-none">{t.icon}</span>
-                <span className="flex-1 truncate text-left">{t.name}</span>
+                <span className="flex-1 translate-y-px truncate text-left">{t.name}</span>
                 <Plus size={13} className="shrink-0 text-faint" />
               </button>
             ))}
