@@ -14,15 +14,18 @@ import {
   FeatureFlagService,
   CommunityCanvasTextFonts,
   ThemeExtensionIdentifier,
+  VirtualKeyboardProvider,
 } from '@blocksuite/affine/shared/services';
 import { ColorScheme } from '@blocksuite/affine/model';
 import { HocuspocusProvider } from '@hocuspocus/provider';
 import { IndexeddbPersistence } from 'y-indexeddb';
 import { Signal } from '@preact/signals-core';
 import { takePendingSeed } from './pendingSeed';
+import { docPlainText } from './docText';
 import { attachMermaidPreviews } from './mermaidPreview';
 import { chartEffects, chartViewExtensions } from './chart';
 import { MetanoiaChartBlockSchema, MetanoiaChartBlockSchemaExtension } from './chart/chart-model';
+import { createVirtualKeyboardProvider } from './virtualKeyboard';
 
 let effectsInstalled = false;
 function installEffects() {
@@ -193,6 +196,7 @@ export async function mountEditor(root: HTMLElement, { docId, title, mode, userN
     if (themeSignal.value !== s) themeSignal.value = s;
   });
   themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+  const virtualKeyboard = createVirtualKeyboardProvider();
 
   const common = [
     FontConfigExtension(CommunityCanvasTextFonts),
@@ -204,6 +208,10 @@ export async function mountEditor(root: HTMLElement, { docId, title, mode, userN
           getAppTheme: () => themeSignal,
           getEdgelessTheme: () => themeSignal,
         }),
+    },
+    {
+      setup: (di: { override: (a: unknown, b: unknown) => void }) =>
+        di.override(VirtualKeyboardProvider, () => virtualKeyboard),
     },
   ];
   editor.pageSpecs = [...viewManager.get('page'), ...chartViewExtensions, ...common];
@@ -228,7 +236,8 @@ export async function mountEditor(root: HTMLElement, { docId, title, mode, userN
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
       const docTitle = (editor.querySelector('doc-title') as HTMLElement | null)?.innerText?.trim() || '';
-      const text = (editor.querySelector('editor-host') as HTMLElement | null)?.innerText || editor.innerText || '';
+      const text = docPlainText(store)
+        || (editor.querySelector('editor-host') as HTMLElement | null)?.innerText || editor.innerText || '';
       fetch(`/api/docs/${docId}/text`, {
         method: 'PUT', credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
@@ -258,6 +267,7 @@ export async function mountEditor(root: HTMLElement, { docId, title, mode, userN
       if (timer) clearTimeout(timer);
       try { detachMermaid(); } catch { /* noop */ }
       try { themeObserver.disconnect(); } catch { /* noop */ }
+      try { virtualKeyboard.dispose(); } catch { /* noop */ }
       try { doc.spaceDoc.off('update', push); } catch { /* noop */ }
       try { provider.destroy(); } catch { /* noop */ }
       try { idb?.destroy(); } catch { /* noop */ }
