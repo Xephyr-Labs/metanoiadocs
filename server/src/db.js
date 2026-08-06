@@ -245,6 +245,18 @@ export async function initSchema() {
     ALTER TABLE doc_signals ADD COLUMN IF NOT EXISTS keyphrases JSONB NOT NULL DEFAULT '[]';
     CREATE INDEX IF NOT EXISTS doc_terms_term_trgm_idx ON doc_terms USING GIN (term gin_trgm_ops);
 
+    -- Explicit page-to-page links (@-references typed in the editor). Distinct
+    -- from doc_terms "related", which is inferred from shared vocabulary — these
+    -- are links a person actually drew, so backlinks can be trusted.
+    -- Rewritten wholesale per source doc on each /text save.
+    CREATE TABLE IF NOT EXISTS doc_links (
+      from_id TEXT NOT NULL REFERENCES docs(id) ON DELETE CASCADE,
+      to_id   TEXT NOT NULL REFERENCES docs(id) ON DELETE CASCADE,
+      PRIMARY KEY (from_id, to_id)
+    );
+    -- The backlink direction is the one that gets queried per page view.
+    CREATE INDEX IF NOT EXISTS doc_links_to_idx ON doc_links(to_id);
+
     -- Who last saved a doc. docs.updated_at already exists but carries no actor,
     -- so the activity feed cannot attribute a plain save without this.
     ALTER TABLE docs ADD COLUMN IF NOT EXISTS updated_by TEXT

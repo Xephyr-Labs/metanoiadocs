@@ -3,6 +3,7 @@ import type { EditorMode } from '../lib/types';
 import { cn } from '../lib/cn';
 import { PageSkeleton } from '../components/ui/Skeleton';
 import { mountEditor } from './mountEditor';
+import type { LinkTarget } from './pageLinks';
 
 export interface EditorProps {
   docId: string;
@@ -13,13 +14,20 @@ export interface EditorProps {
   fullWidth?: boolean;
   onTitle?: (title: string) => void;
   onSaved?: () => void;
+  /** Page index for "@" linking. Omit for public viewers. */
+  pages?: () => LinkTarget[];
+  createPage?: (title: string) => Promise<string | null>;
+  onOpenDoc?: (docId: string) => void;
 }
 
 /**
  * React boundary around the imperative BlockSuite editor. Remounts per doc,
  * flips mode in place. Content persists + syncs via Hocuspocus inside mountEditor.
  */
-export function BlockSuiteEditor({ docId, title, mode, userName, share, fullWidth, onTitle, onSaved }: EditorProps) {
+export function BlockSuiteEditor({
+  docId, title, mode, userName, share, fullWidth,
+  onTitle, onSaved, pages, createPage, onOpenDoc,
+}: EditorProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const instRef = useRef<Awaited<ReturnType<typeof mountEditor>> | null>(null);
   const [loading, setLoading] = useState(true);
@@ -30,6 +38,14 @@ export function BlockSuiteEditor({ docId, title, mode, userName, share, fullWidt
   onTitleRef.current = onTitle;
   const onSavedRef = useRef(onSaved);
   onSavedRef.current = onSaved;
+  // Same for the link callbacks: the page index changes on every refresh, and
+  // remounting the editor for that would drop the user's cursor.
+  const pagesRef = useRef(pages);
+  pagesRef.current = pages;
+  const createPageRef = useRef(createPage);
+  createPageRef.current = createPage;
+  const onOpenDocRef = useRef(onOpenDoc);
+  onOpenDocRef.current = onOpenDoc;
 
   useEffect(() => {
     let alive = true;
@@ -44,6 +60,9 @@ export function BlockSuiteEditor({ docId, title, mode, userName, share, fullWidt
       share,
       onTitle: (t) => onTitleRef.current?.(t),
       onSaved: () => onSavedRef.current?.(),
+      pages: pagesRef.current ? () => pagesRef.current?.() ?? [] : undefined,
+      createPage: createPageRef.current ? (t) => createPageRef.current!(t) : undefined,
+      onOpenDoc: onOpenDocRef.current ? (id) => onOpenDocRef.current?.(id) : undefined,
     })
       .then((inst) => {
         if (!alive) { inst.destroy(); return; }

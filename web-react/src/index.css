@@ -169,6 +169,26 @@ textarea:focus-visible,
  * --line — so floating surfaces read distinctly in both light and dark. */
 :root {
   --affine-overlay-shadow: 0 0 0 1px var(--line), 0 6px 20px -8px rgba(0, 0, 0, 0.28);
+  /* Same gap, different widget family: the "@" popover and slash menu read
+   * --affine-overlay-panel-shadow instead. Match our own shadow-pop. */
+  --affine-overlay-panel-shadow: 0 0 0 1px var(--line), 0 2px 4px rgba(15, 15, 15, 0.04),
+    0 8px 24px rgba(15, 15, 15, 0.1);
+}
+
+/* BlockSuite's newer widgets (the "@" linked-page popover, the slash menu) paint
+ * themselves from @toeverything/theme's v2 variables. We don't ship that
+ * stylesheet — it would drag in hundreds of tokens that fight ours — so the
+ * popovers render transparent over the page. Map just the handful they read
+ * onto our own tokens; they inherit through the shadow DOM and follow the
+ * light/dark toggle for free. */
+:root,
+.dark {
+  --affine-v2-layer-background-primary: var(--canvas);
+  --affine-v2-layer-background-overlayPanel: var(--canvas);
+  --affine-v2-layer-background-hoverOverlay: var(--hover);
+  --affine-v2-layer-insideBorder-border: var(--line);
+  --affine-v2-icon-primary: var(--muted);
+  --affine-v2-text-primary: var(--ink);
 }
 
 affine-editor-container {

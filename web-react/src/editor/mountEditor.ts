@@ -26,6 +26,7 @@ import { attachComments } from './comments';
 import { takePendingSeed } from './pendingSeed';
 import { docPlainText } from './docText';
 import { attachMermaidPreviews } from './mermaidPreview';
+import { attachRefClicks, collectPageLinks, pageLinkExtensions, type LinkTarget } from './pageLinks';
 import { chartEffects, chartViewExtensions } from './chart';
 import { MetanoiaChartBlockSchema, MetanoiaChartBlockSchemaExtension } from './chart/chart-model';
 import { createVirtualKeyboardProvider } from './virtualKeyboard';
@@ -78,6 +79,12 @@ interface MountArgs {
   share?: string; // public read-only share token
   onTitle?: (title: string) => void;
   onSaved?: () => void;
+  /** Page index for the "@" menu. Omitted for public viewers. */
+  pages?: () => LinkTarget[];
+  /** Create a page and return its id, without navigating away from this one. */
+  createPage?: (title: string) => Promise<string | null>;
+  /** A reference chip was clicked — open that page. */
+  onOpenDoc?: (docId: string) => void;
 }
 
 function docModeService(editor: { mode: string }, mode: 'page' | 'edgeless') {
@@ -92,7 +99,10 @@ function docModeService(editor: { mode: string }, mode: 'page' | 'edgeless') {
   };
 }
 
-export async function mountEditor(root: HTMLElement, { docId, title, mode, userName, share, onTitle, onSaved }: MountArgs) {
+export async function mountEditor(
+  root: HTMLElement,
+  { docId, title, mode, userName, share, onTitle, onSaved, pages, createPage, onOpenDoc }: MountArgs,
+) {
   installEffects();
   chartEffects(); // register the metanoia:chart custom elements once
   const viewManager = getTestViewManager();
@@ -238,6 +248,11 @@ export async function mountEditor(root: HTMLElement, { docId, title, mode, userN
       setup: (di: { override: (a: unknown, b: unknown) => void }) =>
         di.override(VirtualKeyboardProvider, () => virtualKeyboard),
     },
+    // "@" page references. A public viewer gets neither the menu nor our title
+    // resolver — it has no page index to offer and cannot create pages.
+    ...(share || !pages || !createPage
+      ? []
+      : pageLinkExtensions({ pages, currentId: docId, createPage })),
   ];
   editor.pageSpecs = [...viewManager.get('page'), ...chartViewExtensions, ...common];
   editor.edgelessSpecs = [...viewManager.get('edgeless'), ...chartViewExtensions, ...common];
@@ -253,6 +268,10 @@ export async function mountEditor(root: HTMLElement, { docId, title, mode, userN
         doc.spaceDoc.on('update', cb);
         return () => doc.spaceDoc.off('update', cb);
       });
+
+  // Clicking a reference chip opens that page in the app; BlockSuite's own
+  // handler would look for the doc in this collection and find nothing.
+  const detachRefClicks = onOpenDoc ? attachRefClicks(editor, onOpenDoc) : null;
 
   // Render read-only diagram previews under ```mermaid code blocks. Mermaid is
   // dynamically imported inside here, so it only loads for docs that use it.
@@ -275,7 +294,9 @@ export async function mountEditor(root: HTMLElement, { docId, title, mode, userN
       fetch(`/api/docs/${docId}/text`, {
         method: 'PUT', credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: text.slice(0, 100000) }),
+        // `links` rides along with the text so backlinks stay in step with the
+        // content that produced them, on the one request that already fires.
+        body: JSON.stringify({ text: text.slice(0, 100000), links: collectPageLinks(store) }),
       }).then(() => onSaved?.()).catch(() => {});
       if (docTitle && docTitle !== lastTitle) {
         lastTitle = docTitle;
@@ -302,6 +323,7 @@ export async function mountEditor(root: HTMLElement, { docId, title, mode, userN
       try { tooltipKiller.disconnect(); } catch { /* noop */ }
       try { detachPresence(); } catch { /* noop */ }
       try { detachComments?.(); } catch { /* noop */ }
+      try { detachRefClicks?.(); } catch { /* noop */ }
       try { detachMermaid(); } catch { /* noop */ }
       try { themeObserver.disconnect(); } catch { /* noop */ }
       try { virtualKeyboard.dispose(); } catch { /* noop */ }

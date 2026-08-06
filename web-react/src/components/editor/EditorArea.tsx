@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { FileText, Maximize2, Minimize2, PencilRuler, Plus, Sparkles } from 'lucide-react';
+import { docsApi } from '../../lib/docsApi';
 import { useAuth } from '../../store/auth';
 import { useWorkspace } from '../../store/workspace';
 import { LazyEditor } from '../../editor/LazyEditor';
@@ -11,12 +12,31 @@ import { Button } from '../ui/Button';
 import { EmptyState } from '../ui/EmptyState';
 import { IconButton } from '../ui/IconButton';
 import { SegmentedControl } from '../ui/SegmentedControl';
+import { Backlinks } from './Backlinks';
 import { PageHeader } from './PageHeader';
 
 export function EditorArea() {
   const ws = useWorkspace();
   const auth = useAuth();
   const page = ws.currentPage;
+
+  // "@" linking. `pages` is read lazily on each keystroke so a page created a
+  // moment ago is already offerable. Creating from the menu must not navigate,
+  // so it goes straight to the API rather than through ws.createPage.
+  const pagesRef = useRef(ws.pages);
+  pagesRef.current = ws.pages;
+  const linkTargets = useCallback(
+    () => Object.values(pagesRef.current).map((p) => ({ id: p.id, title: p.title, icon: p.icon })),
+    [],
+  );
+  const createLinkedPage = useCallback(
+    async (title: string) => {
+      const row = await docsApi.create({ title }).catch(() => null);
+      if (row) ws.refresh();
+      return row?.id ?? null;
+    },
+    [ws],
+  );
 
   const [refreshKey, setRefreshKey] = useState(0);
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -88,6 +108,9 @@ export function EditorArea() {
               userName={auth.user?.name ?? 'You'}
               onTitle={(t) => ws.applyTitleFromEditor(page.id, t)}
               onSaved={bumpSoon}
+              pages={linkTargets}
+              createPage={createLinkedPage}
+              onOpenDoc={(id) => ws.select(id)}
             />
           </div>
         ) : (
@@ -109,7 +132,11 @@ export function EditorArea() {
                     fullWidth={ws.fullWidth}
                     onTitle={(t) => ws.applyTitleFromEditor(page.id, t)}
                     onSaved={bumpSoon}
+                    pages={linkTargets}
+                    createPage={createLinkedPage}
+                    onOpenDoc={(id) => ws.select(id)}
                   />
+                  <Backlinks docId={page.id} refreshKey={refreshKey} fullWidth={ws.fullWidth} onOpen={(id) => ws.select(id)} />
                 </div>
               </motion.div>
             </div>

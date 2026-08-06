@@ -909,12 +909,63 @@ async function computeAndStoreSignals(docId, fallbackText = '', titles = null) {
 // never overwrite fresher terms/signals.
 const scheduleSignals = coalesceByKey(computeAndStoreSignals);
 
+// Replace a doc's outgoing @-references. Best-effort: a bad link list must
+// never cost the user their save, so this runs after the response and swallows
+// its own errors. Targets that no longer exist are dropped rather than throwing
+// on the foreign key.
+async function storeLinks(fromId, ids) {
+  const to = [...new Set(ids.filter((v) => typeof v === 'string' && v && v !== fromId))].slice(0, 500);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('DELETE FROM doc_links WHERE from_id = $1', [fromId]);
+    if (to.length) {
+      await client.query(
+        `INSERT INTO doc_links (from_id, to_id)
+         SELECT $1, d.id FROM docs d
+          WHERE d.id = ANY($2) AND d.deleted_at IS NULL
+         ON CONFLICT DO NOTHING`,
+        [fromId, to],
+      );
+    }
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[links] store failed for', fromId, e.message);
+  } finally {
+    client.release();
+  }
+}
+
 app.put('/api/docs/:id/text', requireUser, wrap(async (req, res) => {
   if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
   const text = String(req.body?.text || '').slice(0, 100000);
+  // Absent `links` means "this client doesn't know about links" — leave the
+  // existing ones alone. An empty array means the doc genuinely has none now.
+  const links = Array.isArray(req.body?.links) ? req.body.links : null;
   await pool.query('UPDATE docs SET search_text = $1 WHERE id = $2', [text, req.params.id]);
   res.json({ ok: true });
   scheduleSignals(req.params.id, text); // best-effort, after response
+  if (links) storeLinks(req.params.id, links);
+}));
+
+// Pages that @-reference this one. Access-scoped the same way search is: a
+// backlink from a page you can't open must not leak that page's title.
+app.get('/api/docs/:id/backlinks', requireUser, wrap(async (req, res) => {
+  if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
+  const { rows } = await pool.query(
+    `SELECT d.id, d.title, d.icon, d.updated_at
+       FROM doc_links l
+       JOIN docs d ON d.id = l.from_id
+       LEFT JOIN doc_access a ON a.doc_id = d.id AND a.user_id = $2
+      WHERE l.to_id = $1
+        AND d.deleted_at IS NULL
+        AND (a.user_id IS NOT NULL OR d.visibility = 'team')
+      ORDER BY d.updated_at DESC
+      LIMIT 50`,
+    [req.params.id, req.user.id],
+  );
+  res.json(rows);
 }));
 
 app.get('/api/search', requireUser, wrap(async (req, res) => {

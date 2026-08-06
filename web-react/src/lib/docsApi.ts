@@ -100,6 +100,14 @@ export interface SearchRow {
   snippet: string;
 }
 
+/** A page that @-references the one being viewed. */
+export interface BacklinkRow {
+  id: string;
+  title: string;
+  icon: string;
+  updated_at: string;
+}
+
 export interface InboxRow {
   id: string;
   kind: 'mention' | 'comment';
@@ -153,6 +161,7 @@ export const docsApi = {
     req(`/docs/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   remove: (id: string) => req(`/docs/${id}`, { method: 'DELETE' }),
   trash: (): Promise<{ id: string; title: string; icon: string; deleted_at: string }[]> => req('/docs/trash'),
+  backlinks: (id: string): Promise<BacklinkRow[]> => req(`/docs/${id}/backlinks`),
   restore: (id: string) => req(`/docs/${id}/restore`, { method: 'POST' }),
   inbox: (): Promise<InboxRow[]> => req('/inbox'),
   unreadCount: (): Promise<{ count: number }> => req('/notifications/unread-count'),
