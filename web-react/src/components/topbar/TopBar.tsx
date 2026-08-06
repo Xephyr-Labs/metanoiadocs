@@ -26,7 +26,7 @@ import { useWorkspace } from '../../store/workspace';
 import { cn } from '../../lib/cn';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { Button } from '../ui/Button';
-import { DocIcon } from '../ui/DocIcon';
+import { PageIcon } from '../ui/PageIcon';
 import { IconButton } from '../ui/IconButton';
 import { Menu } from '../ui/Menu';
 
@@ -113,7 +113,7 @@ export function TopBar() {
                     last ? 'text-ink' : 'text-muted',
                   )}
                 >
-                  <DocIcon hasChildren={p.children.length > 0} size={15} />
+                  <PageIcon icon={p.icon} size={15} />
                   <span className={cn('truncate', last && 'font-medium')}>{p.title}</span>
                 </button>
                 {!last && <ChevronRight size={14} className="mx-0.5 shrink-0 text-faint" />}

@@ -1,10 +1,29 @@
 import { ChevronRight, FileText, Folder, FolderOpen, MoreHorizontal, Plus, Star, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { cn } from '../../lib/cn';
+import { TAG_COLORS, swatch } from '../../lib/tagColors';
 import type { PageId } from '../../lib/types';
 import { useWorkspace } from '../../store/workspace';
-import { DocIcon } from '../ui/DocIcon';
+import { PageIcon } from '../ui/PageIcon';
 import { Menu } from '../ui/Menu';
+
+/** Folder icon tint per palette color; gray stays the quiet default. */
+const FOLDER_TINT: Record<string, string> = {
+  gray: 'text-faint',
+  red: 'text-red-500',
+  orange: 'text-orange-500',
+  yellow: 'text-yellow-500',
+  green: 'text-green-500',
+  teal: 'text-teal-500',
+  blue: 'text-blue-500',
+  purple: 'text-purple-500',
+  pink: 'text-pink-500',
+};
+
+const ColorDot = (color: string) =>
+  function Dot({ className }: { size?: number; strokeWidth?: number; className?: string }) {
+    return <span className={cn('h-3 w-3 rounded-full', swatch(color).dot, className)} />;
+  };
 
 function DocumentRow({ id, depth }: { id: PageId; depth: number }) {
   const ws = useWorkspace();
@@ -38,7 +57,7 @@ function DocumentRow({ id, depth }: { id: PageId; depth: number }) {
       onKeyDown={(e) => { if (e.key === 'Enter') ws.select(id); }}
     >
       <span className={cn('mr-1.5 flex h-5 w-5 shrink-0 items-center justify-center', selected ? 'text-accent' : 'text-faint')}>
-        <DocIcon size={16} />
+        <PageIcon icon={page.icon} size={16} className={selected ? 'shrink-0 text-accent' : 'shrink-0 text-faint'} />
       </span>
       <span className={cn('flex h-5 min-w-0 flex-1 items-center truncate', selected && 'font-medium text-accent')}>
         {page.title}
@@ -70,6 +89,7 @@ function FolderRow({ id, depth }: { id: string; depth: number }) {
     const name = window.prompt('Rename folder', folder.name)?.trim();
     if (name && name !== folder.name) ws.renameFolder(id, name);
   };
+  const tint = FOLDER_TINT[folder.color] ?? 'text-faint';
   return (
     <div>
       <div
@@ -96,11 +116,18 @@ function FolderRow({ id, depth }: { id: string; depth: number }) {
         role="treeitem"
         aria-expanded={hasChildren ? !!folder.expanded : undefined}
       >
-        <button type="button" onClick={() => ws.toggleFolder(id)} className="relative mr-1 flex h-5 w-5 shrink-0 items-center justify-center rounded text-faint hover:bg-line-strong/60" aria-label={folder.expanded ? 'Collapse folder' : 'Expand folder'}>
-          {hasChildren && <ChevronRight size={13} className={cn('transition-transform duration-150', folder.expanded && 'rotate-90')} />}
+        {/* One w-5 slot shared with doc rows so names line up: folder icon at
+            rest, chevron while hovering the row. */}
+        <button type="button" onClick={() => ws.toggleFolder(id)} className="mr-1.5 flex h-5 w-5 shrink-0 items-center justify-center rounded hover:bg-line-strong/60" aria-label={folder.expanded ? 'Collapse folder' : 'Expand folder'}>
+          {hover && hasChildren ? (
+            <ChevronRight size={14} className={cn('text-muted transition-transform duration-150', folder.expanded && 'rotate-90')} />
+          ) : folder.expanded ? (
+            <FolderOpen size={16} className={cn('shrink-0', tint)} />
+          ) : (
+            <Folder size={16} className={cn('shrink-0', tint)} />
+          )}
         </button>
-        <button type="button" onClick={() => ws.toggleFolder(id)} className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
-          {folder.expanded ? <FolderOpen size={16} className="shrink-0 text-faint" /> : <Folder size={16} className="shrink-0 text-faint" />}
+        <button type="button" onClick={() => ws.toggleFolder(id)} className="flex min-w-0 flex-1 items-center text-left">
           <span className="truncate">{folder.name}</span>
         </button>
         <span className={cn('flex shrink-0 items-center gap-0.5 transition-opacity', hover ? 'opacity-100' : 'opacity-0')}>
@@ -110,6 +137,12 @@ function FolderRow({ id, depth }: { id: string; depth: number }) {
               { icon: Plus, label: 'New page', onSelect: () => ws.createPage(id) },
               { icon: Folder, label: 'New subfolder', onSelect: () => ws.createFolder(id) },
               { icon: FileText, label: 'Rename', onSelect: rename },
+              ...TAG_COLORS.map((c, i) => ({
+                icon: ColorDot(c),
+                label: c[0].toUpperCase() + c.slice(1),
+                separatorBefore: i === 0,
+                onSelect: () => ws.setFolderColor(id, c),
+              })),
               { icon: Trash2, label: 'Delete folder', danger: true, separatorBefore: true, onSelect: () => ws.deleteFolder(id) },
             ]}
           />

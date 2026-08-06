@@ -73,6 +73,8 @@ interface WorkspaceState {
   movePage: (id: PageId, folderId: string | null) => Promise<void>;
   createFolder: (parentId: string | null) => Promise<string | null>;
   renameFolder: (id: string, name: string) => Promise<void>;
+  setFolderColor: (id: string, color: string) => void;
+  setIcon: (id: PageId, icon: string) => void;
   toggleFolder: (id: string) => void;
   deleteFolder: (id: string) => Promise<void>;
   createFromTemplate: (t: Template) => Promise<PageId | null>;
@@ -127,6 +129,7 @@ function buildFolders(rows: FolderRow[], expanded: Set<string>, pages: Record<Pa
     map[row.id] = {
       id: row.id,
       name: row.name,
+      color: row.color || 'gray',
       parentId: row.parent_id,
       position: row.position,
       documentIds: [],
@@ -329,6 +332,16 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     await refresh();
   }, [refresh]);
 
+  const setFolderColor = useCallback((id: string, color: string) => {
+    setFolders((f) => (f[id] ? { ...f, [id]: { ...f[id], color } } : f));
+    docsApi.patchFolder(id, { color }).catch(() => refresh());
+  }, [refresh]);
+
+  const setIcon = useCallback((id: PageId, icon: string) => {
+    setPages((p) => (p[id] ? { ...p, [id]: { ...p[id], icon } } : p));
+    docsApi.patch(id, { icon }).catch(() => refresh());
+  }, [refresh]);
+
   const toggleFolder = useCallback((id: string) => {
     folderExpandedRef.current.has(id) ? folderExpandedRef.current.delete(id) : folderExpandedRef.current.add(id);
     setFolders((f) => (f[id] ? { ...f, [id]: { ...f[id], expanded: !f[id].expanded } } : f));
@@ -491,7 +504,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       sidebarCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
       settingsOpen, trashOpen, inboxOpen, mode, fullWidth, theme,
       refresh, select, toggleExpand, toggleFavorite, setVisibility, rename, applyTitleFromEditor,
-      createPage, movePage, createFolder, renameFolder, toggleFolder, deleteFolder, createFromTemplate, deletePage, restorePage,
+      createPage, movePage, createFolder, renameFolder, setFolderColor, setIcon, toggleFolder, deleteFolder, createFromTemplate, deletePage, restorePage,
       refreshTags, addTagToPage, removeTagFromPage, setTagFilter,
       setSidebarCollapsed, setSidebarWidth, setMobileDrawer, setRightPanel, setPaletteOpen,
       setShareOpen, setSettingsOpen, setTrashOpen, setInboxOpen, setMode, setFullWidth, toggleTheme,
@@ -504,7 +517,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       sidebarCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
       settingsOpen, trashOpen, inboxOpen, mode, fullWidth, theme,
       refresh, select, toggleExpand, toggleFavorite, setVisibility, rename, applyTitleFromEditor,
-      createPage, movePage, createFolder, renameFolder, toggleFolder, deleteFolder, createFromTemplate, deletePage, restorePage,
+      createPage, movePage, createFolder, renameFolder, setFolderColor, setIcon, toggleFolder, deleteFolder, createFromTemplate, deletePage, restorePage,
       refreshTags, addTagToPage, removeTagFromPage, toggleTheme,
     ],
   );

@@ -16,7 +16,7 @@ import { cn } from '../../lib/cn';
 import { avatarFor } from '../../lib/avatar';
 import { swatch } from '../../lib/tagColors';
 import { LogoMark } from '../brand/Logo';
-import { DocIcon } from '../ui/DocIcon';
+import { PageIcon } from '../ui/PageIcon';
 import { tasksApi } from '../../lib/tasksApi';
 import { workspaces } from '../../data/mock';
 import { templates } from '../../data/templates';
@@ -78,7 +78,7 @@ function DocRow({ id }: { id: string }) {
       onClick={() => ws.select(id)}
       className={cn('flex h-8 w-full items-center gap-1.5 rounded-md px-2 text-[14px] leading-5 transition-colors duration-120', ws.currentId === id ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-hover')}
     >
-      <DocIcon hasChildren={p.children.length > 0} size={16} />
+      <PageIcon icon={p.icon} size={16} />
       <span className="flex h-5 flex-1 !self-center items-center truncate text-left">{p.title}</span>
       {p.favorite && <Star size={13} className="shrink-0 fill-current text-amber-400" />}
     </button>

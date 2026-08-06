@@ -27,6 +27,7 @@ export interface Page {
 export interface Folder {
   id: string;
   name: string;
+  color: string;
   parentId: string | null;
   position: number;
   documentIds: PageId[];

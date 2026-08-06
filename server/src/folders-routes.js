@@ -2,28 +2,14 @@ import crypto from 'node:crypto';
 import { pool } from './db.js';
 import { wouldFolderCycle } from './folders.js';
 
-const visibleDoc = (userPlaceholder) => `(d.deleted_at IS NULL AND (d.visibility = 'team' OR EXISTS (
-  SELECT 1 FROM doc_access da WHERE da.doc_id = d.id AND da.user_id = ${userPlaceholder}
-)))`;
-
-/** One authz rule for folders everywhere: creator, or any visible doc in the
- *  subtree. index.js reuses this for create-in / move-to checks. */
-export async function visibleFolder(id, userId) {
+/** Folders are workspace-wide structure: every member sees and edits every
+ *  folder (matching the team-editable doc model). Only doc *contents* carry
+ *  visibility. So "accessible" just means it exists and isn't deleted —
+ *  an empty folder must not vanish for everyone but its creator. */
+export async function visibleFolder(id, _userId) {
   const { rowCount } = await pool.query(
-    `WITH RECURSIVE descendants AS (
-       SELECT id FROM folders WHERE id = $1 AND deleted_at IS NULL
-       UNION ALL
-       SELECT f.id FROM folders f JOIN descendants d ON f.parent_id = d.id
-        WHERE f.deleted_at IS NULL
-     )
-     SELECT 1
-       FROM folders f
-      WHERE f.id = $1 AND f.deleted_at IS NULL
-        AND (f.created_by = $2 OR EXISTS (
-          SELECT 1 FROM docs d WHERE d.folder_id IN (SELECT id FROM descendants)
-            AND ${visibleDoc('$2')}
-        ))`,
-    [id, userId]
+    'SELECT 1 FROM folders WHERE id = $1 AND deleted_at IS NULL',
+    [id]
   );
   return !!rowCount;
 }
@@ -34,29 +20,16 @@ async function folderParents() {
 }
 
 export function registerFolderRoutes(app, { requireUser, wrap }) {
-  app.get('/api/folders', requireUser, wrap(async (req, res) => {
+  app.get('/api/folders', requireUser, wrap(async (_req, res) => {
     const { rows } = await pool.query(
-      `WITH RECURSIVE visible AS (
-         SELECT f.id, f.name, f.parent_id, f.position, f.created_by, f.created_at
-           FROM folders f
-          WHERE f.deleted_at IS NULL
-            AND (f.created_by = $1 OR EXISTS (
-              SELECT 1 FROM docs d WHERE d.folder_id = f.id AND ${visibleDoc('$1')}
-            ))
-         UNION
-         SELECT parent.id, parent.name, parent.parent_id, parent.position,
-                parent.created_by, parent.created_at
-           FROM folders parent JOIN visible child ON child.parent_id = parent.id
-          WHERE parent.deleted_at IS NULL
-       )
-       SELECT v.*,
+      `SELECT f.id, f.name, f.parent_id, f.position, f.color, f.created_by, f.created_at,
               (SELECT count(*)::int FROM docs d
-                WHERE d.folder_id = v.id AND d.deleted_at IS NULL) AS document_count,
+                WHERE d.folder_id = f.id AND d.deleted_at IS NULL) AS document_count,
               (SELECT count(*)::int FROM folders child
-                WHERE child.parent_id = v.id AND child.deleted_at IS NULL) AS folder_count
-         FROM visible v
-        ORDER BY v.parent_id NULLS FIRST, v.position ASC, lower(v.name), v.id`,
-      [req.user.id]
+                WHERE child.parent_id = f.id AND child.deleted_at IS NULL) AS folder_count
+         FROM folders f
+        WHERE f.deleted_at IS NULL
+        ORDER BY f.parent_id NULLS FIRST, f.position ASC, lower(f.name), f.id`
     );
     res.json(rows);
   }));
@@ -72,7 +45,7 @@ export function registerFolderRoutes(app, { requireUser, wrap }) {
     const { rows } = await pool.query(
       `INSERT INTO folders (id, name, parent_id, position, created_by)
        VALUES ($1, $2, $3, COALESCE((SELECT max(position) + 1 FROM folders WHERE parent_id IS NOT DISTINCT FROM $3 AND deleted_at IS NULL), 0), $4)
-       RETURNING id, name, parent_id, position, created_by, created_at`,
+       RETURNING id, name, parent_id, position, color, created_by, created_at`,
       [id, name, parentId, req.user.id]
     );
     res.json(rows[0]);
@@ -87,6 +60,10 @@ export function registerFolderRoutes(app, { requireUser, wrap }) {
       if (!name) return res.status(400).json({ error: 'name required' });
       values.push(name);
       sets.push(`name = $${values.length}`);
+    }
+    if (typeof req.body?.color === 'string') {
+      values.push(req.body.color.slice(0, 20));
+      sets.push(`color = $${values.length}`);
     }
     if ('parentId' in (req.body || {})) {
       const parentId = req.body.parentId || null;

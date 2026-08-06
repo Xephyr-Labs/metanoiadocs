@@ -85,6 +85,8 @@ export async function initSchema() {
     );
     ALTER TABLE docs ADD COLUMN IF NOT EXISTS folder_id TEXT
       REFERENCES folders(id) ON DELETE SET NULL;
+    -- Sidebar tint; values come from the shared tag palette ('gray', 'blue', …).
+    ALTER TABLE folders ADD COLUMN IF NOT EXISTS color TEXT NOT NULL DEFAULT 'gray';
     CREATE INDEX IF NOT EXISTS folders_parent_idx ON folders(parent_id, position);
     CREATE INDEX IF NOT EXISTS docs_folder_idx ON docs(folder_id, position);
     CREATE TABLE IF NOT EXISTS schema_migrations (

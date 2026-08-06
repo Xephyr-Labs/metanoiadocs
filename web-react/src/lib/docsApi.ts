@@ -48,6 +48,7 @@ export interface FolderRow {
   id: string;
   name: string;
   parent_id: string | null;
+  color: string;
   position: number;
   created_by: string | null;
   created_at: string;
@@ -129,12 +130,21 @@ export interface Intelligence {
   terminology: { term: string; suggest: string; count: number }[];
 }
 
+export interface MyDocRow {
+  id: string;
+  title: string;
+  icon: string;
+  updated_at: string;
+}
+
 export const docsApi = {
   list: (): Promise<DocRow[]> => req('/docs'),
+  myDocs: (offset: number, limit = 8): Promise<{ total: number; rows: MyDocRow[] }> =>
+    req(`/docs/mine?offset=${offset}&limit=${limit}`),
   folders: async (): Promise<FolderRow[]> => normalizeFolderRows(await req('/folders')),
   createFolder: (body: { name: string; parentId?: string | null }): Promise<FolderRow> =>
     req('/folders', { method: 'POST', body: JSON.stringify(body) }),
-  patchFolder: (id: string, body: { name?: string; parentId?: string | null }) =>
+  patchFolder: (id: string, body: { name?: string; color?: string; parentId?: string | null }) =>
     req(`/folders/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   removeFolder: (id: string) => req(`/folders/${id}`, { method: 'DELETE' }),
   create: (body: { title?: string; icon?: string; folderId?: string | null }): Promise<DocRow> =>

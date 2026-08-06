@@ -1,10 +1,10 @@
 import * as DM from '@radix-ui/react-dropdown-menu';
-import type { LucideIcon } from 'lucide-react';
-import type { ReactNode } from 'react';
+import type { ComponentType, ReactNode } from 'react';
 import { cn } from '../../lib/cn';
 
 export interface MenuItem {
-  icon?: LucideIcon;
+  /** Lucide icon or any small component accepting size/className (e.g. a color dot). */
+  icon?: ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
   label: string;
   shortcut?: string;
   danger?: boolean;

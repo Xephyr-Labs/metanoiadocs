@@ -2,12 +2,14 @@ import { Users } from 'lucide-react';
 import type { Page } from '../../lib/types';
 import type { Intelligence } from '../../lib/docsApi';
 import { relativeTime } from '../../lib/time';
-import { DocIcon } from '../ui/DocIcon';
+import { useWorkspace } from '../../store/workspace';
+import { IconPicker } from './IconPicker';
 import { TagChips } from './TagChips';
 import { TagSuggestions } from './TagSuggestions';
 
 /** Icon + metadata band above the BlockSuite content. Title is BlockSuite's own. */
 export function PageHeader({ page, fullWidth, suggested }: { page: Page; fullWidth: boolean; suggested: Intelligence['suggestedTags'] }) {
+  const ws = useWorkspace();
   return (
     <div
       className={[
@@ -18,7 +20,7 @@ export function PageHeader({ page, fullWidth, suggested }: { page: Page; fullWid
       {/* Quiet marker + metadata in one tight group above the title — no dead
           zone. Responsive top gap: small on phones, a little more on desktop. */}
       <div className="flex items-center gap-2 pt-6 text-2xs text-faint md:pt-9">
-        <DocIcon hasChildren={page.children.length > 0} size={18} />
+        <IconPicker icon={page.icon} onPick={(icon) => ws.setIcon(page.id, icon)} />
         <span className="tabular-nums">Edited {relativeTime(page.updatedAt)}</span>
         {page.shared && (
           <span className="flex items-center gap-1 text-accent">
