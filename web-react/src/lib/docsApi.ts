@@ -100,6 +100,17 @@ export interface SearchRow {
   snippet: string;
 }
 
+export interface TrashRow {
+  id: string;
+  title: string;
+  icon: string;
+  deleted_at: string;
+  /** When the retention sweeper will destroy it. Computed server-side. */
+  purge_at: string;
+  /** False for pages you can see and restore but do not own. */
+  can_delete: boolean;
+}
+
 /** A page that @-references the one being viewed. */
 export interface BacklinkRow {
   id: string;
@@ -160,8 +171,7 @@ export const docsApi = {
   patch: (id: string, body: { title?: string; icon?: string; folderId?: string | null }) =>
     req(`/docs/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   remove: (id: string) => req(`/docs/${id}`, { method: 'DELETE' }),
-  trash: (): Promise<{ id: string; title: string; icon: string; deleted_at: string; can_delete: boolean }[]> =>
-    req('/docs/trash'),
+  trash: (): Promise<{ retentionDays: number; rows: TrashRow[] }> => req('/docs/trash'),
   /** Destroy every trashed page you own. Pages you can only see are reported as skipped. */
   emptyTrash: (): Promise<{ deleted: number; skipped: number }> =>
     req('/docs/trash/empty', { method: 'POST' }),

@@ -1,3 +1,15 @@
+/**
+ * Whole days from now until `iso`, rounded up so a deadline 20 hours out reads
+ * "1 day" rather than "0". Never negative — past deadlines are 0. Null if the
+ * date is missing or unparseable.
+ */
+export function daysUntil(iso: string | null | undefined): number | null {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return null;
+  return Math.max(0, Math.ceil((t - Date.now()) / 86_400_000));
+}
+
 /** Compact relative time: "just now", "2h ago", "3d ago", or a date. */
 export function relativeTime(iso: string | null | undefined): string {
   if (!iso) return '';

@@ -27,6 +27,7 @@ import { topTerms, extractSignals, findMentions, simhash, hamming, keyphrases, s
 import { registerTaskRoutes } from './tasks.js';
 import { registerHomeRoutes } from './home.js';
 import { registerFolderRoutes, visibleFolder } from './folders-routes.js';
+import { TRASH_RETENTION_DAYS, startTrashSweeper } from './retention.js';
 import OpenAI from 'openai';
 
 process.on('unhandledRejection', (e) => console.error('[proc] unhandledRejection', e?.message || e));
@@ -635,14 +636,17 @@ const TRASH_VISIBLE = `d.deleted_at IS NOT NULL AND (a.user_id IS NOT NULL OR d.
 
 app.get('/api/docs/trash', requireUser, async (req, res) => {
   const { rows } = await pool.query(
+    // purge_at is computed here rather than on the client so the countdown and
+    // the sweeper can never disagree about the window.
     `SELECT d.id, d.title, d.icon, d.deleted_at,
+            d.deleted_at + ($3 || ' days')::interval AS purge_at,
             COALESCE($2 OR a.role = 'owner', false) AS can_delete
        FROM docs d LEFT JOIN doc_access a ON a.doc_id = d.id AND a.user_id = $1
       WHERE ${TRASH_VISIBLE}
       ORDER BY d.deleted_at DESC LIMIT 100`,
-    [req.user.id, req.user.role === 'admin']
+    [req.user.id, req.user.role === 'admin', String(TRASH_RETENTION_DAYS)]
   );
-  res.json(rows);
+  res.json({ retentionDays: TRASH_RETENTION_DAYS, rows });
 });
 
 // Destroy every trashed page this user is allowed to destroy. Pages they can
@@ -1600,6 +1604,7 @@ server.on('upgrade', async (request, socket, head) => {
     socket.destroy();
   }
 });
-server.listen(PORT, '0.0.0.0', () =>
-  console.log(`MetanoiaDocs server on :${PORT}  base=${BASE_URL}`)
-);
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`MetanoiaDocs server on :${PORT}  base=${BASE_URL}`);
+  startTrashSweeper();
+});

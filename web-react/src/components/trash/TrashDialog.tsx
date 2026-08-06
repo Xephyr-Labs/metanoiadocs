@@ -1,25 +1,27 @@
 import { AlertCircle, Loader2, RotateCcw, Trash2, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { docsApi } from '../../lib/docsApi';
+import { docsApi, type TrashRow } from '../../lib/docsApi';
 import { cn } from '../../lib/cn';
-import { relativeTime } from '../../lib/time';
+import { daysUntil, relativeTime } from '../../lib/time';
 import { useWorkspace } from '../../store/workspace';
 import { DocIcon } from '../ui/DocIcon';
 import { EmptyState } from '../ui/EmptyState';
 import { Modal, ModalBody } from '../ui/Modal';
 
-interface TrashDoc {
-  id: string;
-  title: string;
-  icon: string;
-  deleted_at: string;
-  /** False for pages you can see and restore but do not own. */
-  can_delete: boolean;
+/** "removed today" / "removed in 1 day" / "removed in 27 days". */
+function countdown(purgeAt: string): string | null {
+  const n = daysUntil(purgeAt);
+  if (n === null) return null;
+  if (n === 0) return 'removed today';
+  return `removed in ${n} day${n === 1 ? '' : 's'}`;
 }
 
 export function TrashDialog() {
   const ws = useWorkspace();
-  const [items, setItems] = useState<TrashDoc[] | null>(null);
+  const [items, setItems] = useState<TrashRow[] | null>(null);
+  // Overwritten by the first response; the fallback only ever shows if that
+  // request failed, in which case the hint is the least of the problems.
+  const [retentionDays, setRetentionDays] = useState(30);
   const [restoring, setRestoring] = useState<string | null>(null);
   // Which row is asking to be confirmed, and which is mid-delete. A permanent
   // delete is the one action here with no undo, so it takes two deliberate
@@ -38,7 +40,10 @@ export function TrashDialog() {
     setConfirming(null);
     setAskEmpty(false);
     setError(null);
-    docsApi.trash().then(setItems).catch(() => setItems([]));
+    docsApi
+      .trash()
+      .then((t) => { setItems(t.rows); setRetentionDays(t.retentionDays); })
+      .catch(() => setItems([]));
   }, [ws.trashOpen]);
 
   const ownCount = (items ?? []).filter((d) => d.can_delete).length;
@@ -49,7 +54,7 @@ export function TrashDialog() {
     try {
       const { skipped } = await docsApi.emptyTrash();
       const rest = await docsApi.trash();
-      setItems(rest);
+      setItems(rest.rows);
       setAskEmpty(false);
       // Don't claim the trash is empty when someone else's pages are still in it.
       if (skipped) setError(`${skipped} page${skipped === 1 ? '' : 's'} kept — only their owner can delete those.`);
@@ -96,11 +101,17 @@ export function TrashDialog() {
         {items === null ? (
           <div className="flex justify-center py-10"><Loader2 size={18} className="animate-spin text-faint" /></div>
         ) : items.length === 0 ? (
-          <EmptyState icon={Trash2} title="Trash is empty" hint="Deleted pages show up here and can be restored." />
+          <EmptyState
+            icon={Trash2}
+            title="Trash is empty"
+            hint={`Deleted pages show up here for ${retentionDays} days, then they're removed for good.`}
+          />
         ) : (
           items.map((d) => {
             const asking = confirming === d.id;
             const busy = destroying === d.id;
+            const left = daysUntil(d.purge_at);
+            const soon = left !== null && left <= 3;
             return (
               <div
                 key={d.id}
@@ -113,7 +124,18 @@ export function TrashDialog() {
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-ink">{d.title || 'Untitled'}</p>
                   <p className="truncate text-2xs text-faint">
-                    {asking ? 'Deleted for good — this cannot be undone.' : `Deleted ${relativeTime(d.deleted_at)}`}
+                    {asking ? (
+                      'Deleted for good — this cannot be undone.'
+                    ) : (
+                      <>
+                        Deleted {relativeTime(d.deleted_at)}
+                        {/* The countdown is the only part that ever needs to
+                            raise its voice, so the tint stays on that span. */}
+                        {countdown(d.purge_at) && (
+                          <> · <span className={cn(soon && 'font-medium text-danger')}>{countdown(d.purge_at)}</span></>
+                        )}
+                      </>
+                    )}
                   </p>
                 </div>
 

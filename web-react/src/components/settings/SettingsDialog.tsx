@@ -201,13 +201,23 @@ function Members() {
   const reload = () => docsApi.users().then(setRows).catch(() => setRows([]));
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, []);
   const isAdmin = user?.role === 'admin';
+  // Both of these can be refused server-side (last admin, self-removal). Say so
+  // — a silent catch plus a reload just looks like the click did nothing.
   const changeRole = async (m: UserRow, role: 'admin' | 'collaborator') => {
-    await docsApi.setUserRole(m.id, role).catch(() => {});
+    setMsg(null);
+    await docsApi
+      .setUserRole(m.id, role)
+      .catch((e) => setMsg({ ok: false, text: e instanceof Error ? e.message : 'Could not change that role.' }));
     reload();
   };
   const remove = async (m: UserRow) => {
-    if (!window.confirm(`Remove ${m.name || m.email} from the workspace? Their pages transfer to you.`)) return;
-    await docsApi.removeUser(m.id).catch(() => {});
+    const who = m.name || m.email;
+    if (!window.confirm(`Remove ${who} from the workspace?\n\nEvery page they own transfers to you, and their comments keep their name. Their sign-in, tokens and favourites are deleted.`)) return;
+    setMsg(null);
+    await docsApi
+      .removeUser(m.id)
+      .then(() => setMsg({ ok: true, text: `${who} removed. Their pages are now yours.` }))
+      .catch((e) => setMsg({ ok: false, text: e instanceof Error ? e.message : 'Could not remove that member.' }));
     reload();
   };
 
