@@ -14,7 +14,7 @@ import { setPendingSeed } from '../editor/pendingSeed';
 import type { Template } from '../data/templates';
 import type { EditorMode, Folder, Page, PageId, Tag } from '../lib/types';
 
-export type RightTab = 'comments' | 'outline' | 'details' | 'history' | 'ai';
+export type RightTab = 'intel' | 'comments' | 'outline' | 'details' | 'history' | 'ai';
 
 /** Which surface fills the main column. Cheaper than a router for three screens. */
 export type View = 'home' | 'doc' | 'project';

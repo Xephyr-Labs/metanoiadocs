@@ -1,7 +1,6 @@
 import { Users } from 'lucide-react';
 import type { Page } from '../../lib/types';
 import type { Intelligence } from '../../lib/docsApi';
-import { relativeTime } from '../../lib/time';
 import { useWorkspace } from '../../store/workspace';
 import { IconPicker } from './IconPicker';
 import { TagChips } from './TagChips';
@@ -17,11 +16,11 @@ export function PageHeader({ page, fullWidth, suggested }: { page: Page; fullWid
         fullWidth ? 'max-w-none px-[clamp(40px,7vw,120px)]' : 'max-w-[var(--reading-w)] px-6',
       ].join(' ')}
     >
-      {/* Quiet marker + metadata in one tight group above the title — no dead
-          zone. Responsive top gap: small on phones, a little more on desktop. */}
+      {/* Icon + sharing state only. "Edited …" lives in the top bar, where it
+          stays visible as you scroll; repeating it here was the same fact twice
+          within 60px. */}
       <div className="flex items-center gap-2 pt-6 text-2xs text-faint md:pt-9">
         <IconPicker icon={page.icon} onPick={(icon) => ws.setIcon(page.id, icon)} />
-        <span className="tabular-nums">Edited {relativeTime(page.updatedAt)}</span>
         {page.shared && (
           <span className="flex items-center gap-1 text-accent">
             <Users size={12} /> Shared
@@ -29,8 +28,7 @@ export function PageHeader({ page, fullWidth, suggested }: { page: Page; fullWid
         )}
       </div>
 
-      <TagChips page={page} />
-      <TagSuggestions pageId={page.id} suggested={suggested} />
+      <TagChips page={page} trailing={<TagSuggestions pageId={page.id} suggested={suggested} />} />
     </div>
   );
 }

@@ -857,13 +857,24 @@ const PROJECTS = [
   },
 ];
 
+// `quote` anchors a comment to a passage: the text is marked in the document
+// and gets a pip in the margin. It must appear verbatim in that page's markdown
+// — the highlighter resolves it by scanning the rendered blocks, so a paraphrase
+// silently degrades to an unanchored comment.
 const COMMENTS = [
-  { doc: 'roadmap', by: 2, body: 'Can we pull SSO forward? Two deals this quarter are blocked on it.' },
+  { doc: 'roadmap', by: 2, body: 'Can we pull SSO forward? Two deals this quarter are blocked on it.',
+    quote: 'SSO and SCIM' },
   { doc: 'roadmap', by: 1, body: 'Only if mobile slips a sprint. Bringing it to planning.', reply: 0 },
-  { doc: 'prd-mobile', by: 4, body: 'Store managers asked for due dates on the task list — worth adding to v1 scope.' },
-  { doc: 'postmortem', by: 6, body: 'Load test is written, waiting on a CI runner with enough memory.', resolved: true },
-  { doc: 'blog', by: 7, body: 'Second paragraph reads better without "underneath". Otherwise ship it.' },
-  { doc: 'architecture', by: 3, body: 'Worth a line about how search text is kept in step with the CRDT state.' },
+  { doc: 'prd-mobile', by: 4, body: 'Store managers asked for due dates on the task list — worth adding to v1 scope.',
+    quote: 'See your assigned tasks with due dates.' },
+  { doc: 'postmortem', by: 6, body: 'Load test is written, waiting on a CI runner with enough memory.', resolved: true,
+    quote: 'No load test covered a mass reconnect.' },
+  { doc: 'blog', by: 7, body: 'Second paragraph reads better without "underneath". Otherwise ship it.',
+    quote: 'Here is what changed underneath.' },
+  { doc: 'architecture', by: 3, body: 'Worth a line about how search text is kept in step with the CRDT state.',
+    quote: 'posts extracted plain text separately' },
+  { doc: 'architecture', by: 5, body: 'Do we want a second example here for the fuzzy path?',
+    quote: 'Search, documents and tasks all live in Postgres.' },
 ];
 
 // ── seed ─────────────────────────────────────────────────────────────────────
@@ -970,10 +981,11 @@ try {
     commentId.push(cid);
     const { rows: [u] } = await client.query('SELECT name, email FROM users WHERE id = $1', [actor(c.by)]);
     await client.query(
-      `INSERT INTO comments (id, doc_id, body, author_id, author_name, parent_id, resolved, created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7, now() - ($8 || ' hours')::interval)`,
+      `INSERT INTO comments (id, doc_id, body, author_id, author_name, parent_id, resolved, quote, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8, now() - ($9 || ' hours')::interval)`,
       [cid, docId[c.doc], c.body, actor(c.by), u?.name || u?.email || 'Someone',
-       c.reply === undefined ? null : commentId[c.reply], !!c.resolved, String(48 - commentId.length * 6)]
+       c.reply === undefined ? null : commentId[c.reply], !!c.resolved, c.quote ?? null,
+       String(48 - commentId.length * 6)]
     );
     // Same fan-out the app does on a real comment: tell the page owner, unless
     // they wrote it themselves.

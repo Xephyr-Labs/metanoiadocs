@@ -1,8 +1,11 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { Check, History, Info, ListTree, Loader2, MessageSquareText, Send, Sparkles, X } from 'lucide-react';
+import { Bot, Check, History, Info, ListTree, Loader2, MessageSquareText, Send, Sparkles, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { aiStream, docsApi, type CommentRow, type UserRow, type VersionRow } from '../../lib/docsApi';
 import { applyCommentHighlights, clearPendingAnchor, clearPendingFocus, onCommentRequest, usePendingAnchor, usePendingFocus } from '../../editor/comments';
+import { IntelligenceRail } from '../intelligence/IntelligenceRail';
+import { useIntelligence } from '../../hooks/useIntelligence';
+import { useDocSaveTick } from '../../lib/docSignal';
 import { useOutsideClick } from '../../hooks/useOutsideClick';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { avatarFor } from '../../lib/avatar';
@@ -14,11 +17,12 @@ import { EmptyState } from '../ui/EmptyState';
 import { IconButton } from '../ui/IconButton';
 
 const TABS: { id: RightTab; label: string; icon: typeof Info }[] = [
+  { id: 'intel', label: 'Intelligence', icon: Sparkles },
   { id: 'comments', label: 'Comments', icon: MessageSquareText },
   { id: 'outline', label: 'Outline', icon: ListTree },
   { id: 'details', label: 'Details', icon: Info },
   { id: 'history', label: 'History', icon: History },
-  { id: 'ai', label: 'AI', icon: Sparkles },
+  { id: 'ai', label: 'AI', icon: Bot },
 ];
 
 function Avatar({ name, size = 22 }: { name: string; size?: number }) {
@@ -93,10 +97,15 @@ function PanelInner() {
               // Keep the active tab visible — five tabs overflow the 320px strip.
               ref={(el) => { if (ws.rightPanel === t.id) el?.scrollIntoView({ inline: 'nearest', block: 'nearest' }); }}
               onClick={() => ws.setRightPanel(t.id)}
+              title={t.label}
+              aria-label={t.label}
               className={cn('flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-sm font-medium transition-colors duration-120', ws.rightPanel === t.id ? 'bg-hover text-ink' : 'text-muted hover:bg-hover')}
             >
               <t.icon size={14} />
-              <span className="hidden xl:inline">{t.label}</span>
+              {/* Only the active tab is worth its label: six labels do not fit a
+                  320px rail, and truncating them ("Outli…") is worse than an
+                  icon with a tooltip. */}
+              {ws.rightPanel === t.id && <span>{t.label}</span>}
             </button>
           ))}
         </div>
@@ -109,6 +118,8 @@ function PanelInner() {
           <AITab />
         ) : !docId ? (
           <EmptyState icon={Info} title="No page open" />
+        ) : ws.rightPanel === 'intel' ? (
+          <IntelligenceTab docId={docId} />
         ) : ws.rightPanel === 'comments' ? (
           <CommentsTab docId={docId} />
         ) : ws.rightPanel === 'outline' ? (
@@ -121,6 +132,12 @@ function PanelInner() {
       </div>
     </div>
   );
+}
+
+/** Fetches on doc change and on each editor save, so signals stay in step. */
+function IntelligenceTab({ docId }: { docId: string }) {
+  const intel = useIntelligence(docId, useDocSaveTick());
+  return <IntelligenceRail data={intel.data} loading={intel.loading} error={intel.error} />;
 }
 
 function CommentsTab({ docId }: { docId: string }) {

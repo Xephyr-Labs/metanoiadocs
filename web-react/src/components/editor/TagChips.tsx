@@ -1,13 +1,14 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { Plus, Tag as TagIcon, X } from 'lucide-react';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useRef, useState, type ReactNode } from 'react';
 import { useOutsideClick } from '../../hooks/useOutsideClick';
 import { swatch, TAG_COLORS, type TagColor } from '../../lib/tagColors';
 import type { Page } from '../../lib/types';
 import { useWorkspace } from '../../store/workspace';
 
 /** Add/remove coloured tags on a doc. Sits under the page icon in the header. */
-export function TagChips({ page }: { page: Page }) {
+/** `trailing` rides on the same wrapped row — suggested tags, today. */
+export function TagChips({ page, trailing }: { page: Page; trailing?: ReactNode }) {
   const ws = useWorkspace();
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
@@ -119,6 +120,7 @@ export function TagChips({ page }: { page: Page }) {
           )}
         </AnimatePresence>
       </div>
+      {trailing}
     </div>
   );
 }

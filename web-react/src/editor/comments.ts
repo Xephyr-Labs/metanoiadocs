@@ -101,9 +101,13 @@ function rangeForQuote(block: Element, quote: string): Range | null {
   return null;
 }
 
-export function applyCommentHighlights(rows: { id: string; quote: string | null; block_id: string | null; resolved: boolean; parent_id: string | null }[]) {
+export function applyCommentHighlights(rows: { id: string; quote: string | null; block_id: string | null; resolved: boolean; parent_id: string | null; author_name?: string }[]) {
+  // The open-thread count drives the gutter and the top-bar badge, and it is
+  // knowable even where the Highlight API isn't — compute it before bailing.
+  setOpenCount(rows.filter((c) => !c.resolved && !c.parent_id).length);
   if (!supported || !hlRoot) return;
   applied = [];
+  authors = new Map(rows.map((c) => [c.id, c.author_name ?? '']));
   for (const c of rows) {
     if (!c.quote || c.resolved || c.parent_id) continue;
     const quote = c.quote.replace(/\s+/g, ' ').trim();
@@ -124,6 +128,62 @@ export function applyCommentHighlights(rows: { id: string; quote: string | null;
     HL_NAME,
     new (window as unknown as { Highlight: new (...r: Range[]) => unknown }).Highlight(...applied.map((a) => a.range)),
   );
+  markerListeners.forEach((l) => l());
+}
+
+// ---- gutter markers
+// A highlight alone doesn't tell you a passage has a thread until you happen to
+// look at it. These are the pips in the margin, positioned off the same ranges
+// the highlighter already resolved, so the two can never point at different text.
+export interface CommentMarker { id: string; top: number; author: string }
+
+let authors = new Map<string, string>();
+const markerListeners = new Set<() => void>();
+
+/** Marker offsets relative to `container`. Empty until highlights resolve. */
+export function commentMarkers(container: HTMLElement | null): CommentMarker[] {
+  if (!container) return [];
+  const base = container.getBoundingClientRect().top;
+  const out: CommentMarker[] = [];
+  for (const a of applied) {
+    const r = a.range.getBoundingClientRect();
+    // A collapsed rect means the range's text is no longer laid out (collapsed
+    // block, switched mode) — skip rather than pile every marker at the top.
+    if (!r.height) continue;
+    out.push({ id: a.id, top: Math.round(r.top - base), author: authors.get(a.id) ?? '' });
+  }
+  return out;
+}
+
+/** Fires whenever the highlight pass reruns and marker positions may have moved. */
+export function onMarkersChanged(l: () => void): () => void {
+  markerListeners.add(l);
+  return () => { markerListeners.delete(l); };
+}
+
+/** Focus a thread from outside the editor (a gutter pip). */
+export function focusComment(id: string) {
+  setFocus(id);
+  openListeners.forEach((l) => l());
+}
+
+// ---- open-thread count (top-bar badge; no extra request — same payload)
+const countListeners = new Set<(n: number) => void>();
+let openCount = 0;
+function setOpenCount(n: number) {
+  if (n === openCount) return;
+  openCount = n;
+  countListeners.forEach((l) => l(n));
+}
+
+export function useOpenCommentCount(): number {
+  const [n, setN] = useState(openCount);
+  useEffect(() => {
+    countListeners.add(setN);
+    setN(openCount);
+    return () => { countListeners.delete(setN); };
+  }, []);
+  return n;
 }
 
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
@@ -179,6 +239,15 @@ export function attachComments(
 ): () => void {
   hlRoot = root;
   hlDocId = docId;
+  // Zero out the previous doc's state immediately — otherwise its badge count
+  // and gutter pips linger over the new page until the fetch below lands.
+  applied = [];
+  setOpenCount(0);
+  markerListeners.forEach((l) => l());
+  // Load once on open. The highlights, the gutter pips and the top-bar count
+  // all come from this, so waiting for someone to open the comments panel
+  // would mean a page with threads looks like a page without any.
+  docsApi.comments(docId).then(applyCommentHighlights).catch(() => {});
 
   // Fallback button for when BlockSuite's toolbar doesn't show (e.g. mobile).
   const btn = document.createElement('button');

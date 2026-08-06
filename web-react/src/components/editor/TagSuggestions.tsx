@@ -17,11 +17,14 @@ export function TagSuggestions({ pageId, suggested }: { pageId: string; suggeste
     localStorage.setItem(dismissKey(pageId), JSON.stringify([...next]));
   };
   const appliedNames = new Set((ws.currentPage?.tags ?? []).map((t) => t.name));
-  const shown = suggested.filter((s) => !dismissed.has(s.name) && !appliedNames.has(s.name)).slice(0, 4);
+  // Three, on the same line as the real tags. This used to be its own labelled
+  // row under them, which put a permanent second strip of chrome above every
+  // page title to offer something nobody asked for. The dashed outline already
+  // reads as "not applied yet"; the "Suggested:" label was doing no work.
+  const shown = suggested.filter((s) => !dismissed.has(s.name) && !appliedNames.has(s.name)).slice(0, 3);
   if (!shown.length) return null;
   return (
-    <div className="mt-1 flex flex-wrap items-center gap-1.5">
-      <span className="text-xs text-muted">Suggested:</span>
+    <>
       {shown.map((s) => (
         <span key={s.name} className="group flex items-center gap-0.5 rounded-full border border-dashed border-line px-1.5 py-0.5 text-xs text-muted">
           <button className="flex items-center gap-0.5 hover:text-accent"
@@ -31,6 +34,6 @@ export function TagSuggestions({ pageId, suggested }: { pageId: string; suggeste
           <button className="opacity-0 group-hover:opacity-60 hover:!opacity-100" onClick={() => dismiss(s.name)}>×</button>
         </span>
       ))}
-    </div>
+    </>
   );
 }

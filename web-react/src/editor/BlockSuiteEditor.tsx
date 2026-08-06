@@ -18,6 +18,10 @@ export interface EditorProps {
   pages?: () => LinkTarget[];
   createPage?: (title: string) => Promise<string | null>;
   onOpenDoc?: (docId: string) => void;
+  /** The mounted `affine-editor-container`, or null on unmount. Lets chrome
+   *  outside the editor (the formatting bar) drive it through BlockSuite's
+   *  command chain. */
+  onEditor?: (el: Element | null) => void;
 }
 
 /**
@@ -26,7 +30,7 @@ export interface EditorProps {
  */
 export function BlockSuiteEditor({
   docId, title, mode, userName, share, fullWidth,
-  onTitle, onSaved, pages, createPage, onOpenDoc,
+  onTitle, onSaved, pages, createPage, onOpenDoc, onEditor,
 }: EditorProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const instRef = useRef<Awaited<ReturnType<typeof mountEditor>> | null>(null);
@@ -46,6 +50,8 @@ export function BlockSuiteEditor({
   createPageRef.current = createPage;
   const onOpenDocRef = useRef(onOpenDoc);
   onOpenDocRef.current = onOpenDoc;
+  const onEditorRef = useRef(onEditor);
+  onEditorRef.current = onEditor;
 
   useEffect(() => {
     let alive = true;
@@ -69,6 +75,7 @@ export function BlockSuiteEditor({
         instRef.current = inst;
         inst.setMode(mode);
         setLoading(false);
+        onEditorRef.current?.(inst.editor);
       })
       .catch((err) => {
         console.error('[BlockSuite] mount failed', err);
@@ -76,6 +83,7 @@ export function BlockSuiteEditor({
       });
     return () => {
       alive = false;
+      onEditorRef.current?.(null);
       instRef.current?.destroy();
       instRef.current = null;
     };

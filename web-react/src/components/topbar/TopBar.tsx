@@ -24,6 +24,7 @@ import { usePresence } from '../../editor/presence';
 import { relativeTime } from '../../lib/time';
 import { useWorkspace } from '../../store/workspace';
 import { cn } from '../../lib/cn';
+import { useOpenCommentCount } from '../../editor/comments';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { Button } from '../ui/Button';
 import { PageIcon } from '../ui/PageIcon';
@@ -77,6 +78,7 @@ function ancestry(pages: Record<string, Page>, id: string): Page[] {
 
 export function TopBar() {
   const ws = useWorkspace();
+  const openComments = useOpenCommentCount();
   // Home and project views keep currentPage around for "continue where you left
   // off", but the doc breadcrumb and doc actions must not follow them there.
   const page = ws.view === 'doc' ? ws.currentPage : null;
@@ -186,12 +188,21 @@ export function TopBar() {
             active={ws.rightPanel === 'ai'}
             onClick={() => ws.setRightPanel(ws.rightPanel === 'ai' ? null : 'ai')}
           />
-          <IconButton
-            icon={<MessageSquareText size={18} />}
-            label="Comments"
-            active={ws.rightPanel === 'comments'}
-            onClick={() => ws.setRightPanel(ws.rightPanel === 'comments' ? null : 'comments')}
-          />
+          {/* The count is the whole point: without it, an open thread is
+              invisible until someone thinks to look in the panel. */}
+          <span className="relative inline-flex">
+            <IconButton
+              icon={<MessageSquareText size={18} />}
+              label={openComments ? `Comments (${openComments} open)` : 'Comments'}
+              active={ws.rightPanel === 'comments'}
+              onClick={() => ws.setRightPanel(ws.rightPanel === 'comments' ? null : 'comments')}
+            />
+            {openComments > 0 && (
+              <span className="pointer-events-none absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-accent px-1 text-3xs font-semibold tabular-nums text-white ring-2 ring-canvas">
+                {openComments}
+              </span>
+            )}
+          </span>
           <IconButton
             className="hidden sm:inline-flex"
             icon={<Star size={18} className={cn(page.favorite && 'fill-amber-400 text-amber-400')} />}

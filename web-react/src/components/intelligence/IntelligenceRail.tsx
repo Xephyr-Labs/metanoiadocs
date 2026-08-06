@@ -2,14 +2,13 @@ import { useState, type ReactNode } from 'react';
 import { motion } from 'framer-motion';
 import {
   Sparkles, CheckSquare, Flag, AlertTriangle, Calendar, Link as LinkIcon,
-  RefreshCw, Users, LayoutTemplate, SpellCheck, PanelRightClose, PanelRightOpen,
-  Copy, Clock, ChevronDown, X,
+  RefreshCw, Users, LayoutTemplate, SpellCheck,
+  Copy, Clock, ChevronDown,
 } from 'lucide-react';
 import type { Intelligence } from '../../lib/docsApi';
 import { useWorkspace } from '../../store/workspace';
 import { cn } from '../../lib/cn';
 
-const RAIL_KEY = 'mn-rail-open';
 const MORE_KEY = 'mn-rail-more';
 
 // Hoisted to module scope: these don't close over component state, so they
@@ -49,43 +48,22 @@ const isEmptyIntel = (data: Intelligence) =>
 const cleanSummary = (s: string) =>
   s.replace(/[#|>]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
 
-export function IntelligenceRail({ data, loading, error, onClose }: {
-  data: Intelligence | null; loading: boolean; error: boolean; onClose?: () => void;
+/**
+ * The intelligence signals for the open page. Rendered as a tab inside the
+ * right panel — one right rail at a time, so the document keeps its full
+ * reading measure no matter which tab is up.
+ */
+export function IntelligenceRail({ data, loading, error }: {
+  data: Intelligence | null; loading: boolean; error: boolean;
 }) {
   const ws = useWorkspace();
-  const drawer = !!onClose;
-  const [open, setOpen] = useState(() => localStorage.getItem(RAIL_KEY) !== '0');
-  // Both the rail and the "More signals" disclosure persist, so the rail comes
-  // back the way you left it instead of re-collapsing on every doc switch.
+  // The "More signals" disclosure persists, so the rail comes back the way you
+  // left it instead of re-collapsing on every doc switch.
   const [more, setMore] = useState(() => localStorage.getItem(MORE_KEY) === '1');
-  const toggle = () => { const n = !open; setOpen(n); localStorage.setItem(RAIL_KEY, n ? '1' : '0'); };
   const toggleMore = () => { const n = !more; setMore(n); localStorage.setItem(MORE_KEY, n ? '1' : '0'); };
 
-  // Inline collapsed state: a thin strip that re-opens the rail. (Drawer mode
-  // has no collapsed strip — its close button dismisses the whole drawer.)
-  if (!drawer && !open) {
-    return (
-      <button onClick={toggle} title="Show intelligence" aria-label="Show intelligence"
-        className="flex h-full w-9 shrink-0 items-center justify-center border-l border-line bg-canvas text-muted hover:text-ink">
-        <PanelRightOpen size={16} />
-      </button>
-    );
-  }
-
   return (
-    <aside className={cn(
-      'flex h-full flex-col overflow-y-auto border-l border-line bg-canvas',
-      drawer ? 'w-full' : 'w-72 shrink-0',
-    )}>
-      <div className="sticky top-0 z-10 flex items-center gap-1.5 border-b border-line bg-canvas/90 px-3.5 py-3 backdrop-blur-md">
-        <Sparkles size={16} className="text-accent" />
-        <span className="text-sm font-semibold text-ink">Intelligence</span>
-        <button onClick={onClose ?? toggle} className="ml-auto text-muted hover:text-ink"
-          title={drawer ? 'Close' : 'Hide'} aria-label={drawer ? 'Close intelligence' : 'Hide intelligence'}>
-          {drawer ? <X size={16} /> : <PanelRightClose size={16} />}
-        </button>
-      </div>
-
+    <div className="flex h-full flex-col">
       {(data?.duplicateOf || data?.stale) && (
         <div className="flex flex-wrap gap-1.5 border-b border-line px-3.5 py-2.5 text-xs">
           {data?.duplicateOf && (
@@ -183,6 +161,6 @@ export function IntelligenceRail({ data, loading, error, onClose }: {
           )}
         </motion.div>
       )}
-    </aside>
+    </div>
   );
 }
