@@ -26,6 +26,8 @@ export default {
         'accent-soft': 'var(--accent-soft)',
         danger: 'var(--danger)',
         overlay: 'var(--overlay)',
+        comment: 'var(--comment)',
+        'comment-mark': 'var(--comment-mark)',
       },
       fontFamily: {
         sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],

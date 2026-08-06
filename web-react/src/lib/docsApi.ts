@@ -191,8 +191,8 @@ export const docsApi = {
   intelligence: (id: string): Promise<Intelligence> => req(`/docs/${id}/intelligence`),
 
   comments: (id: string): Promise<CommentRow[]> => req(`/docs/${id}/comments`),
-  addComment: (id: string, body: string, parentId?: string) =>
-    req(`/docs/${id}/comments`, { method: 'POST', body: JSON.stringify({ body, parentId }) }),
+  addComment: (id: string, body: string, opts?: { parentId?: string; blockId?: string | null; quote?: string }) =>
+    req(`/docs/${id}/comments`, { method: 'POST', body: JSON.stringify({ body, ...opts }) }),
   resolveComment: (cid: string, resolved: boolean) =>
     req(`/comments/${cid}/resolve`, { method: 'POST', body: JSON.stringify({ resolved }) }),
   deleteComment: (cid: string) => req(`/comments/${cid}`, { method: 'DELETE' }),

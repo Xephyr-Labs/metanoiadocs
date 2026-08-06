@@ -4,7 +4,7 @@ import { cn } from '../../lib/cn';
 
 export interface MenuItem {
   /** Lucide icon or any small component accepting size/className (e.g. a color dot). */
-  icon?: ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
+  icon?: ComponentType<{ size?: number | string; strokeWidth?: number | string; className?: string }>;
   label: string;
   shortcut?: string;
   danger?: boolean;

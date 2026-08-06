@@ -22,6 +22,10 @@
   --danger: #d44c47;
   --overlay: rgba(15, 15, 15, 0.32);
 
+  /* Inline comments: subtle warm-yellow card + text-mark tint. */
+  --comment: #fdfaee;
+  --comment-mark: rgba(250, 204, 21, 0.32);
+
   --sidebar-w: 260px;
   --topbar-h: 45px;
   --reading-w: 720px;
@@ -55,11 +59,19 @@
   --danger: #e06c66;
   --overlay: rgba(0, 0, 0, 0.5);
 
+  --comment: #26241c;
+  --comment-mark: rgba(214, 178, 66, 0.30);
+
   color-scheme: dark;
 }
 
 * {
   border-color: var(--line);
+}
+
+/* Commented text in the editor (CSS Custom Highlight API, set by editor/comments.ts). */
+::highlight(mn-comment) {
+  background-color: var(--comment-mark);
 }
 
 html,

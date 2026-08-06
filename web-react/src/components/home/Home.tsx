@@ -21,7 +21,7 @@ function greeting(hour: number) {
   return 'Good evening';
 }
 
-const MY_DOCS_PAGE = 8;
+const MY_DOCS_PAGE = 12;
 
 /** Paginated list of everything the signed-in user created. */
 function MyDocsCard({ onOpen }: { onOpen: (id: string) => void }) {
@@ -164,22 +164,27 @@ export function Home() {
               <StatTile label="Docs touched this week" value={Number(data.stats.docs_week)} />
             </div>
 
-            {/* items-start so a short My-tasks card doesn't stretch to match a
-                long activity feed and leave a wall of empty panel. */}
+            {/* Two independent stacks, not grid rows: cards pack downward in
+                each column, so a short card never strands empty space beside
+                a tall neighbor. */}
             <div className="mb-6 grid items-start gap-4 lg:grid-cols-2">
-              <Card title="My tasks">
-                {BUCKETS.some((b) => data.myTasks[b].length) ? (
-                  BUCKETS.map((b) => (
-                    <TaskBucket key={b} bucket={b} tasks={data.myTasks[b]} onOpen={openTask} />
-                  ))
-                ) : (
-                  <EmptyState compact icon={FileText} title="Nothing assigned to you" hint="Tasks you own show up here." />
-                )}
-              </Card>
+              <div className="grid gap-4">
+                <Card title="My tasks">
+                  {BUCKETS.some((b) => data.myTasks[b].length) ? (
+                    BUCKETS.map((b) => (
+                      <TaskBucket key={b} bucket={b} tasks={data.myTasks[b]} onOpen={openTask} />
+                    ))
+                  ) : (
+                    <EmptyState compact icon={FileText} title="Nothing assigned to you" hint="Tasks you own show up here." />
+                  )}
+                </Card>
+
+                <MyDocsCard onOpen={(id) => ws.select(id)} />
+              </div>
 
               <Card title="Activity">
                 {data.activity.length ? (
-                  <div className="scrollarea max-h-[420px] space-y-px overflow-y-auto">
+                  <div className="scrollarea max-h-[640px] space-y-px overflow-y-auto">
                     {data.activity.map((row, i) => (
                       <ActivityLine
                         key={`${row.kind}-${row.task_id ?? row.doc_id}-${i}`}
@@ -195,8 +200,6 @@ export function Home() {
                   <EmptyState compact icon={FileText} title="No activity yet" hint="Edits and comments land here." />
                 )}
               </Card>
-
-              <MyDocsCard onOpen={(id) => ws.select(id)} />
             </div>
 
             <section>

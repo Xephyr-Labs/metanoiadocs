@@ -21,7 +21,7 @@ const FOLDER_TINT: Record<string, string> = {
 };
 
 const ColorDot = (color: string) =>
-  function Dot({ className }: { size?: number; strokeWidth?: number; className?: string }) {
+  function Dot({ className }: { size?: number | string; strokeWidth?: number | string; className?: string }) {
     return <span className={cn('h-3 w-3 rounded-full', swatch(color).dot, className)} />;
   };
 

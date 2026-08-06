@@ -22,6 +22,7 @@ import { IndexeddbPersistence } from 'y-indexeddb';
 import { Signal } from '@preact/signals-core';
 import { avatarFor } from '../lib/avatar';
 import { attachPresence } from './presence';
+import { attachComments } from './comments';
 import { takePendingSeed } from './pendingSeed';
 import { docPlainText } from './docText';
 import { attachMermaidPreviews } from './mermaidPreview';
@@ -244,6 +245,15 @@ export async function mountEditor(root: HTMLElement, { docId, title, mode, userN
   root.replaceChildren(editor);
   await editor.updateComplete;
 
+  // Inline comments: selection button + quote highlights. Not for public
+  // viewers (comments API needs a member session).
+  const detachComments = share
+    ? null
+    : attachComments(editor, docId, (cb) => {
+        doc.spaceDoc.on('update', cb);
+        return () => doc.spaceDoc.off('update', cb);
+      });
+
   // Render read-only diagram previews under ```mermaid code blocks. Mermaid is
   // dynamically imported inside here, so it only loads for docs that use it.
   const detachMermaid = attachMermaidPreviews({
@@ -291,6 +301,7 @@ export async function mountEditor(root: HTMLElement, { docId, title, mode, userN
       if (timer) clearTimeout(timer);
       try { tooltipKiller.disconnect(); } catch { /* noop */ }
       try { detachPresence(); } catch { /* noop */ }
+      try { detachComments?.(); } catch { /* noop */ }
       try { detachMermaid(); } catch { /* noop */ }
       try { themeObserver.disconnect(); } catch { /* noop */ }
       try { virtualKeyboard.dispose(); } catch { /* noop */ }

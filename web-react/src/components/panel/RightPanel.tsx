@@ -2,6 +2,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Check, History, Info, ListTree, Loader2, MessageSquareText, Send, Sparkles, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { aiStream, docsApi, type CommentRow, type UserRow, type VersionRow } from '../../lib/docsApi';
+import { applyCommentHighlights, clearPendingAnchor, clearPendingFocus, onCommentRequest, usePendingAnchor, usePendingFocus } from '../../editor/comments';
 import { useOutsideClick } from '../../hooks/useOutsideClick';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { avatarFor } from '../../lib/avatar';
@@ -33,6 +34,9 @@ export function RightPanel() {
   const ws = useWorkspace();
   const open = ws.rightPanel !== null;
   const isMobile = useMediaQuery('(max-width: 767px)');
+
+  // The editor's floating "Comment" button lands here: open the comments tab.
+  useEffect(() => onCommentRequest(() => ws.setRightPanel('comments')), [ws]);
 
   return (
     <AnimatePresence>
@@ -126,10 +130,32 @@ function CommentsTab({ docId }: { docId: string }) {
   const [members, setMembers] = useState<UserRow[]>([]);
   const [mentionDismissed, setMentionDismissed] = useState(false);
   const composerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const cardRefs = useRef(new Map<string, HTMLDivElement>());
+  const anchor = usePendingAnchor();
+  const focusId = usePendingFocus();
 
-  const load = () => docsApi.comments(docId).then(setComments).catch(() => setComments([]));
+  const load = () =>
+    docsApi.comments(docId)
+      .then((rows) => { setComments(rows); applyCommentHighlights(rows); })
+      .catch(() => setComments([]));
   useEffect(() => { setComments(null); load(); /* eslint-disable-next-line */ }, [docId]);
   useEffect(() => { docsApi.users().then(setMembers).catch(() => {}); }, []);
+  // Selection just landed here — put the caret in the composer. Delay past the
+  // panel slide-in, which otherwise steals focus back.
+  useEffect(() => {
+    if (!anchor) return;
+    const t = setTimeout(() => inputRef.current?.focus(), 300);
+    return () => clearTimeout(t);
+  }, [anchor]);
+  // A marked range was clicked in the doc — bring its card into view, flash it.
+  useEffect(() => {
+    if (!focusId || !comments) return;
+    const el = cardRefs.current.get(focusId);
+    el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    const t = setTimeout(clearPendingFocus, 1800);
+    return () => clearTimeout(t);
+  }, [focusId, comments]);
 
   // Active @-mention being typed: an "@" + word chars at the end of the draft.
   const mentionMatch = draft.match(/@([a-z0-9._-]*)$/i);
@@ -149,7 +175,12 @@ function CommentsTab({ docId }: { docId: string }) {
     const body = draft.trim();
     if (!body || busy) return;
     setBusy(true);
-    try { await docsApi.addComment(docId, body); setDraft(''); await load(); } finally { setBusy(false); }
+    try {
+      await docsApi.addComment(docId, body, anchor ? { blockId: anchor.blockId, quote: anchor.quote } : undefined);
+      setDraft('');
+      clearPendingAnchor();
+      await load();
+    } finally { setBusy(false); }
   };
 
   if (comments === null) return <div className="flex justify-center py-10"><Loader2 size={18} className="animate-spin text-faint" /></div>;
@@ -162,7 +193,15 @@ function CommentsTab({ docId }: { docId: string }) {
       <div className="flex-1 space-y-3 p-3">
         {roots.length === 0 && <EmptyState icon={MessageSquareText} title="No comments yet" hint="Add the first comment below." compact />}
         {roots.map((c) => (
-          <div key={c.id} className={cn('rounded-lg border border-line p-3', c.resolved && 'opacity-55')}>
+          <div
+            key={c.id}
+            ref={(el) => { if (el) cardRefs.current.set(c.id, el); else cardRefs.current.delete(c.id); }}
+            className={cn(
+              'rounded-lg border border-line bg-comment p-3 transition-shadow duration-220',
+              c.resolved && 'bg-transparent opacity-55',
+              focusId === c.id && 'ring-2 ring-accent/60',
+            )}
+          >
             <div className="flex items-center gap-2">
               <Avatar name={c.author_name} />
               <span className="text-[13px] font-medium text-ink">{c.author_name}</span>
@@ -173,7 +212,7 @@ function CommentsTab({ docId }: { docId: string }) {
                 <button onClick={() => docsApi.resolveComment(c.id, true).then(load)} className="ml-auto text-2xs text-muted hover:text-ink">Resolve</button>
               )}
             </div>
-            {c.quote && <p className="mt-1.5 border-l-2 border-accent/40 pl-2 text-2xs italic text-muted">{c.quote}</p>}
+            {c.quote && <p className="mt-1.5 border-l-2 border-comment-mark pl-2 text-2xs italic text-muted">{c.quote}</p>}
             <p className="mt-1.5 text-[13px] leading-relaxed text-ink">{c.body}</p>
             {replies(c.id).map((r) => (
               <div key={r.id} className="mt-2.5 flex items-start gap-2 border-l-2 border-line pl-2.5">
@@ -188,6 +227,14 @@ function CommentsTab({ docId }: { docId: string }) {
         ))}
       </div>
       <div ref={composerRef} className="relative border-t border-line p-3">
+        {anchor && (
+          <div className="mb-2 flex items-center gap-2 rounded-md bg-comment px-2.5 py-1.5">
+            <span className="min-w-0 flex-1 truncate text-2xs italic text-muted">“{anchor.quote}”</span>
+            <button type="button" onClick={clearPendingAnchor} aria-label="Remove quote" className="shrink-0 text-faint hover:text-ink">
+              <X size={12} />
+            </button>
+          </div>
+        )}
         {suggestions.length > 0 && (
           <div className="absolute bottom-[52px] left-3 right-3 z-10 overflow-hidden rounded-lg border border-line bg-canvas shadow-pop">
             {suggestions.map((m) => (
@@ -206,6 +253,7 @@ function CommentsTab({ docId }: { docId: string }) {
         )}
         <div className="flex items-center gap-2 rounded-md ring-1 ring-inset ring-line focus-within:ring-2 focus-within:ring-accent">
           <input
+            ref={inputRef}
             value={draft}
             onChange={(e) => { setDraft(e.target.value); setMentionDismissed(false); }}
             onKeyDown={(e) => {
@@ -216,7 +264,7 @@ function CommentsTab({ docId }: { docId: string }) {
                 add();
               }
             }}
-            placeholder="Add a comment…  @ to mention"
+            placeholder={anchor ? 'Comment on selection…' : 'Add a comment…  @ to mention'}
             className="h-9 flex-1 bg-transparent px-3 text-[13px] outline-none placeholder:text-faint"
           />
           <IconButton icon={busy ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />} label="Send" onClick={add} className="mr-0.5" />
