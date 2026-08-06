@@ -118,7 +118,6 @@ export function EditorArea() {
               >
                 <PageHeader page={page} fullWidth={ws.fullWidth} suggested={intel.data?.suggestedTags ?? []} />
                 <div className="relative pb-40">
-                  <CommentMarkers container={markerHost} fullWidth={ws.fullWidth} />
                   <LazyEditor
                     docId={page.id}
                     title={page.title}
@@ -132,6 +131,10 @@ export function EditorArea() {
                     onOpenDoc={(id) => ws.select(id)}
                     onEditor={setEditorEl}
                   />
+                  {/* After the editor in DOM order: the layer is absolutely
+                      positioned either way, and rendering it first put every
+                      comment pip ahead of the document in the tab order. */}
+                  <CommentMarkers container={markerHost} fullWidth={ws.fullWidth} />
                   <Backlinks docId={page.id} refreshKey={refreshKey} fullWidth={ws.fullWidth} onOpen={(id) => ws.select(id)} />
                 </div>
               </motion.div>

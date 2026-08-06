@@ -15,6 +15,7 @@ import { cn } from '../../lib/cn';
 import { Button } from '../ui/Button';
 import { EmptyState } from '../ui/EmptyState';
 import { IconButton } from '../ui/IconButton';
+import { Tooltip } from '../ui/Tooltip';
 
 const TABS: { id: RightTab; label: string; icon: typeof Info }[] = [
   { id: 'intel', label: 'Intelligence', icon: Sparkles },
@@ -91,22 +92,24 @@ function PanelInner() {
       <div className="flex h-[45px] shrink-0 items-center gap-0.5 border-b border-line px-2">
         <div className="no-scrollbar flex flex-1 items-center gap-0.5 overflow-x-auto">
           {TABS.map((t) => (
+            <Tooltip key={t.id} label={t.label}>
             <button
-              key={t.id}
               type="button"
               // Keep the active tab visible — five tabs overflow the 320px strip.
               ref={(el) => { if (ws.rightPanel === t.id) el?.scrollIntoView({ inline: 'nearest', block: 'nearest' }); }}
               onClick={() => ws.setRightPanel(t.id)}
-              title={t.label}
               aria-label={t.label}
               className={cn('flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-sm font-medium transition-colors duration-120', ws.rightPanel === t.id ? 'bg-hover text-ink' : 'text-muted hover:bg-hover')}
             >
               <t.icon size={14} />
               {/* Only the active tab is worth its label: six labels do not fit a
                   320px rail, and truncating them ("Outli…") is worse than an
-                  icon with a tooltip. */}
+                  icon with a tooltip. The tooltip is the app's own, not the
+                  browser's — a native title= here was the only OS-styled
+                  tooltip in a UI that uses Radix everywhere else. */}
               {ws.rightPanel === t.id && <span>{t.label}</span>}
             </button>
+            </Tooltip>
           ))}
         </div>
         <IconButton icon={<X size={16} />} label="Close" onClick={() => ws.setRightPanel(null)} />

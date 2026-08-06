@@ -72,10 +72,13 @@ export function CommentMarkers({ container, fullWidth }: { container: HTMLElemen
               style={{ top: m.top - 2, background: a.color }}
               // Narrow viewports have no gutter to sit in, so the pip tucks
               // against the column edge rather than pushing out of the page.
+              // One hover signal, not two: the ring thickens. A scale-up plus a
+              // scale-down press is the stock "make it feel alive" pair and
+              // reads as decoration on a 20px target.
               className={cn(
                 'pointer-events-auto absolute right-0 flex h-5 w-5 items-center justify-center rounded-full',
                 'text-3xs font-semibold text-white ring-2 ring-canvas',
-                'transition-transform duration-120 hover:scale-110 active:scale-95',
+                'transition-[box-shadow] duration-120 hover:ring-4',
                 'lg:translate-x-[calc(100%+10px)]',
               )}
             >

@@ -5,6 +5,7 @@
  */
 import * as DM from '@radix-ui/react-dropdown-menu';
 import { updateBlockType } from '@blocksuite/affine/blocks/note';
+import { toggleLink } from '@blocksuite/affine/inlines/link';
 import { getTextStyle, toggleBold, toggleCode, toggleItalic, toggleStrike } from '@blocksuite/affine/inlines/preset';
 import {
   Bold, Check, ChevronDown, Code, FileText, Italic, Link2, List, ListOrdered,
@@ -88,7 +89,10 @@ export function EditorBar({ editor, mode, onMode, fullWidth, onFullWidth }: Prop
           setMarks({ ...(ctx?.textStyle ?? {}) });
         } catch { setMarks({}); }
         try {
-          const blockId = s.selection?.find?.('text')?.blockId;
+          // `selection.find` takes a selection CLASS, not a string — passing
+          // 'text' silently returns undefined, which read as "no caret" and
+          // left every control disabled. Match on the plain type instead.
+          const blockId = s.selection?.value?.find?.((sel: any) => sel.type === 'text')?.blockId;
           const model = blockId ? s.store?.getBlock?.(blockId)?.model : null;
           if (!model) { setBlockLabel(null); return; }
           const { flavour } = model;
@@ -195,15 +199,9 @@ export function EditorBar({ editor, mode, onMode, fullWidth, onFullWidth }: Prop
             label="Link"
             keys={['⌘', 'K']}
             disabled={idle}
-            onClick={() => {
-              // BlockSuite owns the link popover; ⌘K on a live selection is the
-              // path it already listens for, and reimplementing it here would
-              // duplicate its validation and paste handling.
-              const host = editor?.querySelector('editor-host') as HTMLElement | null;
-              host?.dispatchEvent(new KeyboardEvent('keydown', {
-                key: 'k', code: 'KeyK', metaKey: true, ctrlKey: true, bubbles: true, composed: true,
-              }));
-            }}
+            // BlockSuite's own command, not a synthesised ⌘K — a dispatched
+            // KeyboardEvent never reached its keymap, so this button did nothing.
+            onClick={() => runMark(toggleLink)}
           />
         </>
       )}
