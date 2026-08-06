@@ -291,12 +291,17 @@ export async function mountEditor(
       const docTitle = (editor.querySelector('doc-title') as HTMLElement | null)?.innerText?.trim() || '';
       const text = docPlainText(store)
         || (editor.querySelector('editor-host') as HTMLElement | null)?.innerText || editor.innerText || '';
+      // `links` rides along with the text so backlinks stay in step with the
+      // content that produced them, on the one request that already fires. The
+      // server REPLACES the stored set with whatever arrives, so if collection
+      // throws we omit the field entirely — sending [] would delete every
+      // backlink to this page.
+      let links: string[] | undefined;
+      try { links = collectPageLinks(store); } catch { links = undefined; }
       fetch(`/api/docs/${docId}/text`, {
         method: 'PUT', credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
-        // `links` rides along with the text so backlinks stay in step with the
-        // content that produced them, on the one request that already fires.
-        body: JSON.stringify({ text: text.slice(0, 100000), links: collectPageLinks(store) }),
+        body: JSON.stringify({ text: text.slice(0, 100000), ...(links ? { links } : {}) }),
       }).then(() => onSaved?.()).catch(() => {});
       if (docTitle && docTitle !== lastTitle) {
         lastTitle = docTitle;

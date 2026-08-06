@@ -7,10 +7,58 @@ import crypto from 'node:crypto';
 
 const blockId = () => crypto.randomBytes(8).toString('base64url').slice(0, 10);
 
-function ytext(s) {
+// A page reference is one space carrying a `reference` attribute — BlockSuite's
+// REFERENCE_NODE. `[[key]]` in the source markdown becomes one, via a resolver
+// the caller supplies (the seed knows its own doc ids; nobody else passes one).
+const REFERENCE_NODE = ' ';
+const LINK_RE = /\[\[([^\]\n]+)\]\]/g;
+
+/**
+ * `pending` collects the reference spans to format once the text is attached to
+ * a document. Formatting a detached Y.Text is undefined — it warns and relies on
+ * Yjs replaying pending ops — so the attribute is applied in buildDocState,
+ * after every block has been integrated into the blocks map.
+ */
+function ytext(s, resolveLink, pending) {
   const t = new Y.Text();
-  if (s) t.insert(0, String(s));
+  const str = String(s ?? '');
+  if (!str) return t;
+  if (!resolveLink) {
+    t.insert(0, str);
+    return t;
+  }
+  // Assemble the plain string and note where each reference lands, then insert
+  // once. Offsets come from the string, never from `t.length` — reading a
+  // detached Y.Text is exactly what Yjs warns about.
+  let plain = '';
+  let last = 0;
+  let m;
+  LINK_RE.lastIndex = 0;
+  while ((m = LINK_RE.exec(str)) !== null) {
+    const pageId = resolveLink(m[1].trim());
+    // Unknown target: leave the literal `[[key]]` in place rather than silently
+    // dropping it, so a typo in the source is visible instead of invisible.
+    if (!pageId) continue;
+    plain += str.slice(last, m.index);
+    pending?.push({ text: t, index: plain.length, pageId });
+    plain += REFERENCE_NODE;
+    last = m.index + m[0].length;
+  }
+  plain += str.slice(last);
+  t.insert(0, plain);
   return t;
+}
+
+/** Every `[[key]]` a markdown source resolves to, deduped. */
+export function collectMarkdownLinks(markdown, resolveLink) {
+  const ids = new Set();
+  let m;
+  LINK_RE.lastIndex = 0;
+  while ((m = LINK_RE.exec(String(markdown || ''))) !== null) {
+    const id = resolveLink(m[1].trim());
+    if (id) ids.add(id);
+  }
+  return [...ids];
 }
 
 const isTableLine = (l) => /^\s*\|.*\|\s*$/.test(l);
@@ -58,7 +106,7 @@ export function parseMarkdown(md) {
   return out;
 }
 
-function makeBlock(blocks, desc) {
+function makeBlock(blocks, desc, resolveLink, pending) {
   const id = blockId();
   const b = new Y.Map();
   b.set('sys:id', id);
@@ -87,7 +135,7 @@ function makeBlock(blocks, desc) {
     });
     rows.forEach((row, r) => {
       for (let c = 0; c < colCount; c++) {
-        b.set(`prop:cells.${rowIds[r]}:${colIds[c]}.text`, ytext(row[c] ?? ''));
+        b.set(`prop:cells.${rowIds[r]}:${colIds[c]}.text`, ytext(row[c] ?? '', resolveLink, pending));
       }
     });
     b.set('prop:meta:createdAt', desc.now || 0);
@@ -100,12 +148,12 @@ function makeBlock(blocks, desc) {
     b.set('prop:wrap', false);
   } else if (desc.flavour === 'affine:list') {
     b.set('prop:type', desc.type);
-    b.set('prop:text', ytext(desc.text));
+    b.set('prop:text', ytext(desc.text, resolveLink, pending));
     b.set('prop:checked', !!desc.checked);
     b.set('prop:collapsed', false);
   } else {
     b.set('prop:type', desc.type || 'text');
-    b.set('prop:text', ytext(desc.text));
+    b.set('prop:text', ytext(desc.text, resolveLink, pending));
     b.set('prop:collapsed', false);
   }
   blocks.set(id, b);
@@ -137,10 +185,15 @@ function makeNote(blocks, childIds) {
   return id;
 }
 
-/** Full doc from scratch: page → note → content blocks. Returns a Uint8Array state. */
-export function buildDocState(title, markdown) {
+/**
+ * Full doc from scratch: page → note → content blocks. Returns a Uint8Array state.
+ * `resolveLink(key)` turns a `[[key]]` in the markdown into a page reference;
+ * omit it and `[[key]]` stays literal text.
+ */
+export function buildDocState(title, markdown, resolveLink) {
   const doc = new Y.Doc();
   const blocks = doc.getMap('blocks');
+  const pending = [];
   const descs = parseMarkdown(markdown);
   // Drop a leading heading that just repeats the title — the page title already
   // renders it, so keeping it would duplicate the title in the body.
@@ -149,7 +202,7 @@ export function buildDocState(title, markdown) {
     descs.shift();
   }
   if (descs.length === 0) descs.push({ flavour: 'affine:paragraph', type: 'text', text: '' });
-  const childIds = descs.map((d) => makeBlock(blocks, d));
+  const childIds = descs.map((d) => makeBlock(blocks, d, resolveLink, pending));
   const noteId = makeNote(blocks, childIds);
 
   const pageId = blockId();
@@ -161,6 +214,12 @@ export function buildDocState(title, markdown) {
   page.set('sys:children', pageChildren);
   page.set('prop:title', ytext(title || ''));
   blocks.set(pageId, page);
+
+  // Every block is integrated now, so the reference spans can be formatted for
+  // real instead of queued against a detached type.
+  for (const { text, index, pageId: target } of pending) {
+    text.format(index, REFERENCE_NODE.length, { reference: { type: 'LinkedPage', pageId: target } });
+  }
 
   return Y.encodeStateAsUpdate(doc);
 }

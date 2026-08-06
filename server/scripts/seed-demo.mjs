@@ -8,7 +8,7 @@
 // their login. Content authorship rotates over whoever already exists.
 import crypto from 'node:crypto';
 import { pool } from '../src/db.js';
-import { buildDocState } from '../src/blocks.js';
+import { buildDocState, collectMarkdownLinks } from '../src/blocks.js';
 
 if (!process.argv.includes('--yes')) {
   console.error('refusing to wipe without --yes');
@@ -57,11 +57,11 @@ boards that turn them into shipped work.
 
 | Space | What goes there |
 | --- | --- |
-| Company | Handbook, OKRs, onboarding |
-| Product | Roadmap, research, specs |
-| Engineering | Architecture, runbooks, postmortems |
-| Design | Design system, brand |
-| Marketing | Launch plans, drafts |
+| Company | [[handbook]], [[okrs]], [[onboarding]] |
+| Product | [[roadmap]], research, specs |
+| Engineering | [[architecture]], runbooks, postmortems |
+| Design | [[design-system]], [[brand]] |
+| Marketing | [[launch]], drafts |
 
 ## Getting around
 
@@ -78,7 +78,7 @@ boards that turn them into shipped work.
 
 > Select any text to leave a comment. Highlights stay anchored to the passage.
 
-Questions? Drop them in the weekly sync notes and someone will pick them up.`,
+Questions? Drop them in [[weekly]] and someone will pick them up.`,
   },
   {
     key: 'weekly', title: 'Weekly sync — 4 Aug', icon: '📅', folder: null, by: 1, tags: ['guide'],
@@ -96,11 +96,11 @@ Questions? Drop them in the weekly sync notes and someone will pick them up.`,
 
 - **Engineering** — sync layer rewrite is merged; reconnect storms fixed.
 - **Design** — design system tokens landed in dark mode.
-- **Product** — pricing experiment wrapped, results in the pricing page.
+- **Product** — pricing experiment wrapped, results in [[pricing]].
 
 ## Actions
 
-- [x] Publish the postmortem for the June 14 outage
+- [x] Publish [[postmortem]] for the June 14 outage
 - [ ] Confirm the launch date with marketing
 - [ ] Cut the Sprint 13 scope down to two epics
 - [ ] Book the customer advisory call for late August`,
@@ -145,14 +145,14 @@ anything with a date attached.`,
 ## Day 1
 
 - [x] Accounts: workspace, source control, CI
-- [x] Read the team handbook
-- [ ] Introduce yourself in the weekly sync notes
+- [x] Read the [[handbook]]
+- [ ] Introduce yourself in [[weekly]]
 - [ ] Pair with your onboarding buddy for an hour
 
 ## Day 2–3
 
 - [ ] Get the app running locally
-- [ ] Read the architecture overview
+- [ ] Read [[architecture]] and skim [[standards]]
 - [ ] Ship one small fix, however tiny, end to end
 
 ## Day 4–5
@@ -176,7 +176,8 @@ out alone, ask.`,
   {
     key: 'okrs', title: 'Company OKRs — H2 2026', icon: '🎯', folder: 'company', by: 0, tags: ['roadmap', 'approved'],
     md: `Three objectives for the half. Anything not serving one of them is a
-distraction we agreed to postpone.
+distraction we agreed to postpone. What we are actually building, and when,
+lives in [[roadmap]].
 
 ## O1 — Make collaboration feel instant
 
@@ -204,17 +205,18 @@ time means the targets were too soft.`,
   {
     key: 'roadmap', title: 'Product roadmap — H2 2026', icon: '🗺️', folder: 'product', by: 1, fav: true, tags: ['roadmap', 'approved'],
     md: `What we are building, in the order we intend to build it. Dates are
-intentions, not promises.
+intentions, not promises. The objectives this ladders up to are in [[okrs]].
 
 ## Now
 
 - **Realtime collaboration** — presence, live cursors, conflict-free editing.
+  Spec: [[prd-realtime]].
 - **Inline comments** — anchored to the text, resolvable, notified.
 
 ## Next
 
-- **Mobile app v1** — read and comment, offline cache.
-- **SSO and SCIM** — SAML, directory sync, role mapping.
+- **Mobile app v1** — read and comment, offline cache. Spec: [[prd-mobile]].
+- **SSO and SCIM** — SAML, directory sync, role mapping. Spec: [[prd-sso]].
 
 ## Later
 
@@ -226,7 +228,7 @@ intentions, not promises.
 
 | Idea | Why not |
 | --- | --- |
-| Per-seat billing tiers | Pricing experiment showed no lift |
+| Per-seat billing tiers | [[pricing]] showed no lift |
 | Built-in video calls | Two vendors already own this |
 | Offline-first desktop app | Web plus mobile covers the ask |
 
@@ -247,7 +249,8 @@ to keep a feature scoreboard.
 
 ## Where we lose
 
-- Mobile. Every serious competitor has shipped a phone app.
+- Mobile. Every serious competitor has shipped a phone app; ours is specced in
+  [[prd-mobile]] but not built.
 - Template library is thin.
 - No public roadmap or changelog product.
 
@@ -260,7 +263,7 @@ to keep a feature scoreboard.
 | Agencies | Task trackers | Client-ready documents |
 
 Pricing across the set clusters between 8 and 15 per user per month; nobody in
-the segment charges for storage.`,
+the segment charges for storage. Our own numbers are in [[pricing]].`,
   },
   {
     key: 'interview', title: 'Customer interview — Northwind Retail', icon: '🎤', folder: 'product', by: 4, tags: ['roadmap'],
@@ -283,14 +286,15 @@ at.
 
 ## What we took away
 
-1. Mobile read plus comment covers most of their need. Editing is not urgent.
+1. Mobile read plus comment covers most of their need — the scope in
+   [[prd-mobile]] holds. Editing is not urgent.
 2. Due dates matter more than statuses — they plan by date, not by column.
 3. An emailed weekly digest would remove the "did you see it?" step.
 
 ## Follow-ups
 
 - [ ] Send the mobile beta invite when v1 hits TestFlight
-- [ ] Ask whether SSO is a requirement for their IT review
+- [ ] Ask whether SSO is a requirement for their IT review ([[prd-sso]])
 - [ ] Book a second call with two store managers present`,
   },
   {
@@ -348,6 +352,9 @@ shared workspace.
 3. Reconnect with backoff; queue local edits while offline.
 4. Server persists state on a debounce, never on every keystroke.
 
+The sync and storage shape these sit on is in [[architecture]]; the failure we
+are designing away from is [[postmortem]].
+
 ## Success
 
 - p95 propagation under 120 ms on a regional connection.
@@ -363,7 +370,7 @@ cohort is clean for a full week.`,
     md: `## Problem
 
 Half of the people a plan affects never sit at a desk. Today they get the plan
-second-hand, usually as a screenshot.
+second-hand, usually as a screenshot. [[interview]] is where this came from.
 
 ## Scope for v1
 
@@ -385,6 +392,7 @@ second-hand, usually as a screenshot.
 - One codebase across both platforms.
 - Cold start under two seconds on a mid-range device.
 - The offline cache must never show stale content without saying so.
+- Components and tokens come from [[design-system]], not from scratch.
 
 ## Open questions
 
@@ -418,6 +426,9 @@ can access be managed centrally? Right now the answer is no.
 - Signed assertions only; reject unsigned responses outright.
 - Certificate rotation without downtime.
 - Never trust the identity provider's email claim for authorisation on its own.
+
+Where this sits in the stack: [[architecture]]. Why it is a company objective:
+[[okrs]].
 
 ## Success
 
@@ -470,7 +481,11 @@ ORDER BY updated_at DESC;
 
 1. Sync disconnect — the client queues and replays.
 2. Database failover — the API retries idempotent reads.
-3. AI provider outage — degrades to no suggestions, never blocks a save.`,
+3. AI provider outage — degrades to no suggestions, never blocks a save.
+
+The one that actually bit us is written up in [[postmortem]]. Endpoint shapes
+are in [[api]]; the rules for code that touches any of this are in
+[[standards]].`,
   },
   {
     key: 'api', title: 'API reference', icon: '🔌', folder: 'eng', by: 6, tags: ['eng'],
@@ -507,7 +522,9 @@ curl -X POST https://demo.example.com/api/docs \\
 ## Rate limits
 
 600 requests per minute per token. Exceeding it returns 429 with a
-\`Retry-After\` header. Back off; do not retry in a tight loop.`,
+\`Retry-After\` header. Back off; do not retry in a tight loop.
+
+What sits behind these endpoints is described in [[architecture]].`,
   },
   {
     key: 'release', title: 'Release checklist', icon: '✅', folder: 'eng', by: 4, tags: ['eng', 'approved'],
@@ -536,6 +553,9 @@ skip it.
 
 ---
 
+Half of this list exists because of [[postmortem]]. Code review expectations
+are in [[standards]].
+
 > A release nobody can roll back is not a release, it is a commitment.`,
   },
   {
@@ -559,7 +579,8 @@ Documents stayed readable and no content was lost.
 
 The new deploy opened a database connection per socket instead of sharing the
 pool. Under normal traffic the pool held; when every client reconnected at once
-after the rolling restart, it did not.
+after the rolling restart, it did not. The pooling boundary is drawn in
+[[architecture]].
 
 ## What went well
 
@@ -577,6 +598,8 @@ after the rolling restart, it did not.
 - [x] Make pool size configurable
 - [ ] Add a reconnect-storm load test to CI
 - [ ] Alert on pool saturation, not just error rate
+
+The last two are now steps in [[release]].
 
 > Blameless. The pooling change passed review twice; the gap was in our tests,
 > not in anybody's judgement.`,
@@ -610,7 +633,10 @@ assert.equal(merge({ a: 1 }, { a: 2 }).a, 2);
 ## Dependencies
 
 Adding one is a decision, not a convenience. Ask whether the standard library
-or something already installed covers it first.`,
+or something already installed covers it first.
+
+Context for the code these rules govern: [[architecture]]. What ships and when:
+[[release]].`,
   },
   {
     key: 'design-system', title: 'Design system foundations', icon: '🎨', folder: 'design', by: 7, tags: ['design', 'approved'],
@@ -644,6 +670,8 @@ A 4px scale. If a gap is not on the scale it is a mistake, not a decision.
 - 120ms for state changes, 220ms for surfaces entering.
 - Nothing animates on a data update. Motion is for the user's action.
 
+The words that go inside these components are governed by [[brand]].
+
 > Accessibility is not a phase. Contrast at 4.5:1, focus visible everywhere,
 > and every control reachable by keyboard.`,
   },
@@ -674,13 +702,16 @@ announcement.
 | We're thrilled to announce | Realtime editing is available today. |
 | Oops, something went wrong | We could not save this page. Retry? |
 
+Type, colour and spacing that carry these words: [[design-system]].
+
 > When in doubt, read it out loud. If you would not say it to someone's face,
 > do not ship it.`,
   },
   {
     key: 'launch', title: 'Launch plan — Aurora 2.0', icon: '📣', folder: 'marketing', by: 5, tags: ['marketing'],
     md: `Target date: end of Sprint 13. The launch is realtime collaboration plus
-inline comments; mobile is teased, not announced.
+inline comments ([[prd-realtime]]); mobile is teased, not announced. Scope comes
+from [[roadmap]].
 
 ## Sequence
 
@@ -701,7 +732,8 @@ inline comments; mobile is teased, not announced.
 ## Messaging
 
 Lead with the outcome — *your team edits the same page at the same time* — not
-with the technology. The CRDT rewrite is the blog post, not the headline.
+with the technology. The CRDT rewrite is [[blog]], not the headline. Tone rules
+are in [[brand]].
 
 ## Risks
 
@@ -736,8 +768,9 @@ and immediately; the network catches up when it can.
 
 ## What it cost us
 
-Six weeks, one outage that taught us about connection pools, and a lot of
-tests about reconnecting. Worth it.
+Six weeks, one outage that taught us about connection pools ([[postmortem]]),
+and a lot of tests about reconnecting. Worth it. The shape we landed on is in
+[[architecture]].
 
 ---
 
@@ -851,7 +884,7 @@ try {
     TRUNCATE task_deps, tasks, sprints, projects,
              doc_tags, tags, comments, notifications, favorites,
              doc_versions, doc_terms, doc_signals, doc_access, doc_states,
-             docs, folders, blobs
+             doc_links, docs, folders, blobs
     CASCADE
   `);
 
@@ -874,9 +907,17 @@ try {
 
   const docId = {};
   const docOwner = {};
+  // Mint every id up front so a page can [[link]] to one defined later in the
+  // list — the resolver has to answer for the whole set before any state is built.
+  for (const d of DOCS) docId[d.key] = id();
+  const resolveLink = (key) => docId[key] ?? null;
+  const titleOf = Object.fromEntries(DOCS.map((d) => [d.key, d.title]));
+  // search_text is what search indexes and quotes back in snippets, so the
+  // `[[key]]` markers become the titles a reader would actually have seen.
+  const searchable = (md) => md.replace(/\[\[([^\]\n]+)\]\]/g, (m, k) => titleOf[k.trim()] ?? m);
+
   pos = 0;
   for (const d of DOCS) {
-    docId[d.key] = id();
     const owner = actor(d.by);
     docOwner[d.key] = owner;
     await client.query(
@@ -885,14 +926,14 @@ try {
        VALUES ($1,$2,$3,$4,$4,$5,$6,$7,$8, now() - ($9 || ' days')::interval,
                                              now() - ($10 || ' hours')::interval)`,
       [docId[d.key], d.title, d.icon, owner, d.folder ? folderId[d.folder] : null, pos,
-       d.visibility || 'team', d.md.slice(0, 100000), String(30 - pos), String(pos * 5 + 2)]
+       d.visibility || 'team', searchable(d.md).slice(0, 100000), String(30 - pos), String(pos * 5 + 2)]
     );
     await client.query(
       `INSERT INTO doc_access (doc_id, user_id, role) VALUES ($1, $2, 'owner')`,
       [docId[d.key], owner]
     );
     await client.query('INSERT INTO doc_states (doc_id, state) VALUES ($1, $2)', [
-      docId[d.key], Buffer.from(buildDocState(d.title, d.md)),
+      docId[d.key], Buffer.from(buildDocState(d.title, d.md, resolveLink)),
     ]);
     for (const t of d.tags || []) {
       await client.query('INSERT INTO doc_tags (doc_id, tag_id) VALUES ($1, $2)', [docId[d.key], tagId[t]]);
@@ -905,6 +946,22 @@ try {
       }
     }
     pos++;
+  }
+
+  // doc_links after every doc exists — a link to a page defined later in the
+  // list would otherwise trip the foreign key. Normally the editor posts these
+  // with the text save; seeded docs never pass through a client, so write them
+  // here from the same source the block state was built from.
+  let linkCount = 0;
+  for (const d of DOCS) {
+    for (const to of collectMarkdownLinks(d.md, resolveLink)) {
+      if (to === docId[d.key]) continue;
+      await client.query(
+        'INSERT INTO doc_links (from_id, to_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+        [docId[d.key], to],
+      );
+      linkCount++;
+    }
   }
 
   const commentId = [];
@@ -979,7 +1036,7 @@ try {
   console.log(
     `seeded ${FOLDERS.length} folders, ${DOCS.length} docs, ${TAGS.length} tags, ` +
     `${COMMENTS.length} comments, ${PROJECTS.length} projects, ` +
-    `${PROJECTS.reduce((n, p) => n + p.tasks.length, 0)} tasks`
+    `${PROJECTS.reduce((n, p) => n + p.tasks.length, 0)} tasks, ${linkCount} page links`
   );
 } catch (e) {
   await client.query('ROLLBACK');

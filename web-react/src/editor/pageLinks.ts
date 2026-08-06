@@ -142,22 +142,45 @@ export function attachRefClicks(editor: Element, onOpen: (docId: string) => void
 }
 
 /**
- * Every page this doc @-references, deduped, in document order. Walked off the
- * store rather than the DOM so references inside collapsed or unrendered blocks
- * still count. Loosely typed at this boundary, like docText.ts.
+ * Every page this doc @-references, deduped. Walked off the store rather than
+ * the DOM so references inside collapsed or unrendered blocks still count.
+ *
+ * The result REPLACES the stored link set, so under-collecting silently deletes
+ * backlinks. Rich text is not only `model.text` — table and database cells hold
+ * their own, nested under props — so this scans props for anything delta-shaped
+ * instead of naming paths it would be easy to forget to update.
+ * Loosely typed at this boundary, like docText.ts.
  */
 export function collectPageLinks(store: unknown): string[] {
   const ids = new Set<string>();
-  const walk = (model: any) => {
-    if (!model) return;
-    const text = model.text ?? model.props?.text;
-    const deltas: any[] = text?.toDelta?.() ?? [];
-    for (const d of deltas) {
+
+  const takeDeltas = (value: any) => {
+    for (const d of value.toDelta() ?? []) {
       const pageId = d?.attributes?.reference?.pageId;
       if (typeof pageId === 'string' && pageId) ids.add(pageId);
     }
+  };
+
+  // Depth guard: props are plain data, but a cycle here would hang the save.
+  const scan = (value: any, depth: number) => {
+    if (!value || depth > 6) return;
+    if (typeof value.toDelta === 'function') return takeDeltas(value);
+    if (Array.isArray(value)) {
+      for (const v of value) scan(v, depth + 1);
+      return;
+    }
+    if (typeof value === 'object') {
+      for (const v of Object.values(value)) scan(v, depth + 1);
+    }
+  };
+
+  const walk = (model: any) => {
+    if (!model) return;
+    scan(model.text, 0);
+    scan(model.props, 0);
     for (const child of model.children ?? []) walk(child);
   };
+
   for (const child of (store as any)?.root?.children ?? []) walk(child);
   return [...ids];
 }
