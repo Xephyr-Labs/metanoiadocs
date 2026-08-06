@@ -163,6 +163,8 @@ export const docsApi = {
   trash: (): Promise<{ id: string; title: string; icon: string; deleted_at: string }[]> => req('/docs/trash'),
   backlinks: (id: string): Promise<BacklinkRow[]> => req(`/docs/${id}/backlinks`),
   restore: (id: string) => req(`/docs/${id}/restore`, { method: 'POST' }),
+  /** Destroy a trashed page. Owner or admin only; there is no undo. */
+  destroy: (id: string) => req(`/docs/${id}/permanent`, { method: 'DELETE' }),
   inbox: (): Promise<InboxRow[]> => req('/inbox'),
   unreadCount: (): Promise<{ count: number }> => req('/notifications/unread-count'),
   markNotificationsRead: () => req('/notifications/read', { method: 'POST' }),

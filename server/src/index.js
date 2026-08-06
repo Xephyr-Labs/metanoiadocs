@@ -640,12 +640,60 @@ app.get('/api/docs/trash', requireUser, async (req, res) => {
   res.json(rows);
 });
 
+// Grant on a doc that is already in the trash. grantOn's team fallback requires
+// `deleted_at IS NULL`, so once a team doc is trashed everyone but its owner
+// loses their grant — which meant the trash listed docs to members that they
+// then could not restore. Trash actions use this instead.
+async function trashGrantOn(docId, userId) {
+  const g = await pool.query('SELECT role FROM doc_access WHERE doc_id = $1 AND user_id = $2', [docId, userId]);
+  if (g.rows[0]) return g.rows[0].role;
+  const t = await pool.query(
+    "SELECT 1 FROM docs WHERE id = $1 AND visibility = 'team' AND deleted_at IS NOT NULL",
+    [docId]
+  );
+  return t.rowCount ? 'editor' : null;
+}
+
 // Restore a trashed doc (any grant on it).
 app.post('/api/docs/:id/restore', requireUser, async (req, res) => {
-  if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
+  if (!(await trashGrantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
   await pool.query('UPDATE docs SET deleted_at = NULL, updated_at = now() WHERE id = $1', [req.params.id]);
   res.json({ ok: true });
 });
+
+// Delete a trashed doc for good. Every child row (state, comments, versions,
+// links, tags, terms, signals, favourites, notifications) is ON DELETE CASCADE;
+// projects and tasks that referenced it keep existing with a null doc_id.
+app.delete('/api/docs/:id/permanent', requireUser, wrap(async (req, res) => {
+  const { rows } = await pool.query('SELECT deleted_at, title FROM docs WHERE id = $1', [req.params.id]);
+  if (!rows[0]) return res.status(404).json({ error: 'not found' });
+  // Trash-only: this must never become a one-click bypass of the recoverable
+  // path. A doc has to be soft-deleted before it can be destroyed.
+  if (!rows[0].deleted_at) return res.status(409).json({ error: 'Move the page to the trash first.' });
+
+  // Stricter than the soft delete, because there is no undo: the owner or an
+  // admin, not merely anyone who could edit it.
+  const role = await trashGrantOn(req.params.id, req.user.id);
+  if (role !== 'owner' && req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Only the page owner or an admin can delete a page permanently.' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    // docs.parent_id is NO ACTION, so a surviving child would block the delete.
+    // Soft-delete already detaches children; this covers anything re-parented since.
+    await client.query('UPDATE docs SET parent_id = NULL WHERE parent_id = $1', [req.params.id]);
+    await client.query('DELETE FROM docs WHERE id = $1', [req.params.id]);
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+  res.json({ ok: true });
+}));
 
 // Soft-delete a doc (owner only). Children re-parent to top level via the
 // ON DELETE SET NULL fk only on hard delete, so here we just detach them.
