@@ -23,6 +23,7 @@ import { templates } from '../../data/templates';
 import { useAuth } from '../../store/auth';
 import { useWorkspace } from '../../store/workspace';
 import { Menu } from '../ui/Menu';
+import { RowInput } from '../ui/RowInput';
 import { rowAction } from '../ui/styles';
 import { PageTree } from './PageTree';
 import { FolderTree } from './FolderTree';
@@ -94,12 +95,14 @@ export function Sidebar() {
   const dragging = useRef(false);
   const [, force] = useState(0);
 
-  const createProject = async () => {
-    const name = window.prompt('Project name')?.trim();
-    if (!name) return;
-    const p = await tasksApi.createProject({ name }).catch(() => null);
+  // The name is typed in the tree itself; `naming` is just whether that row is
+  // showing. Errors surface inside it, so nothing is caught here.
+  const [naming, setNaming] = useState(false);
+  const createProject = async (name: string) => {
+    const p = await tasksApi.createProject({ name });
     await ws.refreshProjects();
-    if (p) ws.openProject(p.id);
+    setNaming(false);
+    ws.openProject(p.id);
   };
 
   const onResizeStart = (e: React.MouseEvent) => {
@@ -180,13 +183,22 @@ export function Sidebar() {
         <section className="mb-5">
           <SectionLabel
             action={
-              <button type="button" onClick={createProject} className={rowAction} aria-label="New project">
+              <button type="button" onClick={() => setNaming(true)} className={rowAction} aria-label="New project">
                 <Plus size={14} />
               </button>
             }
           >
             Projects
           </SectionLabel>
+          {naming && (
+            <RowInput
+              icon={<span className="text-md leading-none">📋</span>}
+              placeholder="Project name…"
+              label="New project name"
+              onCommit={createProject}
+              onCancel={() => setNaming(false)}
+            />
+          )}
           {ws.projects.length ? (
             <div className="space-y-px">
               {ws.projects.map((p) => {
@@ -212,8 +224,8 @@ export function Sidebar() {
                 );
               })}
             </div>
-          ) : (
-            <button onClick={createProject} className="mt-0.5 flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-faint hover:bg-hover hover:text-muted">
+          ) : naming ? null : (
+            <button onClick={() => setNaming(true)} className="mt-0.5 flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-faint hover:bg-hover hover:text-muted">
               <Plus size={14} /> New project
             </button>
           )}

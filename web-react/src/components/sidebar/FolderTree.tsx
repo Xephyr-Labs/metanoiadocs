@@ -6,6 +6,7 @@ import type { PageId } from '../../lib/types';
 import { useWorkspace } from '../../store/workspace';
 import { PageIcon } from '../ui/PageIcon';
 import { Menu } from '../ui/Menu';
+import { RowInput } from '../ui/RowInput';
 import { rowAction } from '../ui/styles';
 
 /** Folder icon tint per palette color; gray stays the quiet default. */
@@ -84,13 +85,35 @@ function FolderRow({ id, depth }: { id: string; depth: number }) {
   const folder = ws.folders[id];
   const [hover, setHover] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [renaming, setRenaming] = useState(false);
   if (!folder) return null;
   const hasChildren = folder.children.length > 0 || folder.documentIds.length > 0;
-  const rename = () => {
-    const name = window.prompt('Rename folder', folder.name)?.trim();
-    if (name && name !== folder.name) ws.renameFolder(id, name);
-  };
   const tint = FOLDER_TINT[folder.color] ?? 'text-faint';
+  const children = folder.expanded && (
+    <div role="group">
+      {folder.documentIds.map((docId) => <DocumentRow key={docId} id={docId} depth={depth + 1} />)}
+      {folder.children.map((childId) => <FolderRow key={childId} id={childId} depth={depth + 1} />)}
+    </div>
+  );
+
+  // Renaming replaces the row rather than opening anything — the folder keeps
+  // its icon and its place in the tree while the name is being typed.
+  if (renaming) {
+    return (
+      <div>
+        <RowInput
+          icon={<Folder size={16} className={cn('shrink-0', tint)} />}
+          depth={depth}
+          defaultValue={folder.name}
+          label={`Rename ${folder.name}`}
+          onCommit={async (name) => { await ws.renameFolder(id, name); setRenaming(false); }}
+          onCancel={() => setRenaming(false)}
+        />
+        {children}
+      </div>
+    );
+  }
+
   return (
     <div>
       <div
@@ -137,7 +160,7 @@ function FolderRow({ id, depth }: { id: string; depth: number }) {
             items={[
               { icon: Plus, label: 'New page', onSelect: () => ws.createPage(id) },
               { icon: Folder, label: 'New subfolder', onSelect: () => ws.createFolder(id) },
-              { icon: FileText, label: 'Rename', onSelect: rename },
+              { icon: FileText, label: 'Rename', onSelect: () => setRenaming(true) },
               ...TAG_COLORS.map((c, i) => ({
                 icon: ColorDot(c),
                 label: c[0].toUpperCase() + c.slice(1),
@@ -150,12 +173,7 @@ function FolderRow({ id, depth }: { id: string; depth: number }) {
           <button type="button" onClick={() => ws.createPage(id)} className={rowAction} aria-label="New page in folder"><Plus size={16} /></button>
         </span>
       </div>
-      {folder.expanded && (
-        <div role="group">
-          {folder.documentIds.map((docId) => <DocumentRow key={docId} id={docId} depth={depth + 1} />)}
-          {folder.children.map((childId) => <FolderRow key={childId} id={childId} depth={depth + 1} />)}
-        </div>
-      )}
+      {children}
     </div>
   );
 }

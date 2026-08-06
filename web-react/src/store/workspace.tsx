@@ -328,7 +328,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   const renameFolder = useCallback(async (id: string, name: string) => {
-    await docsApi.patchFolder(id, { name }).catch(() => refresh());
+    // Let a failure reject: the inline editor reports it and keeps what was
+    // typed, which beats silently reverting to the old name.
+    await docsApi.patchFolder(id, { name });
     await refresh();
   }, [refresh]);
 

@@ -197,6 +197,8 @@ function Members() {
   const [email, setEmail] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<string | null>(null);
 
   const reload = () => docsApi.users().then(setRows).catch(() => setRows([]));
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, []);
@@ -210,14 +212,19 @@ function Members() {
       .catch((e) => setMsg({ ok: false, text: e instanceof Error ? e.message : 'Could not change that role.' }));
     reload();
   };
+  // Removing someone is the one action here with no undo, so it takes two
+  // deliberate clicks in the row itself — no browser dialog, and the row can
+  // say what removal costs while it asks.
   const remove = async (m: UserRow) => {
     const who = m.name || m.email;
-    if (!window.confirm(`Remove ${who} from the workspace?\n\nEvery page they own transfers to you, and their comments keep their name. Their sign-in, tokens and favourites are deleted.`)) return;
     setMsg(null);
+    setRemoving(m.id);
     await docsApi
       .removeUser(m.id)
       .then(() => setMsg({ ok: true, text: `${who} removed. Their pages are now yours.` }))
       .catch((e) => setMsg({ ok: false, text: e instanceof Error ? e.message : 'Could not remove that member.' }));
+    setRemoving(null);
+    setConfirming(null);
     reload();
   };
 
@@ -263,38 +270,65 @@ function Members() {
         )}
       </div>
       <div className="divide-y divide-line">
-        {(rows ?? []).map((m) => (
-          <div key={m.id} className="flex items-center gap-3 py-3">
-            <Avatar name={m.name || m.email} size={32} />
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium text-ink">{m.name} {m.id === user?.id && <span className="text-faint">(you)</span>}</p>
-              <p className="truncate text-xs text-faint">{m.email}</p>
-            </div>
-            {isAdmin && m.id !== user?.id ? (
-              <Menu
-                align="end"
-                items={[
-                  m.role === 'admin'
-                    ? { icon: UserMinus, label: 'Make collaborator', onSelect: () => changeRole(m, 'collaborator') }
-                    : { icon: Shield, label: 'Make admin', onSelect: () => changeRole(m, 'admin') },
-                  { icon: Trash2, label: 'Remove from workspace', danger: true, separatorBefore: true, onSelect: () => remove(m) },
-                ]}
-                trigger={
-                  <button className="flex items-center gap-1.5 rounded-md px-1.5 py-1 hover:bg-hover">
-                    <span className={cn('rounded-full px-2 py-0.5 text-2xs font-medium', m.role === 'admin' ? 'bg-accent-soft text-accent' : 'text-muted')}>
-                      {m.role === 'admin' ? 'Admin' : 'Collaborator'}
-                    </span>
-                    <MoreHorizontal size={16} className="text-faint" />
+        {(rows ?? []).map((m) => {
+          const asking = confirming === m.id;
+          const busyRow = removing === m.id;
+          return (
+            <div key={m.id} className="flex items-center gap-3 py-3">
+              <Avatar name={m.name || m.email} size={32} />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-ink">{m.name} {m.id === user?.id && <span className="text-faint">(you)</span>}</p>
+                {asking ? (
+                  <p className="text-xs text-danger">
+                    Their pages transfer to you and their comments keep their name. Sign-in, tokens and favourites are deleted.
+                  </p>
+                ) : (
+                  <p className="truncate text-xs text-faint">{m.email}</p>
+                )}
+              </div>
+              {asking ? (
+                <>
+                  <button
+                    onClick={() => setConfirming(null)}
+                    disabled={busyRow}
+                    className="shrink-0 rounded-md px-2 py-1 text-xs font-medium text-muted transition-colors duration-120 hover:bg-selected hover:text-ink disabled:opacity-50"
+                  >
+                    Cancel
                   </button>
-                }
-              />
-            ) : m.role === 'admin' ? (
-              <span className="rounded-full bg-accent-soft px-2 py-0.5 text-2xs font-medium text-accent">Admin</span>
-            ) : (
-              <span className="text-sm text-muted">Collaborator</span>
-            )}
-          </div>
-        ))}
+                  <button
+                    onClick={() => remove(m)}
+                    disabled={busyRow}
+                    className="flex shrink-0 items-center gap-1.5 rounded-md bg-danger px-2 py-1 text-xs font-medium text-white transition-[filter] duration-120 hover:brightness-95 disabled:opacity-60"
+                  >
+                    {busyRow ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />} Remove
+                  </button>
+                </>
+              ) : isAdmin && m.id !== user?.id ? (
+                <Menu
+                  align="end"
+                  items={[
+                    m.role === 'admin'
+                      ? { icon: UserMinus, label: 'Make collaborator', onSelect: () => changeRole(m, 'collaborator') }
+                      : { icon: Shield, label: 'Make admin', onSelect: () => changeRole(m, 'admin') },
+                    { icon: Trash2, label: 'Remove from workspace', danger: true, separatorBefore: true, onSelect: () => { setMsg(null); setConfirming(m.id); } },
+                  ]}
+                  trigger={
+                    <button className="flex items-center gap-1.5 rounded-md px-1.5 py-1 hover:bg-hover">
+                      <span className={cn('rounded-full px-2 py-0.5 text-2xs font-medium', m.role === 'admin' ? 'bg-accent-soft text-accent' : 'text-muted')}>
+                        {m.role === 'admin' ? 'Admin' : 'Collaborator'}
+                      </span>
+                      <MoreHorizontal size={16} className="text-faint" />
+                    </button>
+                  }
+                />
+              ) : m.role === 'admin' ? (
+                <span className="rounded-full bg-accent-soft px-2 py-0.5 text-2xs font-medium text-accent">Admin</span>
+              ) : (
+                <span className="text-sm text-muted">Collaborator</span>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -330,6 +364,8 @@ function Tokens() {
   const [busy, setBusy] = useState(false);
   const [fresh, setFresh] = useState<string | null>(null); // plaintext shown once
   const [copied, setCopied] = useState(false);
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const [revoking, setRevoking] = useState<string | null>(null);
 
   const load = () => docsApi.listTokens().then(setRows).catch(() => setRows([]));
   useEffect(() => { load(); }, []);
@@ -344,9 +380,12 @@ function Tokens() {
       load();
     } finally { setBusy(false); }
   };
+  // Same two-click confirm as the member rows — the row asks, in place.
   const revoke = async (id: string) => {
-    if (!window.confirm('Revoke this token? Anything using it will stop working.')) return;
+    setRevoking(id);
     await docsApi.deleteToken(id).catch(() => {});
+    setRevoking(null);
+    setConfirming(null);
     load();
   };
 
@@ -389,19 +428,51 @@ function Tokens() {
           <div className="flex justify-center py-8"><Loader2 size={16} className="animate-spin text-faint" /></div>
         ) : rows.length === 0 ? (
           <p className="py-6 text-center text-sm text-faint">No tokens yet.</p>
-        ) : rows.map((t) => (
-          <div key={t.id} className="flex items-center gap-3 py-3">
-            <KeyRound size={16} className="shrink-0 text-faint" />
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium text-ink">{t.name}</p>
-              <p className="truncate text-xs text-faint">
-                Created {relativeTime(t.created_at)}
-                {t.last_used_at ? ` · last used ${relativeTime(t.last_used_at)}` : ' · never used'}
-              </p>
+        ) : rows.map((t) => {
+          const asking = confirming === t.id;
+          const busyRow = revoking === t.id;
+          return (
+            <div key={t.id} className="flex items-center gap-3 py-3">
+              <KeyRound size={16} className="shrink-0 text-faint" />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-ink">{t.name}</p>
+                {asking ? (
+                  <p className="text-xs text-danger">Anything signed in with this token stops working.</p>
+                ) : (
+                  <p className="truncate text-xs text-faint">
+                    Created {relativeTime(t.created_at)}
+                    {t.last_used_at ? ` · last used ${relativeTime(t.last_used_at)}` : ' · never used'}
+                  </p>
+                )}
+              </div>
+              {asking ? (
+                <>
+                  <button
+                    onClick={() => setConfirming(null)}
+                    disabled={busyRow}
+                    className="shrink-0 rounded-md px-2 py-1 text-xs font-medium text-muted transition-colors duration-120 hover:bg-selected hover:text-ink disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => revoke(t.id)}
+                    disabled={busyRow}
+                    className="flex shrink-0 items-center gap-1.5 rounded-md bg-danger px-2 py-1 text-xs font-medium text-white transition-[filter] duration-120 hover:brightness-95 disabled:opacity-60"
+                  >
+                    {busyRow ? <Loader2 size={14} className="animate-spin" /> : null} Revoke
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={() => setConfirming(t.id)}
+                  className="shrink-0 rounded-md px-2 py-1 text-xs text-danger transition-colors duration-120 hover:bg-danger/10"
+                >
+                  Revoke
+                </button>
+              )}
             </div>
-            <button onClick={() => revoke(t.id)} className="rounded-md px-2 py-1 text-xs text-danger hover:bg-danger/10">Revoke</button>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
