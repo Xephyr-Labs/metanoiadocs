@@ -13,6 +13,8 @@ interface TrashDoc {
   title: string;
   icon: string;
   deleted_at: string;
+  /** False for pages you can see and restore but do not own. */
+  can_delete: boolean;
 }
 
 export function TrashDialog() {
@@ -25,14 +27,38 @@ export function TrashDialog() {
   const [confirming, setConfirming] = useState<string | null>(null);
   const [destroying, setDestroying] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Bulk purge is armed separately from the per-row confirm, so one can't be
+  // mistaken for the other.
+  const [emptying, setEmptying] = useState(false);
+  const [askEmpty, setAskEmpty] = useState(false);
 
   useEffect(() => {
     if (!ws.trashOpen) return;
     setItems(null);
     setConfirming(null);
+    setAskEmpty(false);
     setError(null);
     docsApi.trash().then(setItems).catch(() => setItems([]));
   }, [ws.trashOpen]);
+
+  const ownCount = (items ?? []).filter((d) => d.can_delete).length;
+
+  const emptyTrash = async () => {
+    setEmptying(true);
+    setError(null);
+    try {
+      const { skipped } = await docsApi.emptyTrash();
+      const rest = await docsApi.trash();
+      setItems(rest);
+      setAskEmpty(false);
+      // Don't claim the trash is empty when someone else's pages are still in it.
+      if (skipped) setError(`${skipped} page${skipped === 1 ? '' : 's'} kept — only their owner can delete those.`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not empty the trash.');
+    } finally {
+      setEmptying(false);
+    }
+  };
 
   const restore = async (id: string) => {
     setRestoring(id);
@@ -117,13 +143,18 @@ export function TrashDialog() {
                     >
                       {restoring === d.id ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />} Restore
                     </button>
-                    <button
-                      onClick={() => { setConfirming(d.id); setError(null); }}
-                      aria-label={`Delete ${d.title || 'Untitled'} permanently`}
-                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-faint transition-colors duration-120 hover:bg-danger/10 hover:text-danger"
-                    >
-                      <X size={14} />
-                    </button>
+                    {/* Only where it would actually work — offering it on
+                        someone else's page and then 403-ing is worse than not
+                        offering it. */}
+                    {d.can_delete && (
+                      <button
+                        onClick={() => { setConfirming(d.id); setError(null); }}
+                        aria-label={`Delete ${d.title || 'Untitled'} permanently`}
+                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-faint transition-colors duration-120 hover:bg-danger/10 hover:text-danger"
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
                   </>
                 )}
               </div>
@@ -137,6 +168,41 @@ export function TrashDialog() {
           </p>
         )}
       </ModalBody>
+
+      {/* Only when there is something this person could actually purge. */}
+      {ownCount > 0 && (
+        <div className="flex shrink-0 items-center gap-2 border-t border-line px-3 py-2.5">
+          {askEmpty ? (
+            <>
+              <span className="flex-1 text-xs text-ink">
+                Delete {ownCount} page{ownCount === 1 ? '' : 's'} for good?
+              </span>
+              <button
+                onClick={() => setAskEmpty(false)}
+                disabled={emptying}
+                className="rounded-md px-2 py-1 text-xs font-medium text-muted transition-colors duration-120 hover:bg-selected hover:text-ink disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={emptyTrash}
+                disabled={emptying}
+                className="flex items-center gap-1.5 rounded-md bg-danger px-2 py-1 text-xs font-medium text-white transition-[filter] duration-120 hover:brightness-95 disabled:opacity-60"
+              >
+                {emptying ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                Delete {ownCount}
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={() => { setAskEmpty(true); setConfirming(null); setError(null); }}
+              className="ml-auto flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-muted transition-colors duration-120 hover:bg-danger/10 hover:text-danger"
+            >
+              <Trash2 size={14} /> Empty trash
+            </button>
+          )}
+        </div>
+      )}
     </Modal>
   );
 }

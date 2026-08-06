@@ -160,7 +160,11 @@ export const docsApi = {
   patch: (id: string, body: { title?: string; icon?: string; folderId?: string | null }) =>
     req(`/docs/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   remove: (id: string) => req(`/docs/${id}`, { method: 'DELETE' }),
-  trash: (): Promise<{ id: string; title: string; icon: string; deleted_at: string }[]> => req('/docs/trash'),
+  trash: (): Promise<{ id: string; title: string; icon: string; deleted_at: string; can_delete: boolean }[]> =>
+    req('/docs/trash'),
+  /** Destroy every trashed page you own. Pages you can only see are reported as skipped. */
+  emptyTrash: (): Promise<{ deleted: number; skipped: number }> =>
+    req('/docs/trash/empty', { method: 'POST' }),
   backlinks: (id: string): Promise<BacklinkRow[]> => req(`/docs/${id}/backlinks`),
   restore: (id: string) => req(`/docs/${id}/restore`, { method: 'POST' }),
   /** Destroy a trashed page. Owner or admin only; there is no undo. */

@@ -628,17 +628,54 @@ app.patch('/api/docs/:id', requireUser, async (req, res) => {
 });
 
 // Trash: soft-deleted docs the user had access to, newest first.
+// Everyone who can see a trashed page can restore it; only its owner (or an
+// admin) can destroy it. `can_delete` ships with the row so the UI can hide the
+// control instead of offering it and then failing with a 403.
+const TRASH_VISIBLE = `d.deleted_at IS NOT NULL AND (a.user_id IS NOT NULL OR d.visibility = 'team')`;
+
 app.get('/api/docs/trash', requireUser, async (req, res) => {
   const { rows } = await pool.query(
-    `SELECT d.id, d.title, d.icon, d.deleted_at
+    `SELECT d.id, d.title, d.icon, d.deleted_at,
+            COALESCE($2 OR a.role = 'owner', false) AS can_delete
        FROM docs d LEFT JOIN doc_access a ON a.doc_id = d.id AND a.user_id = $1
-      WHERE d.deleted_at IS NOT NULL
-        AND (a.user_id IS NOT NULL OR d.visibility = 'team')
+      WHERE ${TRASH_VISIBLE}
       ORDER BY d.deleted_at DESC LIMIT 100`,
-    [req.user.id]
+    [req.user.id, req.user.role === 'admin']
   );
   res.json(rows);
 });
+
+// Destroy every trashed page this user is allowed to destroy. Pages they can
+// see but do not own are left alone and reported back, so "empty" never
+// silently means "emptied less than you asked for".
+app.post('/api/docs/trash/empty', requireUser, wrap(async (req, res) => {
+  const isAdmin = req.user.role === 'admin';
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query(
+      `SELECT d.id, COALESCE($2 OR a.role = 'owner', false) AS can_delete
+         FROM docs d LEFT JOIN doc_access a ON a.doc_id = d.id AND a.user_id = $1
+        WHERE ${TRASH_VISIBLE}
+        FOR UPDATE OF d`,
+      [req.user.id, isAdmin]
+    );
+    const ids = rows.filter((r) => r.can_delete).map((r) => r.id);
+    if (ids.length) {
+      // One page in the set can be another's parent, and parent_id is NO ACTION
+      // — detach every child of the whole set before deleting any of it.
+      await client.query('UPDATE docs SET parent_id = NULL WHERE parent_id = ANY($1)', [ids]);
+      await client.query('DELETE FROM docs WHERE id = ANY($1)', [ids]);
+    }
+    await client.query('COMMIT');
+    res.json({ deleted: ids.length, skipped: rows.length - ids.length });
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+}));
 
 // Grant on a doc that is already in the trash. grantOn's team fallback requires
 // `deleted_at IS NULL`, so once a team doc is trashed everyone but its owner
