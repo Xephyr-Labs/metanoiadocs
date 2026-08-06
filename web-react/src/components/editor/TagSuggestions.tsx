@@ -26,7 +26,7 @@ export function TagSuggestions({ pageId, suggested }: { pageId: string; suggeste
         <span key={s.name} className="group flex items-center gap-0.5 rounded-full border border-dashed border-line px-1.5 py-0.5 text-xs text-muted">
           <button className="flex items-center gap-0.5 hover:text-accent"
             onClick={() => { ws.addTagToPage(pageId, s.tagId ? { tagId: s.tagId } : { name: s.name }); dismiss(s.name); }}>
-            <Plus size={11} /> {s.name}
+            <Plus size={12} /> {s.name}
           </button>
           <button className="opacity-0 group-hover:opacity-60 hover:!opacity-100" onClick={() => dismiss(s.name)}>×</button>
         </span>

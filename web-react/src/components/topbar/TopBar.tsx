@@ -44,7 +44,7 @@ function PresenceStack() {
         <span
           key={p.name}
           title={p.name}
-          className="flex h-[22px] w-[22px] items-center justify-center rounded-full text-[9px] font-semibold text-white ring-2 ring-canvas"
+          className="flex h-[22px] w-[22px] items-center justify-center rounded-full text-3xs font-semibold text-white ring-2 ring-canvas"
           style={{ background: p.color }}
         >
           {avatarFor(p.name).initials}
@@ -53,7 +53,7 @@ function PresenceStack() {
       {extra > 0 && (
         <span
           title={unique.slice(3).map((p) => p.name).join(', ')}
-          className="flex h-[22px] w-[22px] items-center justify-center rounded-full bg-surface text-[9px] font-semibold text-muted ring-2 ring-canvas"
+          className="flex h-[22px] w-[22px] items-center justify-center rounded-full bg-surface text-3xs font-semibold text-muted ring-2 ring-canvas"
         >
           +{extra}
         </span>
@@ -87,7 +87,7 @@ export function TopBar() {
     <header className="sticky top-0 z-30 flex h-[45px] shrink-0 items-center gap-1 border-b border-line bg-canvas/80 px-2.5 backdrop-blur-md">
       {(isMobile || ws.sidebarCollapsed) && (
         <IconButton
-          icon={<PanelLeft size={17} />}
+          icon={<PanelLeft size={18} />}
           label="Open sidebar"
           keys={['⌘', '\\']}
           onClick={() => {
@@ -99,7 +99,7 @@ export function TopBar() {
         />
       )}
 
-      <nav aria-label="Breadcrumb" className="flex min-w-0 flex-1 items-center gap-0.5 text-[14px]">
+      <nav aria-label="Breadcrumb" className="flex min-w-0 flex-1 items-center gap-0.5 text-base">
         {page ? (
           ancestry(ws.pages, page.id).map((p, i, arr) => {
             const last = i === arr.length - 1;
@@ -113,7 +113,7 @@ export function TopBar() {
                     last ? 'text-ink' : 'text-muted',
                   )}
                 >
-                  <PageIcon icon={p.icon} size={15} />
+                  <PageIcon icon={p.icon} size={16} />
                   <span className={cn('truncate', last && 'font-medium')}>{p.title}</span>
                 </button>
                 {!last && <ChevronRight size={14} className="mx-0.5 shrink-0 text-faint" />}
@@ -122,7 +122,7 @@ export function TopBar() {
           })
         ) : project ? (
           <span className="flex items-center gap-1.5 px-1.5 font-medium text-ink">
-            <span className="text-[15px] leading-none">{project.icon}</span>
+            <span className="text-md leading-none">{project.icon}</span>
             {project.name}
           </span>
         ) : (
@@ -135,13 +135,13 @@ export function TopBar() {
       {!page && (
         <div className="flex shrink-0 items-center gap-0.5">
           <IconButton
-            icon={<Sparkles size={17} />}
+            icon={<Sparkles size={18} />}
             label="Ask AI"
             active={ws.rightPanel === 'ai'}
             onClick={() => ws.setRightPanel(ws.rightPanel === 'ai' ? null : 'ai')}
           />
           <IconButton
-            icon={ws.theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
+            icon={ws.theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
             label={ws.theme === 'dark' ? 'Light mode' : 'Dark mode'}
             keys={['⌘', 'J']}
             onClick={ws.toggleTheme}
@@ -152,7 +152,7 @@ export function TopBar() {
       {page && (
         <div className="flex shrink-0 items-center gap-0.5">
           <span className="mr-1 hidden items-center gap-1 text-2xs text-faint md:flex">
-            <Cloud size={13} /> Edited {relativeTime(page.updatedAt)}
+            <Cloud size={14} /> Edited {relativeTime(page.updatedAt)}
           </span>
           <PresenceStack />
           {page.role === 'owner' ? (
@@ -164,15 +164,15 @@ export function TopBar() {
                 { icon: Lock, label: 'Private · only you', onSelect: () => ws.setVisibility(page.id, 'private') },
               ]}
               trigger={
-                <button className="flex h-7 items-center gap-1.5 rounded-md px-2 text-[13px] font-medium text-muted transition-colors hover:bg-hover">
+                <button className="flex h-7 items-center gap-1.5 rounded-md px-2 text-sm font-medium text-muted transition-colors hover:bg-hover">
                   {page.visibility === 'private' ? <Lock size={14} /> : <Globe size={14} />}
                   <span>{page.visibility === 'private' ? 'Private' : 'Team'}</span>
-                  <ChevronDown size={13} className="text-faint" />
+                  <ChevronDown size={14} className="text-faint" />
                 </button>
               }
             />
           ) : (
-            <span className="flex h-7 items-center gap-1.5 px-2 text-[13px] text-faint" title="Visibility (owner controls this)">
+            <span className="flex h-7 items-center gap-1.5 px-2 text-sm text-faint" title="Visibility (owner controls this)">
               {page.visibility === 'private' ? <Lock size={14} /> : <Globe size={14} />}
               <span className="hidden sm:inline">{page.visibility === 'private' ? 'Private' : 'Team'}</span>
             </span>
@@ -181,33 +181,33 @@ export function TopBar() {
             Share
           </Button>
           <IconButton
-            icon={<Sparkles size={17} />}
+            icon={<Sparkles size={18} />}
             label="Ask AI"
             active={ws.rightPanel === 'ai'}
             onClick={() => ws.setRightPanel(ws.rightPanel === 'ai' ? null : 'ai')}
           />
           <IconButton
-            icon={<MessageSquareText size={17} />}
+            icon={<MessageSquareText size={18} />}
             label="Comments"
             active={ws.rightPanel === 'comments'}
             onClick={() => ws.setRightPanel(ws.rightPanel === 'comments' ? null : 'comments')}
           />
           <IconButton
             className="hidden sm:inline-flex"
-            icon={<Star size={17} className={cn(page.favorite && 'fill-amber-400 text-amber-400')} />}
+            icon={<Star size={18} className={cn(page.favorite && 'fill-amber-400 text-amber-400')} />}
             label={page.favorite ? 'Remove from Favorites' : 'Add to Favorites'}
             onClick={() => ws.toggleFavorite(page.id)}
           />
           <IconButton
             className="hidden sm:inline-flex"
-            icon={ws.theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
+            icon={ws.theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
             label={ws.theme === 'dark' ? 'Light mode' : 'Dark mode'}
             keys={['⌘', 'J']}
             onClick={ws.toggleTheme}
           />
           <IconButton
             className="hidden sm:inline-flex"
-            icon={<PanelRight size={17} />}
+            icon={<PanelRight size={18} />}
             label="Side panel"
             active={!!ws.rightPanel}
             onClick={() => ws.setRightPanel(ws.rightPanel ? null : 'outline')}
@@ -227,7 +227,7 @@ export function TopBar() {
               { icon: ArrowUpRight, label: 'Open in new tab', onSelect: () => window.open(location.href, '_blank') },
               { icon: Trash2, label: 'Move to Trash', danger: true, separatorBefore: true, onSelect: () => ws.deletePage(page.id) },
             ]}
-            trigger={<span><IconButton icon={<MoreHorizontal size={17} />} label="More" /></span>}
+            trigger={<span><IconButton icon={<MoreHorizontal size={18} />} label="More" /></span>}
           />
         </div>
       )}

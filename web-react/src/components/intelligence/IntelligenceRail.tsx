@@ -20,11 +20,11 @@ function Section({ icon: Icon, label, count, children }: {
   if (!count) return null;
   return (
     <div className="px-3.5 py-3">
-      <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-faint">
-        <Icon size={13} className="text-muted" /> {label}
+      <div className="mb-1.5 flex items-center gap-1.5 text-2xs font-semibold uppercase tracking-wide text-faint">
+        <Icon size={14} className="text-muted" /> {label}
         <span className="ml-auto tabular-nums text-faint">{count}</span>
       </div>
-      <div className="space-y-1.5 text-[13px] leading-relaxed text-ink">{children}</div>
+      <div className="space-y-1.5 text-sm leading-relaxed text-ink">{children}</div>
     </div>
   );
 }
@@ -78,8 +78,8 @@ export function IntelligenceRail({ data, loading, error, onClose }: {
       drawer ? 'w-full' : 'w-72 shrink-0',
     )}>
       <div className="sticky top-0 z-10 flex items-center gap-1.5 border-b border-line bg-canvas/90 px-3.5 py-3 backdrop-blur-md">
-        <Sparkles size={15} className="text-accent" />
-        <span className="text-[13px] font-semibold text-ink">Intelligence</span>
+        <Sparkles size={16} className="text-accent" />
+        <span className="text-sm font-semibold text-ink">Intelligence</span>
         <button onClick={onClose ?? toggle} className="ml-auto text-muted hover:text-ink"
           title={drawer ? 'Close' : 'Hide'} aria-label={drawer ? 'Close intelligence' : 'Hide intelligence'}>
           {drawer ? <X size={16} /> : <PanelRightClose size={16} />}
@@ -91,12 +91,12 @@ export function IntelligenceRail({ data, loading, error, onClose }: {
           {data?.duplicateOf && (
             <button onClick={() => ws.select(data.duplicateOf!.id)}
               className="flex items-center gap-1 rounded-md bg-amber-500/10 px-2 py-1 font-medium text-amber-600">
-              <Copy size={11} /> Possible duplicate
+              <Copy size={12} /> Possible duplicate
             </button>
           )}
           {data?.stale && (
             <span className="flex items-center gap-1 rounded-md bg-hover px-2 py-1 text-muted">
-              <Clock size={11} /> {data.stale.months} mo old
+              <Clock size={12} /> {data.stale.months} mo old
             </span>
           )}
         </div>
@@ -116,8 +116,8 @@ export function IntelligenceRail({ data, loading, error, onClose }: {
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="divide-y divide-line">
           {data.summary && (
             <div className="px-3.5 py-3.5">
-              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-faint">Summary</div>
-              <p className="text-[13.5px] leading-relaxed text-ink">{cleanSummary(data.summary)}</p>
+              <div className="mb-1 text-2xs font-semibold uppercase tracking-wide text-faint">Summary</div>
+              <p className="text-sm leading-relaxed text-ink">{cleanSummary(data.summary)}</p>
             </div>
           )}
 
@@ -131,7 +131,7 @@ export function IntelligenceRail({ data, loading, error, onClose }: {
           </Section>
           <Section icon={Flag} label="Decisions" count={data.decisions.length}>
             {data.decisions.map((d, i) => (
-              <div key={i}>{d.text}{d.unresolved && <span className="ml-1 rounded bg-amber-500/10 px-1 text-[10px] text-amber-600">unresolved</span>}</div>
+              <div key={i}>{d.text}{d.unresolved && <span className="ml-1 rounded bg-amber-500/10 px-1 text-3xs text-amber-600">unresolved</span>}</div>
             ))}
           </Section>
           <Section icon={Calendar} label="Deadlines" count={data.deadlines.length}>
@@ -148,8 +148,8 @@ export function IntelligenceRail({ data, loading, error, onClose }: {
           {(data.risks.length + data.changedDeps.length + data.collaborators.length + data.templates.length + data.terminology.length) > 0 && (
             <div>
               <button onClick={toggleMore} aria-expanded={more}
-                className="flex w-full items-center gap-1.5 px-3.5 py-2.5 text-[12px] font-medium text-muted hover:text-ink">
-                <ChevronDown size={13} className={cn('transition-transform', more && 'rotate-180')} />
+                className="flex w-full items-center gap-1.5 px-3.5 py-2.5 text-xs font-medium text-muted hover:text-ink">
+                <ChevronDown size={14} className={cn('transition-transform', more && 'rotate-180')} />
                 {more ? 'Fewer signals' : 'More signals'}
               </button>
               {more && (
@@ -177,7 +177,7 @@ export function IntelligenceRail({ data, loading, error, onClose }: {
           {isEmptyIntel(data) && (
             <div className="px-3.5 py-8 text-center">
               <Sparkles size={20} className="mx-auto mb-2 text-faint" />
-              <p className="text-[13px] font-medium text-muted">Nothing to surface yet</p>
+              <p className="text-sm font-medium text-muted">Nothing to surface yet</p>
               <p className="mt-1 text-xs text-faint">As you write, this rail highlights tasks, decisions, deadlines, related pages and missing links.</p>
             </div>
           )}

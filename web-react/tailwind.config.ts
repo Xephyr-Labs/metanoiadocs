@@ -28,6 +28,7 @@ export default {
         overlay: 'var(--overlay)',
         comment: 'var(--comment)',
         'comment-mark': 'var(--comment-mark)',
+        tooltip: 'var(--tooltip)',
       },
       fontFamily: {
         sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],
@@ -35,8 +36,20 @@ export default {
         serif: ['Lyon-Text', 'Georgia', 'ui-serif', 'serif'],
         mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
       },
+      // One scale, no arbitrary values. 10–15px carries the whole UI; 17px+ is
+      // display type (greeting, auth title, settings section head).
       fontSize: {
-        '2xs': ['11px', { lineHeight: '15px' }],
+        '3xs': ['10px', { lineHeight: '14px' }],
+        '2xs': ['11px', { lineHeight: '16px' }],
+        xs: ['12px', { lineHeight: '17px' }],
+        sm: ['13px', { lineHeight: '19px' }],
+        base: ['14px', { lineHeight: '20px' }],
+        md: ['15px', { lineHeight: '22px' }],
+        lg: ['17px', { lineHeight: '24px' }],
+        xl: ['20px', { lineHeight: '26px' }],
+        '2xl': ['22px', { lineHeight: '28px' }],
+        '3xl': ['26px', { lineHeight: '32px' }],
+        '4xl': ['28px', { lineHeight: '36px' }],
       },
       borderRadius: {
         sm: '4px',

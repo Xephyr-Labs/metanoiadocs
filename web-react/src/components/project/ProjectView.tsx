@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
 import { CalendarDays, GanttChartSquare, KanbanSquare, ListTodo, Plus, Table2, FolderOpen } from 'lucide-react';
 import { useWorkspace } from '../../store/workspace';
+import { cn } from '../../lib/cn';
 import type { TaskRow, TaskStatus } from '../../lib/tasksApi';
 import { Button } from '../ui/Button';
 import { EmptyState } from '../ui/EmptyState';
+import { field } from '../ui/styles';
 import { SegmentedControl } from '../ui/SegmentedControl';
 import { Skeleton } from '../ui/Skeleton';
 import { Backlog } from './Backlog';
@@ -15,11 +17,11 @@ import { TaskTable } from './TaskTable';
 import { useProject } from './useProject';
 
 const TABS = [
-  { value: 'backlog', label: 'Backlog', icon: <ListTodo size={13} /> },
-  { value: 'board', label: 'Board', icon: <KanbanSquare size={13} /> },
-  { value: 'table', label: 'Table', icon: <Table2 size={13} /> },
-  { value: 'gantt', label: 'Gantt', icon: <GanttChartSquare size={13} /> },
-  { value: 'calendar', label: 'Calendar', icon: <CalendarDays size={13} /> },
+  { value: 'backlog', label: 'Backlog', icon: <ListTodo size={14} /> },
+  { value: 'board', label: 'Board', icon: <KanbanSquare size={14} /> },
+  { value: 'table', label: 'Table', icon: <Table2 size={14} /> },
+  { value: 'gantt', label: 'Gantt', icon: <GanttChartSquare size={14} /> },
+  { value: 'calendar', label: 'Calendar', icon: <CalendarDays size={14} /> },
 ];
 
 /** One project, five views over the same task list. */
@@ -67,14 +69,14 @@ export function ProjectView() {
   return (
     <div className="flex h-full flex-col bg-canvas">
       <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-line px-4 py-2.5">
-        <span className="text-[18px] leading-none">{project.icon}</span>
-        <h1 className="min-w-0 flex-1 truncate text-[15px] font-medium text-ink">{project.name}</h1>
+        <span className="text-lg leading-none">{project.icon}</span>
+        <h1 className="min-w-0 flex-1 truncate text-md font-medium text-ink">{project.name}</h1>
         {tab !== 'backlog' && p.sprints.length > 0 && (
           <select
             aria-label="Sprint scope"
             value={scope}
             onChange={(e) => setScope(e.target.value)}
-            className="h-7 rounded-md border border-line bg-canvas px-2 text-[12px] text-ink outline-none focus:border-accent"
+            className={cn(field, 'h-7 w-auto px-2 text-xs')}
           >
             <option value="all">All tasks</option>
             <option value="backlog">Backlog</option>
@@ -90,7 +92,7 @@ export function ProjectView() {
       </header>
 
       {p.error && (
-        <div className="border-b border-line bg-surface px-4 py-2 text-[13px] text-danger">{p.error}</div>
+        <div className="border-b border-line bg-surface px-4 py-2 text-sm text-danger">{p.error}</div>
       )}
 
       <div className="min-h-0 flex-1">

@@ -54,7 +54,7 @@ export function Calendar({ tasks, onOpen, onAdd }: {
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-2 border-b border-line px-4 py-2">
         <IconButton icon={<ChevronLeft size={16} />} label="Previous month" onClick={() => shift(-1)} />
-        <span className="min-w-[150px] text-[13px] font-medium text-ink">{label}</span>
+        <span className="min-w-[150px] text-sm font-medium text-ink">{label}</span>
         <IconButton icon={<ChevronRight size={16} />} label="Next month" onClick={() => shift(1)} />
         <Button
           size="sm"

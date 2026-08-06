@@ -26,6 +26,9 @@
   --comment: #fdfaee;
   --comment-mark: rgba(250, 204, 21, 0.32);
 
+  /* Tooltips stay dark in both themes — they float over content, not in it. */
+  --tooltip: #2f2f2c;
+
   --sidebar-w: 260px;
   --topbar-h: 45px;
   --reading-w: 720px;
@@ -61,6 +64,8 @@
 
   --comment: #26241c;
   --comment-mark: rgba(214, 178, 66, 0.30);
+
+  --tooltip: #3a3a37;
 
   color-scheme: dark;
 }

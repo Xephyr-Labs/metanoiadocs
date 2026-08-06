@@ -14,13 +14,13 @@ interface Props {
 
 const cell = 'px-2 py-1.5 align-middle';
 const input =
-  'w-full rounded border border-transparent bg-transparent px-1 py-0.5 text-[13px] text-ink outline-none hover:border-line focus:border-accent focus:bg-canvas';
+  'w-full rounded border border-transparent bg-transparent px-1 py-0.5 text-sm text-ink outline-none hover:border-line focus:border-accent focus:bg-canvas';
 
 /** Dense editable grid. Every field writes straight through on change. */
 export function TaskTable({ tasks, users, onPatch, onOpen, onDelete }: Props) {
   return (
     <div className="scrollarea h-full overflow-auto p-4">
-      <table className="w-full border-collapse text-[13px]">
+      <table className="w-full border-collapse text-sm">
         <thead>
           <tr className="border-b border-line text-left text-2xs uppercase tracking-wide text-faint">
             <th className={cn(cell, 'w-[38%] font-semibold')}>Task</th>
@@ -102,7 +102,7 @@ export function TaskTable({ tasks, users, onPatch, onOpen, onDelete }: Props) {
           ))}
         </tbody>
       </table>
-      {!tasks.length && <p className="py-10 text-center text-[13px] text-faint">No tasks yet.</p>}
+      {!tasks.length && <p className="py-10 text-center text-sm text-faint">No tasks yet.</p>}
     </div>
   );
 }

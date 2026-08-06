@@ -22,7 +22,7 @@ interface Props {
 
 const itemCls = (danger?: boolean) =>
   cn(
-    'flex cursor-pointer select-none items-center gap-2.5 rounded px-2 py-[6px] text-[13px] outline-none',
+    'flex cursor-pointer select-none items-center gap-2.5 rounded px-2 py-[6px] text-sm outline-none',
     'data-[highlighted]:bg-hover',
     danger ? 'text-danger data-[highlighted]:bg-danger/10' : 'text-ink',
   );
@@ -44,7 +44,7 @@ export function Menu({ trigger, items, align = 'start', side = 'bottom', width =
             <div key={it.label + i}>
               {it.separatorBefore && <DM.Separator className="my-1 h-px bg-line" />}
               <DM.Item className={itemCls(it.danger)} onSelect={it.onSelect}>
-                {it.icon && <it.icon size={15} strokeWidth={1.75} className="shrink-0 opacity-80" />}
+                {it.icon && <it.icon size={16} strokeWidth={1.75} className="shrink-0 opacity-80" />}
                 <span className="flex-1 truncate">{it.label}</span>
                 {it.shortcut && <span className="text-2xs text-faint">{it.shortcut}</span>}
               </DM.Item>

@@ -77,7 +77,7 @@ export function Gantt({ tasks, onOpen }: { tasks: TaskRow[]; onOpen: (t: TaskRow
                 type="button"
                 onClick={() => onOpen(t)}
                 style={{ height: ROW_H }}
-                className="flex w-full items-center gap-1.5 px-3 text-left text-[13px] transition-colors hover:bg-hover"
+                className="flex w-full items-center gap-1.5 px-3 text-left text-sm transition-colors hover:bg-hover"
               >
                 <span className={cn('truncate', t.status === 'done' ? 'text-muted line-through' : 'text-ink')}>
                   {t.title || 'Untitled'}

@@ -93,7 +93,7 @@ function PanelInner() {
               // Keep the active tab visible — five tabs overflow the 320px strip.
               ref={(el) => { if (ws.rightPanel === t.id) el?.scrollIntoView({ inline: 'nearest', block: 'nearest' }); }}
               onClick={() => ws.setRightPanel(t.id)}
-              className={cn('flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-[13px] font-medium transition-colors duration-120', ws.rightPanel === t.id ? 'bg-hover text-ink' : 'text-muted hover:bg-hover')}
+              className={cn('flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-sm font-medium transition-colors duration-120', ws.rightPanel === t.id ? 'bg-hover text-ink' : 'text-muted hover:bg-hover')}
             >
               <t.icon size={14} />
               <span className="hidden xl:inline">{t.label}</span>
@@ -204,7 +204,7 @@ function CommentsTab({ docId }: { docId: string }) {
           >
             <div className="flex items-center gap-2">
               <Avatar name={c.author_name} />
-              <span className="text-[13px] font-medium text-ink">{c.author_name}</span>
+              <span className="text-sm font-medium text-ink">{c.author_name}</span>
               <span className="text-2xs text-faint">{relativeTime(c.created_at)}</span>
               {c.resolved ? (
                 <span className="ml-auto flex items-center gap-1 text-2xs text-faint"><Check size={12} /> Resolved</span>
@@ -213,13 +213,13 @@ function CommentsTab({ docId }: { docId: string }) {
               )}
             </div>
             {c.quote && <p className="mt-1.5 border-l-2 border-comment-mark pl-2 text-2xs italic text-muted">{c.quote}</p>}
-            <p className="mt-1.5 text-[13px] leading-relaxed text-ink">{c.body}</p>
+            <p className="mt-1.5 text-sm leading-relaxed text-ink">{c.body}</p>
             {replies(c.id).map((r) => (
               <div key={r.id} className="mt-2.5 flex items-start gap-2 border-l-2 border-line pl-2.5">
                 <Avatar name={r.author_name} size={18} />
                 <div>
                   <p className="text-2xs font-medium text-ink">{r.author_name} <span className="font-normal text-faint">· {relativeTime(r.created_at)}</span></p>
-                  <p className="text-[13px] text-ink">{r.body}</p>
+                  <p className="text-sm text-ink">{r.body}</p>
                 </div>
               </div>
             ))}
@@ -242,7 +242,7 @@ function CommentsTab({ docId }: { docId: string }) {
                 key={m.id}
                 type="button"
                 onMouseDown={(e) => { e.preventDefault(); pickMention(m); }}
-                className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[13px] hover:bg-hover"
+                className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-sm hover:bg-hover"
               >
                 <Avatar name={m.name || m.username || m.email} size={18} />
                 <span className="font-medium text-ink">{m.name || m.username}</span>
@@ -265,9 +265,9 @@ function CommentsTab({ docId }: { docId: string }) {
               }
             }}
             placeholder={anchor ? 'Comment on selection…' : 'Add a comment…  @ to mention'}
-            className="h-9 flex-1 bg-transparent px-3 text-[13px] outline-none placeholder:text-faint"
+            className="h-9 flex-1 bg-transparent px-3 text-sm outline-none placeholder:text-faint"
           />
-          <IconButton icon={busy ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />} label="Send" onClick={add} className="mr-0.5" />
+          <IconButton icon={busy ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />} label="Send" onClick={add} className="mr-0.5" />
         </div>
       </div>
     </div>
@@ -300,7 +300,7 @@ function OutlineTab() {
   return (
     <nav className="p-2">
       {items.map((o, i) => (
-        <div key={i} className="flex w-full items-center rounded-md px-2 py-1.5 text-left text-[13px] text-muted" style={{ paddingLeft: 8 + (o.level - 1) * 14 }}>
+        <div key={i} className="flex w-full items-center rounded-md px-2 py-1.5 text-left text-sm text-muted" style={{ paddingLeft: 8 + (o.level - 1) * 14 }}>
           <span className="truncate">{o.text}</span>
         </div>
       ))}
@@ -321,7 +321,7 @@ function DetailsTab() {
   return (
     <dl className="divide-y divide-line p-1">
       {rows.map(([k, v]) => (
-        <div key={k} className="flex items-center justify-between px-2 py-2.5 text-[13px]">
+        <div key={k} className="flex items-center justify-between px-2 py-2.5 text-sm">
           <dt className="text-muted">{k}</dt>
           <dd className="font-medium text-ink">{v}</dd>
         </div>
@@ -342,7 +342,7 @@ function HistoryTab({ docId }: { docId: string }) {
     <div className="p-2">
       {versions.map((v, i) => (
         <div key={v.id} className={cn('flex w-full flex-col rounded-md px-3 py-2 text-left', i === 0 && 'bg-hover')}>
-          <span className="text-[13px] font-medium text-ink">{relativeTime(v.created_at)}</span>
+          <span className="text-sm font-medium text-ink">{relativeTime(v.created_at)}</span>
           <span className="text-2xs text-faint">{v.label || 'autosave'}{v.author ? ` · ${v.author}` : ''}</span>
         </div>
       ))}
@@ -387,22 +387,22 @@ function AITab() {
     <div className="flex h-full flex-col">
       <div className="flex-1 space-y-3 p-3">
         {messages.length === 0 && !err && (
-          <div className="flex items-center gap-2 rounded-lg bg-accent-soft p-3 text-[13px] text-ink">
+          <div className="flex items-center gap-2 rounded-lg bg-accent-soft p-3 text-sm text-ink">
             <Sparkles size={16} className="shrink-0 text-accent" />
             Ask AI to draft, summarize, or answer questions. Configure a provider in Settings.
           </div>
         )}
         {messages.map((m, i) => (
-          <div key={i} className={cn('rounded-lg px-3 py-2 text-[13px] leading-relaxed', m.role === 'user' ? 'bg-surface text-ink' : 'bg-accent-soft text-ink')}>
-            {m.content || <Loader2 size={13} className="animate-spin text-accent" />}
+          <div key={i} className={cn('rounded-lg px-3 py-2 text-sm leading-relaxed', m.role === 'user' ? 'bg-surface text-ink' : 'bg-accent-soft text-ink')}>
+            {m.content || <Loader2 size={14} className="animate-spin text-accent" />}
           </div>
         ))}
-        {err && <div className="rounded-md bg-danger/10 px-3 py-2 text-[13px] text-danger">{err}</div>}
+        {err && <div className="rounded-md bg-danger/10 px-3 py-2 text-sm text-danger">{err}</div>}
         <div ref={endRef} />
       </div>
       <div className="border-t border-line p-3">
         <div className="flex items-center gap-2 rounded-lg ring-1 ring-inset ring-line focus-within:ring-2 focus-within:ring-accent">
-          <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()} placeholder="Ask AI anything…" className="h-9 flex-1 bg-transparent px-3 text-[13px] outline-none placeholder:text-faint" />
+          <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()} placeholder="Ask AI anything…" className="h-9 flex-1 bg-transparent px-3 text-sm outline-none placeholder:text-faint" />
           <Button size="sm" variant="primary" className="mr-1" onClick={send} disabled={busy}>{busy ? <Loader2 size={14} className="animate-spin" /> : 'Ask'}</Button>
         </div>
       </div>

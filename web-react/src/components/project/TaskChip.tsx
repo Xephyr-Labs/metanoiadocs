@@ -2,10 +2,13 @@ import { Diamond, Link2 } from 'lucide-react';
 import { avatarFor } from '../../lib/avatar';
 import { cn } from '../../lib/cn';
 import { todayISO } from '../../lib/gantt';
+import { swatch } from '../../lib/tagColors';
 import { KIND_LABEL, type TaskKind, type TaskRow } from '../../lib/tasksApi';
 
+// Epic borrows the shared purple swatch so it darkens with tags/folders/projects
+// instead of carrying its own one-off hex (which had no dark-mode value).
 const KIND_STYLE: Record<TaskKind, string> = {
-  epic: 'bg-[#b84be8]/15 text-[#b84be8]',
+  epic: swatch('purple').chip,
   story: 'bg-accent-soft text-accent',
   task: 'bg-surface text-muted',
   bug: 'bg-danger/10 text-danger',
@@ -15,7 +18,7 @@ const KIND_STYLE: Record<TaskKind, string> = {
 export function KindBadge({ kind, always }: { kind: TaskKind; always?: boolean }) {
   if (kind === 'task' && !always) return null;
   return (
-    <span className={cn('shrink-0 rounded px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide', KIND_STYLE[kind])}>
+    <span className={cn('shrink-0 rounded px-1 py-0.5 text-3xs font-semibold uppercase tracking-wide', KIND_STYLE[kind])}>
       {KIND_LABEL[kind]}
     </span>
   );
@@ -58,7 +61,7 @@ export function TaskChip({ task, onOpen, compact }: { task: TaskRow; onOpen: () 
     >
       <div className="flex items-start gap-1.5">
         {task.milestone && <Diamond size={12} className="mt-1 shrink-0 fill-current text-accent" />}
-        <span className={cn('flex-1 text-[13px] leading-5 text-ink', task.status === 'done' && 'line-through text-muted')}>
+        <span className={cn('flex-1 text-sm leading-5 text-ink', task.status === 'done' && 'line-through text-muted')}>
           {task.title || 'Untitled'}
         </span>
       </div>
@@ -81,13 +84,13 @@ export function TaskChip({ task, onOpen, compact }: { task: TaskRow; onOpen: () 
         )}
         {task.deps.length > 0 && (
           <span className="flex items-center gap-0.5 text-2xs text-faint" title={`${task.deps.length} dependencies`}>
-            <Link2 size={11} />{task.deps.length}
+            <Link2 size={12} />{task.deps.length}
           </span>
         )}
         <span className="flex-1" />
         {av && (
           <span
-            className="flex h-5 w-5 items-center justify-center rounded-full text-[9px] font-semibold text-white"
+            className="flex h-5 w-5 items-center justify-center rounded-full text-3xs font-semibold text-white"
             style={{ background: av.color }}
             title={task.assignee_name ?? ''}
           >

@@ -9,6 +9,7 @@ import {
   type TaskRow,
   type TaskStatus,
 } from '../../lib/tasksApi';
+import { field } from '../ui/styles';
 import { Menu } from '../ui/Menu';
 import { KindBadge } from './TaskChip';
 
@@ -47,7 +48,7 @@ function TaskLine({ task, tasks, onOpen }: { task: TaskRow; tasks: TaskRow[]; on
       className="group flex h-9 cursor-pointer items-center gap-2.5 rounded-md px-2.5 transition-colors duration-120 hover:bg-hover"
     >
       <KindBadge kind={task.kind} />
-      <span className={cn('min-w-0 flex-1 truncate text-[13px]', task.status === 'done' ? 'text-muted line-through' : 'text-ink')}>
+      <span className={cn('min-w-0 flex-1 truncate text-sm', task.status === 'done' ? 'text-muted line-through' : 'text-ink')}>
         {task.title || 'Untitled'}
       </span>
       {children.length > 0 && (
@@ -62,7 +63,7 @@ function TaskLine({ task, tasks, onOpen }: { task: TaskRow; tasks: TaskRow[]; on
       )}
       <span className="hidden w-20 shrink-0 text-right text-2xs text-faint sm:block">{STATUS_LABEL[task.status as TaskStatus]}</span>
       {av ? (
-        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[9px] font-semibold text-white" style={{ background: av.color }} title={task.assignee_name ?? ''}>
+        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-3xs font-semibold text-white" style={{ background: av.color }} title={task.assignee_name ?? ''}>
           {av.initials}
         </span>
       ) : (
@@ -102,8 +103,8 @@ function Section({
     >
       <header className="flex h-11 items-center gap-2 px-3">
         <button type="button" onClick={() => setOpen((o) => !o)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
-          <ChevronDown size={14} className={cn('shrink-0 text-faint transition-transform duration-150', !open && '-rotate-90')} />
-          <span className="truncate text-[13px] font-semibold text-ink">{title}</span>
+          <ChevronDown size={14} className={cn('shrink-0 text-faint transition-transform duration-180', !open && '-rotate-90')} />
+          <span className="truncate text-sm font-semibold text-ink">{title}</span>
           {badge}
           {meta && <span className="hidden truncate text-2xs text-faint md:inline">{meta}</span>}
         </button>
@@ -158,7 +159,7 @@ export function Backlog({ tasks, sprints, onOpen, onMoveToSprint, onAdd, onCreat
                       if (e.key === 'Escape') setRenaming(null);
                     }}
                     onBlur={(e) => commitRename(s, e.target.value)}
-                    className="h-6 w-40 rounded-md border border-line bg-canvas px-1.5 text-[13px] font-semibold text-ink outline-none focus:border-accent"
+                    className={cn(field, "h-6 w-40 px-1.5 font-semibold")}
                   />
                 ) : (
                   s.name
@@ -173,12 +174,12 @@ export function Backlog({ tasks, sprints, onOpen, onMoveToSprint, onAdd, onCreat
                 <span className="flex shrink-0 items-center gap-1">
                   {s.state === 'planned' && (
                     <button type="button" onClick={() => onPatchSprint(s.id, { state: 'active' })} className="flex h-6 items-center gap-1 rounded-md px-2 text-2xs font-medium text-accent hover:bg-accent-soft">
-                      <Play size={11} /> Start
+                      <Play size={12} /> Start
                     </button>
                   )}
                   {s.state === 'active' && (
                     <button type="button" onClick={() => onPatchSprint(s.id, { state: 'done' })} className="flex h-6 items-center gap-1 rounded-md px-2 text-2xs font-medium text-accent hover:bg-accent-soft">
-                      <CheckCircle2 size={11} /> Complete
+                      <CheckCircle2 size={12} /> Complete
                     </button>
                   )}
                   <Menu
@@ -205,7 +206,7 @@ export function Backlog({ tasks, sprints, onOpen, onMoveToSprint, onAdd, onCreat
                     defaultValue={s.start_at?.slice(0, 10) ?? ''}
                     onChange={(e) => onPatchSprint(s.id, { startAt: e.target.value || null })}
                     aria-label="Sprint start"
-                    className="h-7 rounded-md border border-line bg-canvas px-2 text-[12px] text-ink outline-none focus:border-accent"
+                    className={cn(field, "h-7 w-auto px-2 text-xs")}
                   />
                   <span className="text-2xs text-faint">to</span>
                   <input
@@ -213,7 +214,7 @@ export function Backlog({ tasks, sprints, onOpen, onMoveToSprint, onAdd, onCreat
                     defaultValue={s.end_at?.slice(0, 10) ?? ''}
                     onChange={(e) => onPatchSprint(s.id, { endAt: e.target.value || null })}
                     aria-label="Sprint end"
-                    className="h-7 rounded-md border border-line bg-canvas px-2 text-[12px] text-ink outline-none focus:border-accent"
+                    className={cn(field, "h-7 w-auto px-2 text-xs")}
                   />
                   <button type="button" onClick={() => setDatesFor(null)} className="ml-auto rounded-md px-2 py-1 text-2xs font-medium text-accent hover:bg-accent-soft">
                     Done
@@ -255,12 +256,12 @@ export function Backlog({ tasks, sprints, onOpen, onMoveToSprint, onAdd, onCreat
               placeholder="Sprint name…"
               defaultValue={`Sprint ${sprints.length + 1}`}
               onKeyDown={(e) => e.key === 'Escape' && setComposing(false)}
-              className="h-8 min-w-0 flex-1 rounded-md border border-line bg-canvas px-2.5 text-[13px] text-ink outline-none focus:border-accent"
+              className={cn(field, "min-w-0 flex-1")}
             />
-            <button type="submit" className="h-8 shrink-0 rounded-md bg-accent px-3 text-[13px] font-medium text-white hover:opacity-90">
+            <button type="submit" className="h-8 shrink-0 rounded-md bg-accent px-3 text-sm font-medium text-white hover:opacity-90">
               Create
             </button>
-            <button type="button" onClick={() => setComposing(false)} className="h-8 shrink-0 rounded-md px-2.5 text-[13px] text-muted hover:bg-hover">
+            <button type="button" onClick={() => setComposing(false)} className="h-8 shrink-0 rounded-md px-2.5 text-sm text-muted hover:bg-hover">
               Cancel
             </button>
           </form>
@@ -268,7 +269,7 @@ export function Backlog({ tasks, sprints, onOpen, onMoveToSprint, onAdd, onCreat
           <button
             type="button"
             onClick={() => setComposing(true)}
-            className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-line py-2.5 text-[13px] text-faint transition-colors hover:border-line-strong hover:text-muted"
+            className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-line py-2.5 text-sm text-faint transition-colors hover:border-line-strong hover:text-muted"
           >
             <Plus size={14} /> New sprint
           </button>

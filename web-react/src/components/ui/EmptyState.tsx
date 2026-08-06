@@ -21,8 +21,8 @@ export function EmptyState({ icon: Icon, title, hint, action, compact }: Props) 
         <Icon size={18} strokeWidth={1.75} />
       </div>
       <div className="space-y-0.5">
-        <p className="text-sm font-medium text-ink">{title}</p>
-        {hint && <p className="max-w-[240px] text-[13px] text-muted">{hint}</p>}
+        <p className="text-base font-medium text-ink">{title}</p>
+        {hint && <p className="max-w-[240px] text-sm text-muted">{hint}</p>}
       </div>
       {action}
     </div>

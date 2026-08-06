@@ -33,7 +33,7 @@ export function SegmentedControl({ segments, value, onChange, ...aria }: Props) 
             key={s.value}
             value={s.value}
             className={cn(
-              'relative inline-flex h-6 items-center gap-1 rounded px-2 text-[13px] font-medium transition-colors duration-120',
+              'relative inline-flex h-6 items-center gap-1 rounded px-2 text-sm font-medium transition-colors duration-120',
               active ? 'text-ink' : 'text-muted hover:text-ink',
             )}
           >

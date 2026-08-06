@@ -43,7 +43,7 @@ export function EditorArea() {
           title="No page open"
           hint="Create your first page to start writing."
           action={
-            <Button variant="primary" leftIcon={<Plus size={15} />} onClick={() => ws.createPage(null)}>
+            <Button variant="primary" leftIcon={<Plus size={16} />} onClick={() => ws.createPage(null)}>
               New page
             </Button>
           }

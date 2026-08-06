@@ -1,11 +1,11 @@
-import * as Dialog from '@radix-ui/react-dialog';
-import { motion } from 'framer-motion';
 import { Link2, Trash2, X } from 'lucide-react';
 import { useState } from 'react';
 import type { UserRow } from '../../lib/docsApi';
 import { cn } from '../../lib/cn';
 import { KINDS, KIND_LABEL, STATUSES, STATUS_LABEL, type SprintRow, type TaskKind, type TaskPatch, type TaskRow, type TaskStatus } from '../../lib/tasksApi';
+import { field } from '../ui/styles';
 import { IconButton } from '../ui/IconButton';
+import { Modal } from '../ui/Modal';
 import { KindBadge } from './TaskChip';
 
 interface Props {
@@ -20,7 +20,6 @@ interface Props {
   onRemoveDep: (id: string, dependsOn: string) => void;
 }
 
-const field = 'h-8 w-full rounded-md border border-line bg-canvas px-2 text-[13px] text-ink outline-none transition-colors focus:border-accent';
 const label = 'mb-1 block text-2xs font-medium text-muted';
 
 function Row({ name, children }: { name: string; children: React.ReactNode }) {
@@ -42,37 +41,28 @@ export function TaskDialog({ task, tasks, sprints, users, onClose, onPatch, onDe
   const epics = tasks.filter((t) => t.kind === 'epic' && t.id !== task.id);
 
   return (
-    <Dialog.Root open onOpenChange={(v) => !v && onClose()}>
-      <Dialog.Portal>
-        <Dialog.Overlay asChild>
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="fixed inset-0 z-50 bg-overlay backdrop-blur-[2px]" />
-        </Dialog.Overlay>
-        <Dialog.Content asChild aria-describedby={undefined}>
-          <motion.div
-            initial={{ opacity: 0, y: 24 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-            className={cn(
-              // Phone: bottom sheet. sm+: centered card.
-              // mx-auto centering (not translate) — framer-motion owns transform.
-              'fixed inset-x-0 bottom-0 z-50 flex max-h-[88dvh] w-full flex-col overflow-hidden rounded-t-2xl border border-line bg-canvas shadow-modal',
-              'sm:bottom-auto sm:top-[10vh] sm:mx-auto sm:max-h-[78vh] sm:w-[min(92vw,560px)] sm:rounded-xl',
-            )}
-          >
-            <header className="flex items-center gap-2.5 border-b border-line px-4 py-3">
-              <KindBadge kind={task.kind} always />
-              <Dialog.Title asChild>
-                <input
-                  autoFocus={!task.title}
-                  className="min-w-0 flex-1 bg-transparent text-[15px] font-medium text-ink outline-none placeholder:text-faint"
-                  defaultValue={task.title}
-                  placeholder="Task title"
-                  onBlur={(e) => e.target.value !== task.title && onPatch(task.id, { title: e.target.value })}
-                  onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
-                />
-              </Dialog.Title>
-              <IconButton icon={<X size={16} />} label="Close" onClick={onClose} />
-            </header>
+    <Modal
+      open
+      onOpenChange={(v) => !v && onClose()}
+      title={task.title || 'Task'}
+      bare
+      sheet
+      width={560}
+      className="sm:max-h-[78vh]"
+    >
+      <header className="flex shrink-0 items-center gap-2.5 border-b border-line px-4 py-3">
+        <KindBadge kind={task.kind} always />
+        <input
+          autoFocus={!task.title}
+          aria-label="Task title"
+          className="min-w-0 flex-1 bg-transparent text-md font-medium text-ink outline-none placeholder:text-faint"
+          defaultValue={task.title}
+          placeholder="Task title"
+          onBlur={(e) => e.target.value !== task.title && onPatch(task.id, { title: e.target.value })}
+          onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+        />
+        <IconButton icon={<X size={16} />} label="Close" onClick={onClose} />
+      </header>
 
             <div className="scrollarea min-h-0 flex-1 divide-y divide-line overflow-y-auto">
               <section className="grid grid-cols-2 gap-3 p-4">
@@ -121,7 +111,7 @@ export function TaskDialog({ task, tasks, sprints, users, onClose, onPatch, onDe
                     </select>
                   </Row>
                 )}
-                <label className={cn('flex items-center gap-2 self-end pb-1.5 text-[13px] text-ink', task.kind === 'epic' && 'col-span-2')}>
+                <label className={cn('flex items-center gap-2 self-end pb-1.5 text-sm text-ink', task.kind === 'epic' && 'col-span-2')}>
                   <input type="checkbox" checked={task.milestone} onChange={(e) => onPatch(task.id, { milestone: e.target.checked })} />
                   Milestone
                 </label>
@@ -131,11 +121,11 @@ export function TaskDialog({ task, tasks, sprints, users, onClose, onPatch, onDe
                 <span className={label}>Depends on</span>
                 <div className="space-y-1.5">
                   {task.deps.map((d) => (
-                    <div key={d} className="flex items-center gap-2 rounded-md border border-line px-2.5 py-1.5 text-[13px] text-ink">
-                      <Link2 size={13} className="shrink-0 text-faint" />
+                    <div key={d} className="flex items-center gap-2 rounded-md border border-line px-2.5 py-1.5 text-sm text-ink">
+                      <Link2 size={14} className="shrink-0 text-faint" />
                       <span className="min-w-0 flex-1 truncate">{byId.get(d)?.title || 'Untitled'}</span>
                       <button type="button" onClick={() => onRemoveDep(task.id, d)} className="shrink-0 text-faint hover:text-danger" aria-label="Remove dependency">
-                        <X size={13} />
+                        <X size={14} />
                       </button>
                     </div>
                   ))}
@@ -155,18 +145,15 @@ export function TaskDialog({ task, tasks, sprints, users, onClose, onPatch, onDe
               </section>
             </div>
 
-            <footer className="flex shrink-0 justify-end border-t border-line px-3 py-2.5">
-              <button
-                type="button"
-                onClick={() => { onDelete(task.id); onClose(); }}
-                className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[13px] text-faint transition-colors hover:bg-danger/10 hover:text-danger"
-              >
-                <Trash2 size={14} /> Delete task
-              </button>
-            </footer>
-          </motion.div>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+      <footer className="flex shrink-0 justify-end border-t border-line px-3 py-2.5">
+        <button
+          type="button"
+          onClick={() => { onDelete(task.id); onClose(); }}
+          className="flex items-center gap-1.5 rounded-md px-2 py-1 text-sm text-faint transition-colors hover:bg-danger/10 hover:text-danger"
+        >
+          <Trash2 size={14} /> Delete task
+        </button>
+      </footer>
+    </Modal>
   );
 }

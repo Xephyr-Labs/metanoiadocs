@@ -16,7 +16,7 @@ function Field({
       <Icon size={16} className="shrink-0 text-faint" />
       <input
         {...props}
-        className="h-full flex-1 bg-transparent text-[14px] text-ink outline-none placeholder:text-faint"
+        className="h-full flex-1 bg-transparent text-base text-ink outline-none placeholder:text-faint"
       />
     </div>
   );
@@ -68,10 +68,10 @@ export function AuthScreen() {
         <div className="mb-7 flex flex-col items-center gap-4 text-center">
           <Logo size={40} />
           <div>
-            <h1 className="text-[22px] font-semibold tracking-tight text-ink">
+            <h1 className="text-2xl font-semibold tracking-tight text-ink">
               {mode === 'login' ? 'Welcome back' : 'Create your account'}
             </h1>
-            <p className="mt-1 text-[13.5px] text-muted">
+            <p className="mt-1 text-sm text-muted">
               {mode === 'login'
                 ? 'Sign in to your Metanoia workspace.'
                 : 'Invite only — use the email you were invited with.'}
@@ -126,7 +126,7 @@ export function AuthScreen() {
               autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="h-full flex-1 bg-transparent text-[14px] text-ink outline-none placeholder:text-faint"
+              className="h-full flex-1 bg-transparent text-base text-ink outline-none placeholder:text-faint"
             />
             <button
               type="button"
@@ -144,9 +144,9 @@ export function AuthScreen() {
                 initial={{ opacity: 0, y: -4 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -4 }}
-                className="flex items-center gap-2 rounded-md bg-danger/10 px-3 py-2 text-[13px] text-danger"
+                className="flex items-center gap-2 rounded-md bg-danger/10 px-3 py-2 text-sm text-danger"
               >
-                <AlertCircle size={15} className="shrink-0" />
+                <AlertCircle size={16} className="shrink-0" />
                 {error}
               </motion.div>
             )}
@@ -154,7 +154,7 @@ export function AuthScreen() {
 
           {mode === 'login' && (
             <div className="flex justify-end pt-0.5">
-              <button type="button" className="text-[12.5px] text-muted transition-colors hover:text-ink">
+              <button type="button" className="text-xs text-muted transition-colors hover:text-ink">
                 Forgot password?
               </button>
             </div>
@@ -164,7 +164,7 @@ export function AuthScreen() {
             type="submit"
             disabled={busy}
             className={cn(
-              'mt-1 flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-accent text-[14px] font-medium text-white',
+              'mt-1 flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-accent text-base font-medium text-white',
               'transition-[filter] duration-120 hover:brightness-[0.94] active:brightness-90 disabled:opacity-70',
             )}
           >
@@ -173,7 +173,7 @@ export function AuthScreen() {
           </button>
         </form>
 
-        <p className="mt-5 text-center text-[13px] text-muted">
+        <p className="mt-5 text-center text-sm text-muted">
           {mode === 'login' ? 'Have an invitation?' : 'Already have an account?'}{' '}
           <button
             type="button"
@@ -184,7 +184,7 @@ export function AuthScreen() {
           </button>
         </p>
 
-        <p className="mt-8 text-center text-[11.5px] leading-relaxed text-faint">
+        <p className="mt-8 text-center text-2xs leading-relaxed text-faint">
           Access is invite-only. Passwords are hashed (bcrypt); sessions are server-side.
         </p>
       </motion.div>

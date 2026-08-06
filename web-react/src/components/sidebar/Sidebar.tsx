@@ -23,6 +23,7 @@ import { templates } from '../../data/templates';
 import { useAuth } from '../../store/auth';
 import { useWorkspace } from '../../store/workspace';
 import { Menu } from '../ui/Menu';
+import { rowAction } from '../ui/styles';
 import { PageTree } from './PageTree';
 import { FolderTree } from './FolderTree';
 
@@ -31,7 +32,7 @@ function NavItem({ icon, label, onClick, trailing, active }: { icon: ReactNode; 
     <button
       type="button"
       onClick={onClick}
-      className={cn('group flex h-8 w-full items-center gap-2 rounded-md px-2 text-[14px] leading-5 transition-colors duration-120', active ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-hover')}
+      className={cn('group flex h-8 w-full items-center gap-2 rounded-md px-2 text-base leading-5 transition-colors duration-120', active ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-hover')}
     >
       <span className={cn('flex h-5 w-5 shrink-0 items-center justify-center', active ? 'text-accent' : 'text-faint group-hover:text-muted')}>{icon}</span>
       <span className="flex h-5 flex-1 !self-center items-center truncate text-left">{label}</span>
@@ -43,7 +44,7 @@ function NavItem({ icon, label, onClick, trailing, active }: { icon: ReactNode; 
 function SectionLabel({ children, action }: { children: ReactNode; action?: ReactNode }) {
   return (
     <div className="flex h-7 items-center justify-between px-2">
-      <span className="text-[11px] font-semibold uppercase tracking-wide text-faint">{children}</span>
+      <span className="text-2xs font-semibold uppercase tracking-wide text-faint">{children}</span>
       {action}
     </div>
   );
@@ -58,9 +59,9 @@ function CollapsibleSection({ label, defaultOpen, children }: { label: string; d
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="group flex h-7 w-full items-center gap-1 px-2 text-[11px] font-semibold uppercase tracking-wide text-faint hover:text-muted"
+        className="group flex h-7 w-full items-center gap-1 px-2 text-2xs font-semibold uppercase tracking-wide text-faint hover:text-muted"
       >
-        <ChevronRight size={12} className={cn('transition-transform duration-150', open && 'rotate-90')} />
+        <ChevronRight size={12} className={cn('transition-transform duration-180', open && 'rotate-90')} />
         {label}
       </button>
       {open && <div className="mt-0.5">{children}</div>}
@@ -76,11 +77,11 @@ function DocRow({ id }: { id: string }) {
     <button
       type="button"
       onClick={() => ws.select(id)}
-      className={cn('flex h-8 w-full items-center gap-1.5 rounded-md px-2 text-[14px] leading-5 transition-colors duration-120', ws.currentId === id ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-hover')}
+      className={cn('flex h-8 w-full items-center gap-1.5 rounded-md px-2 text-base leading-5 transition-colors duration-120', ws.currentId === id ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-hover')}
     >
       <PageIcon icon={p.icon} size={16} />
       <span className="flex h-5 flex-1 !self-center items-center truncate text-left">{p.title}</span>
-      {p.favorite && <Star size={13} className="shrink-0 fill-current text-amber-400" />}
+      {p.favorite && <Star size={14} className="shrink-0 fill-current text-amber-400" />}
     </button>
   );
 }
@@ -136,8 +137,8 @@ export function Sidebar() {
               <span className="flex h-5 w-5 shrink-0 items-center justify-center">
                 <LogoMark size={16} />
               </span>
-              <span className="flex h-5 flex-1 !self-center items-center truncate text-[14px] font-semibold text-ink">{activeWs.name}</span>
-              <ChevronDown size={15} className="shrink-0 text-faint opacity-0 transition-opacity group-hover:opacity-100" />
+              <span className="flex h-5 flex-1 !self-center items-center truncate text-base font-semibold text-ink">{activeWs.name}</span>
+              <ChevronDown size={16} className="shrink-0 text-faint opacity-0 transition-opacity group-hover:opacity-100" />
             </button>
           }
         />
@@ -152,7 +153,7 @@ export function Sidebar() {
           label="Inbox"
           onClick={() => ws.setInboxOpen(true)}
           trailing={ws.unreadCount > 0 ? (
-            <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold text-white">
+            <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-3xs font-semibold text-white">
               {ws.unreadCount > 99 ? '99+' : ws.unreadCount}
             </span>
           ) : undefined}
@@ -179,7 +180,7 @@ export function Sidebar() {
         <section className="mb-5">
           <SectionLabel
             action={
-              <button type="button" onClick={createProject} className="flex h-5 w-5 items-center justify-center rounded text-faint hover:bg-hover hover:text-muted" aria-label="New project">
+              <button type="button" onClick={createProject} className={rowAction} aria-label="New project">
                 <Plus size={14} />
               </button>
             }
@@ -196,11 +197,11 @@ export function Sidebar() {
                     type="button"
                     onClick={() => ws.openProject(p.id)}
                     className={cn(
-                      'flex h-8 w-full items-center gap-1.5 rounded-md px-2 text-[14px] leading-5 transition-colors duration-120',
+                      'flex h-8 w-full items-center gap-1.5 rounded-md px-2 text-base leading-5 transition-colors duration-120',
                       ws.view === 'project' && ws.activeProjectId === p.id ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-hover',
                     )}
                   >
-                    <span className="text-[15px] leading-none">{p.icon}</span>
+                    <span className="text-md leading-none">{p.icon}</span>
                     <span className="flex h-5 flex-1 !self-center items-center truncate text-left">{p.name}</span>
                     {Number(p.overdue) > 0 ? (
                       <span className="shrink-0 text-2xs font-semibold text-danger">{p.overdue}</span>
@@ -212,7 +213,7 @@ export function Sidebar() {
               })}
             </div>
           ) : (
-            <button onClick={createProject} className="mt-0.5 flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-[13px] text-faint hover:bg-hover hover:text-muted">
+            <button onClick={createProject} className="mt-0.5 flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-faint hover:bg-hover hover:text-muted">
               <Plus size={14} /> New project
             </button>
           )}
@@ -221,7 +222,7 @@ export function Sidebar() {
         <section className="mb-5">
             <SectionLabel
             action={
-              <button type="button" onClick={() => ws.createFolder(null)} className="flex h-5 w-5 items-center justify-center rounded text-faint hover:bg-hover hover:text-muted" aria-label="New folder">
+              <button type="button" onClick={() => ws.createFolder(null)} className={rowAction} aria-label="New folder">
                 <Plus size={14} />
               </button>
             }
@@ -231,7 +232,7 @@ export function Sidebar() {
           {ws.folderRootIds.length || ws.unfiledIds.length ? (
             <FolderTree roots={ws.folderRootIds} unfiled={ws.unfiledIds} />
           ) : (
-            <button onClick={() => ws.createFolder(null)} className="mt-0.5 flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-[13px] text-faint hover:bg-hover hover:text-muted">
+            <button onClick={() => ws.createFolder(null)} className="mt-0.5 flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-faint hover:bg-hover hover:text-muted">
               <Plus size={14} /> New folder
             </button>
           )}
@@ -267,7 +268,7 @@ export function Sidebar() {
                   key={t.id}
                   type="button"
                   onClick={() => ws.setTagFilter(t.id)}
-                  className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-[14px] leading-5 text-ink transition-colors duration-120 hover:bg-hover"
+                  className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-base leading-5 text-ink transition-colors duration-120 hover:bg-hover"
                 >
                   <span className={cn('h-2.5 w-2.5 shrink-0 rounded-full', swatch(t.color).dot)} />
                   <span className="flex h-5 flex-1 !self-center items-center truncate text-left">{t.name}</span>
@@ -286,11 +287,11 @@ export function Sidebar() {
                 key={t.id}
                 type="button"
                 onClick={() => ws.createFromTemplate(t)}
-                className="flex h-8 w-full items-center gap-1.5 rounded-md px-2 text-[14px] leading-5 text-ink transition-colors duration-120 hover:bg-hover"
+                className="flex h-8 w-full items-center gap-1.5 rounded-md px-2 text-base leading-5 text-ink transition-colors duration-120 hover:bg-hover"
               >
-                <span className="text-[15px] leading-none">{t.icon}</span>
+                <span className="text-md leading-none">{t.icon}</span>
                 <span className="flex h-5 flex-1 !self-center items-center truncate text-left">{t.name}</span>
-                <Plus size={13} className="shrink-0 text-faint" />
+                <Plus size={14} className="shrink-0 text-faint" />
               </button>
             ))}
           </div>
@@ -304,16 +305,16 @@ export function Sidebar() {
           <NavItem icon={<Trash2 size={16} />} label="Trash" onClick={() => ws.setTrashOpen(true)} />
         </div>
         <div className="flex items-center gap-2 rounded-md px-1.5 py-1">
-          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold text-white" style={{ background: av.color }}>{av.initials}</span>
+          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-3xs font-semibold text-white" style={{ background: av.color }}>{av.initials}</span>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-[13px] font-medium text-ink">{auth.user?.name ?? 'User'}</p>
+            <p className="truncate text-sm font-medium text-ink">{auth.user?.name ?? 'User'}</p>
             <p className="truncate text-2xs text-faint">{auth.user?.role === 'admin' ? 'Admin' : `@${auth.user?.username ?? 'you'}`}</p>
           </div>
           <button type="button" onClick={() => auth.logout()} className="flex h-6 w-6 items-center justify-center rounded text-faint hover:bg-hover hover:text-danger" aria-label="Log out">
-            <LogOut size={15} />
+            <LogOut size={16} />
           </button>
           <button type="button" onClick={() => ws.setSidebarCollapsed(true)} className="flex h-6 w-6 items-center justify-center rounded text-faint hover:bg-hover hover:text-muted" aria-label="Collapse sidebar">
-            <ChevronsLeftRight size={15} />
+            <ChevronsLeftRight size={16} />
           </button>
         </div>
       </div>

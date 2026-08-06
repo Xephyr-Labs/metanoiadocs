@@ -6,6 +6,7 @@ import type { PageId } from '../../lib/types';
 import { useWorkspace } from '../../store/workspace';
 import { PageIcon } from '../ui/PageIcon';
 import { Menu } from '../ui/Menu';
+import { rowAction } from '../ui/styles';
 
 /** Folder icon tint per palette color; gray stays the quiet default. */
 const FOLDER_TINT: Record<string, string> = {
@@ -49,7 +50,7 @@ function DocumentRow({ id, depth }: { id: PageId; depth: number }) {
         e.dataTransfer.setData('application/x-metanoia-document', id);
       }}
       onClick={() => ws.select(id)}
-      className={cn('group/row flex h-8 cursor-pointer items-center rounded-md pr-1 text-[14px] leading-5 transition-colors duration-120', selected ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-hover')}
+      className={cn('group/row flex h-8 cursor-pointer items-center rounded-md pr-1 text-base leading-5 transition-colors duration-120', selected ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-hover')}
       style={{ paddingLeft: 8 + depth * 16 }}
       role="treeitem"
       aria-selected={selected}
@@ -64,7 +65,7 @@ function DocumentRow({ id, depth }: { id: PageId; depth: number }) {
       </span>
       <span className={cn('flex shrink-0 items-center gap-0.5 transition-opacity', hover ? 'opacity-100' : 'opacity-0')}>
         <Menu
-          trigger={<button type="button" onClick={(e) => e.stopPropagation()} className="flex h-5 w-5 items-center justify-center rounded text-faint hover:bg-line-strong/60 hover:text-muted" aria-label="Document actions"><MoreHorizontal size={15} /></button>}
+          trigger={<button type="button" onClick={(e) => e.stopPropagation()} className={rowAction} aria-label="Document actions"><MoreHorizontal size={16} /></button>}
           items={[
             { icon: Star, label: fav ? 'Remove from Favorites' : 'Add to Favorites', onSelect: () => ws.toggleFavorite(id) },
             { icon: FileText, label: 'Open', onSelect: () => ws.select(id) },
@@ -111,16 +112,16 @@ function FolderRow({ id, depth }: { id: string; depth: number }) {
           ws.movePage(documentId, id);
           if (!folder.expanded) ws.toggleFolder(id);
         }}
-        className={cn('group/row flex h-8 items-center rounded-md pr-1 text-[14px] leading-5 text-ink hover:bg-hover', dragOver && 'bg-accent-soft text-accent')}
+        className={cn('group/row flex h-8 items-center rounded-md pr-1 text-base leading-5 text-ink hover:bg-hover', dragOver && 'bg-accent-soft text-accent')}
         style={{ paddingLeft: 8 + depth * 16 }}
         role="treeitem"
         aria-expanded={hasChildren ? !!folder.expanded : undefined}
       >
         {/* One w-5 slot shared with doc rows so names line up: folder icon at
             rest, chevron while hovering the row. */}
-        <button type="button" onClick={() => ws.toggleFolder(id)} className="mr-1.5 flex h-5 w-5 shrink-0 items-center justify-center rounded hover:bg-line-strong/60" aria-label={folder.expanded ? 'Collapse folder' : 'Expand folder'}>
+        <button type="button" onClick={() => ws.toggleFolder(id)} className="mr-1.5 flex h-5 w-5 shrink-0 items-center justify-center rounded hover:bg-hover" aria-label={folder.expanded ? 'Collapse folder' : 'Expand folder'}>
           {hover && hasChildren ? (
-            <ChevronRight size={14} className={cn('text-muted transition-transform duration-150', folder.expanded && 'rotate-90')} />
+            <ChevronRight size={14} className={cn('text-muted transition-transform duration-180', folder.expanded && 'rotate-90')} />
           ) : folder.expanded ? (
             <FolderOpen size={16} className={cn('shrink-0', tint)} />
           ) : (
@@ -132,7 +133,7 @@ function FolderRow({ id, depth }: { id: string; depth: number }) {
         </button>
         <span className={cn('flex shrink-0 items-center gap-0.5 transition-opacity', hover ? 'opacity-100' : 'opacity-0')}>
           <Menu
-            trigger={<button type="button" onClick={(e) => e.stopPropagation()} className="flex h-5 w-5 items-center justify-center rounded text-faint hover:bg-line-strong/60 hover:text-muted" aria-label="Folder actions"><MoreHorizontal size={15} /></button>}
+            trigger={<button type="button" onClick={(e) => e.stopPropagation()} className={rowAction} aria-label="Folder actions"><MoreHorizontal size={16} /></button>}
             items={[
               { icon: Plus, label: 'New page', onSelect: () => ws.createPage(id) },
               { icon: Folder, label: 'New subfolder', onSelect: () => ws.createFolder(id) },
@@ -146,7 +147,7 @@ function FolderRow({ id, depth }: { id: string; depth: number }) {
               { icon: Trash2, label: 'Delete folder', danger: true, separatorBefore: true, onSelect: () => ws.deleteFolder(id) },
             ]}
           />
-          <button type="button" onClick={() => ws.createPage(id)} className="flex h-5 w-5 items-center justify-center rounded text-faint hover:bg-line-strong/60 hover:text-muted" aria-label="New page in folder"><Plus size={15} /></button>
+          <button type="button" onClick={() => ws.createPage(id)} className={rowAction} aria-label="New page in folder"><Plus size={16} /></button>
         </span>
       </div>
       {folder.expanded && (

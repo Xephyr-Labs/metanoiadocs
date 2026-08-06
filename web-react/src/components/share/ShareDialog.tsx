@@ -1,6 +1,5 @@
-import * as Dialog from '@radix-ui/react-dialog';
 import { AnimatePresence, motion } from 'framer-motion';
-import { AlertCircle, Check, Copy, Globe, Link2, Loader2, Lock } from 'lucide-react';
+import { AlertCircle, Check, Copy, Globe, Link2, Loader2, Lock, Users } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { docsApi, type AccessRow } from '../../lib/docsApi';
 import { sendInvite } from '../../lib/api';
@@ -8,6 +7,8 @@ import { avatarFor } from '../../lib/avatar';
 import { useWorkspace } from '../../store/workspace';
 import { cn } from '../../lib/cn';
 import { Button } from '../ui/Button';
+import { field } from '../ui/styles';
+import { Modal } from '../ui/Modal';
 
 export function ShareDialog() {
   const ws = useWorkspace();
@@ -73,92 +74,73 @@ export function ShareDialog() {
   };
 
   return (
-    <Dialog.Root open={ws.shareOpen} onOpenChange={ws.setShareOpen}>
-      <AnimatePresence>
-        {ws.shareOpen && (
-          <Dialog.Portal forceMount>
-            <Dialog.Overlay asChild>
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.12 }} className="fixed inset-0 z-50 bg-overlay backdrop-blur-[2px]" />
-            </Dialog.Overlay>
-            <Dialog.Content asChild aria-describedby={undefined}>
-              <div onClick={(e) => e.target === e.currentTarget && ws.setShareOpen(false)} className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.97, y: 6 }}
-                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.97, y: 6 }}
-                  transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
-                  className="pointer-events-auto w-[min(92vw,460px)] overflow-hidden rounded-xl border border-line bg-canvas shadow-modal"
-                >
-                  <div className="p-4">
-                    <Dialog.Title className="text-[15px] font-semibold text-ink">Share this page</Dialog.Title>
-
-                    <div className="mt-3 flex gap-2">
-                      <input
-                        value={inviteEmail}
-                        onChange={(e) => setInviteEmail(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && invite()}
-                        type="email"
-                        placeholder="Invite by email…"
-                        className="h-9 flex-1 rounded-md bg-surface px-3 text-[13px] outline-none ring-1 ring-inset ring-line placeholder:text-faint focus:ring-2 focus:ring-accent"
-                      />
-                      <Button variant="primary" onClick={invite} disabled={inviting} leftIcon={inviting ? <Loader2 size={14} className="animate-spin" /> : undefined}>Invite</Button>
-                    </div>
-                    {msg && (
-                      <p className={cn('mt-2 flex items-center gap-1.5 text-[12px]', msg.ok ? 'text-accent' : 'text-danger')}>
-                        {msg.ok ? <Check size={13} /> : <AlertCircle size={13} />}{msg.text}
-                      </p>
-                    )}
-
-                    <div className="mt-4 space-y-0.5">
-                      <p className="px-1 pb-1 text-[11px] font-semibold uppercase tracking-wide text-faint">People with access</p>
-                      {access.map((r) => {
-                        const a = avatarFor(r.name || r.email);
-                        return (
-                          <div key={r.id} className="flex items-center gap-2.5 rounded-md px-1 py-1.5">
-                            <span className="flex h-7 w-7 items-center justify-center rounded-full text-[11px] font-semibold text-white" style={{ background: a.color }}>{a.initials}</span>
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate text-[13px] font-medium text-ink">{r.name || r.email}</p>
-                              <p className="truncate text-2xs text-faint">{r.email}</p>
-                            </div>
-                            <span className="text-[13px] capitalize text-muted">{r.role}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  <div className="border-t border-line bg-surface/60 p-4">
-                    <div className="flex items-center gap-2.5">
-                      <span className={cn('flex h-8 w-8 items-center justify-center rounded-md', token ? 'bg-accent-soft text-accent' : 'bg-hover text-muted')}>
-                        {token ? <Globe size={16} /> : <Lock size={16} />}
-                      </span>
-                      <div className="flex-1">
-                        <p className="text-[13px] font-medium text-ink">{token ? 'Anyone with the link' : 'Only invited people'}</p>
-                        <p className="text-2xs text-faint">{token ? 'Can view this page' : 'Link sharing is off'}</p>
-                      </div>
-                      <button type="button" role="switch" aria-checked={!!token} onClick={togglePublic} disabled={busyLink} className={cn('relative h-[22px] w-[38px] rounded-full transition-colors duration-180', token ? 'bg-accent' : 'bg-line-strong')}>
-                        <motion.span layout transition={{ type: 'spring', stiffness: 500, damping: 34 }} className={cn('absolute top-[3px] h-4 w-4 rounded-full bg-white shadow', token ? 'left-[19px]' : 'left-[3px]')} />
-                      </button>
-                    </div>
-
-                    <AnimatePresence>
-                      {token && (
-                        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
-                          <div className="mt-3 flex items-center gap-2 rounded-md bg-canvas px-2.5 py-1.5 ring-1 ring-inset ring-line">
-                            <Link2 size={14} className="shrink-0 text-faint" />
-                            <span className="flex-1 truncate text-[13px] text-muted">{link}</span>
-                            <Button size="sm" variant="ghost" leftIcon={copied ? <Check size={14} /> : <Copy size={14} />} onClick={copy}>{copied ? 'Copied' : 'Copy'}</Button>
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </div>
-                </motion.div>
-              </div>
-            </Dialog.Content>
-          </Dialog.Portal>
+    <Modal
+      open={ws.shareOpen}
+      onOpenChange={ws.setShareOpen}
+      title={<><Users size={16} className="text-muted" /> Share this page</>}
+    >
+      <div className="p-4">
+        <div className="flex gap-2">
+          <input
+            value={inviteEmail}
+            onChange={(e) => setInviteEmail(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && invite()}
+            type="email"
+            placeholder="Invite by email…"
+            className={cn(field, "flex-1")}
+          />
+          <Button variant="primary" onClick={invite} disabled={inviting} leftIcon={inviting ? <Loader2 size={14} className="animate-spin" /> : undefined}>Invite</Button>
+        </div>
+        {msg && (
+          <p className={cn('mt-2 flex items-center gap-1.5 text-xs', msg.ok ? 'text-accent' : 'text-danger')}>
+            {msg.ok ? <Check size={14} /> : <AlertCircle size={14} />}{msg.text}
+          </p>
         )}
-      </AnimatePresence>
-    </Dialog.Root>
+
+        <div className="mt-4 space-y-0.5">
+          <p className="px-1 pb-1 text-2xs font-semibold uppercase tracking-wide text-faint">People with access</p>
+          {access.map((r) => {
+            const a = avatarFor(r.name || r.email);
+            return (
+              <div key={r.id} className="flex items-center gap-2.5 rounded-md px-1 py-1.5">
+                <span className="flex h-7 w-7 items-center justify-center rounded-full text-2xs font-semibold text-white" style={{ background: a.color }}>{a.initials}</span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-ink">{r.name || r.email}</p>
+                  <p className="truncate text-2xs text-faint">{r.email}</p>
+                </div>
+                <span className="text-sm capitalize text-muted">{r.role}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="border-t border-line bg-surface/60 p-4">
+        <div className="flex items-center gap-2.5">
+          <span className={cn('flex h-8 w-8 items-center justify-center rounded-md', token ? 'bg-accent-soft text-accent' : 'bg-hover text-muted')}>
+            {token ? <Globe size={16} /> : <Lock size={16} />}
+          </span>
+          <div className="flex-1">
+            <p className="text-sm font-medium text-ink">{token ? 'Anyone with the link' : 'Only invited people'}</p>
+            <p className="text-2xs text-faint">{token ? 'Can view this page' : 'Link sharing is off'}</p>
+          </div>
+          <button type="button" role="switch" aria-checked={!!token} onClick={togglePublic} disabled={busyLink} className={cn('relative h-[22px] w-[38px] rounded-full transition-colors duration-180', token ? 'bg-accent' : 'bg-line-strong')}>
+            <motion.span layout transition={{ type: 'spring', stiffness: 500, damping: 34 }} className={cn('absolute top-[3px] h-4 w-4 rounded-full bg-white shadow', token ? 'left-[19px]' : 'left-[3px]')} />
+          </button>
+        </div>
+
+        <AnimatePresence>
+          {token && (
+            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+              <div className="mt-3 flex items-center gap-2 rounded-md bg-canvas px-2.5 py-1.5 ring-1 ring-inset ring-line">
+                <Link2 size={14} className="shrink-0 text-faint" />
+                <span className="flex-1 truncate text-sm text-muted">{link}</span>
+                <Button size="sm" variant="ghost" leftIcon={copied ? <Check size={14} /> : <Copy size={14} />} onClick={copy}>{copied ? 'Copied' : 'Copy'}</Button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    </Modal>
   );
 }

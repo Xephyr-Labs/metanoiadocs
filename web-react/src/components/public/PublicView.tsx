@@ -41,13 +41,13 @@ export function PublicView({ token }: { token: string }) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-canvas px-6 text-center">
         <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-surface text-faint ring-1 ring-inset ring-line">
-          <FileWarning size={22} strokeWidth={1.75} />
+          <FileWarning size={20} strokeWidth={1.75} />
         </div>
         <div>
-          <p className="text-[15px] font-semibold text-ink">Page unavailable</p>
-          <p className="mt-1 text-[13.5px] text-muted">{error}</p>
+          <p className="text-md font-semibold text-ink">Page unavailable</p>
+          <p className="mt-1 text-sm text-muted">{error}</p>
         </div>
-        <a href="/" className="text-[13px] font-medium text-accent hover:underline">Go to MetanoiaDocs</a>
+        <a href="/" className="text-sm font-medium text-accent hover:underline">Go to MetanoiaDocs</a>
       </div>
     );
   }
@@ -55,7 +55,7 @@ export function PublicView({ token }: { token: string }) {
   return (
     <div className="flex h-screen flex-col bg-canvas text-ink">
       <header className="sticky top-0 z-30 flex h-[45px] shrink-0 items-center justify-between border-b border-line bg-canvas/80 px-4 backdrop-blur-md">
-        <a href="/" className="flex items-center gap-2"><Logo size={22} /></a>
+        <a href="/" className="flex items-center gap-2"><Logo size={20} /></a>
         <span className="flex items-center gap-1.5 rounded-full bg-surface px-2.5 py-1 text-2xs font-medium text-muted ring-1 ring-inset ring-line">
           <Globe size={12} /> Public · read-only
         </span>

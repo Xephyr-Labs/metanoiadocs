@@ -64,8 +64,8 @@ function MyDocsCard({ onOpen }: { onOpen: (id: string) => void }) {
               onClick={() => onOpen(d.id)}
               className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors duration-120 hover:bg-hover"
             >
-              <PageIcon icon={d.icon} size={15} />
-              <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{d.title || 'Untitled'}</span>
+              <PageIcon icon={d.icon} size={16} />
+              <span className="min-w-0 flex-1 truncate text-sm text-ink">{d.title || 'Untitled'}</span>
               <span className="shrink-0 text-2xs text-faint">{relativeTime(d.updated_at)}</span>
             </button>
           ))}
@@ -118,23 +118,23 @@ export function Home() {
       <div className="mx-auto max-w-[1100px] px-6 py-8 md:px-10">
         <header className="mb-6 flex items-end justify-between gap-4">
           <div>
-            <h1 className="font-display text-[22px] leading-7 text-ink md:text-[28px] md:leading-9">
+            <h1 className="font-display text-2xl leading-7 text-ink md:text-4xl md:leading-9">
               {greeting(new Date().getHours())}, {(auth.user?.name || auth.user?.username || 'there').split(' ')[0]}
             </h1>
-            <p className="mt-0.5 text-[13px] text-muted">
+            <p className="mt-0.5 text-sm text-muted">
               {new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}
             </p>
           </div>
           <div className="flex items-center gap-1">
             <IconButton icon={<RefreshCw size={16} />} label="Refresh" onClick={load} />
-            <Button variant="primary" leftIcon={<Plus size={15} />} onClick={() => ws.createPage(null)}>
+            <Button variant="primary" leftIcon={<Plus size={16} />} onClick={() => ws.createPage(null)}>
               New page
             </Button>
           </div>
         </header>
 
         {error && (
-          <div className="mb-6 rounded-lg bg-surface px-4 py-3 text-[13px] text-danger shadow-subtle">{error}</div>
+          <div className="mb-6 rounded-lg bg-surface px-4 py-3 text-sm text-danger shadow-subtle">{error}</div>
         )}
 
         {!data ? (
@@ -148,7 +148,7 @@ export function Home() {
             {recents.length > 0 && (
               <section className="mb-8">
                 <div className="mb-3 flex items-baseline justify-between gap-4">
-                  <h2 className="text-[13px] font-semibold text-ink">Jump back in</h2>
+                  <h2 className="text-sm font-semibold text-ink">Jump back in</h2>
                   <span className="text-2xs text-faint">Recently opened</span>
                 </div>
                 <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4">
@@ -203,10 +203,12 @@ export function Home() {
             </div>
 
             <section>
-              <h2 className="mb-3 flex items-center gap-2 text-[13px] font-semibold uppercase tracking-wide text-faint">
+              {/* Page-level section heads read sentence-case like "Jump back in";
+                  the uppercase eyebrow is reserved for labels inside cards. */}
+              <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-ink">
                 Projects
                 {data.projects.length > 0 && (
-                  <ArrowRight size={13} className="text-faint" />
+                  <ArrowRight size={14} className="text-faint" />
                 )}
               </h2>
               {data.projects.length ? (

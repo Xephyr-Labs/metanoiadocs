@@ -44,7 +44,7 @@ export function Board({ tasks, onMove, onOpen, onAdd }: Props) {
             )}
           >
             <header className="flex h-8 items-center justify-between px-1.5">
-              <span className="flex items-center gap-1.5 text-[13px] font-semibold text-ink">
+              <span className="flex items-center gap-1.5 text-sm font-semibold text-ink">
                 {STATUS_LABEL[status]}
                 <span className="text-2xs font-normal text-faint">{column.length}</span>
               </span>

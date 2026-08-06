@@ -1,5 +1,4 @@
-import * as Dialog from '@radix-ui/react-dialog';
-import { AnimatePresence, motion } from 'framer-motion';
+import { motion } from 'framer-motion';
 import {
   Copy,
   Info,
@@ -28,9 +27,11 @@ import { avatarFor } from '../../lib/avatar';
 import { relativeTime } from '../../lib/time';
 import { cn } from '../../lib/cn';
 import { Button } from '../ui/Button';
+import { field } from '../ui/styles';
 import { IconButton } from '../ui/IconButton';
 import { LogoMark } from '../brand/Logo';
 import { Menu } from '../ui/Menu';
+import { Modal } from '../ui/Modal';
 import { SegmentedControl } from '../ui/SegmentedControl';
 
 function Avatar({ name, size = 32 }: { name: string; size?: number }) {
@@ -88,8 +89,8 @@ function Row({ title, desc, control }: { title: string; desc?: string; control: 
   return (
     <div className="flex flex-col gap-2 py-3.5 min-[600px]:flex-row min-[600px]:items-center min-[600px]:justify-between min-[600px]:gap-6">
       <div className="min-w-0">
-        <p className="text-[13px] font-medium text-ink">{title}</p>
-        {desc && <p className="mt-0.5 text-[12px] leading-snug text-muted">{desc}</p>}
+        <p className="text-sm font-medium text-ink">{title}</p>
+        {desc && <p className="mt-0.5 text-xs leading-snug text-muted">{desc}</p>}
       </div>
       <div className="w-full min-[600px]:w-auto min-[600px]:shrink-0">{control}</div>
     </div>
@@ -97,7 +98,7 @@ function Row({ title, desc, control }: { title: string; desc?: string; control: 
 }
 
 function SectionTitle({ children }: { children: ReactNode }) {
-  return <h2 className="mb-1 text-[17px] font-semibold text-ink">{children}</h2>;
+  return <h2 className="mb-1 text-lg font-semibold text-ink">{children}</h2>;
 }
 
 /* ---- section bodies -------------------------------------------------- */
@@ -120,12 +121,12 @@ function Account() {
   return (
     <div>
       <SectionTitle>My account</SectionTitle>
-      <p className="mb-5 text-[13px] text-muted">Your profile and how others see you.</p>
+      <p className="mb-5 text-sm text-muted">Your profile and how others see you.</p>
       <div className="mb-6 flex items-center gap-4">
         <Avatar name={name || user?.name || 'You'} size={64} />
         <div>
-          <p className="text-[15px] font-semibold text-ink">{name || user?.name}</p>
-          <p className="text-[13px] text-muted">@{user?.username}</p>
+          <p className="text-md font-semibold text-ink">{name || user?.name}</p>
+          <p className="text-sm text-muted">@{user?.username}</p>
         </div>
       </div>
       <div className="divide-y divide-line border-t border-line">
@@ -138,19 +139,19 @@ function Account() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && save()}
-                className="h-8 w-full rounded-md bg-surface px-2.5 text-[13px] text-ink outline-none ring-1 ring-inset ring-line focus:ring-2 focus:ring-accent min-[600px]:w-40"
+                className={cn(field, "min-[600px]:w-40")}
               />
               {dirty ? (
                 <Button size="sm" variant="primary" onClick={save} disabled={busy}
                   leftIcon={busy ? <Loader2 size={14} className="animate-spin" /> : undefined}>Save</Button>
               ) : saved ? (
-                <span className="flex items-center gap-1 text-[12px] text-accent"><Check size={13} /> Saved</span>
+                <span className="flex items-center gap-1 text-xs text-accent"><Check size={14} /> Saved</span>
               ) : null}
             </div>
           }
         />
-        <Row title="Username" control={<span className="text-[13px] text-muted">@{user?.username}</span>} />
-        <Row title="Email" desc="Used to sign in and for notifications." control={<span className="text-[13px] text-muted">{user?.email}</span>} />
+        <Row title="Username" control={<span className="text-sm text-muted">@{user?.username}</span>} />
+        <Row title="Email" desc="Used to sign in and for notifications." control={<span className="text-sm text-muted">{user?.email}</span>} />
       </div>
     </div>
   );
@@ -167,7 +168,7 @@ function Preferences() {
   return (
     <div>
       <SectionTitle>Preferences</SectionTitle>
-      <p className="mb-5 text-[13px] text-muted">Customize how Metanoia looks and behaves for you.</p>
+      <p className="mb-5 text-sm text-muted">Customize how Metanoia looks and behaves for you.</p>
       <div className="divide-y divide-line border-t border-line">
         <Row
           title="Appearance"
@@ -178,8 +179,8 @@ function Preferences() {
               value={ws.theme}
               onChange={(v) => v !== ws.theme && ws.toggleTheme()}
               segments={[
-                { value: 'light', label: 'Light', icon: <Sun size={13} /> },
-                { value: 'dark', label: 'Dark', icon: <Moon size={13} /> },
+                { value: 'light', label: 'Light', icon: <Sun size={14} /> },
+                { value: 'dark', label: 'Dark', icon: <Moon size={14} /> },
               ]}
             />
           }
@@ -228,7 +229,7 @@ function Members() {
     <div>
       <div className="mb-4">
         <SectionTitle>Members</SectionTitle>
-        <p className="text-[13px] text-muted">{rows ? `${rows.length} people in this workspace.` : 'Loading…'}</p>
+        <p className="text-sm text-muted">{rows ? `${rows.length} people in this workspace.` : 'Loading…'}</p>
       </div>
       <div className="border-b border-line pb-3">
         <div className="flex gap-2">
@@ -238,15 +239,15 @@ function Members() {
             onKeyDown={(e) => e.key === 'Enter' && invite()}
             type="email"
             placeholder="Invite a teammate by email…"
-            className="h-8 flex-1 rounded-md bg-surface px-3 text-[13px] outline-none ring-1 ring-inset ring-line placeholder:text-faint focus:ring-2 focus:ring-accent"
+            className={cn(field, "flex-1")}
           />
           <Button variant="primary" size="sm" onClick={invite} disabled={busy} leftIcon={busy ? <Loader2 size={14} className="animate-spin" /> : undefined}>
             Invite
           </Button>
         </div>
         {msg && (
-          <p className={cn('mt-2 flex items-center gap-1.5 text-[12px]', msg.ok ? 'text-accent' : 'text-danger')}>
-            {msg.ok ? <Check size={13} /> : <AlertCircle size={13} />}
+          <p className={cn('mt-2 flex items-center gap-1.5 text-xs', msg.ok ? 'text-accent' : 'text-danger')}>
+            {msg.ok ? <Check size={14} /> : <AlertCircle size={14} />}
             {msg.text}
           </p>
         )}
@@ -256,8 +257,8 @@ function Members() {
           <div key={m.id} className="flex items-center gap-3 py-3">
             <Avatar name={m.name || m.email} size={32} />
             <div className="min-w-0 flex-1">
-              <p className="truncate text-[13px] font-medium text-ink">{m.name} {m.id === user?.id && <span className="text-faint">(you)</span>}</p>
-              <p className="truncate text-[12px] text-faint">{m.email}</p>
+              <p className="truncate text-sm font-medium text-ink">{m.name} {m.id === user?.id && <span className="text-faint">(you)</span>}</p>
+              <p className="truncate text-xs text-faint">{m.email}</p>
             </div>
             {isAdmin && m.id !== user?.id ? (
               <Menu
@@ -273,14 +274,14 @@ function Members() {
                     <span className={cn('rounded-full px-2 py-0.5 text-2xs font-medium', m.role === 'admin' ? 'bg-accent-soft text-accent' : 'text-muted')}>
                       {m.role === 'admin' ? 'Admin' : 'Collaborator'}
                     </span>
-                    <MoreHorizontal size={15} className="text-faint" />
+                    <MoreHorizontal size={16} className="text-faint" />
                   </button>
                 }
               />
             ) : m.role === 'admin' ? (
               <span className="rounded-full bg-accent-soft px-2 py-0.5 text-2xs font-medium text-accent">Admin</span>
             ) : (
-              <span className="text-[13px] text-muted">Collaborator</span>
+              <span className="text-sm text-muted">Collaborator</span>
             )}
           </div>
         ))}
@@ -300,10 +301,10 @@ function About() {
   return (
     <div>
       <SectionTitle>About</SectionTitle>
-      <p className="mb-5 text-[13px] text-muted">Version and workspace information.</p>
+      <p className="mb-5 text-sm text-muted">Version and workspace information.</p>
       <dl className="divide-y divide-line border-t border-line">
         {rows.map(([k, v]) => (
-          <div key={k} className="flex items-center justify-between py-3 text-[13px]">
+          <div key={k} className="flex items-center justify-between py-3 text-sm">
             <dt className="text-muted">{k}</dt>
             <dd className="font-medium text-ink">{v}</dd>
           </div>
@@ -342,7 +343,7 @@ function Tokens() {
   return (
     <div>
       <SectionTitle>API tokens</SectionTitle>
-      <p className="mb-5 text-[13px] text-muted">
+      <p className="mb-5 text-sm text-muted">
         Personal access tokens let programmatic clients — like the MetanoiaDocs MCP server — act as you. They carry your access; keep them secret.
       </p>
 
@@ -353,18 +354,18 @@ function Tokens() {
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && create()}
             placeholder="Token name (e.g. Claude MCP)…"
-            className="h-8 flex-1 rounded-md bg-surface px-3 text-[13px] outline-none ring-1 ring-inset ring-line placeholder:text-faint focus:ring-2 focus:ring-accent"
+            className={cn(field, "flex-1")}
           />
           <Button variant="primary" size="sm" onClick={create} disabled={busy}
             leftIcon={busy ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}>Create</Button>
         </div>
         {fresh && (
           <div className="mt-3 rounded-lg border border-accent/40 bg-accent-soft/50 p-3">
-            <p className="mb-1.5 text-[12px] font-medium text-ink">Copy your token now — it won't be shown again.</p>
+            <p className="mb-1.5 text-xs font-medium text-ink">Copy your token now — it won't be shown again.</p>
             <div className="flex items-center gap-2">
-              <code className="flex-1 truncate rounded bg-canvas px-2 py-1.5 text-[12px] text-ink ring-1 ring-inset ring-line">{fresh}</code>
+              <code className="flex-1 truncate rounded bg-canvas px-2 py-1.5 text-xs text-ink ring-1 ring-inset ring-line">{fresh}</code>
               <IconButton
-                icon={copied ? <Check size={15} className="text-accent" /> : <Copy size={15} />}
+                icon={copied ? <Check size={16} className="text-accent" /> : <Copy size={16} />}
                 label="Copy"
                 onClick={() => { navigator.clipboard?.writeText(fresh); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
               />
@@ -377,18 +378,18 @@ function Tokens() {
         {rows === null ? (
           <div className="flex justify-center py-8"><Loader2 size={16} className="animate-spin text-faint" /></div>
         ) : rows.length === 0 ? (
-          <p className="py-6 text-center text-[13px] text-faint">No tokens yet.</p>
+          <p className="py-6 text-center text-sm text-faint">No tokens yet.</p>
         ) : rows.map((t) => (
           <div key={t.id} className="flex items-center gap-3 py-3">
             <KeyRound size={16} className="shrink-0 text-faint" />
             <div className="min-w-0 flex-1">
-              <p className="truncate text-[13px] font-medium text-ink">{t.name}</p>
-              <p className="truncate text-[12px] text-faint">
+              <p className="truncate text-sm font-medium text-ink">{t.name}</p>
+              <p className="truncate text-xs text-faint">
                 Created {relativeTime(t.created_at)}
                 {t.last_used_at ? ` · last used ${relativeTime(t.last_used_at)}` : ' · never used'}
               </p>
             </div>
-            <button onClick={() => revoke(t.id)} className="rounded-md px-2 py-1 text-[12px] text-danger hover:bg-danger/10">Revoke</button>
+            <button onClick={() => revoke(t.id)} className="rounded-md px-2 py-1 text-xs text-danger hover:bg-danger/10">Revoke</button>
           </div>
         ))}
       </div>
@@ -412,81 +413,54 @@ export function SettingsDialog() {
   const Body = BODIES[section];
 
   return (
-    <Dialog.Root open={ws.settingsOpen} onOpenChange={ws.setSettingsOpen}>
-      <AnimatePresence>
-        {ws.settingsOpen && (
-          <Dialog.Portal forceMount>
-            <Dialog.Overlay asChild>
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.12 }}
-                className="fixed inset-0 z-50 bg-overlay backdrop-blur-[2px]"
-              />
-            </Dialog.Overlay>
-            <Dialog.Content asChild aria-describedby={undefined}>
-              <div onClick={(e) => e.target === e.currentTarget && ws.setSettingsOpen(false)} className="fixed inset-0 z-50 flex items-center justify-center p-4">
-              <motion.div
-                initial={{ opacity: 0, scale: 0.98, y: 8 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.98, y: 8 }}
-                transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
-                className="pointer-events-auto flex h-[92vh] w-[94vw] flex-col overflow-hidden rounded-xl border border-line bg-canvas shadow-modal md:h-[min(640px,88vh)] md:w-[min(94vw,900px)] md:flex-row"
-              >
-                <Dialog.Title className="sr-only">Settings</Dialog.Title>
+    <Modal
+      open={ws.settingsOpen}
+      onOpenChange={ws.setSettingsOpen}
+      title="Settings"
+      bare
+      width={900}
+      className="h-[92vh] md:h-[min(640px,88vh)] md:flex-row"
+    >
+      {/* section rail — vertical on desktop, a horizontal scroll strip on mobile */}
+      <nav className="flex shrink-0 gap-2 overflow-x-auto border-b border-line bg-surface-2 p-2 md:w-[212px] md:flex-col md:gap-4 md:overflow-x-visible md:overflow-y-auto md:border-b-0 md:border-r md:p-3">
+        <div className="hidden items-center gap-2 px-2 pt-1 md:flex">
+          <LogoMark size={20} />
+          <span className="text-sm font-semibold text-ink">{workspaces[0].name}</span>
+        </div>
+        {NAV.map((g) => (
+          <div key={g.group} className="flex shrink-0 items-center gap-1 md:block">
+            <p className="hidden px-2 pb-1 text-2xs font-semibold uppercase tracking-wide text-faint md:block">{g.group}</p>
+            <div className="flex gap-1 md:block md:space-y-0.5">
+              {g.items.map((it) => (
+                <button
+                  key={it.id}
+                  type="button"
+                  onClick={() => setSection(it.id)}
+                  className={cn(
+                    'flex h-8 shrink-0 items-center gap-2.5 whitespace-nowrap rounded-md px-2.5 text-sm transition-colors duration-120 md:w-full md:px-2',
+                    section === it.id ? 'bg-accent-soft font-medium text-accent' : 'text-muted hover:bg-hover',
+                  )}
+                >
+                  <it.icon size={16} className="shrink-0 opacity-80" />
+                  {it.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+      </nav>
 
-                {/* section rail — vertical on desktop, a horizontal scroll strip on mobile */}
-                <nav className="flex shrink-0 gap-2 overflow-x-auto border-b border-line bg-surface-2 p-2 md:w-[212px] md:flex-col md:gap-4 md:overflow-x-visible md:overflow-y-auto md:border-b-0 md:border-r md:p-3">
-                  <div className="hidden items-center gap-2 px-2 pt-1 md:flex">
-                    <LogoMark size={20} />
-                    <span className="text-[13px] font-semibold text-ink">{workspaces[0].name}</span>
-                  </div>
-                  {NAV.map((g) => (
-                    <div key={g.group} className="flex shrink-0 items-center gap-1 md:block">
-                      <p className="hidden px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-faint md:block">{g.group}</p>
-                      <div className="flex gap-1 md:block md:space-y-0.5">
-                        {g.items.map((it) => (
-                          <button
-                            key={it.id}
-                            type="button"
-                            onClick={() => setSection(it.id)}
-                            className={cn(
-                              'flex h-8 shrink-0 items-center gap-2.5 whitespace-nowrap rounded-md px-2.5 text-[13px] transition-colors duration-120 md:w-full md:px-2',
-                              section === it.id ? 'bg-accent-soft font-medium text-accent' : 'text-muted hover:bg-hover',
-                            )}
-                          >
-                            <it.icon size={15} className="shrink-0 opacity-80" />
-                            {it.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </nav>
-
-                {/* content */}
-                <div className="relative min-w-0 flex-1">
-                  <Dialog.Close asChild>
-                    <button
-                      aria-label="Close settings"
-                      className="absolute right-4 top-4 z-10 flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-hover hover:text-ink"
-                    >
-                      <X size={17} />
-                    </button>
-                  </Dialog.Close>
-                  <div className="scrollarea h-full overflow-y-auto px-5 py-6 md:px-8 md:py-7">
-                    <div className="mx-auto max-w-[520px]">
-                      <Body />
-                    </div>
-                  </div>
-                </div>
-              </motion.div>
-              </div>
-            </Dialog.Content>
-          </Dialog.Portal>
-        )}
-      </AnimatePresence>
-    </Dialog.Root>
+      {/* content */}
+      <div className="relative min-w-0 flex-1">
+        <div className="absolute right-4 top-4 z-10">
+          <IconButton icon={<X size={16} />} label="Close settings" onClick={() => ws.setSettingsOpen(false)} />
+        </div>
+        <div className="scrollarea h-full overflow-y-auto px-5 py-6 md:px-8 md:py-7">
+          <div className="mx-auto max-w-[520px]">
+            <Body />
+          </div>
+        </div>
+      </div>
+    </Modal>
   );
 }

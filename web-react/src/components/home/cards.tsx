@@ -16,7 +16,7 @@ export function Card({ title, action, children, className }: {
     <section className={cn('rounded-xl border border-line bg-canvas p-4', className)}>
       {(title || action) && (
         <header className="mb-3 flex items-center justify-between">
-          <h2 className="text-[13px] font-semibold uppercase tracking-wide text-faint">{title}</h2>
+          <h2 className="text-2xs font-semibold uppercase tracking-wide text-faint">{title}</h2>
           {action}
         </header>
       )}
@@ -30,13 +30,13 @@ export function StatTile({ label, value, tone }: { label: string; value: number;
     <div className="px-1">
       <p
         className={cn(
-          'font-display text-[26px] leading-8',
+          'font-display text-3xl leading-8',
           tone === 'danger' && value > 0 ? 'text-danger' : tone === 'accent' ? 'text-accent' : 'text-ink',
         )}
       >
         {value}
       </p>
-      <p className="mt-0.5 text-[12px] text-muted">{label}</p>
+      <p className="mt-0.5 text-xs text-muted">{label}</p>
     </div>
   );
 }
@@ -59,7 +59,7 @@ export function ProgressRing({ pct, size = 34 }: { pct: number; size?: number })
         strokeDasharray={`${(c * pct) / 100} ${c}`}
         transform={`rotate(-90 ${size / 2} ${size / 2})`}
       />
-      <text x="50%" y="50%" dominantBaseline="central" textAnchor="middle" className="fill-muted text-[9px]">
+      <text x="50%" y="50%" dominantBaseline="central" textAnchor="middle" className="fill-muted text-3xs">
         {pct}
       </text>
     </svg>
@@ -77,10 +77,10 @@ export function ProjectCard({ project, onOpen }: { project: ProjectRow; onOpen: 
       onClick={onOpen}
       className="flex items-center gap-3 rounded-xl border border-line bg-canvas p-4 text-left transition-colors duration-120 hover:border-accent/50 hover:bg-accent-soft/50"
     >
-      <span className="text-[20px] leading-none">{project.icon}</span>
+      <span className="text-xl leading-none">{project.icon}</span>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-medium text-ink">{project.name}</span>
-        <span className="mt-0.5 block text-[12px] text-muted">
+        <span className="mt-0.5 block text-xs text-muted">
           {done}/{total} done
           {overdue > 0 && <span className="text-danger"> · {overdue} overdue</span>}
         </span>
@@ -100,10 +100,10 @@ export function DocCard({ doc, onOpen }: {
       onClick={onOpen}
       className="flex h-full min-h-[132px] flex-col justify-between gap-3 rounded-lg border border-line bg-canvas p-4 text-left transition-colors duration-120 hover:border-accent/50 hover:bg-accent-soft/50"
     >
-      <span className="text-[20px] leading-none">{doc.icon || '📄'}</span>
+      <span className="text-xl leading-none">{doc.icon || '📄'}</span>
       <span className="min-w-0">
         <span className="block truncate text-sm font-medium text-ink">{doc.title || 'Untitled'}</span>
-        <span className="mt-0.5 block truncate text-[12px] text-faint">
+        <span className="mt-0.5 block truncate text-xs text-faint">
           {doc.updated_by_name ? `${doc.updated_by_name} · ` : ''}{relativeTime(doc.updated_at)}
         </span>
       </span>
@@ -131,7 +131,7 @@ export function TaskLine({ task, onOpen }: { task: MyTask; onOpen: () => void })
           task.bucket === 'overdue' ? 'bg-danger' : task.status === 'doing' ? 'bg-accent' : 'bg-line-strong',
         )}
       />
-      <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{task.title || 'Untitled task'}</span>
+      <span className="min-w-0 flex-1 truncate text-sm text-ink">{task.title || 'Untitled task'}</span>
       <span className="shrink-0 truncate text-2xs text-faint">{task.project_name}</span>
       {task.due_at && (
         <span className={cn('shrink-0 text-2xs', task.bucket === 'overdue' ? 'text-danger' : 'text-faint')}>
@@ -179,13 +179,13 @@ export function ActivityLine({ row, onOpen }: { row: ActivityRow; onOpen: () => 
       className="flex w-full items-start gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors duration-120 hover:bg-hover"
     >
       <span
-        className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[9px] font-semibold text-white"
+        className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-3xs font-semibold text-white"
         style={{ background: av.color }}
       >
         {av.initials}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[13px] text-ink">
+        <span className="block truncate text-sm text-ink">
           <span className="font-medium">{who}</span>{' '}
           <span className="text-muted">{text}</span>{' '}
           {row.title || 'Untitled'}

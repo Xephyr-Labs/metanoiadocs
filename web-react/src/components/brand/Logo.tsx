@@ -44,7 +44,7 @@ export function Logo({
   return (
     <div className={cn('flex items-center gap-2', className)}>
       <LogoMark size={size} />
-      <span className="text-[15px] font-semibold tracking-tight text-ink">
+      <span className="text-md font-semibold tracking-tight text-ink">
         Metanoia
         {showDocs && <span className="font-medium text-muted">Docs</span>}
       </span>

@@ -143,7 +143,7 @@ export function IconPicker({ icon, onPick }: { icon: string; onPick: (icon: stri
                     key={e}
                     type="button"
                     onClick={() => { onPick(e); setOpen(false); }}
-                    className="flex h-7 w-7 items-center justify-center rounded text-[16px] hover:bg-hover"
+                    className="flex h-7 w-7 items-center justify-center rounded text-md hover:bg-hover"
                   >
                     {e}
                   </button>

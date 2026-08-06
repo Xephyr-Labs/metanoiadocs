@@ -31,7 +31,7 @@ export const Button = forwardRef<HTMLButtonElement, Props>(function Button(
       className={cn(
         'inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md font-medium transition-[background-color,filter,box-shadow] duration-120 ease-out',
         'disabled:pointer-events-none disabled:opacity-50',
-        size === 'sm' ? 'h-7 px-2.5 text-[13px]' : 'h-8 px-3 text-sm',
+        size === 'sm' ? 'h-7 px-2.5 text-sm' : 'h-8 px-3 text-base',
         variants[variant],
         className,
       )}

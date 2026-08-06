@@ -30,7 +30,7 @@ export function TagChips({ page }: { page: Page }) {
       {page.tags.map((t) => {
         const s = swatch(t.color);
         return (
-          <span key={t.id} className={`group inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[12.5px] font-medium ${s.chip}`}>
+          <span key={t.id} className={`group inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium ${s.chip}`}>
             {t.name}
             <button
               type="button"
@@ -48,9 +48,9 @@ export function TagChips({ page }: { page: Page }) {
         <button
           type="button"
           onClick={() => setOpen((o) => !o)}
-          className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[12.5px] text-faint transition-colors hover:bg-hover hover:text-muted"
+          className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-faint transition-colors hover:bg-hover hover:text-muted"
         >
-          <TagIcon size={13} /> {page.tags.length ? 'Add tag' : 'Add tags'}
+          <TagIcon size={14} /> {page.tags.length ? 'Add tag' : 'Add tags'}
         </button>
 
         <AnimatePresence>
@@ -70,7 +70,7 @@ export function TagChips({ page }: { page: Page }) {
                   if (e.key === 'Enter' && query && !exact) attach({ name: q.trim(), color });
                 }}
                 placeholder="Search or create a tag…"
-                className="mb-2 w-full rounded-md border border-line bg-surface px-2 py-1.5 text-[13px] text-ink outline-none placeholder:text-faint focus:border-accent"
+                className="mb-2 w-full rounded-md border border-line bg-surface px-2 py-1.5 text-sm text-ink outline-none placeholder:text-faint focus:border-accent"
               />
 
               {/* colour picker for the tag about to be created */}
@@ -93,10 +93,10 @@ export function TagChips({ page }: { page: Page }) {
                   <button
                     type="button"
                     onClick={() => attach({ name: q.trim(), color })}
-                    className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[13px] text-ink hover:bg-hover"
+                    className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-sm text-ink hover:bg-hover"
                   >
-                    <Plus size={13} className="text-faint" /> Create
-                    <span className={`ml-0.5 rounded px-1.5 py-0.5 text-[12px] font-medium ${swatch(color).chip}`}>{q.trim()}</span>
+                    <Plus size={14} className="text-faint" /> Create
+                    <span className={`ml-0.5 rounded px-1.5 py-0.5 text-xs font-medium ${swatch(color).chip}`}>{q.trim()}</span>
                   </button>
                 )}
                 {suggestions.map((t) => (
@@ -104,7 +104,7 @@ export function TagChips({ page }: { page: Page }) {
                     key={t.id}
                     type="button"
                     onClick={() => attach({ tagId: t.id })}
-                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] text-muted hover:bg-hover"
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-muted hover:bg-hover"
                   >
                     <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${swatch(t.color).dot}`} />
                     <span className="flex-1 truncate">{t.name}</span>
@@ -112,7 +112,7 @@ export function TagChips({ page }: { page: Page }) {
                   </button>
                 ))}
                 {!suggestions.length && !query && (
-                  <p className="px-2 py-2 text-[12.5px] text-faint">No tags yet. Type to create one.</p>
+                  <p className="px-2 py-2 text-xs text-faint">No tags yet. Type to create one.</p>
                 )}
               </div>
             </motion.div>

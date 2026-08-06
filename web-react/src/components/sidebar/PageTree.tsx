@@ -6,6 +6,7 @@ import type { PageId } from '../../lib/types';
 import { useWorkspace } from '../../store/workspace';
 import { DocIcon } from '../ui/DocIcon';
 import { Menu } from '../ui/Menu';
+import { rowAction } from '../ui/styles';
 
 function Row({ id, depth }: { id: PageId; depth: number }) {
   const ws = useWorkspace();
@@ -32,7 +33,7 @@ function Row({ id, depth }: { id: PageId; depth: number }) {
           if (e.key === 'ArrowLeft' && hasChildren && page.expanded) ws.toggleExpand(id);
         }}
         className={cn(
-          'group/row flex h-8 cursor-pointer items-center rounded-md pr-1 text-[14px] leading-5 transition-colors duration-120',
+          'group/row flex h-8 cursor-pointer items-center rounded-md pr-1 text-base leading-5 transition-colors duration-120',
           selected ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-hover',
         )}
         style={{ paddingLeft: 8 + depth * 16 }}
@@ -59,7 +60,7 @@ function Row({ id, depth }: { id: PageId; depth: number }) {
                 ws.toggleExpand(id);
               }}
               className={cn(
-                'absolute inset-0 flex items-center justify-center rounded text-faint transition-opacity hover:bg-line-strong/60',
+                'absolute inset-0 flex items-center justify-center rounded text-faint transition-opacity hover:bg-hover',
                 hover || selected ? 'opacity-100' : 'opacity-0',
               )}
               aria-label={page.expanded ? 'Collapse' : 'Expand'}
@@ -67,7 +68,7 @@ function Row({ id, depth }: { id: PageId; depth: number }) {
             >
               <ChevronRight
                 size={14}
-                className={cn('transition-transform duration-150', page.expanded && 'rotate-90')}
+                className={cn('transition-transform duration-180', page.expanded && 'rotate-90')}
               />
             </button>
           )}
@@ -88,10 +89,10 @@ function Row({ id, depth }: { id: PageId; depth: number }) {
               <button
                 type="button"
                 onClick={(e) => e.stopPropagation()}
-                className="flex h-5 w-5 items-center justify-center rounded text-faint hover:bg-line-strong/60 hover:text-muted"
+                className={rowAction}
                 aria-label="Page actions"
               >
-                <MoreHorizontal size={15} />
+                <MoreHorizontal size={16} />
               </button>
             }
             items={[
@@ -108,10 +109,10 @@ function Row({ id, depth }: { id: PageId; depth: number }) {
               e.stopPropagation();
               ws.createPage(null);
             }}
-            className="flex h-5 w-5 items-center justify-center rounded text-faint hover:bg-line-strong/60 hover:text-muted"
+            className={rowAction}
             aria-label="New page"
           >
-            <Plus size={15} />
+            <Plus size={16} />
           </button>
         </span>
       </div>
