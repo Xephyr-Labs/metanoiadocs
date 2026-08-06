@@ -46,21 +46,15 @@ export function ProjectView() {
     );
   }
 
+  // No window.prompt: create untitled and let the dialog's title field take it.
   const add = async (extra: { status?: TaskStatus; dueAt?: string; sprintId?: string | null } = {}) => {
-    const title = window.prompt('Task')?.trim();
-    if (!title) return;
     // A task added while a sprint is scoped lands in that sprint.
     const sprintId = extra.sprintId !== undefined ? extra.sprintId
       : scope !== 'all' && scope !== 'backlog' ? scope : undefined;
-    const row = await p.create({ title, ...extra, ...(sprintId !== undefined ? { sprintId } : {}) });
+    const row = await p.create({ title: '', ...extra, ...(sprintId !== undefined ? { sprintId } : {}) });
     // Counts in the sidebar and on Home come from the project list.
     ws.refreshProjects();
     if (row) setOpen({ ...row, deps: [] });
-  };
-
-  const newSprint = () => {
-    const name = window.prompt('Sprint name', `Sprint ${p.sprints.length + 1}`)?.trim();
-    if (name) p.createSprint(name);
   };
 
   // Keep the live task in the dialog: patches land in p.tasks, not in `open`.
@@ -112,7 +106,7 @@ export function ProjectView() {
             onOpen={setOpen}
             onMoveToSprint={(id, sprintId) => p.patch(id, { sprintId })}
             onAdd={(sprintId) => add({ sprintId })}
-            onCreateSprint={newSprint}
+            onCreateSprint={p.createSprint}
             onPatchSprint={p.patchSprint}
             onDeleteSprint={p.deleteSprint}
           />

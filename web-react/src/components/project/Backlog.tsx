@@ -18,7 +18,7 @@ interface Props {
   onOpen: (t: TaskRow) => void;
   onMoveToSprint: (taskId: string, sprintId: string | null) => void;
   onAdd: (sprintId: string | null) => void;
-  onCreateSprint: () => void;
+  onCreateSprint: (name: string) => void;
   onPatchSprint: (id: string, body: Partial<{ name: string; startAt: string | null; endAt: string | null; state: SprintState }>) => void;
   onDeleteSprint: (id: string) => void;
 }
@@ -126,16 +126,16 @@ export function Backlog({ tasks, sprints, onOpen, onMoveToSprint, onAdd, onCreat
   const backlog = tasks.filter((t) => !t.sprint_id).sort((a, b) => b.priority - a.priority || a.position - b.position);
   const bySprint = (id: string) => tasks.filter((t) => t.sprint_id === id).sort((a, b) => a.position - b.position);
 
-  const rename = (s: SprintRow) => {
-    const name = window.prompt('Sprint name', s.name)?.trim();
+  // Inline editors instead of window.prompt: which sprint is being renamed /
+  // rescheduled, and whether the new-sprint composer is open.
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [datesFor, setDatesFor] = useState<string | null>(null);
+  const [composing, setComposing] = useState(false);
+
+  const commitRename = (s: SprintRow, value: string) => {
+    const name = value.trim();
     if (name && name !== s.name) onPatchSprint(s.id, { name });
-  };
-  const reschedule = (s: SprintRow) => {
-    const startAt = window.prompt('Start (YYYY-MM-DD, empty to clear)', s.start_at?.slice(0, 10) ?? '');
-    if (startAt === null) return;
-    const endAt = window.prompt('End (YYYY-MM-DD, empty to clear)', s.end_at?.slice(0, 10) ?? '');
-    if (endAt === null) return;
-    onPatchSprint(s.id, { startAt: startAt.trim() || null, endAt: endAt.trim() || null });
+    setRenaming(null);
   };
 
   return (
@@ -147,7 +147,23 @@ export function Backlog({ tasks, sprints, onOpen, onMoveToSprint, onAdd, onCreat
           return (
             <Section
               key={s.id}
-              title={s.name}
+              title={
+                renaming === s.id ? (
+                  <input
+                    autoFocus
+                    defaultValue={s.name}
+                    onClick={(e) => e.stopPropagation()}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') commitRename(s, e.currentTarget.value);
+                      if (e.key === 'Escape') setRenaming(null);
+                    }}
+                    onBlur={(e) => commitRename(s, e.target.value)}
+                    className="h-6 w-40 rounded-md border border-line bg-canvas px-1.5 text-[13px] font-semibold text-ink outline-none focus:border-accent"
+                  />
+                ) : (
+                  s.name
+                )
+              }
               defaultOpen={s.state !== 'done'}
               badge={<span className={cn('shrink-0 rounded-full px-1.5 py-0.5 text-2xs font-medium capitalize', STATE_BADGE[s.state])}>{s.state}</span>}
               meta={[range, `${s.done}/${s.total} done`, Number(s.points) > 0 ? `${s.points_done}/${s.points} pts` : null].filter(Boolean).join(' · ')}
@@ -173,8 +189,8 @@ export function Backlog({ tasks, sprints, onOpen, onMoveToSprint, onAdd, onCreat
                       </button>
                     }
                     items={[
-                      { label: 'Rename', onSelect: () => rename(s) },
-                      { label: 'Edit dates', onSelect: () => reschedule(s) },
+                      { label: 'Rename', onSelect: () => setRenaming(s.id) },
+                      { label: 'Edit dates', onSelect: () => setDatesFor(datesFor === s.id ? null : s.id) },
                       ...(s.state === 'done' ? [{ label: 'Reopen', onSelect: () => onPatchSprint(s.id, { state: 'planned' }) }] : []),
                       { icon: Trash2, label: 'Delete sprint', danger: true, separatorBefore: true, onSelect: () => onDeleteSprint(s.id) },
                     ]}
@@ -182,6 +198,28 @@ export function Backlog({ tasks, sprints, onOpen, onMoveToSprint, onAdd, onCreat
                 </span>
               }
             >
+              {datesFor === s.id && (
+                <div className="mb-1 flex flex-wrap items-center gap-2 border-b border-line px-2.5 pb-2 pt-1">
+                  <input
+                    type="date"
+                    defaultValue={s.start_at?.slice(0, 10) ?? ''}
+                    onChange={(e) => onPatchSprint(s.id, { startAt: e.target.value || null })}
+                    aria-label="Sprint start"
+                    className="h-7 rounded-md border border-line bg-canvas px-2 text-[12px] text-ink outline-none focus:border-accent"
+                  />
+                  <span className="text-2xs text-faint">to</span>
+                  <input
+                    type="date"
+                    defaultValue={s.end_at?.slice(0, 10) ?? ''}
+                    onChange={(e) => onPatchSprint(s.id, { endAt: e.target.value || null })}
+                    aria-label="Sprint end"
+                    className="h-7 rounded-md border border-line bg-canvas px-2 text-[12px] text-ink outline-none focus:border-accent"
+                  />
+                  <button type="button" onClick={() => setDatesFor(null)} className="ml-auto rounded-md px-2 py-1 text-2xs font-medium text-accent hover:bg-accent-soft">
+                    Done
+                  </button>
+                </div>
+              )}
               {rows.length ? rows.map((t) => <TaskLine key={t.id} task={t} tasks={tasks} onOpen={() => onOpen(t)} />) : (
                 <p className="px-3 py-4 text-center text-2xs text-faint">Drag tasks here to plan this sprint.</p>
               )}
@@ -200,13 +238,41 @@ export function Backlog({ tasks, sprints, onOpen, onMoveToSprint, onAdd, onCreat
           )}
         </Section>
 
-        <button
-          type="button"
-          onClick={onCreateSprint}
-          className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-line py-2.5 text-[13px] text-faint transition-colors hover:border-line-strong hover:text-muted"
-        >
-          <Plus size={14} /> New sprint
-        </button>
+        {composing ? (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const input = e.currentTarget.elements.namedItem('sprint-name') as HTMLInputElement;
+              const name = input.value.trim();
+              if (name) onCreateSprint(name);
+              setComposing(false);
+            }}
+            className="flex items-center gap-2 rounded-xl border border-line p-2"
+          >
+            <input
+              autoFocus
+              name="sprint-name"
+              placeholder="Sprint name…"
+              defaultValue={`Sprint ${sprints.length + 1}`}
+              onKeyDown={(e) => e.key === 'Escape' && setComposing(false)}
+              className="h-8 min-w-0 flex-1 rounded-md border border-line bg-canvas px-2.5 text-[13px] text-ink outline-none focus:border-accent"
+            />
+            <button type="submit" className="h-8 shrink-0 rounded-md bg-accent px-3 text-[13px] font-medium text-white hover:opacity-90">
+              Create
+            </button>
+            <button type="button" onClick={() => setComposing(false)} className="h-8 shrink-0 rounded-md px-2.5 text-[13px] text-muted hover:bg-hover">
+              Cancel
+            </button>
+          </form>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setComposing(true)}
+            className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-line py-2.5 text-[13px] text-faint transition-colors hover:border-line-strong hover:text-muted"
+          >
+            <Plus size={14} /> New sprint
+          </button>
+        )}
       </div>
     </div>
   );
