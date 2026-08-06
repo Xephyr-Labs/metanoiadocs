@@ -342,6 +342,25 @@ app.delete('/api/users/:id', requireUser, requireAdmin, async (req, res) => {
 });
 
 // ── docs ──────────────────────────────────────────────────────────────────
+// Paginated "documents I created" for the Home dashboard. Must register before
+// any /api/docs/:id* route so 'mine' isn't captured as an id.
+app.get('/api/docs/mine', requireUser, async (req, res) => {
+  const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 8));
+  const offset = Math.max(0, Number(req.query.offset) || 0);
+  const { rows } = await pool.query(
+    `SELECT d.id, d.title, d.icon, d.updated_at, count(*) OVER () AS total
+       FROM docs d
+      WHERE d.created_by = $1 AND d.deleted_at IS NULL
+      ORDER BY d.updated_at DESC
+      LIMIT $2 OFFSET $3`,
+    [req.user.id, limit, offset]
+  );
+  res.json({
+    total: rows[0] ? Number(rows[0].total) : 0,
+    rows: rows.map(({ total, ...r }) => r),
+  });
+});
+
 app.get('/api/docs', requireUser, async (req, res) => {
   const { rows } = await pool.query(
     `SELECT d.id, d.title, d.icon, d.folder_id, d.position, d.updated_at,

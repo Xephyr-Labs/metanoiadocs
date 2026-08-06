@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowRight, FileText, Plus, RefreshCw } from 'lucide-react';
+import { ArrowRight, ChevronLeft, ChevronRight, FileText, Plus, RefreshCw } from 'lucide-react';
 import { useAuth } from '../../store/auth';
 import { useWorkspace } from '../../store/workspace';
+import { docsApi, type MyDocRow } from '../../lib/docsApi';
+import { relativeTime } from '../../lib/time';
 import { tasksApi, type HomePayload, type MyTask } from '../../lib/tasksApi';
+import { PageIcon } from '../ui/PageIcon';
 import { Button } from '../ui/Button';
 import { EmptyState } from '../ui/EmptyState';
 import { IconButton } from '../ui/IconButton';
@@ -16,6 +19,60 @@ function greeting(hour: number) {
   if (hour < 12) return 'Good morning';
   if (hour < 18) return 'Good afternoon';
   return 'Good evening';
+}
+
+const MY_DOCS_PAGE = 8;
+
+/** Paginated list of everything the signed-in user created. */
+function MyDocsCard({ onOpen }: { onOpen: (id: string) => void }) {
+  const [page, setPage] = useState(0);
+  const [data, setData] = useState<{ total: number; rows: MyDocRow[] } | null>(null);
+
+  useEffect(() => {
+    let stale = false;
+    docsApi.myDocs(page * MY_DOCS_PAGE, MY_DOCS_PAGE)
+      .then((d) => { if (!stale) setData(d); })
+      .catch(() => { if (!stale) setData({ total: 0, rows: [] }); });
+    return () => { stale = true; };
+  }, [page]);
+
+  const pages = data ? Math.max(1, Math.ceil(data.total / MY_DOCS_PAGE)) : 1;
+
+  return (
+    <Card
+      title="My documents"
+      action={
+        pages > 1 ? (
+          <span className="flex items-center gap-1 text-2xs text-faint">
+            {page + 1}/{pages}
+            <IconButton icon={<ChevronLeft size={14} />} label="Previous page" onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0} />
+            <IconButton icon={<ChevronRight size={14} />} label="Next page" onClick={() => setPage((p) => Math.min(pages - 1, p + 1))} disabled={page >= pages - 1} />
+          </span>
+        ) : undefined
+      }
+    >
+      {!data ? (
+        <Skeleton className="h-40 w-full" />
+      ) : data.rows.length === 0 ? (
+        <EmptyState compact icon={FileText} title="No documents yet" hint="Pages you create show up here." />
+      ) : (
+        <div className="space-y-px">
+          {data.rows.map((d) => (
+            <button
+              key={d.id}
+              type="button"
+              onClick={() => onOpen(d.id)}
+              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors duration-120 hover:bg-hover"
+            >
+              <PageIcon icon={d.icon} size={15} />
+              <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{d.title || 'Untitled'}</span>
+              <span className="shrink-0 text-2xs text-faint">{relativeTime(d.updated_at)}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
 }
 
 /**
@@ -138,6 +195,8 @@ export function Home() {
                   <EmptyState compact icon={FileText} title="No activity yet" hint="Edits and comments land here." />
                 )}
               </Card>
+
+              <MyDocsCard onOpen={(id) => ws.select(id)} />
             </div>
 
             <section>
