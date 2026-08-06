@@ -766,14 +766,14 @@ const PROJECTS = [
       { key: 'rt-crdt', kind: 'story', parent: 'e-rt', title: 'Conflict-free merge of concurrent edits', status: 'done', sprint: 's11', by: 2, points: 8, progress: 100 },
       { key: 'rt-presence', kind: 'story', parent: 'e-rt', title: 'Presence avatars and live cursors', status: 'done', sprint: 's12', by: 7, points: 5, progress: 100, deps: ['rt-crdt'] },
       { key: 'rt-reconnect', kind: 'task', parent: 'e-rt', title: 'Reconnect with exponential backoff', status: 'review', sprint: 's12', by: 6, points: 3, progress: 90, due: 3, deps: ['rt-crdt'] },
-      { key: 'rt-flag', kind: 'task', parent: 'e-rt', title: 'Workspace flag for the pilot cohort', status: 'doing', sprint: 's12', by: 4, points: 2, progress: 40, due: 5 },
-      { key: 'rt-loadtest', kind: 'task', parent: 'e-rt', title: 'Reconnect-storm load test in CI', status: 'todo', sprint: 's12', by: 2, points: 3, due: 8, priority: 2 },
+      { key: 'rt-flag', kind: 'task', parent: 'e-rt', title: 'Workspace flag for the pilot cohort', status: 'doing', sprint: 's12', by: 0, points: 2, progress: 40, due: 5 },
+      { key: 'rt-loadtest', kind: 'task', parent: 'e-rt', title: 'Reconnect-storm load test in CI', status: 'todo', sprint: 's12', by: 0, points: 3, due: 8, priority: 2 },
       { key: 'rt-bug', kind: 'bug', parent: 'e-rt', title: 'Cursor label overlaps the page title at 100% zoom', status: 'todo', sprint: 's12', by: 7, points: 1, due: 6 },
 
       { key: 'e-comments', kind: 'epic', title: 'Inline comments', status: 'doing', sprint: 's12', by: 3, progress: 50, points: 13 },
       { key: 'c-anchor', kind: 'story', parent: 'e-comments', title: 'Anchor a comment to the selected passage', status: 'done', sprint: 's12', by: 3, points: 5, progress: 100 },
       { key: 'c-highlight', kind: 'story', parent: 'e-comments', title: 'Highlight commented text in the editor', status: 'review', sprint: 's12', by: 3, points: 3, progress: 85, due: 2, deps: ['c-anchor'] },
-      { key: 'c-notify', kind: 'task', parent: 'e-comments', title: 'Notify mentions and the page owner', status: 'doing', sprint: 's12', by: 6, points: 3, progress: 30, due: 7 },
+      { key: 'c-notify', kind: 'task', parent: 'e-comments', title: 'Notify mentions and the page owner', status: 'doing', sprint: 's12', by: 0, points: 3, progress: 30, due: 7 },
       { key: 'c-resolve', kind: 'task', parent: 'e-comments', title: 'Resolve and reopen a thread', status: 'todo', sprint: 's13', by: 4, points: 2 },
       { key: 'c-bug', kind: 'bug', parent: 'e-comments', title: 'Resolved threads still count toward the unread badge', status: 'todo', sprint: 's12', by: 6, points: 1, due: -1, priority: 3 },
 
@@ -796,13 +796,13 @@ const PROJECTS = [
     tasks: [
       { key: 'p-pool', kind: 'task', title: 'Share the database pool across sockets', status: 'done', sprint: 'p12', by: 2, points: 3, progress: 100 },
       { key: 'p-poolcfg', kind: 'task', title: 'Make pool size configurable', status: 'done', sprint: 'p12', by: 2, points: 1, progress: 100, deps: ['p-pool'] },
-      { key: 'p-alert', kind: 'task', title: 'Alert on pool saturation, not just error rate', status: 'doing', sprint: 'p12', by: 6, points: 2, progress: 50, due: 4 },
+      { key: 'p-alert', kind: 'task', title: 'Alert on pool saturation, not just error rate', status: 'doing', sprint: 'p12', by: 0, points: 2, progress: 50, due: 4 },
       { key: 'p-backup', kind: 'task', title: 'Nightly backups with a restore drill', status: 'review', sprint: 'p12', by: 4, points: 5, progress: 80, due: 2 },
       { key: 'p-sso', kind: 'epic', title: 'SSO and SCIM', status: 'todo', by: 5, points: 21, doc: 'prd-sso' },
       { key: 'p-saml', kind: 'story', parent: 'p-sso', title: 'SAML 2.0 sign-in', status: 'todo', by: 5, points: 8, due: 30 },
       { key: 'p-scim', kind: 'story', parent: 'p-sso', title: 'SCIM provisioning and deprovisioning', status: 'todo', by: 6, points: 8, deps: ['p-saml'] },
       { key: 'p-audit', kind: 'task', parent: 'p-sso', title: 'Audit log for configuration changes', status: 'todo', by: 4, points: 3 },
-      { key: 'p-bug', kind: 'bug', title: 'Search returns archived pages to non-members', status: 'doing', sprint: 'p12', by: 2, points: 2, progress: 20, due: 1, priority: 3 },
+      { key: 'p-bug', kind: 'bug', title: 'Search returns archived pages to non-members', status: 'doing', sprint: 'p12', by: 0, points: 2, progress: 20, due: -1, priority: 3 },
       { key: 'p-upgrade', kind: 'task', title: 'Upgrade Postgres to 16.4', status: 'todo', by: 6, points: 2 },
     ],
   },
@@ -815,7 +815,7 @@ const PROJECTS = [
       { key: 'w-tokens', kind: 'story', title: 'Port the design tokens to the marketing site', status: 'done', sprint: 'w12', by: 7, points: 5, progress: 100, doc: 'design-system' },
       { key: 'w-home', kind: 'story', title: 'Rebuild the home page above the fold', status: 'doing', sprint: 'w12', by: 7, points: 8, progress: 60, due: 5, deps: ['w-tokens'] },
       { key: 'w-pricing', kind: 'story', title: 'Pricing page with the flat plan', status: 'review', sprint: 'w12', by: 5, points: 5, progress: 90, due: 3, doc: 'pricing' },
-      { key: 'w-docs', kind: 'task', title: 'Move the API reference onto the docs site', status: 'todo', sprint: 'w12', by: 6, points: 3, due: 7, doc: 'api' },
+      { key: 'w-docs', kind: 'task', title: 'Move the API reference onto the docs site', status: 'todo', sprint: 'w12', by: 0, points: 3, due: 0, doc: 'api' },
       { key: 'w-a11y', kind: 'task', title: 'Contrast and keyboard audit before launch', status: 'todo', by: 7, points: 3, priority: 2 },
       { key: 'w-bug', kind: 'bug', title: 'Dark mode flashes white on first paint', status: 'todo', sprint: 'w12', by: 7, points: 1, due: 2 },
       { key: 'w-copy', kind: 'task', title: 'Rewrite the feature copy in the brand voice', status: 'doing', sprint: 'w12', by: 5, points: 3, progress: 35, due: 6, doc: 'brand' },
@@ -962,7 +962,7 @@ try {
          t.sprint ? sprintId[t.sprint] : null, t.parent ? taskId[t.parent] : null,
          t.due === undefined ? null : day(t.due), t.priority ?? 0, t.progress ?? 0,
          t.points ?? null, !!t.milestone, t.doc ? docId[t.doc] : null,
-         perStatus[t.status]++, actor(0), t.status === 'done' ? new Date() : null]
+         perStatus[t.status]++, actor(t.by), t.status === 'done' ? new Date() : null]
       );
     }
     for (const t of p.tasks) {

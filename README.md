@@ -18,6 +18,10 @@
   <img src="assets/screenshot.png" alt="MetanoiaDocs screenshot" width="900" />
 </p>
 
+<p align="center">
+  <img src="assets/screenshot-board.png" alt="MetanoiaDocs project board" width="900" />
+</p>
+
 MetanoiaDocs is an open-source alternative to Notion / AFFiNE you run yourself. It
 pairs the [BlockSuite](https://github.com/toeverything/blocksuite) block editor with
 an original Node/Postgres backend — real-time sync, no proprietary server code, and
@@ -32,6 +36,7 @@ an original Node/Postgres backend — real-time sync, no proprietary server code
 - **Team & private pages** — every doc is team-visible by default; flip any page to **Private** (owner-only) from the top bar.
 - **Comments & @-mentions** — threaded, block-anchored comments; @-mention teammates for an in-app + email notification.
 - **Organize** — nested page tree with drag-reorder, colored **tags**, favorites, and folders.
+- **Projects** — per-project **kanban**, backlog, table, Gantt and calendar views, with sprints, epics/stories, dependencies, milestones and assignees. Any task can link to the page that specifies it.
 - **Find anything** — hybrid full-text + fuzzy (typo-tolerant) search and a ⌘K command palette.
 - **Ambient intelligence** — a per-doc rail that surfaces related pages, auto tag & link suggestions, and extracted tasks / decisions / risks / deadlines, plus duplicate & stale detection. Computed locally in Postgres on save — **no LLM, no external calls**.
 - **Version history** — automatic + manual snapshots, non-destructive restore.
