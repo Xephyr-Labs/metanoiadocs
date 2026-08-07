@@ -19,6 +19,8 @@ import {
   createSession,
   isEmailInvited,
   consumeInvite,
+  hasAnyUser,
+  createFirstAdmin,
 } from './db.js';
 import { requestMagicLink, consumeMagicLink, sendInviteEmail, sendNotificationEmail } from './auth.js';
 import { getSetting, setSetting } from './db.js';
@@ -59,28 +61,24 @@ await initSchema();
   } catch (e) { console.error('[intelligence] backfill failed', e.message); }
 })();
 
-// Seed the admin account (admin / admin123) once. Admins can invite; everyone
-// else joins as a collaborator via an invitation only.
-async function seedAdmin() {
-  if (await findUserByUsername('admin')) return;
-  // Password comes from ADMIN_PASSWORD; falls back to 'admin123' only for local
-  // dev. Shipping the fixed default to production is a known footgun — warn loudly.
-  const pw = process.env.ADMIN_PASSWORD || 'admin123';
-  const passwordHash = await bcrypt.hash(pw, 12);
-  await createUserWithPassword({
-    name: 'Admin',
-    username: 'admin',
-    email: process.env.ADMIN_EMAIL || 'admin@metanoia.local',
-    passwordHash,
-    role: 'admin',
+// A fresh instance has no accounts at all. It stays that way until either the
+// browser setup screen claims it (POST /api/setup) or ADMIN_EMAIL +
+// ADMIN_PASSWORD are supplied here for an unattended install. There is no
+// default password: an instance nobody has claimed cannot be signed into.
+async function seedAdminFromEnv() {
+  const email = process.env.ADMIN_EMAIL;
+  const password = process.env.ADMIN_PASSWORD;
+  if (!email || !password) return;
+  if (await hasAnyUser()) return;
+  const admin = await createFirstAdmin({
+    name: process.env.ADMIN_NAME || 'Admin',
+    username: process.env.ADMIN_USERNAME || 'admin',
+    email,
+    passwordHash: await bcrypt.hash(password, 12),
   });
-  if (!process.env.ADMIN_PASSWORD) {
-    console.warn('[auth] seeded admin with DEFAULT password "admin123" — set ADMIN_PASSWORD and change it before exposing this instance.');
-  } else {
-    console.log('[auth] seeded admin account from ADMIN_PASSWORD');
-  }
+  if (admin) console.log(`[setup] seeded admin ${admin.email} from ADMIN_EMAIL/ADMIN_PASSWORD`);
 }
-await seedAdmin();
+await seedAdminFromEnv();
 
 const app = express();
 // Express 4 doesn't catch rejected promises from async handlers — wrap them.
@@ -154,19 +152,54 @@ async function requireAdmin(req, res, next) {
 
 // ── auth ──────────────────────────────────────────────────────────────────
 
+/** The four account fields off a request body, normalised the one way. */
+const accountFields = (body) => ({
+  name: String(body?.name || '').trim(),
+  username: String(body?.username || '').trim().toLowerCase(),
+  email: String(body?.email || '').trim().toLowerCase(),
+  password: String(body?.password || ''),
+});
+
+/** Shape rules shared by first-run setup and invited registration. */
+function accountProblem({ name, username, email, password }) {
+  if (name.length < 2) return 'Name must be at least 2 characters.';
+  if (!/^[a-z0-9_.-]{3,32}$/.test(username)) return 'Username must be 3–32 chars: letters, numbers, . _ -';
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return 'Enter a valid email address.';
+  if (password.length < 8) return 'Password must be at least 8 characters.';
+  return null;
+}
+
+const ALREADY_SET_UP = 'This workspace is already set up. Sign in instead.';
+
+// Has anyone claimed this instance yet? The SPA asks on load and shows the
+// setup screen instead of sign-in while the answer is no.
+app.get('/api/setup', async (_req, res) => {
+  res.json({ needed: !(await hasAnyUser()) });
+});
+
+// Claim a fresh instance. The first account is always the admin; the route
+// refuses the moment any account exists, so it can't mint a second one.
+app.post('/api/setup', async (req, res) => {
+  const fields = accountFields(req.body);
+  const problem = accountProblem(fields);
+  if (problem) return res.status(400).json({ error: problem });
+  const user = await createFirstAdmin({
+    ...fields,
+    passwordHash: await bcrypt.hash(fields.password, 12),
+  });
+  if (!user) return res.status(409).json({ error: ALREADY_SET_UP });
+  const token = await createSession(user.id);
+  setSessionCookie(res, token);
+  console.log(`[setup] admin ${user.email} created — instance is ready`);
+  res.json({ user: publicUser(user) });
+});
+
 // Username + password registration. Open sign-up (unique username + email),
 // bcrypt-hashed. Sets the same session cookie the magic-link flow uses.
 app.post('/api/auth/register', async (req, res) => {
-  const name = String(req.body?.name || '').trim();
-  const username = String(req.body?.username || '').trim().toLowerCase();
-  const email = String(req.body?.email || '').trim().toLowerCase();
-  const password = String(req.body?.password || '');
-  if (name.length < 2) return res.status(400).json({ error: 'Name must be at least 2 characters.' });
-  if (!/^[a-z0-9_.-]{3,32}$/.test(username))
-    return res.status(400).json({ error: 'Username must be 3–32 chars: letters, numbers, . _ -' });
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email))
-    return res.status(400).json({ error: 'Enter a valid email address.' });
-  if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters.' });
+  const { name, username, email, password } = accountFields(req.body);
+  const problem = accountProblem({ name, username, email, password });
+  if (problem) return res.status(400).json({ error: problem });
 
   // Invite-only: an email may register only if an admin has invited it.
   if (!(await isEmailInvited(email))) {

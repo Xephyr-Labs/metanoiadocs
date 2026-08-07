@@ -10,6 +10,10 @@ RUN npm run build
 
 # ── Stage 2: runtime — Express API + /sync + the built SPA ───────────────────
 FROM node:22-alpine AS runtime
+LABEL org.opencontainers.image.title="MetanoiaDocs" \
+      org.opencontainers.image.description="Self-hosted real-time collaborative docs workspace" \
+      org.opencontainers.image.source="https://github.com/Xephyr-Labs/metanoiadocs" \
+      org.opencontainers.image.licenses="MIT"
 ENV NODE_ENV=production PORT=3000
 WORKDIR /app/server
 COPY server/package.json server/package-lock.json ./

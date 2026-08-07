@@ -16,8 +16,11 @@ interface Result {
 interface AuthState {
   user: AuthUser | null;
   loading: boolean; // initial session check
+  /** No account exists yet: this instance still has to be claimed. */
+  needsSetup: boolean;
   login: (username: string, password: string) => Promise<Result>;
   signup: (name: string, username: string, email: string, password: string) => Promise<Result>;
+  setup: (name: string, username: string, email: string, password: string) => Promise<Result>;
   logout: () => Promise<void>;
   updateName: (name: string) => Promise<Result>;
 }
@@ -45,13 +48,21 @@ async function api(path: string, body?: unknown): Promise<{ status: number; data
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [needsSetup, setNeedsSetup] = useState(false);
 
-  // Restore the session from the cookie on load.
+  // Restore the session from the cookie on load. Signed out, ask one more
+  // question before showing sign-in: has anybody claimed this instance yet?
   useEffect(() => {
     let alive = true;
     api('/me')
-      .then(({ status, data }) => {
-        if (alive && status === 200 && data?.id) setUser(data as AuthUser);
+      .then(async ({ status, data }) => {
+        if (!alive) return;
+        if (status === 200 && data?.id) {
+          setUser(data as AuthUser);
+          return;
+        }
+        const { data: s } = await api('/setup');
+        if (alive) setNeedsSetup(!!s?.needed);
       })
       .finally(() => alive && setLoading(false));
     return () => {
@@ -80,6 +91,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  const setup = useCallback(
+    async (name: string, username: string, email: string, password: string): Promise<Result> => {
+      const { status, data } = await api('/setup', { name, username, email, password });
+      if (status === 200 && data?.user) {
+        setUser(data.user);
+        setNeedsSetup(false);
+        return { ok: true };
+      }
+      // 409 means someone claimed it first — fall through to the sign-in screen
+      // rather than leaving a setup form that can never succeed.
+      if (status === 409) setNeedsSetup(false);
+      return { ok: false, error: data?.error ?? 'Could not create the admin account.' };
+    },
+    [],
+  );
+
   const logout = useCallback(async () => {
     await api('/auth/logout', {});
     setUser(null);
@@ -98,8 +125,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo<AuthState>(
-    () => ({ user, loading, login, signup, logout, updateName }),
-    [user, loading, login, signup, logout, updateName],
+    () => ({ user, loading, needsSetup, login, signup, setup, logout, updateName }),
+    [user, loading, needsSetup, login, signup, setup, logout, updateName],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

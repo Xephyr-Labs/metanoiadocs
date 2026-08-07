@@ -5,7 +5,18 @@ import { cn } from '../../lib/cn';
 import { useAuth } from '../../store/auth';
 import { Logo } from '../brand/Logo';
 
-type Mode = 'login' | 'signup';
+type Mode = 'login' | 'signup' | 'setup';
+
+/** The three sentences that change per mode; everything else is shared. */
+const COPY: Record<Mode, { title: string; sub: string; cta: string }> = {
+  login: { title: 'Welcome back', sub: 'Sign in to your Metanoia workspace.', cta: 'Sign in' },
+  signup: { title: 'Create your account', sub: 'Invite only — use the email you were invited with.', cta: 'Create account' },
+  setup: {
+    title: 'Set up your workspace',
+    sub: 'Nobody has claimed this instance yet. The account you create here is the admin.',
+    cta: 'Create admin account',
+  },
+};
 
 function Field({
   icon: Icon,
@@ -23,8 +34,10 @@ function Field({
 }
 
 export function AuthScreen() {
-  const { login, signup } = useAuth();
-  const [mode, setMode] = useState<Mode>('login');
+  const { login, signup, setup, needsSetup } = useAuth();
+  // A fresh instance has exactly one thing to offer, so setup isn't a mode the
+  // user can switch away from — it ends the moment the admin exists.
+  const [mode, setMode] = useState<Mode>(needsSetup ? 'setup' : 'login');
   const [name, setName] = useState('');
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
@@ -39,7 +52,11 @@ export function AuthScreen() {
     setError(null);
     setBusy(true);
     const res =
-      mode === 'login' ? await login(username, password) : await signup(name, username, email, password);
+      mode === 'login'
+        ? await login(username, password)
+        : mode === 'setup'
+          ? await setup(name, username, email, password)
+          : await signup(name, username, email, password);
     setBusy(false);
     if (!res.ok) setError(res.error ?? 'Something went wrong.');
     // On success the app swaps to the workspace automatically (user is set).
@@ -68,20 +85,14 @@ export function AuthScreen() {
         <div className="mb-7 flex flex-col items-center gap-4 text-center">
           <Logo size={40} />
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-ink">
-              {mode === 'login' ? 'Welcome back' : 'Create your account'}
-            </h1>
-            <p className="mt-1 text-sm text-muted">
-              {mode === 'login'
-                ? 'Sign in to your Metanoia workspace.'
-                : 'Invite only — use the email you were invited with.'}
-            </p>
+            <h1 className="text-2xl font-semibold tracking-tight text-ink">{COPY[mode].title}</h1>
+            <p className="mt-1 text-sm text-muted">{COPY[mode].sub}</p>
           </div>
         </div>
 
         <form onSubmit={submit} className="space-y-2.5">
           <AnimatePresence initial={false}>
-            {mode === 'signup' && (
+            {mode !== 'login' && (
               <motion.div
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: 'auto' }}
@@ -169,23 +180,29 @@ export function AuthScreen() {
             )}
           >
             {busy && <Loader2 size={16} className="animate-spin" />}
-            {busy ? 'Please wait…' : mode === 'login' ? 'Sign in' : 'Create account'}
+            {busy ? 'Please wait…' : COPY[mode].cta}
           </button>
         </form>
 
-        <p className="mt-5 text-center text-sm text-muted">
-          {mode === 'login' ? 'Have an invitation?' : 'Already have an account?'}{' '}
-          <button
-            type="button"
-            onClick={() => switchMode(mode === 'login' ? 'signup' : 'login')}
-            className="font-medium text-accent hover:underline"
-          >
-            {mode === 'login' ? 'Accept invite' : 'Sign in'}
-          </button>
-        </p>
+        {/* Nothing to switch to while the instance is unclaimed — there is no
+            account to sign in with and no invitation to accept yet. */}
+        {mode !== 'setup' && (
+          <p className="mt-5 text-center text-sm text-muted">
+            {mode === 'login' ? 'Have an invitation?' : 'Already have an account?'}{' '}
+            <button
+              type="button"
+              onClick={() => switchMode(mode === 'login' ? 'signup' : 'login')}
+              className="font-medium text-accent hover:underline"
+            >
+              {mode === 'login' ? 'Accept invite' : 'Sign in'}
+            </button>
+          </p>
+        )}
 
         <p className="mt-8 text-center text-2xs leading-relaxed text-faint">
-          Access is invite-only. Passwords are hashed (bcrypt); sessions are server-side.
+          {mode === 'setup'
+            ? 'You can invite the rest of the team from Settings once you are in.'
+            : 'Access is invite-only. Passwords are hashed (bcrypt); sessions are server-side.'}
         </p>
       </motion.div>
     </div>

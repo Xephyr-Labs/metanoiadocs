@@ -49,16 +49,25 @@ an original Node/Postgres backend — real-time sync, no proprietary server code
 
 ## 🚀 Quick start
 
-Requires [Docker](https://docs.docker.com/get-docker/) (with Compose).
+Requires [Docker](https://docs.docker.com/get-docker/) (with Compose). Nothing to
+clone and nothing to build — pull the published image:
 
 ```bash
-git clone <your-fork-url> metanoiadocs && cd metanoiadocs
-cp .env.example .env        # fill in DB_PASSWORD (and optionally ADMIN_PASSWORD)
-docker compose up -d        # first run builds the UI — a few minutes
+curl -fsSL https://raw.githubusercontent.com/Xephyr-Labs/metanoiadocs/main/docker-compose.deploy.yml -o docker-compose.yml
+docker compose up -d
 ```
 
-Then open **http://localhost:8092** and sign in as **`admin`** (password from
-`ADMIN_PASSWORD`, or `admin123` if you left it unset).
+Then open **http://localhost:8092**. A fresh instance has no accounts, so the
+first visit shows a **setup screen** — the account you create there is the admin,
+and the instance is ready. Nobody can sign in before that, and the screen is gone
+the moment the admin exists.
+
+<sub>Prefer to build from source? `git clone`, `cp .env.example .env`, then
+`docker compose up -d --build` — the bundled `docker-compose.yaml` builds the
+image locally instead of pulling it.</sub>
+
+<sub>Unattended installs (CI, provisioning scripts) can skip the setup screen by
+setting `ADMIN_EMAIL` and `ADMIN_PASSWORD` before the first boot.</sub>
 
 > The single `server` container serves the React UI, the REST API, and the `/sync`
 > WebSocket — one origin, one port, no CORS to configure. The `db` volume persists
@@ -74,10 +83,10 @@ All configuration is environment variables (see [`.env.example`](.env.example)):
 
 | Variable | Required | Default | Purpose |
 |---|---|---|---|
-| `DB_PASSWORD` | ✅ | — | Password for the bundled Postgres. |
+| `DB_PASSWORD` | | `metanoia` | Password for the bundled Postgres (never published to the host — set it anyway for real deployments). |
 | `BASE_URL` | | `http://localhost:8092` | Public URL used in emailed links. |
-| `ADMIN_EMAIL` | | `admin@example.com` | Seeded admin's email. |
-| `ADMIN_PASSWORD` | | `admin123` (with a warning) | Seeded admin's password — **set this before exposing the instance.** |
+| `ADMIN_EMAIL` | | — | With `ADMIN_PASSWORD`, creates the admin at first boot instead of showing the setup screen. |
+| `ADMIN_PASSWORD` | | — | See above. No default: an unclaimed instance cannot be signed into. |
 | `AUTH_DEV_MODE` | | `true` | Log sign-in/invite links instead of emailing them. |
 | `ALLOWED_EMAIL_DOMAINS` | | `*` | Comma-separated allowlist for sign-in; `*` = any, empty = deny-all. |
 | `STALE_MONTHS` | | `6` | A doc untouched this many months shows a "stale" badge in the intelligence rail. |
@@ -101,7 +110,8 @@ Browser ── HTTPS ─┤  Express — REST API  ·  Hocuspocus /sync (Yjs)  �
 | `web-react/` | React 18 + Vite + TypeScript + Tailwind + Radix, BlockSuite 0.22.4 editor. |
 | `server/` | Express + Postgres + Hocuspocus (Yjs) sync + magic-link/password auth. Owns the intelligence layer (`intelligence.js`) and search. |
 | `mcp/` | Stdio MCP server exposing the workspace to AI agents via personal API tokens. |
-| `docker-compose.yaml` | `db` + `server` (a multi-stage image builds the UI, then serves API, `/sync`, and the built SPA from one container). |
+| `docker-compose.yaml` | `db` + `server`, building the image from source (a multi-stage build compiles the UI, then serves API, `/sync`, and the built SPA from one container). |
+| `docker-compose.deploy.yml` | The same stack pulling the published `sajjadriaj/metanoiadocs` image — the one-command deploy above. |
 
 The schema is idempotent — it's created/migrated on every server boot, so there are
 no manual migration steps. Per-doc intelligence signals are computed synchronously on

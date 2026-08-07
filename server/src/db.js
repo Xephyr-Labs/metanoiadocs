@@ -87,6 +87,11 @@ export async function initSchema() {
       REFERENCES folders(id) ON DELETE SET NULL;
     -- Sidebar tint; values come from the shared tag palette ('gray', 'blue', …).
     ALTER TABLE folders ADD COLUMN IF NOT EXISTS color TEXT NOT NULL DEFAULT 'gray';
+    -- Manual sibling ordering for the sidebar tree (drag-reorder). Lower first.
+    -- Must be added before docs_folder_idx below indexes it: on an existing
+    -- database the column is already there, but on a fresh one this whole DDL
+    -- block runs top to bottom and the index would reference nothing.
+    ALTER TABLE docs ADD COLUMN IF NOT EXISTS position INT NOT NULL DEFAULT 0;
     CREATE INDEX IF NOT EXISTS folders_parent_idx ON folders(parent_id, position);
     CREATE INDEX IF NOT EXISTS docs_folder_idx ON docs(folder_id, position);
     CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -108,8 +113,6 @@ export async function initSchema() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       PRIMARY KEY (user_id, doc_id)
     );
-    -- Manual sibling ordering for the sidebar tree (drag-reorder). Lower first.
-    ALTER TABLE docs ADD COLUMN IF NOT EXISTS position INT NOT NULL DEFAULT 0;
     -- Public read-only share link. NULL = private. Unique so the token resolves
     -- to exactly one doc.
     ALTER TABLE docs ADD COLUMN IF NOT EXISTS share_token TEXT;
@@ -397,6 +400,46 @@ export async function findUserByEmail(email) {
     String(email).trim().toLowerCase(),
   ]);
   return rows[0] ?? null;
+}
+
+/** True once anybody has an account — i.e. the instance is past first-run setup. */
+export async function hasAnyUser() {
+  const { rows } = await pool.query('SELECT 1 FROM users LIMIT 1');
+  return rows.length > 0;
+}
+
+// Arbitrary but fixed: every process that claims a fresh instance takes the
+// same advisory lock, so two simultaneous setup requests can't both win.
+const SETUP_LOCK = 8_140_711;
+
+/**
+ * Create the very first account, always as admin. Returns null when the
+ * instance already has a user — that check and the insert share one
+ * transaction, so a race resolves to exactly one admin rather than two.
+ */
+export async function createFirstAdmin({ name, username, email, passwordHash }) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock($1)', [SETUP_LOCK]);
+    const taken = await client.query('SELECT 1 FROM users LIMIT 1');
+    if (taken.rowCount) {
+      await client.query('ROLLBACK');
+      return null;
+    }
+    const { rows } = await client.query(
+      `INSERT INTO users (id, email, name, username, password_hash, role)
+       VALUES ($1, $2, $3, $4, $5, 'admin') RETURNING *`,
+      [crypto.randomUUID(), email.trim().toLowerCase(), name.trim(), username.trim().toLowerCase(), passwordHash]
+    );
+    await client.query('COMMIT');
+    return rows[0];
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
 }
 
 export async function createUserWithPassword({ name, username, email, passwordHash, role = 'collaborator' }) {

@@ -1,0 +1,71 @@
+name: metanoiadocs
+
+# One-command deploy. No source checkout, nothing to build:
+#
+#   curl -fsSL https://raw.githubusercontent.com/Xephyr-Labs/metanoiadocs/main/docker-compose.deploy.yml -o docker-compose.yml
+#   docker compose up -d
+#
+# Then open http://localhost:8092 and create the admin account on the setup
+# screen. That first account is the admin; everyone else joins by invitation.
+#
+# Every setting below has a working default, so an .env file is optional. For
+# anything past a single-host trial, put these in a .env next to this file:
+#
+#   DB_PASSWORD=<something long>      # Postgres password (see the note below)
+#   BASE_URL=https://docs.example.com # used in emailed sign-in links
+#   AUTH_DEV_MODE=false               # then fill in the SMTP_* block
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: metanoia
+      # The database port is never published to the host — Postgres is reachable
+      # only from the server container on this compose network — so the default
+      # is survivable for a trial. Set DB_PASSWORD for a real deployment.
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-metanoia}
+      POSTGRES_DB: metanoiadocs
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U metanoia -d metanoiadocs"]
+      interval: 5s
+      retries: 20
+
+  server:
+    image: sajjadriaj/metanoiadocs:latest
+    restart: unless-stopped
+    environment:
+      PORT: "3000"
+      BASE_URL: ${BASE_URL:-http://localhost:8092}
+      DATABASE_URL: postgresql://metanoia:${DB_PASSWORD:-metanoia}@db:5432/metanoiadocs
+      # Optional: create the admin without the setup screen (unattended installs).
+      # Both must be set, and they only apply while no account exists yet.
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      # true = print sign-in links to `docker compose logs server` instead of
+      # emailing them, so the app is usable before SMTP exists.
+      AUTH_DEV_MODE: ${AUTH_DEV_MODE:-true}
+      ALLOWED_EMAIL_DOMAINS: ${ALLOWED_EMAIL_DOMAINS:-*}
+      TRASH_RETENTION_DAYS: ${TRASH_RETENTION_DAYS:-30}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-MetanoiaDocs <no-reply@example.com>}
+    ports:
+      - "${HTTP_PORT:-8092}:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  db_data:
