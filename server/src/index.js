@@ -1121,8 +1121,12 @@ app.get('/api/search', requireUser, wrap(async (req, res) => {
        SELECT id, title, search_text, 1 AS pri,
               ts_rank(search_tsv, plainto_tsquery('english', $2)) AS rank
          FROM scoped
-        WHERE search_tsv @@ (CASE WHEN $3 IS NULL THEN plainto_tsquery('english',$2)
-                                   ELSE plainto_tsquery('english',$2) || to_tsquery('english',$3) END)
+        -- $3 is cast explicitly: with no expansion terms it arrives as NULL, and
+        -- an untyped NULL parameter makes Postgres refuse the whole statement
+        -- ("could not determine data type of parameter $3") — which meant search
+        -- failed outright on a workspace whose co-occurrence terms aren't built yet.
+        WHERE search_tsv @@ (CASE WHEN $3::text IS NULL THEN plainto_tsquery('english',$2)
+                                   ELSE plainto_tsquery('english',$2) || to_tsquery('english',$3::text) END)
      ),
      fuzzy AS (
        SELECT id, title, search_text, 2 AS pri,
