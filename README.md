@@ -62,6 +62,36 @@ first visit shows a **setup screen** — the account you create there is the adm
 and the instance is ready. Nobody can sign in before that, and the screen is gone
 the moment the admin exists.
 
+### Plain `docker run`
+
+No Compose, no files — pull the image and run two containers on a shared network.
+MetanoiaDocs keeps everything in Postgres, so it needs one:
+
+```bash
+docker pull hmsajjad/metanoiadocs:latest
+
+docker network create metanoia
+
+docker run -d --name metanoia-db --network metanoia \
+  -e POSTGRES_USER=metanoia \
+  -e POSTGRES_PASSWORD=change-me \
+  -e POSTGRES_DB=metanoiadocs \
+  -v metanoia-data:/var/lib/postgresql/data \
+  postgres:16-alpine
+
+docker run -d --name metanoiadocs --network metanoia -p 8092:3000 \
+  -e DATABASE_URL=postgresql://metanoia:change-me@metanoia-db:5432/metanoiadocs \
+  -e BASE_URL=http://localhost:8092 \
+  hmsajjad/metanoiadocs:latest
+```
+
+Open **http://localhost:8092** and create the admin account. The `metanoia-data`
+volume holds your documents — the containers are disposable, that isn't.
+
+Already have a Postgres? Then it is one container: point `DATABASE_URL` at your
+server, drop `--network`, and give the database user rights to create tables
+(the schema builds itself on first boot).
+
 <sub>Prefer to build from source? `git clone`, `cp .env.example .env`, then
 `docker compose up -d --build` — the bundled `docker-compose.yaml` builds the
 image locally instead of pulling it.</sub>
