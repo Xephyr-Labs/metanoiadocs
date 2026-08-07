@@ -111,7 +111,7 @@ Browser ── HTTPS ─┤  Express — REST API  ·  Hocuspocus /sync (Yjs)  �
 | `server/` | Express + Postgres + Hocuspocus (Yjs) sync + magic-link/password auth. Owns the intelligence layer (`intelligence.js`) and search. |
 | `mcp/` | Stdio MCP server exposing the workspace to AI agents via personal API tokens. |
 | `docker-compose.yaml` | `db` + `server`, building the image from source (a multi-stage build compiles the UI, then serves API, `/sync`, and the built SPA from one container). |
-| `docker-compose.deploy.yml` | The same stack pulling the published `sajjadriaj/metanoiadocs` image — the one-command deploy above. |
+| `docker-compose.deploy.yml` | The same stack pulling the published [`hmsajjad/metanoiadocs`](https://hub.docker.com/r/hmsajjad/metanoiadocs) image — the one-command deploy above. |
 
 The schema is idempotent — it's created/migrated on every server boot, so there are
 no manual migration steps. Per-doc intelligence signals are computed synchronously on

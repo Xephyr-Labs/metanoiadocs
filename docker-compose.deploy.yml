@@ -34,7 +34,7 @@ services:
       retries: 20
 
   server:
-    image: sajjadriaj/metanoiadocs:latest
+    image: hmsajjad/metanoiadocs:latest
     restart: unless-stopped
     environment:
       PORT: "3000"
