@@ -268,8 +268,10 @@ app.get('/api/me', requireUser, (req, res) => {
 // Per-user notification feed: @-mentions and comments on docs you own.
 app.get('/api/inbox', requireUser, async (req, res) => {
   const { rows } = await pool.query(
+    // comment_id ships too: a client that wants to answer a mention needs the
+    // thread it landed in, and re-deriving that by matching bodies is guesswork.
     `SELECT n.id, n.kind, n.actor_name, n.body, n.read_at, n.created_at,
-            n.doc_id, d.title AS doc_title, d.icon AS doc_icon
+            n.doc_id, n.comment_id, d.title AS doc_title, d.icon AS doc_icon
        FROM notifications n
        LEFT JOIN docs d ON d.id = n.doc_id AND d.deleted_at IS NULL
       WHERE n.user_id = $1

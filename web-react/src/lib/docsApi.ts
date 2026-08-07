@@ -122,6 +122,8 @@ export interface BacklinkRow {
 export interface InboxRow {
   id: string;
   kind: 'mention' | 'comment';
+  /** The comment that triggered it — null for notifications with no thread. */
+  comment_id: string | null;
   actor_name: string;
   body: string;
   read_at: string | null;
