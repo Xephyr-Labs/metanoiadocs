@@ -39,6 +39,7 @@ an original Node/Postgres backend — real-time sync, no proprietary server code
 - **Projects** — per-project **kanban**, backlog, table, Gantt and calendar views, with sprints, epics/stories, dependencies, milestones and assignees. Any task can link to the page that specifies it.
 - **Find anything** — hybrid full-text + fuzzy (typo-tolerant) search and a ⌘K command palette.
 - **Ambient intelligence** — a per-doc rail that surfaces related pages, auto tag & link suggestions, and extracted tasks / decisions / risks / deadlines, plus duplicate & stale detection. Computed locally in Postgres on save — **no LLM, no external calls**.
+- **Import & export** — drop in `.md` files (front matter, nested lists, tables and inline marks survive), and take any page back out as **Markdown** or **PDF**.
 - **Version history** — automatic + manual snapshots, non-destructive restore.
 - **Public share links** — publish any page read-only, server-enforced.
 - **AI assist** — optional OpenAI-compatible copilot, configured in Settings (bring your own key).

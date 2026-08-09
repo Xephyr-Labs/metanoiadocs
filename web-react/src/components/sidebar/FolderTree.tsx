@@ -1,6 +1,7 @@
-import { ChevronRight, FileText, Folder, FolderOpen, MoreHorizontal, Plus, Star, Trash2 } from 'lucide-react';
+import { ChevronRight, Download, FileText, Folder, FolderOpen, MoreHorizontal, Plus, Printer, Star, Trash2, Upload } from 'lucide-react';
 import { useState } from 'react';
 import { cn } from '../../lib/cn';
+import { downloadMarkdown, pickMarkdownFiles, printDoc } from '../../lib/docFiles';
 import { TAG_COLORS, swatch } from '../../lib/tagColors';
 import type { PageId } from '../../lib/types';
 import { useWorkspace } from '../../store/workspace';
@@ -70,6 +71,8 @@ function DocumentRow({ id, depth }: { id: PageId; depth: number }) {
           items={[
             { icon: Star, label: fav ? 'Remove from Favorites' : 'Add to Favorites', onSelect: () => ws.toggleFavorite(id) },
             { icon: FileText, label: 'Open', onSelect: () => ws.select(id) },
+            { icon: Download, label: 'Export Markdown', onSelect: () => downloadMarkdown(id) },
+            { icon: Printer, label: 'Export PDF', onSelect: () => printDoc(id) },
             ...folderOptions,
             ...(page.folderId ? [{ icon: FileText, label: 'Move to root', onSelect: () => ws.movePage(id, null), separatorBefore: true }] : []),
             { icon: Trash2, label: 'Delete', danger: true, separatorBefore: true, onSelect: () => ws.deletePage(id) },
@@ -160,6 +163,7 @@ function FolderRow({ id, depth }: { id: string; depth: number }) {
             items={[
               { icon: Plus, label: 'New page', onSelect: () => ws.createPage(id) },
               { icon: Folder, label: 'New subfolder', onSelect: () => ws.createFolder(id) },
+              { icon: Upload, label: 'Import Markdown…', onSelect: () => pickMarkdownFiles().then((f) => f.length && ws.importMarkdown(f, id)) },
               { icon: FileText, label: 'Rename', onSelect: () => setRenaming(true) },
               ...TAG_COLORS.map((c, i) => ({
                 icon: ColorDot(c),

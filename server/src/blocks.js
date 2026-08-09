@@ -13,39 +13,84 @@ const blockId = () => crypto.randomBytes(8).toString('base64url').slice(0, 10);
 const REFERENCE_NODE = ' ';
 const LINK_RE = /\[\[([^\]\n]+)\]\]/g;
 
+// Inline markdown, in the order a match is preferred. `raw` means the contents
+// are literal — nothing inside a code span is markup.
+const INLINE = [
+  { re: /`([^`\n]+)`/, raw: true, attrs: () => ({ code: true }) },
+  { re: /\*\*([^*\n]+)\*\*/, attrs: () => ({ bold: true }) },
+  { re: /__([^_\n]+)__/, attrs: () => ({ bold: true }) },
+  { re: /~~([^~\n]+)~~/, attrs: () => ({ strike: true }) },
+  // Not `_italic_`: snake_case identifiers are everywhere in technical writing
+  // and turning half of one italic is worse than missing the emphasis.
+  { re: /(?<![*\w])\*([^*\n]+)\*(?!\*)/, attrs: () => ({ italic: true }) },
+  { re: /\[([^\]\n]+)\]\(([^)\s]+)\)/, attrs: (m) => ({ link: m[2] }) },
+];
+
+/** A string → runs of text with the marks that apply to them, nesting included. */
+function inlineRuns(str, resolveLink, attrs = {}) {
+  const runs = [];
+  let rest = String(str ?? '');
+  while (rest) {
+    // Earliest match wins, so `a **b** c` splits where the source says it does.
+    let best = null;
+    if (resolveLink) {
+      const m = /\[\[([^\]\n]+)\]\]/.exec(rest);
+      if (m) best = { index: m.index, m, ref: true };
+    }
+    for (const rule of INLINE) {
+      const m = rule.re.exec(rest);
+      if (m && (!best || m.index < best.index)) best = { index: m.index, m, rule };
+    }
+    if (!best) { runs.push({ text: rest, attrs }); break; }
+    if (best.index > 0) runs.push({ text: rest.slice(0, best.index), attrs });
+    const m = best.m;
+    if (best.ref) {
+      const pageId = resolveLink(m[1].trim());
+      // Unknown target: leave the literal `[[key]]` in place rather than
+      // silently dropping it, so a typo is visible instead of invisible.
+      if (pageId) runs.push({ text: REFERENCE_NODE, attrs: { ...attrs, reference: { type: 'LinkedPage', pageId } } });
+      else runs.push({ text: m[0], attrs });
+    } else if (best.rule.raw) {
+      runs.push({ text: m[1], attrs: { ...attrs, ...best.rule.attrs(m) } });
+    } else {
+      runs.push(...inlineRuns(m[1], resolveLink, { ...attrs, ...best.rule.attrs(m) }));
+    }
+    rest = rest.slice(best.index + m[0].length);
+  }
+  return runs;
+}
+
 /**
- * `pending` collects the reference spans to format once the text is attached to
- * a document. Formatting a detached Y.Text is undefined — it warns and relies on
- * Yjs replaying pending ops — so the attribute is applied in buildDocState,
- * after every block has been integrated into the blocks map.
+ * `pending` collects the formatting to apply once the text is attached to a
+ * document. Formatting a detached Y.Text is undefined — it warns and relies on
+ * Yjs replaying pending ops — so attributes are applied by the caller, after
+ * every block has been integrated into the blocks map.
  */
 function ytext(s, resolveLink, pending) {
   const t = new Y.Text();
   const str = String(s ?? '');
   if (!str) return t;
-  if (!resolveLink) {
-    t.insert(0, str);
-    return t;
-  }
-  // Assemble the plain string and note where each reference lands, then insert
-  // once. Offsets come from the string, never from `t.length` — reading a
-  // detached Y.Text is exactly what Yjs warns about.
+  // Assemble the plain string and note where each mark lands, then insert once.
+  // Offsets come from the string, never from `t.length` — reading a detached
+  // Y.Text is exactly what Yjs warns about.
+  const runs = inlineRuns(str, resolveLink);
   let plain = '';
-  let last = 0;
-  let m;
-  LINK_RE.lastIndex = 0;
-  while ((m = LINK_RE.exec(str)) !== null) {
-    const pageId = resolveLink(m[1].trim());
-    // Unknown target: leave the literal `[[key]]` in place rather than silently
-    // dropping it, so a typo in the source is visible instead of invisible.
-    if (!pageId) continue;
-    plain += str.slice(last, m.index);
-    pending?.push({ text: t, index: plain.length, pageId });
-    plain += REFERENCE_NODE;
-    last = m.index + m[0].length;
+  const marks = [];
+  for (const r of runs) {
+    if (!r.text) continue;
+    if (Object.keys(r.attrs).length) marks.push({ index: plain.length, length: r.text.length, attrs: r.attrs });
+    plain += r.text;
   }
-  plain += str.slice(last);
   t.insert(0, plain);
+  for (const mk of marks) pending?.push({ text: t, ...mk });
+  return t;
+}
+
+/** Literal text, no markup: code blocks and titles mean exactly what they say. */
+function plainYText(s) {
+  const t = new Y.Text();
+  const str = String(s ?? '');
+  if (str) t.insert(0, str);
   return t;
 }
 
@@ -69,10 +114,18 @@ const splitRow = (l) => {
   return parts;
 };
 
+/** Leading spaces → list nesting level. Two spaces or one tab per level, which
+ *  covers what every markdown editor emits (4-space indents nest twice as deep,
+ *  and that is what the source asked for). */
+const indentDepth = (s) => Math.floor(s.replace(/\t/g, '  ').length / 2);
+
 /** Markdown → flat block descriptors (block-level structure; inline text is literal). */
 export function parseMarkdown(md) {
   const lines = String(md || '').replace(/\r\n/g, '\n').split('\n');
   const out = [];
+  // Whether the previous line was blank — i.e. whether the next text line
+  // starts something new or continues what is already open.
+  let blank = true;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const fence = line.match(/^```(\w*)\s*$/);
@@ -81,6 +134,7 @@ export function parseMarkdown(md) {
       i++;
       while (i < lines.length && !/^```\s*$/.test(lines[i])) { code.push(lines[i]); i++; }
       out.push({ flavour: 'affine:code', language: fence[1] || 'plain', text: code.join('\n') });
+      blank = false;
       continue;
     }
     // Pipe table: a run of "| … |" lines. The all-dashes row is the header
@@ -91,17 +145,31 @@ export function parseMarkdown(md) {
       i--; // step back; the for-loop will advance past the last table line
       const body = rows.filter((r) => !isTableSep(r));
       if (body.length) out.push({ flavour: 'affine:table', rows: body });
+      blank = false;
       continue;
     }
-    if (/^\s*$/.test(line)) continue;
-    if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) { out.push({ flavour: 'affine:divider' }); continue; }
+    // A blank line ends whatever was being written; without tracking it, the
+    // continuation rule below would glue two paragraphs into one.
+    if (/^\s*$/.test(line)) { blank = true; continue; }
+    if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) { out.push({ flavour: 'affine:divider' }); blank = false; continue; }
     let m;
-    if ((m = line.match(/^(#{1,6})\s+(.*)$/))) { out.push({ flavour: 'affine:paragraph', type: 'h' + m[1].length, text: m[2] }); continue; }
-    if ((m = line.match(/^\s*[-*]\s+\[([ xX])\]\s+(.*)$/))) { out.push({ flavour: 'affine:list', type: 'todo', checked: m[1].toLowerCase() === 'x', text: m[2] }); continue; }
-    if ((m = line.match(/^\s*\d+\.\s+(.*)$/))) { out.push({ flavour: 'affine:list', type: 'numbered', text: m[1] }); continue; }
-    if ((m = line.match(/^\s*[-*]\s+(.*)$/))) { out.push({ flavour: 'affine:list', type: 'bulleted', text: m[1] }); continue; }
-    if ((m = line.match(/^>\s?(.*)$/))) { out.push({ flavour: 'affine:paragraph', type: 'quote', text: m[1] }); continue; }
+    if ((m = line.match(/^(#{1,6})\s+(.*)$/))) { out.push({ flavour: 'affine:paragraph', type: 'h' + m[1].length, text: m[2] }); blank = false; continue; }
+    if ((m = line.match(/^(\s*)[-*]\s+\[([ xX])\]\s+(.*)$/))) { out.push({ flavour: 'affine:list', type: 'todo', checked: m[2].toLowerCase() === 'x', text: m[3], depth: indentDepth(m[1]) }); blank = false; continue; }
+    if ((m = line.match(/^(\s*)\d+\.\s+(.*)$/))) { out.push({ flavour: 'affine:list', type: 'numbered', text: m[2], depth: indentDepth(m[1]) }); blank = false; continue; }
+    if ((m = line.match(/^(\s*)[-*]\s+(.*)$/))) { out.push({ flavour: 'affine:list', type: 'bulleted', text: m[2], depth: indentDepth(m[1]) }); blank = false; continue; }
+    if ((m = line.match(/^>\s?(.*)$/))) { out.push({ flavour: 'affine:paragraph', type: 'quote', text: m[1] }); blank = false; continue; }
+    // Plain text directly under the previous line continues it: markdown wraps
+    // a paragraph across lines, and one block per source line turns a hard
+    // -wrapped file into hundreds of one-line paragraphs.
+    const prev = out[out.length - 1];
+    if (!blank && prev) {
+      const continuesParagraph = prev.flavour === 'affine:paragraph' && (prev.type === 'text' || prev.type === 'quote');
+      // An indented run-on under a list item belongs to that item, not after it.
+      const continuesList = prev.flavour === 'affine:list' && /^\s\s+\S/.test(line);
+      if (continuesParagraph || continuesList) { prev.text = `${prev.text} ${line.trim()}`; continue; }
+    }
     out.push({ flavour: 'affine:paragraph', type: 'text', text: line });
+    blank = false;
   }
   return out;
 }
@@ -143,7 +211,7 @@ function makeBlock(blocks, desc, resolveLink, pending) {
     b.set('prop:meta:updatedAt', desc.now || 0);
     b.set('prop:meta:updatedBy', desc.by || 'migration');
   } else if (desc.flavour === 'affine:code') {
-    b.set('prop:text', ytext(desc.text));
+    b.set('prop:text', plainYText(desc.text));
     b.set('prop:language', desc.language || 'plain');
     b.set('prop:wrap', false);
   } else if (desc.flavour === 'affine:list') {
@@ -158,6 +226,34 @@ function makeBlock(blocks, desc, resolveLink, pending) {
   }
   blocks.set(id, b);
   return id;
+}
+
+/**
+ * Descriptors → top-level block ids, nesting indented list items under the item
+ * above them. Anything that is not a list resets the nesting: in markdown a
+ * paragraph ends the list it follows.
+ */
+function makeBlocks(blocks, descs, resolveLink, pending) {
+  const top = [];
+  // stack[d] owns the items at depth d+1. Kept in step with the source indent.
+  const stack = [];
+  for (const d of descs) {
+    const id = makeBlock(blocks, d, resolveLink, pending);
+    if (d.flavour !== 'affine:list') {
+      stack.length = 0;
+      top.push(id);
+      continue;
+    }
+    // An over-indented item (jumping two levels at once) clamps to the deepest
+    // list that actually exists rather than being dropped on the floor.
+    const depth = Math.min(Math.max(0, d.depth || 0), stack.length);
+    const parentId = depth > 0 ? stack[depth - 1] : null;
+    if (parentId) blocks.get(parentId).get('sys:children').push([id]);
+    else top.push(id);
+    stack.length = depth;
+    stack.push(id);
+  }
+  return top;
 }
 
 function makeNote(blocks, childIds) {
@@ -202,7 +298,7 @@ export function buildDocState(title, markdown, resolveLink) {
     descs.shift();
   }
   if (descs.length === 0) descs.push({ flavour: 'affine:paragraph', type: 'text', text: '' });
-  const childIds = descs.map((d) => makeBlock(blocks, d, resolveLink, pending));
+  const childIds = makeBlocks(blocks, descs, resolveLink, pending);
   const noteId = makeNote(blocks, childIds);
 
   const pageId = blockId();
@@ -212,16 +308,19 @@ export function buildDocState(title, markdown, resolveLink) {
   page.set('sys:version', 2);
   const pageChildren = new Y.Array(); pageChildren.push([noteId]);
   page.set('sys:children', pageChildren);
-  page.set('prop:title', ytext(title || ''));
+  page.set('prop:title', plainYText(title || ''));
   blocks.set(pageId, page);
 
-  // Every block is integrated now, so the reference spans can be formatted for
-  // real instead of queued against a detached type.
-  for (const { text, index, pageId: target } of pending) {
-    text.format(index, REFERENCE_NODE.length, { reference: { type: 'LinkedPage', pageId: target } });
-  }
-
+  applyMarks(pending);
   return Y.encodeStateAsUpdate(doc);
+}
+
+/**
+ * Every block is integrated by now, so the queued spans can be formatted for
+ * real instead of against a detached type.
+ */
+function applyMarks(pending) {
+  for (const { text, index, length, attrs } of pending) text.format(index, length, attrs);
 }
 
 /** Decode a doc_states buffer to plain text (title + block text, in tree order). */
@@ -299,6 +398,184 @@ export function extractBlocks(existing) {
   return { title, blocks: out };
 }
 
+/**
+ * Inline runs → markdown, keeping the marks the editor applied. Marks nest
+ * innermost-first so `**bold *and italic* **` never crosses itself, and any
+ * leading/trailing whitespace inside a run is moved outside the delimiters —
+ * `** bold**` is not emphasis in any markdown parser.
+ */
+function inlineMarkdown(t, opts = {}) {
+  if (!(t instanceof Y.Text)) return '';
+  let out = '';
+  for (const op of t.toDelta()) {
+    const raw = typeof op.insert === 'string' ? op.insert : '';
+    const a = op.attributes || {};
+    if (a.reference) {
+      // A page reference is a single space carrying the target. Without a title
+      // resolver there is nothing readable to write, so it collapses away.
+      const title = opts.resolveTitle?.(a.reference.pageId);
+      if (title) out += `[[${title}]]`;
+      continue;
+    }
+    if (!raw) continue;
+    const lead = raw.match(/^\s*/)[0];
+    const tail = raw.slice(lead.length).match(/\s*$/)[0];
+    let s = raw.slice(lead.length, raw.length - tail.length);
+    if (!s) { out += raw; continue; }
+    if (a.code) s = '`' + s + '`';
+    if (a.strike) s = `~~${s}~~`;
+    if (a.italic) s = `*${s}*`;
+    if (a.bold) s = `**${s}**`;
+    if (a.link) s = `[${s}](${a.link})`;
+    out += lead + s + tail;
+  }
+  return out;
+}
+
+/** A table block's flat prop keys → a markdown pipe table. */
+function tableMarkdown(b, opts) {
+  const rows = [];
+  const cols = [];
+  for (const key of b.keys()) {
+    let m = key.match(/^prop:rows\.(.+)\.order$/);
+    if (m) { rows.push({ id: m[1], order: String(b.get(key) ?? '') }); continue; }
+    m = key.match(/^prop:columns\.(.+)\.order$/);
+    if (m) cols.push({ id: m[1], order: String(b.get(key) ?? '') });
+  }
+  if (!rows.length || !cols.length) return '';
+  rows.sort((x, y) => x.order.localeCompare(y.order));
+  cols.sort((x, y) => x.order.localeCompare(y.order));
+  // A cell may hold newlines and pipes; both would break the row apart.
+  const cell = (r, c) =>
+    inlineMarkdown(b.get(`prop:cells.${r}:${c}.text`), opts).replace(/\|/g, '\\|').replace(/\n+/g, ' ').trim();
+  const lines = rows.map((r) => `| ${cols.map((c) => cell(r.id, c.id)).join(' | ')} |`);
+  // Markdown needs a header separator, and our own parser drops it on the way
+  // back in — so the first row round-trips as the header it already was.
+  lines.splice(1, 0, `| ${cols.map(() => '---').join(' | ')} |`);
+  return lines.join('\n');
+}
+
+/**
+ * Decode a doc_states buffer to `{ title, markdown }`.
+ *
+ * The inverse of buildDocState for everything buildDocState can make, plus the
+ * block types only the editor produces (images, attachments, bookmarks, LaTeX).
+ * `opts.resolveTitle(pageId)` renders page references as `[[Title]]`;
+ * `opts.imageUrl(sourceId)` points image/attachment links at wherever the blob
+ * is being served from.
+ */
+export function docToMarkdown(existing, opts = {}) {
+  const imageUrl = opts.imageUrl || ((key) => `/api/blob/${encodeURIComponent(key)}`);
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, new Uint8Array(existing));
+  const blocks = doc.getMap('blocks');
+
+  let page = null;
+  let title = '';
+  for (const [, b] of blocks) {
+    if (b instanceof Y.Map && b.get('sys:flavour') === 'affine:page') {
+      page = b;
+      const t = b.get('prop:title');
+      title = t instanceof Y.Text ? t.toString() : '';
+      break;
+    }
+  }
+
+  // Parts, not lines: list items pack together, everything else gets a blank
+  // line between it and its neighbour.
+  const parts = [];
+  const text = (b) => inlineMarkdown(b.get('prop:text'), opts);
+
+  const walk = (id, depth) => {
+    const b = blocks.get(id);
+    if (!(b instanceof Y.Map)) return;
+    const fl = b.get('sys:flavour');
+    let childDepth = depth;
+
+    switch (fl) {
+      // The edgeless canvas holds shapes and connectors, not document text.
+      case 'affine:surface':
+        return;
+      // A note set to edgeless-only is deliberately absent from the page view;
+      // exporting it would put back what the author hid.
+      case 'affine:note':
+        if (b.get('prop:displayMode') === 'edgeless') return;
+        break;
+      case 'affine:paragraph': {
+        const type = b.get('prop:type') || 'text';
+        const body = text(b);
+        if (/^h[1-6]$/.test(type)) parts.push({ text: `${'#'.repeat(Number(type[1]))} ${body}` });
+        else if (type === 'quote') parts.push({ text: body.split('\n').map((l) => `> ${l}`).join('\n') });
+        else parts.push({ text: body });
+        break;
+      }
+      case 'affine:list': {
+        const type = b.get('prop:type');
+        const marker = type === 'numbered' ? '1.' : type === 'todo' ? `- [${b.get('prop:checked') ? 'x' : ' '}]` : '-';
+        parts.push({ list: true, type, depth, text: `${'  '.repeat(depth)}${marker} ${text(b)}` });
+        childDepth = depth + 1;
+        break;
+      }
+      case 'affine:code':
+        parts.push({ text: '```' + (b.get('prop:language') || '') + '\n' + text(b) + '\n```' });
+        break;
+      case 'affine:divider':
+        parts.push({ text: '---' });
+        break;
+      case 'affine:table': {
+        const t = tableMarkdown(b, opts);
+        if (t) parts.push({ text: t });
+        break;
+      }
+      case 'affine:image': {
+        const src = b.get('prop:sourceId');
+        if (src) parts.push({ text: `![${b.get('prop:caption') || ''}](${imageUrl(String(src))})` });
+        break;
+      }
+      case 'affine:attachment': {
+        const src = b.get('prop:sourceId');
+        const name = b.get('prop:name') || 'attachment';
+        if (src) parts.push({ text: `[${name}](${imageUrl(String(src))})` });
+        break;
+      }
+      case 'affine:latex':
+        parts.push({ text: '$$\n' + (b.get('prop:latex') || '') + '\n$$' });
+        break;
+      // A database renders as a view over its own row blocks; there is no
+      // honest flat markdown for it, and half of one is worse than none.
+      case 'affine:database':
+        return;
+      default: {
+        // Bookmarks and every affine:embed-* variant carry a url + caption.
+        const url = b.get('prop:url');
+        if (url) parts.push({ text: `[${b.get('prop:title') || b.get('prop:caption') || url}](${url})` });
+        break;
+      }
+    }
+
+    const kids = b.get('sys:children');
+    if (kids instanceof Y.Array) for (const c of kids.toArray()) walk(c, childDepth);
+  };
+
+  if (page) {
+    const kids = page.get('sys:children');
+    if (kids instanceof Y.Array) for (const c of kids.toArray()) walk(c, 0);
+  }
+
+  let markdown = '';
+  parts.forEach((p, i) => {
+    const prev = parts[i - 1];
+    // List items pack together while they belong to the same list — a switch of
+    // marker at the same level is a new list and needs the blank line, or the
+    // two run together as one on the way back in.
+    const packed = i > 0 && p.list && prev.list && (p.type === prev.type || p.depth > prev.depth);
+    if (i) markdown += packed ? '\n' : '\n\n';
+    markdown += p.text;
+  });
+  // Trailing empty paragraphs are what an editor leaves behind, not content.
+  return { title, markdown: markdown.replace(/\n{3,}/g, '\n\n').trim() };
+}
+
 /** Append markdown blocks to an existing doc_states buffer. Returns new state. */
 export function appendToDocState(existing, markdown) {
   const doc = new Y.Doc();
@@ -311,8 +588,10 @@ export function appendToDocState(existing, markdown) {
   }
   if (!note) return buildDocState('', markdown);
   const descs = parseMarkdown(markdown);
+  const pending = [];
   const children = note.get('sys:children');
-  for (const d of descs) children.push([makeBlock(blocks, d)]);
+  children.push(makeBlocks(blocks, descs, null, pending));
+  applyMarks(pending);
   return Y.encodeStateAsUpdate(doc);
 }
 
@@ -396,12 +675,14 @@ export function normalizeDocState(existing, opts = {}) {
   const by = opts.by || 'migration';
   descs.forEach((d) => { d.by = by; d.now = opts.now || 0; });
 
+  const pending = [];
   doc.transact(() => {
     // Remove old content blocks, then rebuild the children list.
     for (const id of childIds) blocks.delete(id);
     childArr.delete(0, childArr.length);
-    for (const d of descs) childArr.push([makeBlock(blocks, d)]);
+    childArr.push(makeBlocks(blocks, descs, null, pending));
   });
+  applyMarks(pending);
 
   return Y.encodeStateAsUpdate(doc);
 }

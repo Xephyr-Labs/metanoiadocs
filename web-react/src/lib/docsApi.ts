@@ -168,7 +168,8 @@ export const docsApi = {
   patchFolder: (id: string, body: { name?: string; color?: string; parentId?: string | null }) =>
     req(`/folders/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   removeFolder: (id: string) => req(`/folders/${id}`, { method: 'DELETE' }),
-  create: (body: { title?: string; icon?: string; folderId?: string | null }): Promise<DocRow> =>
+  /** `content` is markdown, built into real blocks server-side (used by import). */
+  create: (body: { title?: string; icon?: string; folderId?: string | null; content?: string }): Promise<DocRow> =>
     req('/docs', { method: 'POST', body: JSON.stringify(body) }),
   patch: (id: string, body: { title?: string; icon?: string; folderId?: string | null }) =>
     req(`/docs/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),

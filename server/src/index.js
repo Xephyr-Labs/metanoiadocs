@@ -24,7 +24,8 @@ import {
 } from './db.js';
 import { requestMagicLink, consumeMagicLink, sendInviteEmail, sendNotificationEmail } from './auth.js';
 import { getSetting, setSetting } from './db.js';
-import { buildDocState, appendToDocState, extractText, extractBlocks } from './blocks.js';
+import { buildDocState, appendToDocState, extractText, extractBlocks, docToMarkdown } from './blocks.js';
+import { printHtml } from './print.js';
 import { topTerms, extractSignals, findMentions, simhash, hamming, keyphrases, summarize, tokenize, coalesceByKey, blocksFromText } from './intelligence.js';
 import { registerTaskRoutes } from './tasks.js';
 import { registerHomeRoutes } from './home.js';
@@ -469,6 +470,63 @@ app.get('/api/docs/:id/text', requireUser, async (req, res) => {
   let text = '';
   if (s.rows[0]) { try { text = extractText(s.rows[0].state).text; } catch { /* empty */ } }
   res.json({ id: req.params.id, title: d.rows[0].title, text });
+});
+
+// ── export ──────────────────────────────────────────────────────────────────
+
+/** A safe download filename stem — also keeps quotes/newlines out of the header. */
+const fileSlug = (s) =>
+  String(s || '').normalize('NFKD').replace(/[^\w\s-]+/g, '').trim().replace(/\s+/g, '-').slice(0, 60).toLowerCase()
+  || 'document';
+
+/**
+ * One document as markdown, for both export routes. Page references render as
+ * `[[Title]]`, which is exactly what the importer reads back in, and images
+ * point at the blob endpoint so a printed page still shows them.
+ */
+async function docAsMarkdown(id, userId) {
+  if (!(await grantOn(id, userId))) return { status: 403 };
+  const d = await pool.query(
+    'SELECT title, icon, updated_at FROM docs WHERE id = $1 AND deleted_at IS NULL', [id]);
+  if (!d.rows[0]) return { status: 404 };
+  const s = await pool.query('SELECT state FROM doc_states WHERE doc_id = $1', [id]);
+  // Titles for [[reference]] rendering. Two columns over a table that holds one
+  // row per document — cheap enough not to bother narrowing to the ids used.
+  const titles = new Map(
+    (await pool.query('SELECT id, title FROM docs WHERE deleted_at IS NULL')).rows.map((r) => [r.id, r.title]));
+  let markdown = '';
+  if (s.rows[0]) {
+    try {
+      // A doc that has never been opened has no state row; one with a state we
+      // cannot decode exports empty rather than failing the whole request.
+      markdown = docToMarkdown(s.rows[0].state, { resolveTitle: (pid) => titles.get(pid) || null }).markdown;
+    } catch { /* empty body */ }
+  }
+  return { status: 200, ...d.rows[0], markdown };
+}
+
+// Download a doc as a .md file.
+app.get('/api/docs/:id/export.md', requireUser, async (req, res) => {
+  const out = await docAsMarkdown(req.params.id, req.user.id);
+  if (out.status !== 200) return res.status(out.status).json({ error: out.status === 403 ? 'forbidden' : 'not found' });
+  res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${fileSlug(out.title)}.md"`);
+  res.send(`# ${out.title}\n\n${out.markdown}\n`);
+});
+
+// Print-ready HTML — the browser turns it into the PDF (see print.js).
+app.get('/api/docs/:id/print', requireUser, async (req, res) => {
+  const out = await docAsMarkdown(req.params.id, req.user.id);
+  if (out.status !== 200) return res.status(out.status).json({ error: out.status === 403 ? 'forbidden' : 'not found' });
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(printHtml({
+    title: out.title,
+    icon: out.icon,
+    markdown: out.markdown,
+    meta: `Last edited ${new Date(out.updated_at).toISOString().slice(0, 10)}`,
+    // ?auto=0 opens the page without the print dialog, for checking the layout.
+    auto: req.query.auto !== '0',
+  }));
 });
 
 // Write markdown content to a doc: mode 'append' (default) or 'replace'. Editors

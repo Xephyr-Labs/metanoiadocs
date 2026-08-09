@@ -1,7 +1,8 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { ChevronRight, Copy, FileText, Link2, MoreHorizontal, Plus, Star, Trash2 } from 'lucide-react';
+import { ChevronRight, Copy, Download, FileText, Link2, MoreHorizontal, Plus, Printer, Star, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { cn } from '../../lib/cn';
+import { downloadMarkdown, printDoc } from '../../lib/docFiles';
 import type { PageId } from '../../lib/types';
 import { useWorkspace } from '../../store/workspace';
 import { DocIcon } from '../ui/DocIcon';
@@ -100,6 +101,8 @@ function Row({ id, depth }: { id: PageId; depth: number }) {
               { icon: Link2, label: 'Copy link' },
               { icon: Copy, label: 'Duplicate' },
               { icon: FileText, label: 'Rename', onSelect: () => ws.select(id) },
+              { icon: Download, label: 'Export Markdown', onSelect: () => downloadMarkdown(id) },
+              { icon: Printer, label: 'Export PDF', onSelect: () => printDoc(id) },
               { icon: Trash2, label: 'Delete', danger: true, separatorBefore: true, onSelect: () => ws.deletePage(id) },
             ]}
           />

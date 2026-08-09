@@ -11,6 +11,7 @@ import {
 import { docsApi, type DocRow, type FolderRow } from '../lib/docsApi';
 import { tasksApi, type ProjectRow } from '../lib/tasksApi';
 import { setPendingSeed } from '../editor/pendingSeed';
+import { MAX_IMPORT_BYTES, stripFrontMatter, titleFromMarkdown } from '../lib/docFiles';
 import type { Template } from '../data/templates';
 import type { EditorMode, Folder, Page, PageId, Tag } from '../lib/types';
 
@@ -78,6 +79,7 @@ interface WorkspaceState {
   toggleFolder: (id: string) => void;
   deleteFolder: (id: string) => Promise<void>;
   createFromTemplate: (t: Template) => Promise<PageId | null>;
+  importMarkdown: (files: File[], folderId: string | null) => Promise<PageId | null>;
   deletePage: (id: PageId) => void;
   restorePage: (id: PageId) => Promise<void>;
   refreshTags: () => Promise<void>;
@@ -369,6 +371,35 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     }
   }, [refresh]);
 
+  /**
+   * Markdown files → documents. Each file is its own page; a file that fails
+   * stops the run but keeps everything imported before it, which is why the
+   * refresh below happens either way.
+   */
+  const importMarkdown = useCallback(async (files: File[], folderId: string | null): Promise<PageId | null> => {
+    let first: PageId | null = null;
+    try {
+      for (const file of files) {
+        if (file.size > MAX_IMPORT_BYTES) throw new Error(`${file.name} is bigger than 2 MB.`);
+        const md = stripFrontMatter(await file.text());
+        const row = await docsApi.create({ title: titleFromMarkdown(md, file.name), folderId, content: md });
+        first ??= row.id;
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not import that file.');
+    }
+    if (!first) return null;
+    if (folderId) {
+      folderExpandedRef.current.add(folderId);
+      setFolders((f) => (f[folderId] ? { ...f, [folderId]: { ...f[folderId], expanded: true } } : f));
+    }
+    await refresh();
+    setCurrentId(first);
+    setView('doc');
+    localStorage.setItem('mn-last-doc', first);
+    return first;
+  }, [refresh]);
+
   const restorePage = useCallback(async (id: PageId) => {
     await docsApi.restore(id).catch(() => {});
     await refresh();
@@ -506,7 +537,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       sidebarCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
       settingsOpen, trashOpen, inboxOpen, mode, fullWidth, theme,
       refresh, select, toggleExpand, toggleFavorite, setVisibility, rename, applyTitleFromEditor,
-      createPage, movePage, createFolder, renameFolder, setFolderColor, setIcon, toggleFolder, deleteFolder, createFromTemplate, deletePage, restorePage,
+      createPage, movePage, createFolder, renameFolder, setFolderColor, setIcon, toggleFolder, deleteFolder, createFromTemplate, importMarkdown, deletePage, restorePage,
       refreshTags, addTagToPage, removeTagFromPage, setTagFilter,
       setSidebarCollapsed, setSidebarWidth, setMobileDrawer, setRightPanel, setPaletteOpen,
       setShareOpen, setSettingsOpen, setTrashOpen, setInboxOpen, setMode, setFullWidth, toggleTheme,
@@ -519,7 +550,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       sidebarCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
       settingsOpen, trashOpen, inboxOpen, mode, fullWidth, theme,
       refresh, select, toggleExpand, toggleFavorite, setVisibility, rename, applyTitleFromEditor,
-      createPage, movePage, createFolder, renameFolder, setFolderColor, setIcon, toggleFolder, deleteFolder, createFromTemplate, deletePage, restorePage,
+      createPage, movePage, createFolder, renameFolder, setFolderColor, setIcon, toggleFolder, deleteFolder, createFromTemplate, importMarkdown, deletePage, restorePage,
       refreshTags, addTagToPage, removeTagFromPage, toggleTheme,
     ],
   );
