@@ -36,6 +36,14 @@
   /* One display face for document title + headings; Inter stays the UI face.
    * Fraunces at opsz high, soft/wonk 0 = a crisp high-contrast editorial serif. */
   --font-display: 'Fraunces Variable', 'Fraunces', Georgia, ui-serif, serif;
+  /* Code face — system mono, no webfont to download. */
+  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+
+  /* Code surface: a shade off the canvas so a block reads as a slab, not as
+   * more prose. Warm gray in light, near-black in dark (shiki's dark-plus
+   * theme is tuned against #1e1e1e). */
+  --code-bg: #f7f6f3;
+  --code-line: #e6e4df;
 
   /* One motion family across drawers, dialogs, menus, page transitions. */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
@@ -64,6 +72,9 @@
 
   --comment: #26241c;
   --comment-mark: rgba(214, 178, 66, 0.30);
+
+  --code-bg: #1f1f1e;
+  --code-line: #2e2e2c;
 
   --tooltip: #3a3a37;
 
@@ -200,6 +211,11 @@ affine-editor-container {
   --affine-primary-color: var(--accent);
   --affine-hover-color: var(--hover);
   --affine-font-family: 'Inter Variable', 'Inter', ui-sans-serif, system-ui, sans-serif;
+  /* Both live in @toeverything/theme, a stylesheet we don't ship — undefined,
+   * BlockSuite renders code as body Inter on a transparent background. They
+   * paint code blocks AND inline `code` chips. */
+  --affine-font-code-family: var(--font-mono);
+  --affine-background-code-block: var(--code-bg);
   --affine-editor-width: var(--reading-w);
   --affine-editor-side-padding: 24px;
   display: block;
@@ -254,6 +270,39 @@ affine-editor-container .affine-paragraph-rich-text-wrapper.h5 { font-size: 1.02
 affine-editor-container .affine-paragraph-rich-text-wrapper.h6 { font-size: 0.92rem !important; letter-spacing: 0; }
 /* Comfortable body rhythm. */
 affine-editor-container affine-note { --affine-line-height: 1.72; }
+
+/* ------------------------------------------------------------------ *
+ * Code blocks. BlockSuite ships the structure (sticky line-number gutter,
+ * shiki tokens, a toolbar pinned at top:0 of the block); we give it a
+ * surface and a mono face. The top padding is the band that toolbar sits
+ * in — without it the language button lands on line 1.
+ * ------------------------------------------------------------------ */
+affine-editor-container .affine-code-block-container {
+  margin: 6px 0;
+  padding: 34px 16px 14px;
+  border: 1px solid var(--code-line);
+  border-radius: 8px;
+  font-size: 13.5px;
+  line-height: 1.62;
+}
+affine-editor-container .affine-code-block-container.mobile {
+  padding: 32px 12px 12px;
+}
+/* The gutter is reference, not content: quiet it and match the code metrics
+ * so numbers line up with their rows. */
+affine-editor-container .affine-code-block-container .line-number {
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+  line-height: 1.62;
+}
+/* The toolbar is absolutely positioned at the block's edge, so its language
+ * button starts 16px left of the gutter it sits above. Pad the host to line
+ * the two up (8px host + 4px row + 4px button = the block's 16px padding). */
+affine-editor-container affine-code-toolbar {
+  box-sizing: border-box;
+  padding: 3px 8px;
+}
 
 /* Read-only mermaid diagram preview rendered under its ```mermaid code block. */
 affine-editor-container .mn-mermaid {
