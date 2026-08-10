@@ -168,7 +168,7 @@ export function Home() {
                 each column, so a short card never strands empty space beside
                 a tall neighbor. */}
             <div className="mb-6 grid items-start gap-4 lg:grid-cols-2">
-              <div className="grid gap-4">
+              <div className="grid min-w-0 gap-4">
                 <Card title="My tasks">
                   {BUCKETS.some((b) => data.myTasks[b].length) ? (
                     BUCKETS.map((b) => (

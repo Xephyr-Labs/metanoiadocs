@@ -13,7 +13,10 @@ export function Card({ title, action, children, className }: {
   className?: string;
 }) {
   return (
-    <section className={cn('rounded-xl border border-line bg-canvas p-4', className)}>
+    // min-w-0: a card is always a grid/flex item, and a grid item's automatic
+    // minimum is its min-content — one long doc title would push the card wider
+    // than its column and slide it under the neighbouring one.
+    <section className={cn('min-w-0 rounded-xl border border-line bg-canvas p-4', className)}>
       {(title || action) && (
         <header className="mb-3 flex items-center justify-between">
           <h2 className="text-2xs font-semibold uppercase tracking-wide text-faint">{title}</h2>
