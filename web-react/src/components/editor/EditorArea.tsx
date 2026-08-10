@@ -13,6 +13,7 @@ import { Backlinks } from './Backlinks';
 import { CommentMarkers } from './CommentMarkers';
 import { EditorBar } from './EditorBar';
 import { PageHeader } from './PageHeader';
+import { SlidesRail } from './SlidesRail';
 
 export function EditorArea() {
   const ws = useWorkspace();
@@ -74,7 +75,9 @@ export function EditorArea() {
     );
   }
 
-  const edgeless = ws.mode === 'edgeless';
+  // Slides render the same canvas as edgeless, with the deck rail beside it.
+  const canvas = ws.mode !== 'page';
+  const slides = ws.mode === 'slides';
 
   return (
     <div className="relative flex h-full flex-col bg-canvas">
@@ -92,20 +95,28 @@ export function EditorArea() {
       </div>
 
       <div className="relative min-h-0 flex-1">
-        {edgeless ? (
-          <div className="absolute inset-0">
+        {canvas ? (
+          <div className="absolute inset-0 flex">
+            {slides && <SlidesRail editor={editorEl} />}
+            {/* The pane the deck goes fullscreen with — everything outside it
+                (sidebar, rail, top bar) is excluded while presenting. */}
+            <div data-slides-pane className="relative min-w-0 flex-1 bg-canvas">
             <LazyEditor
               key={page.id}
               docId={page.id}
               title={page.title}
-              mode="edgeless"
+              mode={ws.mode}
               userName={auth.user?.name ?? 'You'}
               onTitle={(t) => ws.applyTitleFromEditor(page.id, t)}
               onSaved={bumpSoon}
               pages={linkTargets}
               createPage={createLinkedPage}
               onOpenDoc={(id) => ws.select(id)}
+              // The deck rail drives this editor (add/focus/present), so it
+              // needs the mounted element here too, not only in page mode.
+              onEditor={setEditorEl}
             />
+            </div>
           </div>
         ) : (
           <div className="absolute inset-0 flex">

@@ -211,6 +211,15 @@ export async function mountEditor(
     }
   }
 
+  // Docs the server built (API, markdown import, templates) had no surface until
+  // now, and edgeless/slides mount into the surface — without one the canvas is
+  // blank. Heal on open. Two clients opening the same unhealed doc at the same
+  // instant would add two; BlockSuite reads the first, so the loser is inert.
+  const pageRoot = store.root as { id: string; children?: { flavour: string }[] } | null;
+  if (!share && pageRoot && !(pageRoot.children ?? []).some((c) => c.flavour === 'affine:surface')) {
+    try { store.addBlock('affine:surface', {}, pageRoot.id, 0); } catch { /* raced, fine */ }
+  }
+
   const editor = document.createElement('affine-editor-container') as HTMLElement & {
     autofocus: boolean; doc: unknown; mode: string;
     pageSpecs: unknown[]; edgelessSpecs: unknown[]; updateComplete: Promise<unknown>;

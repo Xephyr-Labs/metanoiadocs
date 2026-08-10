@@ -35,7 +35,8 @@ export interface Folder {
   expanded?: boolean;
 }
 
-export type EditorMode = 'page' | 'edgeless';
+/** `slides` is the edgeless canvas with deck chrome — same doc, same blocks. */
+export type EditorMode = 'page' | 'edgeless' | 'slides';
 
 export interface Workspace {
   id: string;

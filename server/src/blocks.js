@@ -282,9 +282,30 @@ function makeNote(blocks, childIds) {
 }
 
 /**
- * Full doc from scratch: page → note → content blocks. Returns a Uint8Array state.
- * `resolveLink(key)` turns a `[[key]]` in the markdown into a page reference;
- * omit it and `[[key]]` stays literal text.
+ * The edgeless canvas. Without one the whiteboard/slides view has nothing to
+ * mount into and renders blank, so every page gets a surface even though the
+ * page view never touches it. `prop:elements` is a BlockSuite "Boxed" value —
+ * a Y.Map tagged with the native marker, holding the real Y.Map.
+ */
+function makeSurface(blocks) {
+  const id = blockId();
+  const surface = new Y.Map();
+  surface.set('sys:id', id);
+  surface.set('sys:flavour', 'affine:surface');
+  surface.set('sys:version', 5);
+  surface.set('sys:children', new Y.Array());
+  const boxed = new Y.Map();
+  boxed.set('type', '$blocksuite:internal:native$');
+  boxed.set('value', new Y.Map());
+  surface.set('prop:elements', boxed);
+  blocks.set(id, surface);
+  return id;
+}
+
+/**
+ * Full doc from scratch: page → surface + note → content blocks. Returns a
+ * Uint8Array state. `resolveLink(key)` turns a `[[key]]` in the markdown into a
+ * page reference; omit it and `[[key]]` stays literal text.
  */
 export function buildDocState(title, markdown, resolveLink) {
   const doc = new Y.Doc();
@@ -299,6 +320,7 @@ export function buildDocState(title, markdown, resolveLink) {
   }
   if (descs.length === 0) descs.push({ flavour: 'affine:paragraph', type: 'text', text: '' });
   const childIds = makeBlocks(blocks, descs, resolveLink, pending);
+  const surfaceId = makeSurface(blocks);
   const noteId = makeNote(blocks, childIds);
 
   const pageId = blockId();
@@ -306,7 +328,7 @@ export function buildDocState(title, markdown, resolveLink) {
   page.set('sys:id', pageId);
   page.set('sys:flavour', 'affine:page');
   page.set('sys:version', 2);
-  const pageChildren = new Y.Array(); pageChildren.push([noteId]);
+  const pageChildren = new Y.Array(); pageChildren.push([surfaceId, noteId]);
   page.set('sys:children', pageChildren);
   page.set('prop:title', plainYText(title || ''));
   blocks.set(pageId, page);

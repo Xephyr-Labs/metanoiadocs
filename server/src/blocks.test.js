@@ -91,6 +91,20 @@ test('markdown survives a round trip through the block state', () => {
   assert.equal(markdown, md.replace('2. two', '1. two'));
 });
 
+test('a built doc carries an edgeless surface, or the whiteboard renders blank', () => {
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, new Uint8Array(buildDocState('T', 'hello')));
+  const blocks = doc.getMap('blocks');
+  const page = [...blocks.values()].find((b) => b.get('sys:flavour') === 'affine:page');
+  const kids = page.get('sys:children').toArray().map((id) => blocks.get(id).get('sys:flavour'));
+  assert.deepEqual(kids, ['affine:surface', 'affine:note']);
+
+  const surface = [...blocks.values()].find((b) => b.get('sys:flavour') === 'affine:surface');
+  const elements = surface.get('prop:elements');
+  assert.equal(elements.get('type'), '$blocksuite:internal:native$');
+  assert.ok(elements.get('value') instanceof Y.Map);
+});
+
 test('a hard-wrapped paragraph imports as one paragraph, not one per line', () => {
   const md = [
     'A paragraph that someone',

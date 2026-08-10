@@ -73,7 +73,8 @@ export function BlockSuiteEditor({
       .then((inst) => {
         if (!alive) { inst.destroy(); return; }
         instRef.current = inst;
-        inst.setMode(mode);
+        // Slides ARE edgeless — the deck chrome lives outside the editor.
+        inst.setMode(mode === 'page' ? 'page' : 'edgeless');
         setLoading(false);
         onEditorRef.current?.(inst.editor);
       })
@@ -91,10 +92,10 @@ export function BlockSuiteEditor({
   }, [docId, userName, share]);
 
   useEffect(() => {
-    instRef.current?.setMode(mode);
+    instRef.current?.setMode(mode === 'page' ? 'page' : 'edgeless');
   }, [mode]);
 
-  const edgeless = mode === 'edgeless';
+  const edgeless = mode !== 'page';
   return (
     <div className={cn(edgeless ? 'bs-fill relative h-full' : 'relative min-h-[70vh]', !edgeless && fullWidth && 'bs-fullwidth')}>
       {loading && (

@@ -9,9 +9,10 @@ import { toggleLink } from '@blocksuite/affine/inlines/link';
 import { getTextStyle, toggleBold, toggleCode, toggleItalic, toggleStrike } from '@blocksuite/affine/inlines/preset';
 import {
   Bold, Check, ChevronDown, Code, FileText, Italic, Link2, List, ListOrdered,
-  ListTodo, Maximize2, Minimize2, PencilRuler, Strikethrough,
+  ListTodo, Maximize2, Minimize2, PencilRuler, Presentation, Strikethrough,
 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
+import type { EditorMode } from '../../lib/types';
 import { cn } from '../../lib/cn';
 import { IconButton } from '../ui/IconButton';
 import { SegmentedControl } from '../ui/SegmentedControl';
@@ -49,8 +50,8 @@ const Divider = () => <span className="mx-1 h-4 w-px shrink-0 bg-line" aria-hidd
 interface Props {
   /** The mounted `affine-editor-container`, or null before it loads. */
   editor: Element | null;
-  mode: 'page' | 'edgeless';
-  onMode: (m: 'page' | 'edgeless') => void;
+  mode: EditorMode;
+  onMode: (m: EditorMode) => void;
   fullWidth: boolean;
   onFullWidth: (v: boolean) => void;
 }
@@ -64,7 +65,8 @@ interface Props {
 export function EditorBar({ editor, mode, onMode, fullWidth, onFullWidth }: Props) {
   const [marks, setMarks] = useState<Record<string, boolean>>({});
   const [blockLabel, setBlockLabel] = useState<string | null>(null);
-  const edgeless = mode === 'edgeless';
+  // Slides is the same canvas, so both hide the block-formatting half of the bar.
+  const edgeless = mode !== 'page';
   // No caret in the document means every command below is a no-op. Say so with
   // the disabled state rather than letting the buttons look live and do nothing.
   const idle = blockLabel === null;
@@ -211,10 +213,11 @@ export function EditorBar({ editor, mode, onMode, fullWidth, onFullWidth }: Prop
       <SegmentedControl
         aria-label="Editor mode"
         value={mode}
-        onChange={(m) => onMode(m as 'page' | 'edgeless')}
+        onChange={(m) => onMode(m as EditorMode)}
         segments={[
           { value: 'page', label: 'Page', icon: <FileText size={14} /> },
           { value: 'edgeless', label: 'Edgeless', icon: <PencilRuler size={14} /> },
+          { value: 'slides', label: 'Slides', icon: <Presentation size={14} /> },
         ]}
       />
       {!edgeless && (
