@@ -202,7 +202,16 @@ textarea:focus-visible,
   --affine-v2-text-primary: var(--ink);
 }
 
-affine-editor-container {
+/* These sit on :root, not on affine-editor-container, because BlockSuite's
+ * floating widgets portal themselves to <body> — the slash menu, the "@"
+ * popover and the format bar are siblings of the app, not descendants of the
+ * editor, so anything scoped to the editor element never reaches them. That is
+ * how the slash menu ended up with an invisible selection: its highlighted row
+ * paints with --affine-hover-color, which resolved to nothing out there, so the
+ * row under the keyboard cursor looked exactly like every other row and the
+ * arrow keys read as dead. Declared here they resolve for both, and follow the
+ * light/dark toggle because .dark lands on the same <html> element. */
+:root {
   --affine-background-primary-color: var(--canvas);
   --affine-background-secondary-color: var(--surface);
   --affine-text-primary-color: var(--ink);
@@ -216,6 +225,9 @@ affine-editor-container {
    * paint code blocks AND inline `code` chips. */
   --affine-font-code-family: var(--font-mono);
   --affine-background-code-block: var(--code-bg);
+}
+
+affine-editor-container {
   --affine-editor-width: var(--reading-w);
   --affine-editor-side-padding: 24px;
   display: block;

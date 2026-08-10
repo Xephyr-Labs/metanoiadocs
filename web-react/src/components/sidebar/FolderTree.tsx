@@ -1,4 +1,4 @@
-import { ChevronRight, Download, FileText, Folder, FolderOpen, MoreHorizontal, Plus, Printer, Star, Trash2, Upload } from 'lucide-react';
+import { ChevronRight, Download, FileText, Folder, FolderInput, FolderOpen, MoreHorizontal, Plus, Printer, Star, Trash2, Upload } from 'lucide-react';
 import { useState } from 'react';
 import { cn } from '../../lib/cn';
 import { downloadMarkdown, pickMarkdownFiles, printDoc } from '../../lib/docFiles';
@@ -35,13 +35,20 @@ function DocumentRow({ id, depth }: { id: PageId; depth: number }) {
   if (!page) return null;
   const selected = ws.currentId === id;
   const fav = ws.favoriteIds.includes(id);
-  const folderOptions = Object.values(ws.folders)
-    .sort((a, b) => a.name.localeCompare(b.name))
-    .map((folder) => ({
-      icon: Folder,
-      label: `Move to ${folder.name}`,
-      onSelect: () => ws.movePage(id, folder.id),
-    }));
+  // Every folder used to be its own "Move to X" row, so this menu grew a line
+  // per folder and eventually ran off the bottom of the screen. They live in a
+  // submenu now, and the folder the page is already in isn't offered.
+  const moveTargets = [
+    ...(page.folderId ? [{ icon: FileText, label: 'Top level', onSelect: () => ws.movePage(id, null) }] : []),
+    ...Object.values(ws.folders)
+      .filter((folder) => folder.id !== page.folderId)
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((folder) => ({
+        icon: Folder,
+        label: folder.name,
+        onSelect: () => ws.movePage(id, folder.id),
+      })),
+  ];
   return (
     <div
       onMouseEnter={() => setHover(true)}
@@ -73,8 +80,7 @@ function DocumentRow({ id, depth }: { id: PageId; depth: number }) {
             { icon: FileText, label: 'Open', onSelect: () => ws.select(id) },
             { icon: Download, label: 'Export Markdown', onSelect: () => downloadMarkdown(id) },
             { icon: Printer, label: 'Export PDF', onSelect: () => printDoc(id) },
-            ...folderOptions,
-            ...(page.folderId ? [{ icon: FileText, label: 'Move to root', onSelect: () => ws.movePage(id, null), separatorBefore: true }] : []),
+            ...(moveTargets.length ? [{ icon: FolderInput, label: 'Move to', separatorBefore: true, items: moveTargets }] : []),
             { icon: Trash2, label: 'Delete', danger: true, separatorBefore: true, onSelect: () => ws.deletePage(id) },
           ]}
         />
@@ -165,12 +171,19 @@ function FolderRow({ id, depth }: { id: string; depth: number }) {
               { icon: Folder, label: 'New subfolder', onSelect: () => ws.createFolder(id) },
               { icon: Upload, label: 'Import Markdown…', onSelect: () => pickMarkdownFiles().then((f) => f.length && ws.importMarkdown(f, id)) },
               { icon: FileText, label: 'Rename', onSelect: () => setRenaming(true) },
-              ...TAG_COLORS.map((c, i) => ({
-                icon: ColorDot(c),
-                label: c[0].toUpperCase() + c.slice(1),
-                separatorBefore: i === 0,
-                onSelect: () => ws.setFolderColor(id, c),
-              })),
+              // Nine swatches inline made this menu taller than the sidebar.
+              // The trigger wears the folder's current colour, so the row still
+              // says which one is set without being opened.
+              {
+                icon: ColorDot(folder.color),
+                label: 'Color',
+                separatorBefore: true,
+                items: TAG_COLORS.map((c) => ({
+                  icon: ColorDot(c),
+                  label: c[0].toUpperCase() + c.slice(1),
+                  onSelect: () => ws.setFolderColor(id, c),
+                })),
+              },
               { icon: Trash2, label: 'Delete folder', danger: true, separatorBefore: true, onSelect: () => ws.deleteFolder(id) },
             ]}
           />
