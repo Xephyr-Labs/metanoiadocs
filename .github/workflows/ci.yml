@@ -1,0 +1,92 @@
+name: CI
+
+# Tests run for every push and every PR. The image is only built and pushed
+# from this repo's own main branch and version tags — a fork's PR has no
+# access to the Docker Hub secrets and must not be able to publish.
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+
+env:
+  IMAGE: hmsajjad/metanoiadocs
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            server/package-lock.json
+            web-react/package-lock.json
+
+      - name: Install server deps
+        working-directory: server
+        run: npm ci --no-audit --no-fund
+
+      - name: Server tests
+        working-directory: server
+        run: npm test
+
+      - name: Install web deps
+        working-directory: web-react
+        run: npm ci --no-audit --no-fund
+
+      - name: Web tests
+        working-directory: web-react
+        run: npm test
+
+      # Building here as well as in the image job would double the work, but a
+      # broken build should fail the PR that caused it rather than surface later
+      # on main, and PRs never reach the image job.
+      - name: Web build
+        working-directory: web-react
+        run: npm run build
+
+  image:
+    needs: test
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # main → :latest and :sha-<short>. A v0.1.8 tag → :0.1.8, :0.1, :latest.
+      # The sha tag is the one worth keeping: it names exactly one commit, so a
+      # rollback never has to guess which build ":latest" was at the time.
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=short,prefix=sha-
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          # The box this deploys to is x86; a second arch would double the build
+          # for nobody. Add linux/arm64 here the day that stops being true.
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
