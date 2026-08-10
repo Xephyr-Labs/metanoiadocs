@@ -213,12 +213,18 @@ export async function mountEditor(
 
   // Docs the server built (API, markdown import, templates) had no surface until
   // now, and edgeless/slides mount into the surface — without one the canvas is
-  // blank. Heal on open. Two clients opening the same unhealed doc at the same
-  // instant would add two; BlockSuite reads the first, so the loser is inert.
-  const pageRoot = store.root as { id: string; children?: { flavour: string }[] } | null;
-  if (!share && pageRoot && !(pageRoot.children ?? []).some((c) => c.flavour === 'affine:surface')) {
+  // blank. Heal it, but only when the canvas is actually about to be shown: a
+  // write here is an edit, and healing on every open would mark every doc in the
+  // workspace as just-edited the first time someone reads it.
+  // Two clients switching to canvas at the same instant would add two surfaces;
+  // BlockSuite reads the first, so the loser is inert.
+  const ensureSurface = () => {
+    if (share) return;
+    const pageRoot = store.root as { id: string; children?: { flavour: string }[] } | null;
+    if (!pageRoot || (pageRoot.children ?? []).some((c) => c.flavour === 'affine:surface')) return;
     try { store.addBlock('affine:surface', {}, pageRoot.id, 0); } catch { /* raced, fine */ }
-  }
+  };
+  if (mode === 'edgeless') ensureSurface();
 
   const editor = document.createElement('affine-editor-container') as HTMLElement & {
     autofocus: boolean; doc: unknown; mode: string;
@@ -331,7 +337,10 @@ export async function mountEditor(
 
   return {
     editor,
-    setMode(m: 'page' | 'edgeless') { editor.mode = m; },
+    setMode(m: 'page' | 'edgeless') {
+      if (m === 'edgeless') ensureSurface();
+      editor.mode = m;
+    },
     destroy() {
       if (timer) clearTimeout(timer);
       try { tooltipKiller.disconnect(); } catch { /* noop */ }

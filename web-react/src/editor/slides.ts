@@ -83,8 +83,14 @@ export function addSlide(editor: Element | null): string | null {
     // BlockSuite names them "Frame N" and leaves them transparent; a slide is a
     // sheet of paper you can see against the canvas.
     try {
+      // Number past the highest slide there has ever been, not past the count —
+      // deleting slide 2 of 3 must not hand the next one a name already in use.
+      const highest = existing.reduce((max: number, f: Any) => {
+        const n = /^Slide (\d+)$/.exec(String(f.props?.title ?? '').trim())?.[1];
+        return n ? Math.max(max, Number(n)) : max;
+      }, existing.length);
       (s.gfx.doc ?? s.std.store).updateBlock(frame, {
-        title: new Text(`Slide ${existing.length + 1}`),
+        title: new Text(`Slide ${highest + 1}`),
         background: { light: '#ffffff', dark: '#252525' },
       });
     } catch { /* keep BlockSuite's defaults */ }

@@ -26,7 +26,16 @@ export function SlidesRail({ editor }: Props) {
   const [slides, setSlides] = useState<Slide[]>([]);
   const [current, setCurrent] = useState<string | null>(null);
 
-  const read = useCallback(() => setSlides(listSlides(editor)), [editor]);
+  // Poll, but only re-render when the deck actually changed — this ticks every
+  // second for as long as slides mode is open.
+  const read = useCallback(() => {
+    const next = listSlides(editor);
+    setSlides((prev) =>
+      prev.length === next.length && prev.every((s, i) => s.id === next[i].id && s.title === next[i].title)
+        ? prev
+        : next,
+    );
+  }, [editor]);
 
   // The doc is a CRDT: slides can appear from a teammate, from undo, or from the
   // canvas frame tool. Poll on a slow tick rather than reaching into BlockSuite's
@@ -37,8 +46,12 @@ export function SlidesRail({ editor }: Props) {
     const t = setInterval(() => {
       read();
       // Presentation can also end from BlockSuite's own stop button; drop out of
-      // fullscreen with it rather than leaving a full-screen editor behind.
-      if (document.fullscreenElement && !isPresenting(editor)) document.exitFullscreen().catch(() => {});
+      // fullscreen with it rather than leaving a full-screen editor behind. Only
+      // OUR pane — anything else on screen owns its own fullscreen.
+      const pane = editor.closest('[data-slides-pane]');
+      if (pane && document.fullscreenElement === pane && !isPresenting(editor)) {
+        document.exitFullscreen().catch(() => {});
+      }
     }, 1000);
     return () => clearInterval(t);
   }, [editor, read]);
