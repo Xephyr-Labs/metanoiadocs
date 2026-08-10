@@ -152,6 +152,123 @@ function Account() {
         />
         <Row title="Username" control={<span className="text-sm text-muted">@{user?.username}</span>} />
         <Row title="Email" desc="Used to sign in and for notifications." control={<span className="text-sm text-muted">{user?.email}</span>} />
+        <PasswordRow />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Change-password, asked in place like the member and token rows. Collapsed it
+ * is one more line in the account list; open it is the three fields, because
+ * there is no reset flow to catch a typo in the new one.
+ */
+function PasswordRow() {
+  const { changePassword } = useAuth();
+  const [open, setOpen] = useState(false);
+  const [current, setCurrent] = useState('');
+  const [next, setNext] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const reset = () => { setCurrent(''); setNext(''); setConfirm(''); };
+  const close = () => { setOpen(false); reset(); setMsg(null); };
+
+  const problem =
+    next.length > 0 && next.length < 8 ? 'New password must be at least 8 characters.'
+    : confirm.length > 0 && next !== confirm ? "Those two don't match."
+    : null;
+  const ready = current.length > 0 && next.length >= 8 && next === confirm && !busy;
+
+  const submit = async () => {
+    if (!ready) return;
+    setBusy(true);
+    setMsg(null);
+    const res = await changePassword(current, next);
+    setBusy(false);
+    if (!res.ok) { setMsg({ ok: false, text: res.error ?? 'Could not change your password.' }); return; }
+    reset();
+    setOpen(false);
+    setMsg({
+      ok: true,
+      text: res.signedOut
+        ? `Password changed. ${res.signedOut} other ${res.signedOut === 1 ? 'session was' : 'sessions were'} signed out.`
+        : 'Password changed.',
+    });
+  };
+
+  if (!open) {
+    return (
+      <div className="py-3.5">
+        <div className="flex flex-col gap-2 min-[600px]:flex-row min-[600px]:items-center min-[600px]:justify-between min-[600px]:gap-6">
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-ink">Password</p>
+            <p className="mt-0.5 text-xs leading-snug text-muted">
+              Changing it signs out every other browser and device you're on.
+            </p>
+          </div>
+          <div className="w-full min-[600px]:w-auto min-[600px]:shrink-0">
+            <Button size="sm" onClick={() => { setMsg(null); setOpen(true); }} leftIcon={<KeyRound size={14} />}>
+              Change
+            </Button>
+          </div>
+        </div>
+        {msg?.ok && (
+          <p className="mt-2 flex items-center gap-1.5 text-xs text-accent">
+            <Check size={14} /> {msg.text}
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="py-3.5">
+      <p className="text-sm font-medium text-ink">Change password</p>
+      <div className="mt-3 space-y-2">
+        <input
+          value={current}
+          onChange={(e) => setCurrent(e.target.value)}
+          type="password"
+          autoComplete="current-password"
+          placeholder="Current password"
+          className={field}
+        />
+        <input
+          value={next}
+          onChange={(e) => setNext(e.target.value)}
+          type="password"
+          autoComplete="new-password"
+          placeholder="New password — at least 8 characters"
+          className={field}
+        />
+        <input
+          value={confirm}
+          onChange={(e) => setConfirm(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && submit()}
+          type="password"
+          autoComplete="new-password"
+          placeholder="New password again"
+          className={field}
+        />
+      </div>
+      {(problem || msg) && !msg?.ok && (
+        <p className="mt-2 flex items-center gap-1.5 text-xs text-danger">
+          <AlertCircle size={14} /> {problem ?? msg?.text}
+        </p>
+      )}
+      <div className="mt-3 flex items-center gap-2">
+        <Button
+          size="sm"
+          variant="primary"
+          onClick={submit}
+          disabled={!ready}
+          leftIcon={busy ? <Loader2 size={14} className="animate-spin" /> : undefined}
+        >
+          Change password
+        </Button>
+        <Button size="sm" onClick={close} disabled={busy}>Cancel</Button>
       </div>
     </div>
   );

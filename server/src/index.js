@@ -21,8 +21,11 @@ import {
   consumeInvite,
   hasAnyUser,
   createFirstAdmin,
+  setPasswordHash,
+  deleteOtherSessions,
 } from './db.js';
 import { requestMagicLink, consumeMagicLink, sendInviteEmail, sendNotificationEmail } from './auth.js';
+import { lockedFor, noteFailure, clearFailures, lockoutError } from './throttle.js';
 import { getSetting, setSetting } from './db.js';
 import { buildDocState, appendToDocState, extractText, extractBlocks, docToMarkdown } from './blocks.js';
 import { printHtml } from './print.js';
@@ -195,8 +198,8 @@ app.post('/api/setup', async (req, res) => {
   res.json({ user: publicUser(user) });
 });
 
-// Username + password registration. Open sign-up (unique username + email),
-// bcrypt-hashed. Sets the same session cookie the magic-link flow uses.
+// Username + password registration, invite-gated (see below) and unique on both
+// username and email. Sets the same session cookie the magic-link flow uses.
 app.post('/api/auth/register', async (req, res) => {
   const { name, username, email, password } = accountFields(req.body);
   const problem = accountProblem({ name, username, email, password });
@@ -222,13 +225,46 @@ app.post('/api/auth/login', async (req, res) => {
   const id = String(req.body?.username || '').trim().toLowerCase();
   const password = String(req.body?.password || '');
   if (!id || !password) return res.status(400).json({ error: 'Enter your username and password.' });
+  const mins = lockedFor(`login:${id}`);
+  if (mins) return res.status(429).json({ error: lockoutError(mins) });
   const user = id.includes('@') ? await findUserByEmail(id) : await findUserByUsername(id);
   // Constant-ish work whether or not the user exists; generic error either way.
   const ok = user?.password_hash ? await bcrypt.compare(password, user.password_hash) : false;
-  if (!ok) return res.status(401).json({ error: 'Incorrect username or password.' });
+  if (!ok) {
+    noteFailure(`login:${id}`);
+    return res.status(401).json({ error: 'Incorrect username or password.' });
+  }
+  clearFailures(`login:${id}`);
   const token = await createSession(user.id);
   setSessionCookie(res, token);
   res.json({ user: publicUser(user) });
+});
+
+// Change your own password. The current one is required: a borrowed session
+// cookie must not be enough to lock the real owner out of their account.
+app.post('/api/auth/password', requireUser, async (req, res) => {
+  const current = String(req.body?.current || '');
+  const next = String(req.body?.next || '');
+  if (next.length < 8) return res.status(400).json({ error: 'New password must be at least 8 characters.' });
+  if (next === current) return res.status(400).json({ error: "That's already your password." });
+
+  const key = `pw:${req.user.id}`;
+  const mins = lockedFor(key);
+  if (mins) return res.status(429).json({ error: lockoutError(mins) });
+
+  // A magic-link-only account has no hash to check against, so it has no
+  // current password to prove — it signs in by email and doesn't come here.
+  const ok = req.user.password_hash ? await bcrypt.compare(current, req.user.password_hash) : false;
+  if (!ok) {
+    noteFailure(key);
+    return res.status(401).json({ error: 'Current password is incorrect.' });
+  }
+  clearFailures(key);
+
+  await setPasswordHash(req.user.id, await bcrypt.hash(next, 12));
+  // Bearer-token callers have no cookie to keep, so every session goes.
+  const signedOut = await deleteOtherSessions(req.user.id, sessionToken(req));
+  res.json({ ok: true, signedOut });
 });
 
 app.post('/api/auth/request', async (req, res) => {

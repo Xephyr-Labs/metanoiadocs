@@ -473,6 +473,20 @@ export async function createSession(userId, days = 30) {
   return token;
 }
 
+export async function setPasswordHash(userId, passwordHash) {
+  await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [passwordHash, userId]);
+}
+
+/** Sign out everywhere but here. A new password is worth nothing if the sessions
+ *  opened under the old one keep working. */
+export async function deleteOtherSessions(userId, keepToken) {
+  const { rowCount } = await pool.query(
+    'DELETE FROM sessions WHERE user_id = $1 AND token IS DISTINCT FROM $2',
+    [userId, keepToken]
+  );
+  return rowCount;
+}
+
 export async function isEmailAllowedIn(email) {
   const clean = email.trim().toLowerCase();
   const u = await pool.query('SELECT 1 FROM users WHERE email = $1', [clean]);

@@ -23,6 +23,8 @@ interface AuthState {
   setup: (name: string, username: string, email: string, password: string) => Promise<Result>;
   logout: () => Promise<void>;
   updateName: (name: string) => Promise<Result>;
+  /** Resolves with how many other sessions the change signed out. */
+  changePassword: (current: string, next: string) => Promise<Result & { signedOut?: number }>;
 }
 
 const Ctx = createContext<AuthState | null>(null);
@@ -124,9 +126,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { ok: true };
   }, []);
 
+  const changePassword = useCallback(async (current: string, next: string) => {
+    const { status, data } = await api('/auth/password', { current, next });
+    if (status === 200 && data?.ok) return { ok: true as const, signedOut: Number(data.signedOut) || 0 };
+    return { ok: false as const, error: data?.error ?? 'Could not change your password.' };
+  }, []);
+
   const value = useMemo<AuthState>(
-    () => ({ user, loading, needsSetup, login, signup, setup, logout, updateName }),
-    [user, loading, needsSetup, login, signup, setup, logout, updateName],
+    () => ({ user, loading, needsSetup, login, signup, setup, logout, updateName, changePassword }),
+    [user, loading, needsSetup, login, signup, setup, logout, updateName, changePassword],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
