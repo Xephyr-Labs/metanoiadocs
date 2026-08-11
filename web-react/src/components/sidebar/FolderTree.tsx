@@ -1,4 +1,4 @@
-import { ChevronRight, Download, FileText, FileType, Folder, FolderInput, FolderOpen, Link2, MoreHorizontal, Plus, Printer, Star, Trash2, Upload } from 'lucide-react';
+import { ChevronRight, Download, FilePlus, FileText, FileType, Folder, FolderInput, FolderOpen, Link2, MoreHorizontal, Plus, Printer, Star, Trash2, Upload } from 'lucide-react';
 import { useState } from 'react';
 import { cn } from '../../lib/cn';
 import { docsApi } from '../../lib/docsApi';
@@ -55,13 +55,17 @@ function DocumentRow({ id, depth, ancestors = NO_ANCESTORS }: { id: PageId; dept
   const placeable = ancestors.length === 0;
   const canExpand = page.linkCount > 0 && ancestors.length < MAX_LINK_DEPTH;
 
+  // Refetched on every open rather than cached forever: a page linked since the
+  // last time this was expanded should be there when it is expanded again.
+  const loadLinks = async () => {
+    const rows = await docsApi.links(id).catch(() => []);
+    setLinked(rows.map((r) => r.id));
+  };
+
   const toggleLinks = async () => {
     const next = !linksOpen;
     setLinksOpen(next);
-    if (next && linked === null) {
-      const rows = await docsApi.links(id).catch(() => []);
-      setLinked(rows.map((r) => r.id));
-    }
+    if (next) await loadLinks();
   };
 
   // Only pages already in the tree can be rendered as rows, and a page that
@@ -156,6 +160,13 @@ function DocumentRow({ id, depth, ancestors = NO_ANCESTORS }: { id: PageId; dept
           items={[
             { icon: Star, label: fav ? 'Remove from Favorites' : 'Add to Favorites', onSelect: () => ws.toggleFavorite(id) },
             { icon: FileText, label: 'Open', onSelect: () => ws.select(id) },
+            // Creating it opens it, and the parent's arrow appears with the
+            // reference the server just wrote into its body.
+            {
+              icon: FilePlus,
+              label: 'Add a page inside',
+              onSelect: async () => { await ws.createChildPage(id); setLinksOpen(true); await loadLinks(); },
+            },
             { icon: Link2, label: 'Copy link', onSelect: () => navigator.clipboard?.writeText(docUrl(id)) },
             {
               icon: Download,

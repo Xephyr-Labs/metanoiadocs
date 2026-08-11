@@ -74,6 +74,7 @@ interface WorkspaceState {
   applyTitleFromEditor: (id: PageId, title: string) => void;
   createPage: (folderId: string | null) => Promise<PageId | null>;
   movePage: (id: PageId, folderId: string | null) => Promise<void>;
+  createChildPage: (parentId: PageId) => Promise<PageId | null>;
   reorderPage: (dragId: PageId, targetId: PageId, place: 'before' | 'after') => Promise<void>;
   createFolder: (parentId: string | null) => Promise<string | null>;
   renameFolder: (id: string, name: string) => Promise<void>;
@@ -380,6 +381,25 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     await refresh();
   }, [refresh]);
 
+  // Create a page inside another one and open it. The reference that does the
+  // nesting is written into the parent's body server-side, so this only has to
+  // refresh and navigate.
+  const createChildPage = useCallback(async (parentId: PageId): Promise<PageId | null> => {
+    try {
+      const row = await docsApi.createChild(parentId);
+      await refresh();
+      setCurrentId(row.id);
+      setView('doc');
+      localStorage.setItem('mn-last-doc', row.id);
+      showDoc(row.id);
+      setMobileDrawer(false);
+      return row.id;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not create that page.');
+      return null;
+    }
+  }, [refresh]);
+
   // Drop a page above or below another one. The target's container decides where
   // it lands, so dragging onto a page inside a folder both moves and places it —
   // one gesture, one request.
@@ -619,7 +639,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       sidebarCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
       settingsOpen, trashOpen, inboxOpen, mode, fullWidth, theme,
       refresh, select, toggleExpand, toggleFavorite, setVisibility, rename, applyTitleFromEditor,
-      createPage, movePage, reorderPage, createFolder, renameFolder, setFolderColor, setIcon, toggleFolder, deleteFolder, createFromTemplate, importMarkdown, deletePage, restorePage,
+      createPage, movePage, createChildPage, reorderPage, createFolder, renameFolder, setFolderColor, setIcon, toggleFolder, deleteFolder, createFromTemplate, importMarkdown, deletePage, restorePage,
       refreshTags, addTagToPage, removeTagFromPage, setTagFilter,
       setSidebarCollapsed, setSidebarWidth, setMobileDrawer, setRightPanel, setPaletteOpen,
       setShareOpen, setSettingsOpen, setTrashOpen, setInboxOpen, setMode, setFullWidth, toggleTheme,
@@ -632,7 +652,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       sidebarCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
       settingsOpen, trashOpen, inboxOpen, mode, fullWidth, theme,
       refresh, select, toggleExpand, toggleFavorite, setVisibility, rename, applyTitleFromEditor,
-      createPage, movePage, reorderPage, createFolder, renameFolder, setFolderColor, setIcon, toggleFolder, deleteFolder, createFromTemplate, importMarkdown, deletePage, restorePage,
+      createPage, movePage, createChildPage, reorderPage, createFolder, renameFolder, setFolderColor, setIcon, toggleFolder, deleteFolder, createFromTemplate, importMarkdown, deletePage, restorePage,
       refreshTags, addTagToPage, removeTagFromPage, toggleTheme,
     ],
   );

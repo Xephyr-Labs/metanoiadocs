@@ -598,6 +598,40 @@ export function docToMarkdown(existing, opts = {}) {
   return { title, markdown: markdown.replace(/\n{3,}/g, '\n\n').trim() };
 }
 
+/**
+ * Append a paragraph holding one page reference to a LIVE Yjs document.
+ *
+ * Unlike the functions either side of this one, it mutates a doc it is handed
+ * rather than decoding and re-encoding a buffer — the caller holds a Hocuspocus
+ * direct connection, so this edit reaches everyone who has the page open and is
+ * persisted by the same path a typed edit takes. Writing doc_states behind a
+ * live session's back would simply be overwritten by it.
+ *
+ * The label is deliberately not written anywhere: a reference node is a single
+ * space carrying the target id, and the editor renders the target's current
+ * title through DocDisplayMetaProvider. So there is nothing to keep in sync,
+ * and nothing to escape.
+ *
+ * @returns {boolean} false if the document has no note to append to.
+ */
+export function appendPageReference(doc, pageId) {
+  const blocks = doc.getMap('blocks');
+  let note = null;
+  for (const [, b] of blocks) {
+    if (b instanceof Y.Map && b.get('sys:flavour') === 'affine:note') { note = b; break; }
+  }
+  if (!note) return false;
+  const children = note.get('sys:children');
+  if (!(children instanceof Y.Array)) return false;
+
+  const pending = [];
+  // Any key resolves to the one target, so the placeholder text never matters.
+  const id = makeBlock(blocks, { flavour: 'affine:paragraph', type: 'text', text: '[[ref]]' }, () => pageId, pending);
+  applyMarks(pending);
+  children.push([id]);
+  return true;
+}
+
 /** Append markdown blocks to an existing doc_states buffer. Returns new state. */
 export function appendToDocState(existing, markdown) {
   const doc = new Y.Doc();

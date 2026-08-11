@@ -27,7 +27,7 @@ import {
 import { requestMagicLink, consumeMagicLink, sendInviteEmail, sendNotificationEmail } from './auth.js';
 import { lockedFor, noteFailure, clearFailures, lockoutError } from './throttle.js';
 import { getSetting, setSetting } from './db.js';
-import { buildDocState, appendToDocState, extractText, extractBlocks, docToMarkdown } from './blocks.js';
+import { buildDocState, appendToDocState, appendPageReference, extractText, extractBlocks, docToMarkdown } from './blocks.js';
 import { printHtml } from './print.js';
 import { docxFromMarkdown } from './docx.js';
 import { topTerms, extractSignals, findMentions, simhash, hamming, keyphrases, summarize, tokenize, coalesceByKey, blocksFromText } from './intelligence.js';
@@ -533,6 +533,66 @@ app.post('/api/docs', requireUser, async (req, res) => {
   }
   res.json({ id, title, icon, parent_id: null, folder_id: folderId, role: 'owner', visibility, shared: false, favorite: false });
 });
+
+/**
+ * Create a page nested under another — the sidebar's "Add a page inside".
+ *
+ * The nesting is a reference in the parent's own body, not a column, because
+ * that is what the sidebar's disclosure reads and, more importantly, what
+ * survives the parent's next edit: saving a document REPLACES its stored link
+ * set with whatever references its content actually holds, so a link recorded
+ * only in the table would be deleted the next time somebody typed in the parent.
+ *
+ * The reference is written through a Hocuspocus direct connection rather than
+ * into doc_states, so it reaches anyone who has the parent open right now and is
+ * persisted by the same path a typed edit takes. Writing the state row behind a
+ * live session's back would just be overwritten by that session.
+ */
+app.post('/api/docs/:id/children', requireUser, wrap(async (req, res) => {
+  const parentId = req.params.id;
+  if (!(await grantOn(parentId, req.user.id))) return res.status(403).json({ error: 'forbidden' });
+  const parent = await pool.query(
+    'SELECT title, folder_id, visibility FROM docs WHERE id = $1 AND deleted_at IS NULL',
+    [parentId],
+  );
+  if (!parent.rows[0]) return res.status(404).json({ error: 'not found' });
+
+  const id = crypto.randomUUID();
+  const title = String(req.body?.title || 'Untitled').slice(0, 200);
+  const icon = String(req.body?.icon || '📄').slice(0, 8);
+
+  // Write the reference first: a child nobody can reach from its parent is worse
+  // than no child at all, and this is the step that can fail.
+  let linked = false;
+  const conn = await hocuspocus.openDirectConnection(parentId);
+  try {
+    await conn.transact((doc) => { linked = appendPageReference(doc, id); });
+  } finally {
+    await conn.disconnect();
+  }
+  if (!linked) return res.status(409).json({ error: 'That page has no body to add a child to yet — open it once first.' });
+
+  // The child keeps the parent's company: same folder, same visibility.
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      'INSERT INTO docs (id, title, icon, created_by, folder_id, visibility) VALUES ($1, $2, $3, $4, $5, $6)',
+      [id, title, icon, req.user.id, parent.rows[0].folder_id, parent.rows[0].visibility],
+    );
+    await client.query(`INSERT INTO doc_access (doc_id, user_id, role) VALUES ($1, $2, 'owner')`, [id, req.user.id]);
+    // The parent's next save recomputes this from its content and will find the
+    // same reference; recording it now is what makes the arrow appear at once.
+    await client.query('INSERT INTO doc_links (from_id, to_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [parentId, id]);
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+  res.json({ id, title, icon, folder_id: parent.rows[0].folder_id, visibility: parent.rows[0].visibility });
+}));
 
 // Read a doc's title + plain text (decoded from the Yjs state; used by API clients).
 app.get('/api/docs/:id/text', requireUser, async (req, res) => {

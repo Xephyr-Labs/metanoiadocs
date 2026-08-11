@@ -173,6 +173,9 @@ export const docsApi = {
   /** `content` is markdown, built into real blocks server-side (used by import). */
   create: (body: { title?: string; icon?: string; folderId?: string | null; content?: string }): Promise<DocRow> =>
     req('/docs', { method: 'POST', body: JSON.stringify(body) }),
+  /** Create a page nested under `parentId` — the parent gains a reference to it. */
+  createChild: (parentId: string, title?: string): Promise<DocRow> =>
+    req(`/docs/${parentId}/children`, { method: 'POST', body: JSON.stringify({ title }) }),
   patch: (id: string, body: { title?: string; icon?: string; folderId?: string | null }) =>
     req(`/docs/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   remove: (id: string) => req(`/docs/${id}`, { method: 'DELETE' }),
