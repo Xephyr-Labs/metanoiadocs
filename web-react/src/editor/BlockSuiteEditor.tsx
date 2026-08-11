@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { EditorMode } from '../lib/types';
 import { cn } from '../lib/cn';
+import { readRoute, revealBlock } from '../lib/route';
 import { PageSkeleton } from '../components/ui/Skeleton';
 import { mountEditor } from './mountEditor';
 import type { LinkTarget } from './pageLinks';
@@ -94,6 +95,21 @@ export function BlockSuiteEditor({
   useEffect(() => {
     instRef.current?.setMode(mode === 'page' ? 'page' : 'edgeless');
   }, [mode]);
+
+  // Arrived on a block link (/d/<doc>#<block>). Kept out of the mount promise
+  // so an unrelated failure in there can't quietly swallow it, and waits for
+  // `loading` so there is something rendered to scroll to.
+  //
+  // The fragment is consumed rather than left in the address: it describes how
+  // this page was opened, not where it is, and leaving it would re-scroll on
+  // every remount.
+  useEffect(() => {
+    if (loading) return;
+    const { docId: routedDoc, blockId } = readRoute();
+    if (!blockId || routedDoc !== docId) return;
+    history.replaceState(history.state, '', location.pathname);
+    return revealBlock(blockId, instRef.current?.editor ?? document);
+  }, [loading, docId]);
 
   const edgeless = mode !== 'page';
   return (

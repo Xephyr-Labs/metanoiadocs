@@ -8,6 +8,7 @@ import {
   Plus,
   Settings2,
   Shield,
+  Sparkles,
   Sun,
   Trash2,
   UserMinus,
@@ -43,7 +44,7 @@ function Avatar({ name, size = 32 }: { name: string; size?: number }) {
   );
 }
 
-type SectionId = 'account' | 'preferences' | 'tokens' | 'members' | 'about';
+type SectionId = 'account' | 'preferences' | 'tokens' | 'members' | 'ai' | 'about';
 
 const NAV: { group: string; items: { id: SectionId; label: string; icon: typeof Settings2 }[] }[] = [
   {
@@ -58,6 +59,7 @@ const NAV: { group: string; items: { id: SectionId; label: string; icon: typeof 
     group: 'Workspace',
     items: [
       { id: 'members', label: 'Members', icon: Users },
+      { id: 'ai', label: 'AI', icon: Sparkles },
       { id: 'about', label: 'About', icon: Info },
     ],
   },
@@ -451,6 +453,161 @@ function Members() {
   );
 }
 
+/**
+ * AI provider credentials. Admin-only — the server enforces that on PUT, and
+ * this form reflects it rather than letting a collaborator type into fields
+ * whose Save can only 403.
+ *
+ * The key is write-only by design: GET reports whether one is stored, never
+ * what it is, so leaving the field blank keeps the existing key and there is no
+ * request anywhere that can hand it back to a browser.
+ */
+function AiSettings() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
+  const [loaded, setLoaded] = useState(false);
+  const [keySet, setKeySet] = useState(false);
+  const [baseUrl, setBaseUrl] = useState('');
+  const [model, setModel] = useState('');
+  const [apiKey, setApiKey] = useState('');
+  const [enabled, setEnabled] = useState(false);
+  const [saved, setSaved] = useState<{ baseUrl: string; model: string; enabled: boolean } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  useEffect(() => {
+    docsApi
+      .aiConfig()
+      .then((c) => {
+        setBaseUrl(c.baseUrl);
+        setModel(c.model);
+        setEnabled(c.enabled);
+        setKeySet(c.keySet);
+        setSaved({ baseUrl: c.baseUrl, model: c.model, enabled: c.enabled });
+      })
+      .catch((e) => setMsg({ ok: false, text: e instanceof Error ? e.message : 'Could not load AI settings.' }))
+      .finally(() => setLoaded(true));
+  }, []);
+
+  const dirty =
+    !!saved && (baseUrl.trim() !== saved.baseUrl || model.trim() !== saved.model || enabled !== saved.enabled || apiKey.length > 0);
+  // Turning it on without somewhere to send the request just produces a 503 at
+  // the first prompt, so say so here instead.
+  const missing = enabled && (!baseUrl.trim() || !model.trim() || (!keySet && !apiKey.trim()));
+
+  const save = async () => {
+    if (!dirty || busy || missing) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      await docsApi.saveAiConfig({
+        baseUrl: baseUrl.trim(),
+        model: model.trim(),
+        enabled,
+        ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
+      });
+      if (apiKey.trim()) setKeySet(true);
+      setApiKey('');
+      setSaved({ baseUrl: baseUrl.trim(), model: model.trim(), enabled });
+      setMsg({ ok: true, text: 'AI settings saved.' });
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof Error ? e.message : 'Could not save AI settings.' });
+    }
+    setBusy(false);
+  };
+
+  return (
+    <div>
+      <SectionTitle>AI</SectionTitle>
+      <p className="mb-5 text-sm text-muted">
+        Connect any OpenAI-compatible provider to power the copilot, the ✨ writing actions and summaries.
+      </p>
+
+      {!isAdmin && (
+        <p className="mb-4 flex items-start gap-2 rounded-lg border border-line bg-surface px-3 py-2.5 text-xs leading-snug text-muted">
+          <Shield size={14} className="mt-px shrink-0 text-faint" />
+          Only workspace admins can change these. AI is currently{' '}
+          <span className="font-medium text-ink">{enabled ? 'on' : 'off'}</span> for everyone.
+        </p>
+      )}
+
+      <fieldset disabled={!isAdmin || !loaded} className="divide-y divide-line border-t border-line disabled:opacity-60">
+        <Row
+          title="Enabled"
+          desc="Off hides every AI entry point in the editor."
+          control={<Switch on={enabled} onChange={setEnabled} />}
+        />
+        <Row
+          title="Provider URL"
+          desc="The API base, e.g. https://api.openai.com/v1"
+          control={
+            <input
+              value={baseUrl}
+              onChange={(e) => setBaseUrl(e.target.value)}
+              placeholder="https://api.openai.com/v1"
+              spellCheck={false}
+              autoComplete="off"
+              className={cn(field, 'min-[600px]:w-64')}
+            />
+          }
+        />
+        <Row
+          title="Model"
+          desc="Sent verbatim to the provider."
+          control={
+            <input
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              placeholder="gpt-4o-mini"
+              spellCheck={false}
+              autoComplete="off"
+              className={cn(field, 'min-[600px]:w-64')}
+            />
+          }
+        />
+        <Row
+          title="API key"
+          desc={keySet ? 'A key is stored. Type a new one to replace it.' : 'Stored on the server; never sent back to a browser.'}
+          control={
+            <input
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && save()}
+              type="password"
+              autoComplete="off"
+              placeholder={keySet ? '••••••••••••  (unchanged)' : 'sk-…'}
+              className={cn(field, 'min-[600px]:w-64')}
+            />
+          }
+        />
+      </fieldset>
+
+      {isAdmin && (
+        <div className="mt-4 flex items-center gap-3">
+          <Button
+            size="sm"
+            variant="primary"
+            onClick={save}
+            disabled={!dirty || busy || missing}
+            leftIcon={busy ? <Loader2 size={14} className="animate-spin" /> : undefined}
+          >
+            Save
+          </Button>
+          {missing ? (
+            <span className="flex items-center gap-1.5 text-xs text-danger">
+              <AlertCircle size={14} /> Add a provider URL, a model and a key before turning it on.
+            </span>
+          ) : msg ? (
+            <span className={cn('flex items-center gap-1.5 text-xs', msg.ok ? 'text-accent' : 'text-danger')}>
+              {msg.ok ? <Check size={14} /> : <AlertCircle size={14} />} {msg.text}
+            </span>
+          ) : null}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function About() {
   const rows = [
     ['Plan', 'Free · unlimited members, forever'],
@@ -600,6 +757,7 @@ const BODIES: Record<SectionId, () => JSX.Element> = {
   preferences: Preferences,
   tokens: Tokens,
   members: Members,
+  ai: AiSettings,
   about: About,
 };
 

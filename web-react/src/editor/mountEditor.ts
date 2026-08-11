@@ -27,6 +27,8 @@ import { takePendingSeed } from './pendingSeed';
 import { docPlainText } from './docText';
 import { attachMermaidPreviews } from './mermaidPreview';
 import { attachRefClicks, collectPageLinks, pageLinkExtensions, type LinkTarget } from './pageLinks';
+import { blockLinkExtensions } from './blockLinks';
+import { attachImageAlign, imageAlignExtensions } from './imageAlign';
 import { chartEffects, chartViewExtensions } from './chart';
 import { MetanoiaChartBlockSchema, MetanoiaChartBlockSchemaExtension } from './chart/chart-model';
 import { createVirtualKeyboardProvider } from './virtualKeyboard';
@@ -263,11 +265,14 @@ export async function mountEditor(
       setup: (di: { override: (a: unknown, b: unknown) => void }) =>
         di.override(VirtualKeyboardProvider, () => virtualKeyboard),
     },
+    // Alignment is a property of the document, so a public viewer must see it
+    // too; the toolbar it is set from never opens for them (readonly store).
+    ...imageAlignExtensions(),
     // "@" page references. A public viewer gets neither the menu nor our title
     // resolver — it has no page index to offer and cannot create pages.
     ...(share || !pages || !createPage
       ? []
-      : pageLinkExtensions({ pages, currentId: docId, createPage })),
+      : [...pageLinkExtensions({ pages, currentId: docId, createPage }), ...blockLinkExtensions(docId)]),
   ];
   editor.pageSpecs = [...viewManager.get('page'), ...chartViewExtensions, ...common];
   editor.edgelessSpecs = [...viewManager.get('edgeless'), ...chartViewExtensions, ...common];
@@ -287,6 +292,13 @@ export async function mountEditor(
   // Clicking a reference chip opens that page in the app; BlockSuite's own
   // handler would look for the doc in this collection and find nothing.
   const detachRefClicks = onOpenDoc ? attachRefClicks(editor, onOpenDoc) : null;
+
+  // Paint each image's stored alignment onto the DOM (see imageAlign.ts).
+  const detachImageAlign = attachImageAlign({
+    store: store as unknown as Parameters<typeof attachImageAlign>[0]['store'],
+    root: editor,
+    onChange: (cb) => { doc.spaceDoc.on('update', cb); return () => doc.spaceDoc.off('update', cb); },
+  });
 
   // Render read-only diagram previews under ```mermaid code blocks. Mermaid is
   // dynamically imported inside here, so it only loads for docs that use it.
@@ -347,6 +359,7 @@ export async function mountEditor(
       try { detachPresence(); } catch { /* noop */ }
       try { detachComments?.(); } catch { /* noop */ }
       try { detachRefClicks?.(); } catch { /* noop */ }
+      try { detachImageAlign(); } catch { /* noop */ }
       try { detachMermaid(); } catch { /* noop */ }
       try { themeObserver.disconnect(); } catch { /* noop */ }
       try { virtualKeyboard.dispose(); } catch { /* noop */ }

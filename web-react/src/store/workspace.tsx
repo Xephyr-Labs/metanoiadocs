@@ -12,6 +12,7 @@ import { docsApi, type DocRow, type FolderRow } from '../lib/docsApi';
 import { tasksApi, type ProjectRow } from '../lib/tasksApi';
 import { setPendingSeed } from '../editor/pendingSeed';
 import { MAX_IMPORT_BYTES, stripFrontMatter, titleFromMarkdown } from '../lib/docFiles';
+import { readRoute, showDoc, showHome } from '../lib/route';
 import type { Template } from '../data/templates';
 import type { EditorMode, Folder, Page, PageId, Tag } from '../lib/types';
 
@@ -72,6 +73,7 @@ interface WorkspaceState {
   applyTitleFromEditor: (id: PageId, title: string) => void;
   createPage: (folderId: string | null) => Promise<PageId | null>;
   movePage: (id: PageId, folderId: string | null) => Promise<void>;
+  reorderPage: (dragId: PageId, targetId: PageId, place: 'before' | 'after') => Promise<void>;
   createFolder: (parentId: string | null) => Promise<string | null>;
   renameFolder: (id: string, name: string) => Promise<void>;
   setFolderColor: (id: string, color: string) => void;
@@ -118,12 +120,15 @@ function buildPages(rows: DocRow[]): Record<PageId, Page> {
       role: r.role,
       visibility: r.visibility === 'private' ? 'private' : 'team',
       updatedAt: r.updated_at,
+      linkCount: r.link_count ?? 0,
       tags: r.tags ?? [],
       children: [],
   };
   }
   return map;
 }
+
+const byOrder = (a: Page, b: Page) => a.position - b.position || a.title.localeCompare(b.title);
 
 function buildFolders(rows: FolderRow[], expanded: Set<string>, pages: Record<PageId, Page>): Record<string, Folder> {
   const map: Record<string, Folder> = {};
@@ -139,7 +144,10 @@ function buildFolders(rows: FolderRow[], expanded: Set<string>, pages: Record<Pa
       expanded: expanded.has(row.id),
     };
   }
-  for (const page of Object.values(pages)) {
+  // Same comparator as unfiledIds below, so a page keeps its place when it is
+  // dragged from a folder to the top level. Position is what drag-reorder
+  // writes; title only breaks ties among pages nobody has ordered yet.
+  for (const page of Object.values(pages).sort(byOrder)) {
     if (page.folderId && map[page.folderId]) map[page.folderId].documentIds.push(page.id);
   }
   for (const row of [...rows].sort((a, b) => a.position - b.position || a.name.localeCompare(b.name))) {
@@ -201,10 +209,36 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setFolders(nextFolders);
     setCurrentId((cur) => {
       if (cur && next[cur]) return cur;
+      // A /d/<id> address is a deliberate destination and outranks whatever was
+      // open last — it is how a shared link, a block link and the back button
+      // all arrive.
+      const routed = readRoute().docId;
+      if (routed && next[routed]) return routed;
       const last = localStorage.getItem('mn-last-doc');
       if (last && next[last]) return last;
       return rows[0]?.id ?? null;
     });
+  }, []);
+
+  // Arriving on a page link opens the document rather than the dashboard.
+  useEffect(() => {
+    if (readRoute().docId) setView('doc');
+  }, []);
+
+  // Back/forward. The address is the source of truth here — this is the one
+  // path where the URL changes without select() having been called.
+  useEffect(() => {
+    const onPop = () => {
+      const { docId } = readRoute();
+      if (docId) {
+        setCurrentId((cur) => (pagesRef.current[docId] ? docId : cur));
+        setView('doc');
+      } else {
+        setView('home');
+      }
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
   }, []);
 
   const refresh = useCallback(async () => {
@@ -243,12 +277,16 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const openHome = useCallback(() => {
     setView('home');
     setMobileDrawer(false);
+    showHome();
   }, []);
 
   const openProject = useCallback((id: string) => {
     setActiveProjectId(id);
     setView('project');
     setMobileDrawer(false);
+    // Projects have no address of their own yet; what matters is that the
+    // /d/<id> in the bar stops claiming a document is open.
+    showHome();
   }, []);
 
   const select = useCallback((id: PageId) => {
@@ -256,6 +294,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setView('doc');
     localStorage.setItem('mn-last-doc', id);
     setMobileDrawer(false);
+    showDoc(id);
     setRecentIds((prev) => {
       const r = [id, ...prev.filter((x) => x !== id)].slice(0, 8);
       localStorage.setItem('mn-recents', JSON.stringify(r));
@@ -326,6 +365,37 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const movePage = useCallback(async (id: PageId, folderId: string | null) => {
     await docsApi.patch(id, { folderId }).catch(() => {});
+    await refresh();
+  }, [refresh]);
+
+  // Drop a page above or below another one. The target's container decides where
+  // it lands, so dragging onto a page inside a folder both moves and places it —
+  // one gesture, one request.
+  const reorderPage = useCallback(async (dragId: PageId, targetId: PageId, place: 'before' | 'after') => {
+    const all = pagesRef.current;
+    const dragged = all[dragId];
+    const target = all[targetId];
+    if (!dragged || !target || dragId === targetId) return;
+
+    const folderId = target.folderId;
+    const ids = Object.values(all)
+      .filter((p) => p.folderId === folderId && p.id !== dragId)
+      .sort(byOrder)
+      .map((p) => p.id);
+    const at = ids.indexOf(targetId);
+    if (at === -1) return;
+    ids.splice(place === 'before' ? at : at + 1, 0, dragId);
+
+    // Paint the new order immediately — the round trip is long enough that the
+    // row visibly springs back to where it was dragged from otherwise.
+    setPages((prev) => {
+      const next = { ...prev };
+      ids.forEach((id, i) => {
+        if (next[id]) next[id] = { ...next[id], position: i, folderId };
+      });
+      return next;
+    });
+    await docsApi.reorder(folderId, ids).catch(() => {});
     await refresh();
   }, [refresh]);
 
@@ -524,7 +594,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     [folders],
   );
   const unfiledIds = useMemo(
-    () => Object.values(pages).filter((p) => !p.folderId).sort((a, b) => a.position - b.position || a.title.localeCompare(b.title)).map((p) => p.id),
+    () => Object.values(pages).filter((p) => !p.folderId).sort(byOrder).map((p) => p.id),
     [pages],
   );
 
@@ -537,7 +607,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       sidebarCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
       settingsOpen, trashOpen, inboxOpen, mode, fullWidth, theme,
       refresh, select, toggleExpand, toggleFavorite, setVisibility, rename, applyTitleFromEditor,
-      createPage, movePage, createFolder, renameFolder, setFolderColor, setIcon, toggleFolder, deleteFolder, createFromTemplate, importMarkdown, deletePage, restorePage,
+      createPage, movePage, reorderPage, createFolder, renameFolder, setFolderColor, setIcon, toggleFolder, deleteFolder, createFromTemplate, importMarkdown, deletePage, restorePage,
       refreshTags, addTagToPage, removeTagFromPage, setTagFilter,
       setSidebarCollapsed, setSidebarWidth, setMobileDrawer, setRightPanel, setPaletteOpen,
       setShareOpen, setSettingsOpen, setTrashOpen, setInboxOpen, setMode, setFullWidth, toggleTheme,
@@ -550,7 +620,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       sidebarCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
       settingsOpen, trashOpen, inboxOpen, mode, fullWidth, theme,
       refresh, select, toggleExpand, toggleFavorite, setVisibility, rename, applyTitleFromEditor,
-      createPage, movePage, createFolder, renameFolder, setFolderColor, setIcon, toggleFolder, deleteFolder, createFromTemplate, importMarkdown, deletePage, restorePage,
+      createPage, movePage, reorderPage, createFolder, renameFolder, setFolderColor, setIcon, toggleFolder, deleteFolder, createFromTemplate, importMarkdown, deletePage, restorePage,
       refreshTags, addTagToPage, removeTagFromPage, toggleTheme,
     ],
   );

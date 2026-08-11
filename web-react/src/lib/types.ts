@@ -19,6 +19,8 @@ export interface Page {
   role: string; // owner | editor | viewer
   visibility: 'team' | 'private';
   updatedAt: string;
+  /** Pages this one @-references. Drives the sidebar disclosure arrow. */
+  linkCount: number;
   tags: Tag[];
   children: PageId[];
   expanded?: boolean;

@@ -1,21 +1,30 @@
-// Documents in and out as files: markdown import, markdown + PDF export.
+// Documents in and out as files: markdown import, markdown + Word + PDF export.
 //
-// Both exports are server-rendered (`/export.md`, `/print`) from the stored Yjs
-// state, so they work for any page you can open — not just the one currently
-// mounted in the editor.
+// Every export is server-rendered (`/export.md`, `/export.docx`, `/print`) from
+// the stored Yjs state, so they work for any page you can open — not just the
+// one currently mounted in the editor.
 
 /** A single import is a document, not a data dump. Anything larger is a mistake. */
 export const MAX_IMPORT_BYTES = 2 * 1024 * 1024;
 
 const MD_EXTENSIONS = /\.(md|markdown|mdown|txt)$/i;
 
-/** Download a doc as `.md`. The server's Content-Disposition names the file. */
-export function downloadMarkdown(id: string): void {
+function download(id: string, file: 'export.md' | 'export.docx'): void {
   const a = document.createElement('a');
-  a.href = `/api/docs/${encodeURIComponent(id)}/export.md`;
+  a.href = `/api/docs/${encodeURIComponent(id)}/${file}`;
   a.download = '';
   a.rel = 'noopener';
   a.click();
+}
+
+/** Download a doc as `.md`. The server's Content-Disposition names the file. */
+export function downloadMarkdown(id: string): void {
+  download(id, 'export.md');
+}
+
+/** Download a doc as `.docx` — headings, marks, lists, tables and images intact. */
+export function downloadDocx(id: string): void {
+  download(id, 'export.docx');
 }
 
 /**

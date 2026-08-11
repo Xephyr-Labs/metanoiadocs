@@ -29,6 +29,14 @@
   /* Tooltips stay dark in both themes — they float over content, not in it. */
   --tooltip: #2f2f2c;
 
+  /* Translucent accent washes, for surfaces that sit ON TOP of text and so
+   * cannot be filled: the editor's block-selection overlay, the drag-select
+   * rectangle, the flash on a block you followed a link to. One alpha cannot
+   * serve both themes — 8% over white is the same weight 22% is over near
+   * black — so each theme sets its own and everything downstream reads these. */
+  --tint: color-mix(in srgb, var(--accent) 8%, transparent);
+  --tint-strong: color-mix(in srgb, var(--accent) 16%, transparent);
+
   --sidebar-w: 260px;
   --topbar-h: 45px;
   --reading-w: 720px;
@@ -69,6 +77,10 @@
   --accent-soft: #1d3a57;
   --danger: #e06c66;
   --overlay: rgba(0, 0, 0, 0.5);
+
+  /* Same washes, far more of the accent: a dark canvas swallows a light one. */
+  --tint: color-mix(in srgb, var(--accent) 22%, transparent);
+  --tint-strong: color-mix(in srgb, var(--accent) 34%, transparent);
 
   --comment: #26241c;
   --comment-mark: rgba(214, 178, 66, 0.30);
@@ -214,11 +226,37 @@ textarea:focus-visible,
 :root {
   --affine-background-primary-color: var(--canvas);
   --affine-background-secondary-color: var(--surface);
+  --affine-background-tertiary-color: var(--surface-2);
+  --affine-background-overlay-panel-color: var(--canvas);
   --affine-text-primary-color: var(--ink);
   --affine-text-secondary-color: var(--muted);
+  --affine-text-disable-color: var(--faint);
+  --affine-text-emphasis-color: var(--accent);
   --affine-border-color: var(--line);
   --affine-primary-color: var(--accent);
-  --affine-hover-color: var(--hover);
+  --affine-brand-color: var(--accent);
+  /* Icons ship as currentColor-less SVGs that read this; undefined, every icon
+   * in the format bar and block toolbars paints as nothing. */
+  --affine-icon-color: var(--muted);
+  --affine-icon-secondary: var(--faint);
+  --affine-icon-hover-color: var(--ink);
+  --affine-placeholder-color: var(--faint);
+  --affine-link-color: var(--accent);
+  --affine-quote-color: var(--muted);
+  --affine-error-color: var(--danger);
+  /* The divider block is `border-top: 1px solid var(--affine-divider-color)`.
+   * An unresolvable var makes the whole shorthand invalid, which computes to
+   * border-style: none — so the divider drew nothing at all rather than drawing
+   * a faint line. Same class of bug as the slash-menu highlight below. */
+  --affine-divider-color: var(--line-strong);
+  /* Deliberately translucent. BlockSuite treats this as a tint, not a fill:
+   * affine-block-selection is an absolutely-positioned overlay at z-index 1
+   * covering the whole block, painted with this colour ON TOP of the block's
+   * own text. Mapped to our opaque --hover, selecting a block hid the text
+   * behind a solid rectangle. --affine-hover-color-filled is the opaque
+   * variant, for the surfaces that do want a fill. */
+  --affine-hover-color: var(--tint);
+  --affine-hover-color-filled: var(--hover);
   --affine-font-family: 'Inter Variable', 'Inter', ui-sans-serif, system-ui, sans-serif;
   /* Both live in @toeverything/theme, a stylesheet we don't ship — undefined,
    * BlockSuite renders code as body Inter on a transparent background. They
@@ -236,6 +274,42 @@ affine-editor-container {
 
 affine-editor-container * {
   border-color: inherit;
+}
+
+/* Image alignment (see editor/imageAlign.ts for where the attribute comes
+ * from). BlockSuite centres every image with `align-items: center` on
+ * affine-page-image; the attribute selector outranks that without needing
+ * !important, and the caption follows the image rather than staying centred
+ * under a left-aligned picture. */
+affine-image[data-mn-align='left'] affine-page-image,
+affine-image[data-mn-align='left'] .affine-image-container {
+  align-items: flex-start;
+}
+affine-image[data-mn-align='right'] affine-page-image,
+affine-image[data-mn-align='right'] .affine-image-container {
+  align-items: flex-end;
+}
+affine-image[data-mn-align='left'] affine-block-caption-editor {
+  text-align: left;
+}
+affine-image[data-mn-align='right'] affine-block-caption-editor {
+  text-align: right;
+}
+
+/* Landing on a block link (/d/<doc>#<block>) — a brief tint says which block
+ * the link meant, then gets out of the way. */
+.mn-block-flash {
+  animation: mn-block-flash 2s var(--ease-out);
+  border-radius: 4px;
+}
+@keyframes mn-block-flash {
+  0%,
+  55% {
+    background-color: var(--tint-strong);
+  }
+  100% {
+    background-color: transparent;
+  }
 }
 
 /* ------------------------------------------------------------------ *

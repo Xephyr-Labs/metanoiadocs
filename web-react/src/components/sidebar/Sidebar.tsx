@@ -140,7 +140,7 @@ export function Sidebar() {
               separatorBefore: true,
               // No folder: an import from here lands beside the other unfiled
               // documents, and the per-folder menu is where you say otherwise.
-              onSelect: () => pickMarkdownFiles().then((f) => f.length && ws.importMarkdown(f, null)),
+              onSelect: () => { pickMarkdownFiles().then((f) => { if (f.length) ws.importMarkdown(f, null); }); },
             },
             { icon: Settings, label: 'Settings', separatorBefore: true, onSelect: () => ws.setSettingsOpen(true) },
             { icon: LogOut, label: 'Log out', danger: true, onSelect: () => auth.logout() },

@@ -1,7 +1,9 @@
-import { ChevronRight, Download, FileText, Folder, FolderInput, FolderOpen, MoreHorizontal, Plus, Printer, Star, Trash2, Upload } from 'lucide-react';
+import { ChevronRight, Download, FileText, FileType, Folder, FolderInput, FolderOpen, Link2, MoreHorizontal, Plus, Printer, Star, Trash2, Upload } from 'lucide-react';
 import { useState } from 'react';
 import { cn } from '../../lib/cn';
-import { downloadMarkdown, pickMarkdownFiles, printDoc } from '../../lib/docFiles';
+import { docsApi } from '../../lib/docsApi';
+import { docUrl } from '../../lib/route';
+import { downloadDocx, downloadMarkdown, pickMarkdownFiles, printDoc } from '../../lib/docFiles';
 import { TAG_COLORS, swatch } from '../../lib/tagColors';
 import type { PageId } from '../../lib/types';
 import { useWorkspace } from '../../store/workspace';
@@ -28,13 +30,43 @@ const ColorDot = (color: string) =>
     return <span className={cn('h-3 w-3 rounded-full', swatch(color).dot, className)} />;
   };
 
-function DocumentRow({ id, depth }: { id: PageId; depth: number }) {
+/** How deep the linked-page disclosure may nest before it stops offering more. */
+const MAX_LINK_DEPTH = 3;
+const NO_ANCESTORS: readonly PageId[] = [];
+
+/**
+ * A page in the tree.
+ *
+ * `ancestors` are the pages this row is already nested under via the linked-page
+ * disclosure. It is what stops two pages that @-reference each other from
+ * expanding into each other forever, and a row inside it is a reference rather
+ * than a place — so it is not a drag-reorder target.
+ */
+function DocumentRow({ id, depth, ancestors = NO_ANCESTORS }: { id: PageId; depth: number; ancestors?: readonly PageId[] }) {
   const ws = useWorkspace();
   const page = ws.pages[id];
   const [hover, setHover] = useState(false);
+  const [edge, setEdge] = useState<'before' | 'after' | null>(null);
+  const [linksOpen, setLinksOpen] = useState(false);
+  const [linked, setLinked] = useState<PageId[] | null>(null);
   if (!page) return null;
   const selected = ws.currentId === id;
   const fav = ws.favoriteIds.includes(id);
+  const placeable = ancestors.length === 0;
+  const canExpand = page.linkCount > 0 && ancestors.length < MAX_LINK_DEPTH;
+
+  const toggleLinks = async () => {
+    const next = !linksOpen;
+    setLinksOpen(next);
+    if (next && linked === null) {
+      const rows = await docsApi.links(id).catch(() => []);
+      setLinked(rows.map((r) => r.id));
+    }
+  };
+
+  // Only pages already in the tree can be rendered as rows, and a page that
+  // links back to one of its own ancestors is dropped rather than nested.
+  const linkedRows = (linked ?? []).filter((linkId) => ws.pages[linkId] && linkId !== id && !ancestors.includes(linkId));
   // Every folder used to be its own "Move to X" row, so this menu grew a line
   // per folder and eventually ran off the bottom of the screen. They live in a
   // submenu now, and the folder the page is already in isn't offered.
@@ -50,6 +82,7 @@ function DocumentRow({ id, depth }: { id: PageId; depth: number }) {
       })),
   ];
   return (
+    <div>
     <div
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
@@ -58,17 +91,62 @@ function DocumentRow({ id, depth }: { id: PageId; depth: number }) {
         e.dataTransfer.effectAllowed = 'move';
         e.dataTransfer.setData('application/x-metanoia-document', id);
       }}
+      // Which half of the row the pointer is over decides whether the page
+      // lands above or below this one — the same gesture a file manager uses,
+      // and the only way to express "first in the folder".
+      onDragOver={(e) => {
+        if (!placeable || !e.dataTransfer.types.includes('application/x-metanoia-document')) return;
+        e.preventDefault();
+        e.stopPropagation(); // a folder row must not also claim this drop
+        e.dataTransfer.dropEffect = 'move';
+        const box = e.currentTarget.getBoundingClientRect();
+        setEdge(e.clientY - box.top < box.height / 2 ? 'before' : 'after');
+      }}
+      onDragLeave={() => setEdge(null)}
+      // The side is recomputed from the drop itself rather than read off the
+      // indicator's state: a quick drag can drop on the same frame the first
+      // dragover arrived, and the state would still be null.
+      onDrop={(e) => {
+        if (!placeable) return;
+        const dragged = e.dataTransfer.getData('application/x-metanoia-document');
+        if (!dragged) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const box = e.currentTarget.getBoundingClientRect();
+        const place = e.clientY - box.top < box.height / 2 ? 'before' : 'after';
+        setEdge(null);
+        if (dragged !== id) ws.reorderPage(dragged, id, place);
+      }}
       onClick={() => ws.select(id)}
-      className={cn('group/row flex h-8 cursor-pointer items-center rounded-md pr-1 text-base leading-5 transition-colors duration-120', selected ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-hover')}
+      className={cn('group/row relative flex h-8 cursor-pointer items-center rounded-md pr-1 text-base leading-5 transition-colors duration-120', selected ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-hover')}
       style={{ paddingLeft: 8 + depth * 16 }}
       role="treeitem"
       aria-selected={selected}
+      aria-expanded={canExpand ? linksOpen : undefined}
       tabIndex={0}
       onKeyDown={(e) => { if (e.key === 'Enter') ws.select(id); }}
     >
-      <span className={cn('mr-1.5 flex h-5 w-5 shrink-0 items-center justify-center', selected ? 'text-accent' : 'text-faint')}>
-        <PageIcon icon={page.icon} size={16} className={selected ? 'shrink-0 text-accent' : 'shrink-0 text-faint'} />
-      </span>
+      {edge && (
+        <span
+          className={cn('pointer-events-none absolute left-1 right-1 h-0.5 rounded-full bg-accent', edge === 'before' ? 'top-0' : 'bottom-0')}
+        />
+      )}
+      {/* One w-5 slot: the page icon at rest, a disclosure chevron while
+          hovering a page that links somewhere — same trade the folder rows make. */}
+      {canExpand && hover ? (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); toggleLinks(); }}
+          className={cn('mr-1.5 flex h-5 w-5 shrink-0 items-center justify-center rounded hover:bg-hover', selected ? 'text-accent' : 'text-faint')}
+          aria-label={linksOpen ? `Hide pages linked from ${page.title}` : `Show pages linked from ${page.title}`}
+        >
+          <ChevronRight size={14} className={cn('text-muted transition-transform duration-180', linksOpen && 'rotate-90')} />
+        </button>
+      ) : (
+        <span className={cn('mr-1.5 flex h-5 w-5 shrink-0 items-center justify-center', selected ? 'text-accent' : 'text-faint')}>
+          <PageIcon icon={page.icon} size={16} className={selected ? 'shrink-0 text-accent' : 'shrink-0 text-faint'} />
+        </span>
+      )}
       <span className={cn('flex h-5 min-w-0 flex-1 items-center truncate', selected && 'font-medium text-accent')}>
         {page.title}
       </span>
@@ -78,13 +156,35 @@ function DocumentRow({ id, depth }: { id: PageId; depth: number }) {
           items={[
             { icon: Star, label: fav ? 'Remove from Favorites' : 'Add to Favorites', onSelect: () => ws.toggleFavorite(id) },
             { icon: FileText, label: 'Open', onSelect: () => ws.select(id) },
-            { icon: Download, label: 'Export Markdown', onSelect: () => downloadMarkdown(id) },
-            { icon: Printer, label: 'Export PDF', onSelect: () => printDoc(id) },
+            { icon: Link2, label: 'Copy link', onSelect: () => navigator.clipboard?.writeText(docUrl(id)) },
+            {
+              icon: Download,
+              label: 'Export',
+              items: [
+                { icon: FileType, label: 'Word (.docx)', onSelect: () => downloadDocx(id) },
+                { icon: FileText, label: 'Markdown (.md)', onSelect: () => downloadMarkdown(id) },
+                { icon: Printer, label: 'PDF', onSelect: () => printDoc(id) },
+              ],
+            },
             ...(moveTargets.length ? [{ icon: FolderInput, label: 'Move to', separatorBefore: true, items: moveTargets }] : []),
             { icon: Trash2, label: 'Delete', danger: true, separatorBefore: true, onSelect: () => ws.deletePage(id) },
           ]}
         />
       </span>
+    </div>
+    {linksOpen && (
+      <div role="group">
+        {linkedRows.length ? (
+          linkedRows.map((linkId) => (
+            <DocumentRow key={linkId} id={linkId} depth={depth + 1} ancestors={[...ancestors, id]} />
+          ))
+        ) : (
+          <p className="py-1 text-xs text-faint" style={{ paddingLeft: 8 + (depth + 1) * 16 + 26 }}>
+            {linked === null ? 'Loading…' : 'No linked pages you can open.'}
+          </p>
+        )}
+      </div>
+    )}
     </div>
   );
 }
@@ -169,7 +269,7 @@ function FolderRow({ id, depth }: { id: string; depth: number }) {
             items={[
               { icon: Plus, label: 'New page', onSelect: () => ws.createPage(id) },
               { icon: Folder, label: 'New subfolder', onSelect: () => ws.createFolder(id) },
-              { icon: Upload, label: 'Import Markdown…', onSelect: () => pickMarkdownFiles().then((f) => f.length && ws.importMarkdown(f, id)) },
+              { icon: Upload, label: 'Import Markdown…', onSelect: () => { pickMarkdownFiles().then((f) => { if (f.length) ws.importMarkdown(f, id); }); } },
               { icon: FileText, label: 'Rename', onSelect: () => setRenaming(true) },
               // Nine swatches inline made this menu taller than the sidebar.
               // The trigger wears the folder's current colour, so the row still

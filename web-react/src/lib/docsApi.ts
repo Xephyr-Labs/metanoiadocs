@@ -41,6 +41,8 @@ export interface DocRow {
   visibility: 'team' | 'private';
   shared: boolean;
   favorite: boolean;
+  /** How many pages this one @-references. 0 = no disclosure arrow in the sidebar. */
+  link_count: number;
   tags: TagRow[];
 }
 
@@ -179,6 +181,11 @@ export const docsApi = {
   emptyTrash: (): Promise<{ deleted: number; skipped: number }> =>
     req('/docs/trash/empty', { method: 'POST' }),
   backlinks: (id: string): Promise<BacklinkRow[]> => req(`/docs/${id}/backlinks`),
+  /** Pages this one @-references — the sidebar hangs them under it. */
+  links: (id: string): Promise<BacklinkRow[]> => req(`/docs/${id}/links`),
+  /** `ids` is the container's whole list in its new order, not just the moved one. */
+  reorder: (folderId: string | null, ids: string[]) =>
+    req('/docs/reorder', { method: 'POST', body: JSON.stringify({ folderId, ids }) }),
   restore: (id: string) => req(`/docs/${id}/restore`, { method: 'POST' }),
   /** Destroy a trashed page. Owner or admin only; there is no undo. */
   destroy: (id: string) => req(`/docs/${id}/permanent`, { method: 'DELETE' }),

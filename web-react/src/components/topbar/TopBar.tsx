@@ -5,6 +5,8 @@ import {
   Cloud,
   Copy,
   Download,
+  FileText,
+  FileType,
   Globe,
   Link2,
   Lock,
@@ -27,7 +29,7 @@ import { relativeTime } from '../../lib/time';
 import { useWorkspace } from '../../store/workspace';
 import { cn } from '../../lib/cn';
 import { useOpenCommentCount } from '../../editor/comments';
-import { downloadMarkdown, printDoc } from '../../lib/docFiles';
+import { downloadDocx, downloadMarkdown, printDoc } from '../../lib/docFiles';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { Button } from '../ui/Button';
 import { PageIcon } from '../ui/PageIcon';
@@ -239,8 +241,18 @@ export function TopBar() {
               { icon: Link2, label: 'Copy link', separatorBefore: isMobile, onSelect: () => navigator.clipboard?.writeText(location.href) },
               { icon: Copy, label: 'Version history', onSelect: () => ws.setRightPanel('history') },
               { icon: ArrowUpRight, label: 'Open in new tab', onSelect: () => window.open(location.href, '_blank') },
-              { icon: Download, label: 'Export Markdown', separatorBefore: true, onSelect: () => downloadMarkdown(page.id) },
-              { icon: Printer, label: 'Export PDF', onSelect: () => printDoc(page.id) },
+              // One row instead of three: the formats belong together and this
+              // menu already carries everything else a page can do.
+              {
+                icon: Download,
+                label: 'Export',
+                separatorBefore: true,
+                items: [
+                  { icon: FileType, label: 'Word (.docx)', onSelect: () => downloadDocx(page.id) },
+                  { icon: FileText, label: 'Markdown (.md)', onSelect: () => downloadMarkdown(page.id) },
+                  { icon: Printer, label: 'PDF', onSelect: () => printDoc(page.id) },
+                ],
+              },
               { icon: Trash2, label: 'Move to Trash', danger: true, separatorBefore: true, onSelect: () => ws.deletePage(page.id) },
             ]}
             trigger={<span><IconButton icon={<MoreHorizontal size={18} />} label="More" /></span>}

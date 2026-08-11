@@ -29,6 +29,7 @@ import { lockedFor, noteFailure, clearFailures, lockoutError } from './throttle.
 import { getSetting, setSetting } from './db.js';
 import { buildDocState, appendToDocState, extractText, extractBlocks, docToMarkdown } from './blocks.js';
 import { printHtml } from './print.js';
+import { docxFromMarkdown } from './docx.js';
 import { topTerms, extractSignals, findMentions, simhash, hamming, keyphrases, summarize, tokenize, coalesceByKey, blocksFromText } from './intelligence.js';
 import { registerTaskRoutes } from './tasks.js';
 import { registerHomeRoutes } from './home.js';
@@ -440,8 +441,14 @@ app.get('/api/docs', requireUser, async (req, res) => {
             coalesce(a.role, 'editor') AS role, d.visibility,
             (d.share_token IS NOT NULL) AS shared,
             (f.doc_id IS NOT NULL) AS favorite,
+            lk.link_count,
             tg.tags
        FROM docs d
+       LEFT JOIN LATERAL (
+         SELECT count(*)::int AS link_count
+           FROM doc_links l JOIN docs t ON t.id = l.to_id AND t.deleted_at IS NULL
+          WHERE l.from_id = d.id
+       ) lk ON true
        LEFT JOIN doc_access a ON a.doc_id = d.id AND a.user_id = $1
        LEFT JOIN favorites f ON f.doc_id = d.id AND f.user_id = $1
        LEFT JOIN LATERAL (
@@ -458,6 +465,36 @@ app.get('/api/docs', requireUser, async (req, res) => {
   );
   res.json(rows);
 });
+
+// Manual sidebar order. The client sends the container's full list in its new
+// order rather than one moved id, so the result never depends on what the
+// server thinks the old order was — two people dragging at once converge on
+// whichever list landed last instead of interleaving into nonsense.
+//
+// Position and folder move together: dropping a page between two pages in
+// another folder is one gesture and must not be able to half-apply.
+app.post('/api/docs/reorder', requireUser, wrap(async (req, res) => {
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.filter((v) => typeof v === 'string').slice(0, 2000) : [];
+  if (!ids.length) return res.status(400).json({ error: 'ids required' });
+  const folderId = typeof req.body?.folderId === 'string' ? req.body.folderId : null;
+  if (folderId && !(await visibleFolder(folderId, req.user.id))) {
+    return res.status(403).json({ error: 'folder not accessible' });
+  }
+  // The access predicate is the same one /api/docs lists by, so a page you
+  // cannot see is silently skipped rather than reordered on your say-so.
+  const { rowCount } = await pool.query(
+    `UPDATE docs d
+        SET position = o.pos, folder_id = $3
+       FROM (SELECT id, ordinality - 1 AS pos
+               FROM unnest($1::text[]) WITH ORDINALITY AS t(id, ordinality)) o
+      WHERE d.id = o.id
+        AND d.deleted_at IS NULL
+        AND (d.visibility = 'team'
+             OR EXISTS (SELECT 1 FROM doc_access a WHERE a.doc_id = d.id AND a.user_id = $2))`,
+    [ids, req.user.id, folderId],
+  );
+  res.json({ ok: true, moved: rowCount });
+}));
 
 app.post('/api/docs', requireUser, async (req, res) => {
   const id = crypto.randomUUID();
@@ -549,6 +586,29 @@ app.get('/api/docs/:id/export.md', requireUser, async (req, res) => {
   res.setHeader('Content-Disposition', `attachment; filename="${fileSlug(out.title)}.md"`);
   res.send(`# ${out.title}\n\n${out.markdown}\n`);
 });
+
+// Download a doc as Word. Built from the same markdown the PDF export renders,
+// so the two never disagree about what the document contains (see docx.js).
+app.get('/api/docs/:id/export.docx', requireUser, wrap(async (req, res) => {
+  const out = await docAsMarkdown(req.params.id, req.user.id);
+  if (out.status !== 200) return res.status(out.status).json({ error: out.status === 403 ? 'forbidden' : 'not found' });
+  const buf = await docxFromMarkdown({
+    title: out.title,
+    markdown: out.markdown,
+    meta: `Last edited ${new Date(out.updated_at).toISOString().slice(0, 10)}`,
+    // Images live in our own blob table, so pull the bytes straight from there
+    // rather than having the server make an HTTP request to itself.
+    loadImage: async (url) => {
+      const key = /^\/api\/blob\/([^/?#]+)/.exec(url)?.[1];
+      if (!key) return null;
+      const { rows } = await pool.query('SELECT mime, data FROM blobs WHERE key = $1', [decodeURIComponent(key)]);
+      return rows[0] ? { mime: rows[0].mime, data: rows[0].data } : null;
+    },
+  });
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+  res.setHeader('Content-Disposition', `attachment; filename="${fileSlug(out.title)}.docx"`);
+  res.send(buf);
+}));
 
 // Print-ready HTML — the browser turns it into the PDF (see print.js).
 app.get('/api/docs/:id/print', requireUser, async (req, res) => {
@@ -1165,6 +1225,26 @@ app.put('/api/docs/:id/text', requireUser, wrap(async (req, res) => {
   res.json({ ok: true });
   scheduleSignals(req.params.id, text); // best-effort, after response
   if (links) storeLinks(req.params.id, links);
+}));
+
+// Pages this one @-references. Same access scoping as backlinks — a link to a
+// page you can't open must not leak its title — and the sidebar hangs these
+// under the page as its children.
+app.get('/api/docs/:id/links', requireUser, wrap(async (req, res) => {
+  if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
+  const { rows } = await pool.query(
+    `SELECT d.id, d.title, d.icon, d.updated_at
+       FROM doc_links l
+       JOIN docs d ON d.id = l.to_id
+       LEFT JOIN doc_access a ON a.doc_id = d.id AND a.user_id = $2
+      WHERE l.from_id = $1
+        AND d.deleted_at IS NULL
+        AND (a.user_id IS NOT NULL OR d.visibility = 'team')
+      ORDER BY lower(d.title)
+      LIMIT 100`,
+    [req.params.id, req.user.id],
+  );
+  res.json(rows);
 }));
 
 // Pages that @-reference this one. Access-scoped the same way search is: a

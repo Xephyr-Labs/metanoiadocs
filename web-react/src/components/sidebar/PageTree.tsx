@@ -1,8 +1,9 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { ChevronRight, Copy, Download, FileText, Link2, MoreHorizontal, Plus, Printer, Star, Trash2 } from 'lucide-react';
+import { ChevronRight, Copy, Download, FileText, FileType, Link2, MoreHorizontal, Plus, Printer, Star, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { cn } from '../../lib/cn';
-import { downloadMarkdown, printDoc } from '../../lib/docFiles';
+import { downloadDocx, downloadMarkdown, printDoc } from '../../lib/docFiles';
+import { docUrl } from '../../lib/route';
 import type { PageId } from '../../lib/types';
 import { useWorkspace } from '../../store/workspace';
 import { DocIcon } from '../ui/DocIcon';
@@ -98,11 +99,18 @@ function Row({ id, depth }: { id: PageId; depth: number }) {
             }
             items={[
               { icon: Star, label: fav ? 'Remove from Favorites' : 'Add to Favorites', onSelect: () => ws.toggleFavorite(id) },
-              { icon: Link2, label: 'Copy link' },
+              { icon: Link2, label: 'Copy link', onSelect: () => navigator.clipboard?.writeText(docUrl(id)) },
               { icon: Copy, label: 'Duplicate' },
               { icon: FileText, label: 'Rename', onSelect: () => ws.select(id) },
-              { icon: Download, label: 'Export Markdown', onSelect: () => downloadMarkdown(id) },
-              { icon: Printer, label: 'Export PDF', onSelect: () => printDoc(id) },
+              {
+                icon: Download,
+                label: 'Export',
+                items: [
+                  { icon: FileType, label: 'Word (.docx)', onSelect: () => downloadDocx(id) },
+                  { icon: FileText, label: 'Markdown (.md)', onSelect: () => downloadMarkdown(id) },
+                  { icon: Printer, label: 'PDF', onSelect: () => printDoc(id) },
+                ],
+              },
               { icon: Trash2, label: 'Delete', danger: true, separatorBefore: true, onSelect: () => ws.deletePage(id) },
             ]}
           />
