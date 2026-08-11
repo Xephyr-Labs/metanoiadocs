@@ -13,6 +13,7 @@ import { tasksApi, type ProjectRow } from '../lib/tasksApi';
 import { setPendingSeed } from '../editor/pendingSeed';
 import { MAX_IMPORT_BYTES, stripFrontMatter, titleFromMarkdown } from '../lib/docFiles';
 import { readRoute, showDoc, showHome } from '../lib/route';
+import { useDocSaveTick } from '../lib/docSignal';
 import type { Template } from '../data/templates';
 import type { EditorMode, Folder, Page, PageId, Tag } from '../lib/types';
 
@@ -245,6 +246,17 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     const [rows, folderRows] = await Promise.all([docsApi.list(), docsApi.folders().catch(() => [])]);
     applyRows(rows, folderRows);
   }, [applyRows]);
+
+  // The sidebar's linked-pages arrow is driven by link_count, which only ever
+  // arrives with the document list — so a page that had just gained its first
+  // @-reference showed no arrow until something unrelated happened to refetch.
+  // The editor has announced its saves on a debounce all along and nothing was
+  // listening; this is that listener. Guarded on the tick so it doesn't fire a
+  // second list fetch on mount, on top of the one the bootstrap already does.
+  const saveTick = useDocSaveTick();
+  useEffect(() => {
+    if (saveTick) refresh().catch(() => {});
+  }, [saveTick, refresh]);
 
   // Initial load. Brand-new accounts have no docs -> seed a first page so the
   // workspace is never empty on first sign-in.
