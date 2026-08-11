@@ -43,6 +43,13 @@ jobs:
         working-directory: web-react
         run: npm test
 
+      # `vite build` does not typecheck, so without this a type error only shows
+      # up in an editor. Scoped to our own sources: BlockSuite ships .ts in its
+      # published packages and several of them do not compile under our config.
+      - name: Web typecheck
+        working-directory: web-react
+        run: npx tsc --noEmit -p tsconfig.json 2>&1 | (! grep -v '^node_modules/' | grep -v '^ ' | grep .)
+
       # Building here as well as in the image job would double the work, but a
       # broken build should fail the PR that caused it rather than surface later
       # on main, and PRs never reach the image job.
