@@ -267,6 +267,13 @@ textarea:focus-visible,
    * paint code blocks AND inline `code` chips. */
   --affine-font-code-family: var(--font-mono);
   --affine-background-code-block: var(--code-bg);
+  /* Every BlockSuite popover portal is positioned with
+   * `z-index: var(--affine-z-index-popover)`. Undefined, that declaration is
+   * invalid and the portal falls back to z-index: auto — which loses to the
+   * code block's sticky `.line-number` (z-index: 1), so line numbers painted
+   * straight through the language-picker dropdown. Sits above the doc header
+   * (z-30) and below our own overlays (z-40) and menus/modals (z-50). */
+  --affine-z-index-popover: 35;
 }
 
 affine-editor-container {
