@@ -4,10 +4,62 @@ import crypto from 'node:crypto';
 import { pool } from './db.js';
 
 export const STATUSES = ['todo', 'doing', 'review', 'done'];
-export const KINDS = ['epic', 'story', 'task', 'bug'];
 
 const isStatus = (s) => STATUSES.includes(s);
-const isKind = (k) => KINDS.includes(k);
+
+/** Seeded into every project on first read. Not built-ins — all four can be
+ * renamed, recoloured or deleted like any type someone adds later. */
+export const DEFAULT_KINDS = [
+  { key: 'epic', label: 'Epic', color: 'purple', is_group: true },
+  { key: 'story', label: 'Story', color: 'blue', is_group: false },
+  { key: 'task', label: 'Task', color: 'gray', is_group: false },
+  { key: 'bug', label: 'Bug', color: 'red', is_group: false },
+];
+
+/** Enough to fill the picker without turning it into a scroll trap. */
+const MAX_KINDS = 24;
+
+/**
+ * A stable key for a user-typed label, unique within `taken`.
+ * The key is what tasks.kind stores, so it must survive a later rename — hence
+ * derived once at creation and never recomputed.
+ */
+export function kindKey(label, taken = []) {
+  const base =
+    String(label).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32) ||
+    'type';
+  const used = new Set(taken);
+  if (!used.has(base)) return base;
+  let n = 2;
+  while (used.has(`${base}-${n}`)) n += 1;
+  return `${base}-${n}`;
+}
+
+/** A project's types, seeding the defaults the first time it is asked. */
+async function kindsFor(projectId) {
+  const sql = `SELECT * FROM task_kinds WHERE project_id = $1
+                ORDER BY position ASC, created_at ASC`;
+  const { rows } = await pool.query(sql, [projectId]);
+  if (rows.length) return rows;
+  // Two requests can race to seed the same project. The deterministic id plus
+  // ON CONFLICT makes the loser a silent no-op instead of a 500, and both then
+  // read back the same four rows.
+  await pool.query(
+    `INSERT INTO task_kinds (id, project_id, key, label, color, is_group, position)
+     SELECT $1 || ':' || d.key, $1, d.key, d.label, d.color, d.is_group, d.pos - 1
+       FROM unnest($2::text[], $3::text[], $4::text[], $5::boolean[])
+            WITH ORDINALITY AS d(key, label, color, is_group, pos)
+     ON CONFLICT (project_id, key) DO NOTHING`,
+    [
+      projectId,
+      DEFAULT_KINDS.map((k) => k.key),
+      DEFAULT_KINDS.map((k) => k.label),
+      DEFAULT_KINDS.map((k) => k.color),
+      DEFAULT_KINDS.map((k) => k.is_group),
+    ]
+  );
+  return (await pool.query(sql, [projectId])).rows;
+}
 
 /** Sprint's project, or null. Guards cross-project task→sprint assignment. */
 async function sprintProject(sprintId) {
@@ -145,6 +197,99 @@ export function registerTaskRoutes(app, { requireUser, wrap }) {
     res.json(rows);
   }));
 
+  // ── task types ──────────────────────────────────────────────────────────
+  // Anyone who can reach the project can edit its types, the same rule the
+  // rest of this file uses for tasks and sprints.
+  app.get('/api/projects/:id/kinds', requireUser, wrap(async (req, res) => {
+    res.json(await kindsFor(req.params.id));
+  }));
+
+  app.post('/api/projects/:id/kinds', requireUser, wrap(async (req, res) => {
+    const label = String(req.body?.label ?? '').trim().slice(0, 40);
+    if (!label) return res.status(400).json({ error: 'Give the type a name.' });
+    const existing = await kindsFor(req.params.id);
+    if (existing.length >= MAX_KINDS) {
+      return res.status(400).json({ error: `A project can have at most ${MAX_KINDS} types.` });
+    }
+    const { rows } = await pool.query(
+      `INSERT INTO task_kinds (id, project_id, key, label, color, is_group, position)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      [
+        crypto.randomUUID(),
+        req.params.id,
+        kindKey(label, existing.map((k) => k.key)),
+        label,
+        String(req.body?.color || 'gray').slice(0, 20),
+        !!req.body?.isGroup,
+        existing.length,
+      ]
+    );
+    res.json(rows[0]);
+  }));
+
+  // The key is deliberately not patchable: it is what every task row stores,
+  // so renaming a type has to leave its tasks where they are.
+  app.patch('/api/kinds/:id', requireUser, wrap(async (req, res) => {
+    const b = req.body || {};
+    const sets = [];
+    const vals = [];
+    const set = (col, v) => { vals.push(v); sets.push(`${col} = $${vals.length}`); };
+    if (b.label !== undefined) {
+      const label = String(b.label).trim().slice(0, 40);
+      if (!label) return res.status(400).json({ error: 'Give the type a name.' });
+      set('label', label);
+    }
+    if (b.color !== undefined) set('color', String(b.color).slice(0, 20));
+    if (b.isGroup !== undefined) set('is_group', !!b.isGroup);
+    if (b.position !== undefined) set('position', Number(b.position) || 0);
+    if (!sets.length) return res.json({ ok: true });
+    vals.push(req.params.id);
+    const { rows } = await pool.query(
+      `UPDATE task_kinds SET ${sets.join(', ')} WHERE id = $${vals.length} RETURNING *`, vals
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'not found' });
+    res.json(rows[0]);
+  }));
+
+  // Tasks holding this type move to the next surviving one rather than being
+  // left with a type that is gone; the count comes back so the UI can say so.
+  app.delete('/api/kinds/:id', requireUser, wrap(async (req, res) => {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const { rows: [kind] } = await client.query(
+        'SELECT * FROM task_kinds WHERE id = $1 FOR UPDATE', [req.params.id]
+      );
+      if (!kind) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'not found' });
+      }
+      const { rows: rest } = await client.query(
+        `SELECT key, label FROM task_kinds
+          WHERE project_id = $1 AND id <> $2 ORDER BY position ASC, created_at ASC`,
+        [kind.project_id, kind.id]
+      );
+      // A project with no types at all would leave its tasks unlabelled and
+      // the picker empty, with no way back.
+      if (!rest.length) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'A project needs at least one task type.' });
+      }
+      const moved = await client.query(
+        'UPDATE tasks SET kind = $1 WHERE project_id = $2 AND kind = $3',
+        [rest[0].key, kind.project_id, kind.key]
+      );
+      await client.query('DELETE FROM task_kinds WHERE id = $1', [kind.id]);
+      await client.query('COMMIT');
+      res.json({ ok: true, moved: moved.rowCount, movedTo: rest[0].label });
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+  }));
+
   // ── tasks ───────────────────────────────────────────────────────────────
   // Cross-project query. Powers My Tasks and the home dashboard.
   app.get('/api/tasks', requireUser, wrap(async (req, res) => {
@@ -183,7 +328,13 @@ export function registerTaskRoutes(app, { requireUser, wrap }) {
     if (!startAt.ok || !dueAt.ok) {
       return res.status(400).json({ error: 'startAt/dueAt must be YYYY-MM-DD' });
     }
-    const kind = isKind(req.body?.kind) ? req.body.kind : 'task';
+    // Seeds the project's types if this is its first task, so the fallback
+    // below always names a type that exists.
+    const kinds = await kindsFor(projectId);
+    const wanted = String(req.body?.kind || '');
+    const kind = kinds.some((k) => k.key === wanted)
+      ? wanted
+      : (kinds.find((k) => k.key === 'task') ?? kinds[0])?.key ?? 'task';
     const sprintId = typeof req.body?.sprintId === 'string' ? req.body.sprintId : null;
     if (sprintId && (await sprintProject(sprintId)) !== projectId) {
       return res.status(400).json({ error: 'sprint is not in this project' });
@@ -247,7 +398,12 @@ export function registerTaskRoutes(app, { requireUser, wrap }) {
     if (b.docId !== undefined) set('doc_id', b.docId || null);
     if (b.position !== undefined) set('position', Number(b.position) || 0);
     if (b.kind !== undefined) {
-      if (!isKind(b.kind)) return res.status(400).json({ error: 'bad kind' });
+      // Types are per project, so the task has to be located before its new
+      // type can be judged valid.
+      const { rows: owner } = await pool.query('SELECT project_id FROM tasks WHERE id = $1', [req.params.id]);
+      if (!owner[0]) return res.status(404).json({ error: 'not found' });
+      const kinds = await kindsFor(owner[0].project_id);
+      if (!kinds.some((k) => k.key === b.kind)) return res.status(400).json({ error: 'bad kind' });
       set('kind', b.kind);
     }
     if (b.sprintId !== undefined) {

@@ -1,11 +1,12 @@
-import { Link2, Trash2, X } from 'lucide-react';
+import { Link2, Settings2, Trash2, X } from 'lucide-react';
 import { useState } from 'react';
 import type { UserRow } from '../../lib/docsApi';
 import { cn } from '../../lib/cn';
-import { KINDS, KIND_LABEL, STATUSES, STATUS_LABEL, type SprintRow, type TaskKind, type TaskPatch, type TaskRow, type TaskStatus } from '../../lib/tasksApi';
+import { STATUSES, STATUS_LABEL, type SprintRow, type TaskPatch, type TaskRow, type TaskStatus } from '../../lib/tasksApi';
 import { field } from '../ui/styles';
 import { IconButton } from '../ui/IconButton';
 import { Modal } from '../ui/Modal';
+import { useKinds } from './kinds';
 import { KindBadge } from './TaskChip';
 
 interface Props {
@@ -18,6 +19,8 @@ interface Props {
   onDelete: (id: string) => void;
   onAddDep: (id: string, dependsOn: string) => void;
   onRemoveDep: (id: string, dependsOn: string) => void;
+  /** Opens the type editor from beside the Type field, the way Notion does. */
+  onManageKinds: () => void;
 }
 
 const label = 'mb-1 block text-2xs font-medium text-muted';
@@ -32,13 +35,18 @@ function Row({ name, children }: { name: string; children: React.ReactNode }) {
 }
 
 /** Full task editor. Bottom sheet on phones, centered card on desktop. */
-export function TaskDialog({ task, tasks, sprints, users, onClose, onPatch, onDelete, onAddDep, onRemoveDep }: Props) {
+export function TaskDialog({ task, tasks, sprints, users, onClose, onPatch, onDelete, onAddDep, onRemoveDep, onManageKinds }: Props) {
   const [depPick, setDepPick] = useState('');
+  const kinds = useKinds();
   if (!task) return null;
 
   const candidates = tasks.filter((t) => t.id !== task.id && !task.deps.includes(t.id));
   const byId = new Map(tasks.map((t) => [t.id, t]));
-  const epics = tasks.filter((t) => t.kind === 'epic' && t.id !== task.id);
+  // Anything of a grouping type can be a parent, so a project that renamed
+  // Epic to Initiative — or added one — keeps a working parent picker.
+  const groupKeys = new Set(kinds.filter((k) => k.is_group).map((k) => k.key));
+  const parents = tasks.filter((t) => groupKeys.has(t.kind) && t.id !== task.id);
+  const isGroup = groupKeys.has(task.kind);
 
   return (
     <Modal
@@ -51,7 +59,7 @@ export function TaskDialog({ task, tasks, sprints, users, onClose, onPatch, onDe
       className="sm:max-h-[78vh]"
     >
       <header className="flex shrink-0 items-center gap-2.5 border-b border-line px-4 py-3">
-        <KindBadge kind={task.kind} always />
+        <KindBadge kind={task.kind} />
         <input
           autoFocus={!task.title}
           aria-label="Task title"
@@ -67,9 +75,15 @@ export function TaskDialog({ task, tasks, sprints, users, onClose, onPatch, onDe
             <div className="scrollarea min-h-0 flex-1 divide-y divide-line overflow-y-auto">
               <section className="grid grid-cols-2 gap-3 p-4">
                 <Row name="Type">
-                  <select className={field} value={task.kind} onChange={(e) => onPatch(task.id, { kind: e.target.value as TaskKind })}>
-                    {KINDS.map((k) => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}
-                  </select>
+                  <div className="flex items-center gap-1">
+                    <select className={field} value={task.kind} onChange={(e) => onPatch(task.id, { kind: e.target.value })}>
+                      {/* A type deleted while this dialog is open would otherwise
+                          leave the select showing the wrong row. */}
+                      {!kinds.some((k) => k.key === task.kind) && <option value={task.kind}>{task.kind}</option>}
+                      {kinds.map((k) => <option key={k.id} value={k.key}>{k.label}</option>)}
+                    </select>
+                    <IconButton icon={<Settings2 size={15} />} label="Edit task types" onClick={onManageKinds} />
+                  </div>
                 </Row>
                 <Row name="Status">
                   <select className={field} value={task.status} onChange={(e) => onPatch(task.id, { status: e.target.value as TaskStatus })}>
@@ -103,15 +117,15 @@ export function TaskDialog({ task, tasks, sprints, users, onClose, onPatch, onDe
                 <Row name="Points">
                   <input type="number" min={0} className={field} value={task.points ?? ''} placeholder="—" onChange={(e) => onPatch(task.id, { points: e.target.value === '' ? null : Number(e.target.value) })} />
                 </Row>
-                {task.kind !== 'epic' && (
-                  <Row name="Epic">
+                {!isGroup && parents.length > 0 && (
+                  <Row name="Parent">
                     <select className={field} value={task.parent_id ?? ''} onChange={(e) => onPatch(task.id, { parentId: e.target.value || null })}>
-                      <option value="">No epic</option>
-                      {epics.map((t) => <option key={t.id} value={t.id}>{t.title || 'Untitled'}</option>)}
+                      <option value="">None</option>
+                      {parents.map((t) => <option key={t.id} value={t.id}>{t.title || 'Untitled'}</option>)}
                     </select>
                   </Row>
                 )}
-                <label className={cn('flex items-center gap-2 self-end pb-1.5 text-sm text-ink', task.kind === 'epic' && 'col-span-2')}>
+                <label className={cn('flex items-center gap-2 self-end pb-1.5 text-sm text-ink', (isGroup || !parents.length) && 'col-span-2')}>
                   <input type="checkbox" checked={task.milestone} onChange={(e) => onPatch(task.id, { milestone: e.target.checked })} />
                   Milestone
                 </label>

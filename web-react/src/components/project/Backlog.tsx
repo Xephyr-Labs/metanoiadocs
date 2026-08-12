@@ -11,6 +11,7 @@ import {
 } from '../../lib/tasksApi';
 import { field } from '../ui/styles';
 import { Menu } from '../ui/Menu';
+import { useKind } from './kinds';
 import { KindBadge } from './TaskChip';
 
 interface Props {
@@ -35,7 +36,8 @@ const STATE_BADGE: Record<SprintState, string> = {
 
 function TaskLine({ task, tasks, onOpen }: { task: TaskRow; tasks: TaskRow[]; onOpen: () => void }) {
   const av = task.assignee_name ? avatarFor(task.assignee_name) : null;
-  const children = task.kind === 'epic' ? tasks.filter((t) => t.parent_id === task.id) : [];
+  // Any grouping type rolls its children up here, not just the seeded Epic.
+  const children = useKind(task.kind)?.is_group ? tasks.filter((t) => t.parent_id === task.id) : [];
   const childDone = children.filter((t) => t.status === 'done').length;
   return (
     <div
@@ -52,7 +54,7 @@ function TaskLine({ task, tasks, onOpen }: { task: TaskRow; tasks: TaskRow[]; on
         {task.title || 'Untitled'}
       </span>
       {children.length > 0 && (
-        <span className="shrink-0 text-2xs text-faint" title="Stories done in this epic">
+        <span className="shrink-0 text-2xs text-faint" title="Children done">
           {childDone}/{children.length}
         </span>
       )}

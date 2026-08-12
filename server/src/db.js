@@ -336,6 +336,27 @@ export async function initSchema() {
       CHECK (task_id <> depends_on_id)
     );
     CREATE INDEX IF NOT EXISTS task_deps_rev_idx ON task_deps(depends_on_id);
+
+    -- Task types, per project and editable by anyone who can see the project.
+    -- Epic/Story/Task/Bug are seeded defaults, not built-ins.
+    --
+    -- tasks.kind stores this row's KEY, not its id. That keeps every existing
+    -- task row valid with no migration, and means deleting a type can never
+    -- leave a task pointing at a row that no longer exists — the delete route
+    -- moves those tasks to a surviving type instead.
+    CREATE TABLE IF NOT EXISTS task_kinds (
+      id         TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      key        TEXT NOT NULL,
+      label      TEXT NOT NULL,
+      color      TEXT NOT NULL DEFAULT 'gray',
+      -- Can hold children, the way Epic does. Structure follows the flag, not
+      -- a hardcoded 'epic', so a type someone invents can group work too.
+      is_group   BOOLEAN NOT NULL DEFAULT false,
+      position   INT NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS task_kinds_key_idx ON task_kinds(project_id, key);
   `);
 
   await normalizeLegacyFolderImport();

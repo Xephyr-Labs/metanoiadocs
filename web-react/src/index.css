@@ -160,8 +160,12 @@ body {
 
 /* Text fields show focus via their wrapping container's ring (focus-within),
  * so the field itself must NOT also draw the global outline — otherwise the
- * input gets a second box nested inside the container. */
-input:focus-visible,
+ * input gets a second box nested inside the container.
+ *
+ * Checkboxes and radios are excluded: they draw no ring of their own, so the
+ * bare selector left them as the only focusable controls in the app with no
+ * visible focus at all. */
+input:not([type='checkbox']):not([type='radio']):focus-visible,
 textarea:focus-visible,
 [contenteditable]:focus-visible {
   outline: none;

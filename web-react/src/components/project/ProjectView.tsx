@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
-import { CalendarDays, GanttChartSquare, KanbanSquare, ListTodo, Plus, Table2, FolderOpen } from 'lucide-react';
+import { CalendarDays, GanttChartSquare, KanbanSquare, ListTodo, MoreHorizontal, Plus, Table2, Tags, FolderOpen } from 'lucide-react';
 import { useWorkspace } from '../../store/workspace';
 import { cn } from '../../lib/cn';
 import type { TaskRow, TaskStatus } from '../../lib/tasksApi';
 import { Button } from '../ui/Button';
 import { EmptyState } from '../ui/EmptyState';
+import { IconButton } from '../ui/IconButton';
+import { Menu } from '../ui/Menu';
 import { field } from '../ui/styles';
 import { SegmentedControl } from '../ui/SegmentedControl';
 import { Skeleton } from '../ui/Skeleton';
@@ -12,7 +14,9 @@ import { Backlog } from './Backlog';
 import { Board } from './Board';
 import { Calendar } from './Calendar';
 import { Gantt } from './Gantt';
+import { KindsProvider } from './kinds';
 import { TaskDialog } from './TaskDialog';
+import { TaskKindsDialog } from './TaskKindsDialog';
 import { TaskTable } from './TaskTable';
 import { useProject } from './useProject';
 
@@ -30,6 +34,7 @@ export function ProjectView() {
   const project = ws.projects.find((p) => p.id === ws.activeProjectId) ?? null;
   const [tab, setTab] = useState('board');
   const [open, setOpen] = useState<TaskRow | null>(null);
+  const [kindsOpen, setKindsOpen] = useState(false);
   // Scope for board/table/gantt/calendar: 'all', 'backlog', or a sprint id.
   const [scope, setScope] = useState('all');
   const p = useProject(ws.activeProjectId);
@@ -67,6 +72,7 @@ export function ProjectView() {
     : p.tasks.filter((t) => t.sprint_id === scope);
 
   return (
+    <KindsProvider kinds={p.kinds}>
     <div className="flex h-full flex-col bg-canvas">
       <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-line px-4 py-2.5">
         <span className="text-lg leading-none">{project.icon}</span>
@@ -89,6 +95,11 @@ export function ProjectView() {
         <Button variant="primary" size="sm" leftIcon={<Plus size={14} />} onClick={() => add()}>
           Task
         </Button>
+        <Menu
+          align="end"
+          trigger={<IconButton icon={<MoreHorizontal size={16} />} label="Project settings" />}
+          items={[{ icon: Tags, label: 'Task types…', onSelect: () => setKindsOpen(true) }]}
+        />
       </header>
 
       {p.error && (
@@ -147,7 +158,19 @@ export function ProjectView() {
         onDelete={(id) => { p.remove(id); ws.refreshProjects(); }}
         onAddDep={p.addDep}
         onRemoveDep={p.removeDep}
+        onManageKinds={() => setKindsOpen(true)}
+      />
+
+      <TaskKindsDialog
+        open={kindsOpen}
+        onOpenChange={setKindsOpen}
+        kinds={p.kinds}
+        tasks={p.tasks}
+        onCreate={p.createKind}
+        onPatch={p.patchKind}
+        onDelete={p.deleteKind}
       />
     </div>
+    </KindsProvider>
   );
 }

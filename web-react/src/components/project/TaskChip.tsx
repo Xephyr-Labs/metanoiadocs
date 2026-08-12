@@ -3,23 +3,35 @@ import { avatarFor } from '../../lib/avatar';
 import { cn } from '../../lib/cn';
 import { todayISO } from '../../lib/gantt';
 import { swatch } from '../../lib/tagColors';
-import { KIND_LABEL, type TaskKind, type TaskRow } from '../../lib/tasksApi';
+import type { TaskKind, TaskRow } from '../../lib/tasksApi';
+import { useKind, useKinds } from './kinds';
 
-// Epic borrows the shared purple swatch so it darkens with tags/folders/projects
-// instead of carrying its own one-off hex (which had no dark-mode value).
-const KIND_STYLE: Record<TaskKind, string> = {
-  epic: swatch('purple').chip,
-  story: 'bg-accent-soft text-accent',
-  task: 'bg-surface text-muted',
-  bug: 'bg-danger/10 text-danger',
-};
-
-/** Small colored type chip (epic/story/task/bug). Plain tasks stay unbadged. */
-export function KindBadge({ kind, always }: { kind: TaskKind; always?: boolean }) {
-  if (kind === 'task' && !always) return null;
+/**
+ * The type chip. Colour comes from the shared tag palette, so a type darkens
+ * with tags, folders and projects instead of carrying its own one-off hex.
+ *
+ * Two different absences used to render the same blank space: types not
+ * fetched yet, and a type deleted from another tab since this task was loaded.
+ * Only the first is nothing to say — the second gets the raw key in neutral
+ * ink, so the task doesn't look untyped.
+ */
+export function KindBadge({ kind }: { kind: TaskKind }) {
+  const loaded = useKinds().length > 0;
+  const row = useKind(kind);
+  if (!row) {
+    if (!loaded) return null;
+    return (
+      <span
+        title="This type no longer exists — reopen the project to resync"
+        className={cn('shrink-0 rounded px-1 py-0.5 text-3xs font-semibold uppercase tracking-wide', swatch('gray').chip)}
+      >
+        {kind}
+      </span>
+    );
+  }
   return (
-    <span className={cn('shrink-0 rounded px-1 py-0.5 text-3xs font-semibold uppercase tracking-wide', KIND_STYLE[kind])}>
-      {KIND_LABEL[kind]}
+    <span className={cn('shrink-0 rounded px-1 py-0.5 text-3xs font-semibold uppercase tracking-wide', swatch(row.color).chip)}>
+      {row.label}
     </span>
   );
 }

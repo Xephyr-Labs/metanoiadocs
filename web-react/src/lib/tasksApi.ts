@@ -31,14 +31,23 @@ export const STATUS_LABEL: Record<TaskStatus, string> = {
   done: 'Done',
 };
 
-export type TaskKind = 'epic' | 'story' | 'task' | 'bug';
-export const KINDS: TaskKind[] = ['epic', 'story', 'task', 'bug'];
-export const KIND_LABEL: Record<TaskKind, string> = {
-  epic: 'Epic',
-  story: 'Story',
-  task: 'Task',
-  bug: 'Bug',
-};
+/**
+ * A task's type is the `key` of one of its project's `TaskKindRow`s — a plain
+ * string, not a closed union, because anyone can add a type from the UI.
+ * Resolve it to a row with `useKind` before drawing a label or colour.
+ */
+export type TaskKind = string;
+
+export interface TaskKindRow {
+  id: string;
+  project_id: string;
+  key: string;
+  label: string;
+  color: string;
+  /** Holds children, the way Epic does. Drives the parent picker and rollups. */
+  is_group: boolean;
+  position: number;
+}
 
 export type SprintState = 'planned' | 'active' | 'done';
 
@@ -151,6 +160,15 @@ export const tasksApi = {
   patchProject: (id: string, b: Partial<{ name: string; icon: string; color: string; position: number }>) =>
     req(`/projects/${id}`, { method: 'PATCH', ...body(b) }),
   archiveProject: (id: string) => req(`/projects/${id}`, { method: 'DELETE' }),
+
+  kinds: (projectId: string): Promise<TaskKindRow[]> => req(`/projects/${projectId}/kinds`),
+  createKind: (projectId: string, b: { label: string; color?: string; isGroup?: boolean }): Promise<TaskKindRow> =>
+    req(`/projects/${projectId}/kinds`, { method: 'POST', ...body(b) }),
+  patchKind: (id: string, b: Partial<{ label: string; color: string; isGroup: boolean; position: number }>): Promise<TaskKindRow> =>
+    req(`/kinds/${id}`, { method: 'PATCH', ...body(b) }),
+  /** Resolves with how many tasks were moved off the deleted type, and where. */
+  deleteKind: (id: string): Promise<{ moved: number; movedTo: string }> =>
+    req(`/kinds/${id}`, { method: 'DELETE' }),
 
   projectTasks: (id: string): Promise<TaskRow[]> => req(`/projects/${id}/tasks`),
   createTask: (b: { projectId: string; title: string } & TaskPatch): Promise<TaskRow> =>

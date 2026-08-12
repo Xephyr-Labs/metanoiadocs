@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { docsApi, type UserRow } from '../../lib/docsApi';
-import { tasksApi, type SprintRow, type SprintState, type TaskPatch, type TaskRow } from '../../lib/tasksApi';
+import { tasksApi, type SprintRow, type SprintState, type TaskKindRow, type TaskPatch, type TaskRow } from '../../lib/tasksApi';
+
+/** What a task-type mutation reports back to the dialog that asked for it. */
+export type KindResult =
+  | { ok: true; moved?: number; movedTo?: string }
+  | { ok: false; error: string };
 
 /**
  * One source of tasks for all views, so a drag on the board updates the
@@ -10,6 +15,7 @@ import { tasksApi, type SprintRow, type SprintState, type TaskPatch, type TaskRo
 export function useProject(projectId: string | null) {
   const [tasks, setTasks] = useState<TaskRow[]>([]);
   const [sprints, setSprints] = useState<SprintRow[]>([]);
+  const [kinds, setKinds] = useState<TaskKindRow[]>([]);
   const [users, setUsers] = useState<UserRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -17,12 +23,14 @@ export function useProject(projectId: string | null) {
   const refresh = useCallback(async () => {
     if (!projectId) return;
     try {
-      const [t, s] = await Promise.all([
+      const [t, s, k] = await Promise.all([
         tasksApi.projectTasks(projectId),
         tasksApi.sprints(projectId).catch(() => [] as SprintRow[]),
+        tasksApi.kinds(projectId).catch(() => [] as TaskKindRow[]),
       ]);
       setTasks(t);
       setSprints(s);
+      setKinds(k);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not load tasks.');
@@ -84,6 +92,49 @@ export function useProject(projectId: string | null) {
     await tasksApi.removeDep(id, dependsOn).catch(() => refresh());
   }, [refresh]);
 
+  // The three type mutations hand their failure back to the caller instead of
+  // pushing it into `error`. That banner renders inside the page column, which
+  // the type editor's modal overlay covers — an error posted there during a
+  // failed save is one nobody sees.
+  const createKind = useCallback(async (b: { label: string; color?: string; isGroup?: boolean }): Promise<KindResult> => {
+    if (!projectId) return { ok: false, error: 'No project is open.' };
+    try {
+      const row = await tasksApi.createKind(projectId, b);
+      setKinds((prev) => [...prev, row]);
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : 'Could not add that type.' };
+    }
+  }, [projectId]);
+
+  const patchKind = useCallback(async (id: string, b: Partial<{ label: string; color: string; isGroup: boolean }>): Promise<KindResult> => {
+    const before = kinds;
+    setKinds((prev) => prev.map((k) => (k.id === id
+      ? { ...k, ...(b.label !== undefined && { label: b.label }), ...(b.color !== undefined && { color: b.color }), ...(b.isGroup !== undefined && { is_group: b.isGroup }) }
+      : k)));
+    try {
+      const row = await tasksApi.patchKind(id, b);
+      setKinds((prev) => prev.map((k) => (k.id === id ? row : k)));
+      return { ok: true };
+    } catch (e) {
+      setKinds(before); // Roll the optimistic paint back, or the row lies.
+      return { ok: false, error: e instanceof Error ? e.message : 'Could not save that type.' };
+    }
+  }, [kinds]);
+
+  /** On success, reports what the server did with the tasks that held the type. */
+  const deleteKind = useCallback(async (id: string): Promise<KindResult> => {
+    try {
+      const out = await tasksApi.deleteKind(id);
+      setKinds((prev) => prev.filter((k) => k.id !== id));
+      // Those tasks now carry a different type; the board and table show it.
+      if (out.moved) refresh();
+      return { ok: true, moved: out.moved, movedTo: out.movedTo };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : 'Could not delete that type.' };
+    }
+  }, [refresh]);
+
   const createSprint = useCallback(async (name: string) => {
     if (!projectId) return;
     try {
@@ -111,8 +162,9 @@ export function useProject(projectId: string | null) {
   }, [refresh]);
 
   return {
-    tasks, sprints, users, loading, error, setError, refresh,
+    tasks, sprints, kinds, users, loading, error, setError, refresh,
     patch, create, remove, addDep, removeDep,
+    createKind, patchKind, deleteKind,
     createSprint, patchSprint, deleteSprint,
   };
 }
