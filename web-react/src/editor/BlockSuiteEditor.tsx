@@ -36,6 +36,7 @@ export function BlockSuiteEditor({
   const hostRef = useRef<HTMLDivElement>(null);
   const instRef = useRef<Awaited<ReturnType<typeof mountEditor>> | null>(null);
   const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState<string | null>(null);
   // Keep the latest title/callback without forcing a remount on every keystroke.
   const titleRef = useRef(title);
   titleRef.current = title;
@@ -57,6 +58,7 @@ export function BlockSuiteEditor({
   useEffect(() => {
     let alive = true;
     setLoading(true);
+    setFailed(null);
     const host = hostRef.current;
     if (!host) return;
     mountEditor(host, {
@@ -81,7 +83,9 @@ export function BlockSuiteEditor({
       })
       .catch((err) => {
         console.error('[BlockSuite] mount failed', err);
-        if (alive) setLoading(false);
+        // A blank page is the one thing this must never render: it reads as an
+        // empty document, and someone will type into it.
+        if (alive) { setLoading(false); setFailed(err instanceof Error ? err.message : 'This document could not be loaded.'); }
       });
     return () => {
       alive = false;
@@ -117,6 +121,21 @@ export function BlockSuiteEditor({
       {loading && (
         <div className="absolute inset-0 z-10 bg-canvas">
           <PageSkeleton />
+        </div>
+      )}
+      {failed && (
+        <div className="absolute inset-0 z-10 flex items-start justify-center bg-canvas pt-24">
+          <div className="max-w-md rounded-lg border border-line bg-surface-2 p-5 text-center">
+            <p className="text-base font-medium text-ink">{failed}</p>
+            <p className="mt-1 text-sm text-muted">Nothing has been changed. Your content is safe on the server.</p>
+            <button
+              type="button"
+              onClick={() => location.reload()}
+              className="mt-4 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition-opacity duration-120 hover:opacity-90"
+            >
+              Try again
+            </button>
+          </div>
         </div>
       )}
       <div ref={hostRef} className={edgeless ? 'h-full' : ''} />

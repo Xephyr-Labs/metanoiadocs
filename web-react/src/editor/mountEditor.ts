@@ -186,17 +186,31 @@ export async function mountEditor(
   });
   tooltipKiller.observe(document.body, { childList: true });
 
-  await new Promise<void>((resolve) => {
+  // Whether the server's copy actually arrived. Everything below turns on this:
+  // a slow sync and an empty document look identical from here, and only one of
+  // them may be written to.
+  const synced = await new Promise<boolean>((resolve) => {
     let done = false;
-    const finish = () => { if (!done) { done = true; resolve(); } };
-    provider.on('synced', finish);
-    setTimeout(finish, 4000);
+    const finish = (ok: boolean) => { if (!done) { done = true; resolve(ok); } };
+    provider.on('synced', () => finish(true));
+    // Long enough for a big document over a slow link. It no longer authorises
+    // a write, so waiting costs a spinner rather than the document.
+    setTimeout(() => finish(false), 20000);
   });
 
   store.load();
 
   // Public viewer: read-only. Set before the editor mounts so no caret/tools show.
   if (share) store.readonly = true;
+
+  // A document that has neither synced nor cached anything locally is unknown,
+  // not empty. Seeding one on a timeout is what put a second, empty page root
+  // beside the real content in eight documents — the editor then rendered the
+  // seeded root and the document looked wiped. Fail loudly instead; the caller
+  // offers a reload, and nothing is written.
+  if (!synced && !store.root) {
+    throw new Error('This document could not be loaded — the server did not answer in time.');
+  }
 
   // Only the first client to reach a still-empty doc seeds the skeleton (page ->
   // surface + note + blocks). A read-only viewer never seeds. If the doc was
