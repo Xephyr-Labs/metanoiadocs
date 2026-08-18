@@ -163,11 +163,80 @@ server.registerTool(
   'list_members',
   {
     title: 'List members',
-    description: 'List workspace members (name, username, role) — useful for @-mentions.',
+    description: 'List workspace members (name, username, email, role) — useful for @-mentions, and for the email share_doc needs.',
     inputSchema: {},
   },
   async () => {
-    try { const rows = await api('/users'); return ok(rows.map((u) => ({ name: u.name, username: u.username, role: u.role }))); }
+    try { const rows = await api('/users'); return ok(rows.map((u) => ({ name: u.name, username: u.username, email: u.email, role: u.role }))); }
+    catch (e) { return fail(e); }
+  },
+);
+
+server.registerTool(
+  'list_folders',
+  {
+    title: 'List folders',
+    description: 'List the workspace folders (id, name, parent, how many docs are in each). Use this to find the folder id that move_doc needs.',
+    inputSchema: {},
+  },
+  async () => {
+    try {
+      const rows = await api('/folders');
+      return ok(rows.map((f) => ({ id: f.id, name: f.name, parentId: f.parent_id, documents: f.document_count })));
+    } catch (e) { return fail(e); }
+  },
+);
+
+server.registerTool(
+  'move_doc',
+  {
+    title: 'Move a doc to a folder',
+    description: 'Move a doc into a folder, or out to the top level. Get folder ids from list_folders.',
+    inputSchema: {
+      id: z.string().describe('Document id'),
+      folderId: z.string().nullable().optional().describe('Destination folder id; null or omitted moves it to the top level'),
+    },
+  },
+  async ({ id, folderId }) => {
+    try {
+      await api(`/docs/${encodeURIComponent(id)}`, { method: 'PATCH', body: { folderId: folderId ?? null } });
+      return ok(folderId ? 'Moved.' : 'Moved to the top level.');
+    } catch (e) { return fail(e); }
+  },
+);
+
+server.registerTool(
+  'link_docs',
+  {
+    title: 'Nest one doc under another',
+    description:
+      'Link an existing doc under another one: a reference to the child is appended to the parent\'s body, and the child then appears nested under it in the sidebar. The parent must have been opened at least once.',
+    inputSchema: {
+      parentId: z.string().describe('The doc that gains the reference'),
+      childId: z.string().describe('The doc to nest under it'),
+    },
+  },
+  async ({ parentId, childId }) => {
+    try {
+      const r = await api(`/docs/${encodeURIComponent(parentId)}/links`, { method: 'POST', body: { childId } });
+      return ok(r?.already ? 'Already linked.' : 'Linked.');
+    } catch (e) { return fail(e); }
+  },
+);
+
+server.registerTool(
+  'share_doc',
+  {
+    title: 'Share a doc with a teammate',
+    description:
+      'Grant a workspace member editor access to a doc by their email. You must own the doc, and they must have signed in at least once. Use list_members to find the email.',
+    inputSchema: {
+      id: z.string().describe('Document id'),
+      email: z.string().describe('The member\'s email address'),
+    },
+  },
+  async ({ id, email }) => {
+    try { await api(`/docs/${encodeURIComponent(id)}/share`, { method: 'POST', body: { email } }); return ok(`Shared with ${email}.`); }
     catch (e) { return fail(e); }
   },
 );

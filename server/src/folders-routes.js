@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { pool } from './db.js';
-import { wouldFolderCycle } from './folders.js';
+import { wouldFolderCycle, safeFolderOrder } from './folders.js';
 
 /** Folders are workspace-wide structure: every member sees and edits every
  *  folder (matching the team-editable doc model). Only doc *contents* carry
@@ -49,6 +49,29 @@ export function registerFolderRoutes(app, { requireUser, wrap }) {
       [id, name, parentId, req.user.id]
     );
     res.json(rows[0]);
+  }));
+
+  // Drag-reorder, mirroring /api/docs/reorder: `ids` is the whole sibling list
+  // in its new order, so one request settles the move and the ordering together.
+  // Registered before /:id so "reorder" is never read as a folder id.
+  app.post('/api/folders/reorder', requireUser, wrap(async (req, res) => {
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids.filter((v) => typeof v === 'string').slice(0, 2000) : [];
+    if (!ids.length) return res.status(400).json({ error: 'ids required' });
+    const parentId = typeof req.body?.parentId === 'string' ? req.body.parentId : null;
+    if (parentId && !(await visibleFolder(parentId, req.user.id))) {
+      return res.status(403).json({ error: 'folder not accessible' });
+    }
+    const safe = safeFolderOrder(await folderParents(), ids, parentId);
+    if (!safe.length) return res.status(400).json({ error: 'move would create a cycle' });
+    const { rowCount } = await pool.query(
+      `UPDATE folders f
+          SET position = o.pos, parent_id = $2
+         FROM (SELECT id, ordinality - 1 AS pos
+                 FROM unnest($1::text[]) WITH ORDINALITY AS t(id, ordinality)) o
+        WHERE f.id = o.id AND f.deleted_at IS NULL`,
+      [safe, parentId],
+    );
+    res.json({ ok: true, moved: rowCount });
   }));
 
   app.patch('/api/folders/:id', requireUser, wrap(async (req, res) => {
