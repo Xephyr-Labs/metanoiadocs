@@ -12,6 +12,7 @@ import { EmptyState } from '../ui/EmptyState';
 import { Backlinks } from './Backlinks';
 import { CommentMarkers } from './CommentMarkers';
 import { EditorBar } from './EditorBar';
+import { FloatingToc } from './FloatingToc';
 import { PageHeader } from './PageHeader';
 import { SlidesRail } from './SlidesRail';
 
@@ -120,6 +121,9 @@ export function EditorArea() {
           </div>
         ) : (
           <div className="absolute inset-0 flex">
+            {/* Outside the scroll area on purpose: the ToC stays put while the
+                document moves under it. */}
+            <FloatingToc editor={editorEl} />
             <div className="scrollarea flex-1 overflow-y-auto">
               <motion.div
                 key={page.id}

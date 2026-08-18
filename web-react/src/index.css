@@ -261,6 +261,10 @@ textarea:focus-visible,
    * variant, for the surfaces that do want a fill. */
   --affine-hover-color: var(--tint);
   --affine-hover-color-filled: var(--hover);
+  /* The outline viewer's inactive indicator dashes fall back to
+   * rgba(0, 0, 0, 0.1) when this is undefined — invisible on a dark canvas, so
+   * the floating table of contents looked like a single stray mark. */
+  --affine-black-10: var(--line-strong);
   --affine-font-family: 'Inter Variable', 'Inter', ui-sans-serif, system-ui, sans-serif;
   /* Both live in @toeverything/theme, a stylesheet we don't ship — undefined,
    * BlockSuite renders code as body Inter on a transparent background. They
@@ -305,6 +309,28 @@ affine-image[data-mn-align='left'] affine-block-caption-editor {
 }
 affine-image[data-mn-align='right'] affine-block-caption-editor {
   text-align: right;
+}
+
+/* Floating table of contents (components/editor/FloatingToc.tsx).
+ * `affine-outline-viewer` is display:flex and its .outline-viewer-root is a
+ * flex item whose only in-flow child (the panel) is hidden until hover — so in
+ * our absolutely-positioned strip the root shrank to zero width and stopped
+ * receiving the mouseenter that opens it. AFFiNE gets away with it because the
+ * viewer sits in a sized column there. Give both a real box. */
+.mn-toc affine-outline-viewer,
+.mn-toc .outline-viewer-root {
+  width: 100%;
+  height: 100%;
+}
+/* ...and then let the panel out again: it asks for 200px, but as a flex item of
+ * a strip that narrow it just gets shrunk back to the strip. Taking it out of
+ * flow and pinning it to the strip's right edge keeps the hover target thin
+ * while the expanded list opens leftward over the page. */
+.mn-toc .outline-viewer-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  max-height: 100%;
 }
 
 /* Landing on a block link (/d/<doc>#<block>) — a brief tint says which block
