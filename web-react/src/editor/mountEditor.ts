@@ -27,6 +27,7 @@ import { takePendingSeed } from './pendingSeed';
 import { docPlainText } from './docText';
 import { attachMermaidPreviews } from './mermaidPreview';
 import { attachRefClicks, collectPageLinks, pageLinkExtensions, type LinkTarget } from './pageLinks';
+import { missingDocMetas } from './docMetas';
 import { blockLinkExtensions } from './blockLinks';
 import { attachImageAlign, imageAlignExtensions } from './imageAlign';
 import { chartEffects, chartViewExtensions } from './chart';
@@ -37,6 +38,10 @@ let effectsInstalled = false;
 function installEffects() {
   if (effectsInstalled) return;
   itEffects();
+  // Nothing to add for the floating table of contents: the view manager builds
+  // OutlineViewExtension during mount and its effect() defines those elements.
+  // Registering them here as well threw NotSupportedError on the second define
+  // and took the whole editor down with it.
   effectsInstalled = true;
 }
 
@@ -123,6 +128,17 @@ export async function mountEditor(
 
   const doc = collection.getDoc(docId) ?? collection.createDoc(docId);
   if (!doc) throw new Error('doc did not materialize: ' + docId);
+
+  // This collection holds one doc, but the pages it @-references are real. A
+  // reference chip reads existence off `meta.docMetas` and strikes through
+  // anything missing from it, so every link would render as deleted unless the
+  // index is registered here. Metadata only — no doc is loaded or synced.
+  const rememberDocs = (targets: LinkTarget[]) => {
+    for (const meta of missingDocMetas(collection.meta.docMetas, targets, Date.now())) {
+      collection.meta.addDocMeta(meta);
+    }
+  };
+  if (pages) rememberDocs(pages());
   const store = doc.getStore({ id: docId });
 
   // Live sync to our server. Cookie authenticates a member; a share token
@@ -272,7 +288,20 @@ export async function mountEditor(
     // resolver — it has no page index to offer and cannot create pages.
     ...(share || !pages || !createPage
       ? []
-      : [...pageLinkExtensions({ pages, currentId: docId, createPage }), ...blockLinkExtensions(docId)]),
+      : [
+          ...pageLinkExtensions({
+            pages,
+            currentId: docId,
+            // Registered here rather than waiting for the page index to refresh:
+            // the chip renders as soon as the id comes back.
+            createPage: async (t) => {
+              const id = await createPage(t);
+              if (id) rememberDocs([{ id, title: t, icon: '📄' }]);
+              return id;
+            },
+          }),
+          ...blockLinkExtensions(docId),
+        ]),
   ];
   editor.pageSpecs = [...viewManager.get('page'), ...chartViewExtensions, ...common];
   editor.edgelessSpecs = [...viewManager.get('edgeless'), ...chartViewExtensions, ...common];
