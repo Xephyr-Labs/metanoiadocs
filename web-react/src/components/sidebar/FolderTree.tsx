@@ -2,7 +2,6 @@ import { ChevronRight, Download, FilePlus, FileText, FileType, Folder, FolderInp
 import { useState } from 'react';
 import { DOC_MIME, FOLDER_MIME, dragSource, useRowDrop } from './rowDrag';
 import { cn } from '../../lib/cn';
-import { docsApi } from '../../lib/docsApi';
 import { docUrl } from '../../lib/route';
 import { downloadDocx, downloadMarkdown, pickMarkdownFiles, printDoc } from '../../lib/docFiles';
 import { TAG_COLORS, swatch } from '../../lib/tagColors';
@@ -31,63 +30,35 @@ const ColorDot = (color: string) =>
     return <span className={cn('h-3 w-3 rounded-full', swatch(color).dot, className)} />;
   };
 
-/** How deep the linked-page disclosure may nest before it stops offering more. */
-const MAX_LINK_DEPTH = 3;
-const NO_ANCESTORS: readonly PageId[] = [];
-
 /**
  * A page in the tree.
  *
- * `ancestors` are the pages this row is already nested under via the linked-page
- * disclosure. It is what stops two pages that @-reference each other from
- * expanding into each other forever, and a row inside it is a reference rather
- * than a place — so it is not a drag-reorder target.
+ * The tree shows one thing: where a page lives. Pages this one merely
+ * @-references are not shown here — they have a home of their own, and drawing
+ * them as children made the same title appear twice, once under the mention and
+ * once where it actually lives. Outgoing references belong to the document's
+ * Linked References and the right panel, which already carry them.
  */
-function DocumentRow({ id, depth, ancestors = NO_ANCESTORS }: { id: PageId; depth: number; ancestors?: readonly PageId[] }) {
+function DocumentRow({ id, depth }: { id: PageId; depth: number }) {
   const ws = useWorkspace();
   const page = ws.pages[id];
   const [hover, setHover] = useState(false);
-  const [linksOpen, setLinksOpen] = useState(false);
-  const [linked, setLinked] = useState<PageId[] | null>(null);
-  const placeable = ancestors.length === 0;
   const drop = useRowDrop({
     accept: { [DOC_MIME]: 'thirds' },
-    enabled: placeable,
     onDrop: (_mime, draggedId, zone) => {
       if (draggedId === id) return;
-      // Opening on the drop is the whole feedback for the gesture: the page has
-      // left the top level, and this is where it went.
-      if (zone === 'inside') { ws.linkPage(id, draggedId); setLinksOpen(true); }
+      if (zone === 'inside') ws.linkPage(id, draggedId);
       else ws.reorderPage(draggedId, id, zone);
     },
   });
   if (!page) return null;
   const selected = ws.currentId === id;
   const fav = ws.favoriteIds.includes(id);
-  // Pages nested under this one are already in the store — they left the top
-  // level to be here, so they show whenever this row is open, without a fetch.
-  // Links are the looser relation and still cost a round trip.
+  // Children are in the store already — a nested page left the top level to be
+  // here, so opening this row costs no round trip. Expansion lives in the store
+  // too, which is what lets a drop open its new parent.
   const nested = page.children;
-  const canExpand = (nested.length > 0 || page.linkCount > 0) && ancestors.length < MAX_LINK_DEPTH;
-
-  // Refetched on every open rather than cached forever: a page linked since the
-  // last time this was expanded should be there when it is expanded again.
-  const loadLinks = async () => {
-    const rows = await docsApi.links(id).catch(() => []);
-    setLinked(rows.map((r) => r.id));
-  };
-
-  const toggleLinks = async () => {
-    const next = !linksOpen;
-    setLinksOpen(next);
-    if (next) await loadLinks();
-  };
-
-  // Only pages already in the tree can be rendered as rows, and a page that
-  // links back to one of its own ancestors is dropped rather than nested.
-  const linkedRows = (linked ?? []).filter(
-    (linkId) => ws.pages[linkId] && linkId !== id && !ancestors.includes(linkId) && !nested.includes(linkId),
-  );
+  const canExpand = nested.length > 0;
   // Every folder used to be its own "Move to X" row, so this menu grew a line
   // per folder and eventually ran off the bottom of the screen. They live in a
   // submenu now, and the folder the page is already in isn't offered.
@@ -120,7 +91,7 @@ function DocumentRow({ id, depth, ancestors = NO_ANCESTORS }: { id: PageId; dept
       style={{ paddingLeft: 8 + depth * 16 }}
       role="treeitem"
       aria-selected={selected}
-      aria-expanded={canExpand ? linksOpen : undefined}
+      aria-expanded={canExpand ? !!page.expanded : undefined}
       tabIndex={0}
       onKeyDown={(e) => { if (e.key === 'Enter') ws.select(id); }}
     >
@@ -134,11 +105,11 @@ function DocumentRow({ id, depth, ancestors = NO_ANCESTORS }: { id: PageId; dept
       {canExpand && hover ? (
         <button
           type="button"
-          onClick={(e) => { e.stopPropagation(); toggleLinks(); }}
+          onClick={(e) => { e.stopPropagation(); ws.toggleExpand(id); }}
           className={cn('mr-1.5 flex h-5 w-5 shrink-0 items-center justify-center rounded hover:bg-hover', selected ? 'text-accent' : 'text-faint')}
-          aria-label={linksOpen ? `Hide pages linked from ${page.title}` : `Show pages linked from ${page.title}`}
+          aria-label={page.expanded ? `Collapse ${page.title}` : `Expand ${page.title}`}
         >
-          <ChevronRight size={14} className={cn('text-muted transition-transform duration-180', linksOpen && 'rotate-90')} />
+          <ChevronRight size={14} className={cn('text-muted transition-transform duration-180', page.expanded && 'rotate-90')} />
         </button>
       ) : (
         <span className={cn('mr-1.5 flex h-5 w-5 shrink-0 items-center justify-center', selected ? 'text-accent' : 'text-faint')}>
@@ -159,7 +130,7 @@ function DocumentRow({ id, depth, ancestors = NO_ANCESTORS }: { id: PageId; dept
             {
               icon: FilePlus,
               label: 'Add a page inside',
-              onSelect: async () => { await ws.createChildPage(id); setLinksOpen(true); await loadLinks(); },
+              onSelect: () => { ws.createChildPage(id); },
             },
             { icon: Link2, label: 'Copy link', onSelect: () => navigator.clipboard?.writeText(docUrl(id)) },
             {
@@ -177,19 +148,11 @@ function DocumentRow({ id, depth, ancestors = NO_ANCESTORS }: { id: PageId; dept
         />
       </span>
     </div>
-    {linksOpen && (
+    {canExpand && page.expanded && (
       <div role="group">
         {nested.map((childId) => (
-          <DocumentRow key={childId} id={childId} depth={depth + 1} ancestors={[...ancestors, id]} />
+          <DocumentRow key={childId} id={childId} depth={depth + 1} />
         ))}
-        {linkedRows.map((linkId) => (
-          <DocumentRow key={linkId} id={linkId} depth={depth + 1} ancestors={[...ancestors, id]} />
-        ))}
-        {!nested.length && !linkedRows.length && (
-          <p className="py-1 text-xs text-faint" style={{ paddingLeft: 8 + (depth + 1) * 16 + 26 }}>
-            {linked === null ? 'Loading…' : 'No linked pages you can open.'}
-          </p>
-        )}
       </div>
     )}
     </div>

@@ -264,12 +264,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     applyRows(rows, folderRows);
   }, [applyRows]);
 
-  // The sidebar's linked-pages arrow is driven by link_count, which only ever
-  // arrives with the document list — so a page that had just gained its first
-  // @-reference showed no arrow until something unrelated happened to refetch.
-  // The editor has announced its saves on a debounce all along and nothing was
-  // listening; this is that listener. Guarded on the tick so it doesn't fire a
-  // second list fetch on mount, on top of the one the bootstrap already does.
+  // A save can change what the sidebar shows — a renamed title, a page nested
+  // from inside the editor. The editor has announced its saves on a debounce all
+  // along and nothing was listening; this is that listener. Guarded on the tick
+  // so it doesn't fire a second list fetch on mount, on top of the one the
+  // bootstrap already does.
   const saveTick = useDocSaveTick();
   useEffect(() => {
     if (saveTick) refresh().catch(() => {});
@@ -404,6 +403,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     try {
       const row = await docsApi.createChild(parentId);
       await refresh();
+      // Same reason the drag opens its target: the page that was just made has
+      // to be visible where it was made.
+      setPages((p) => (p[parentId] ? { ...p, [parentId]: { ...p[parentId], expanded: true } } : p));
       setCurrentId(row.id);
       setView('doc');
       localStorage.setItem('mn-last-doc', row.id);
