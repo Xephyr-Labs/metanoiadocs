@@ -28,6 +28,7 @@ import { requestMagicLink, consumeMagicLink, sendInviteEmail, sendNotificationEm
 import { lockedFor, noteFailure, clearFailures, lockoutError } from './throttle.js';
 import { getSetting, setSetting } from './db.js';
 import { buildDocState, appendToDocState, appendPageReference, extractText, extractBlocks, docToMarkdown } from './blocks.js';
+import { wouldFolderCycle } from './folders.js';
 import { printHtml } from './print.js';
 import { docxFromMarkdown } from './docx.js';
 import { topTerms, extractSignals, findMentions, simhash, hamming, keyphrases, summarize, tokenize, coalesceByKey, blocksFromText } from './intelligence.js';
@@ -437,7 +438,7 @@ app.get('/api/docs/mine', requireUser, async (req, res) => {
 
 app.get('/api/docs', requireUser, async (req, res) => {
   const { rows } = await pool.query(
-    `SELECT d.id, d.title, d.icon, d.folder_id, d.position, d.updated_at,
+    `SELECT d.id, d.title, d.icon, d.folder_id, d.parent_id, d.position, d.updated_at,
             coalesce(a.role, 'editor') AS role, d.visibility,
             (d.share_token IS NOT NULL) AS shared,
             (f.doc_id IS NOT NULL) AS favorite,
@@ -484,7 +485,7 @@ app.post('/api/docs/reorder', requireUser, wrap(async (req, res) => {
   // cannot see is silently skipped rather than reordered on your say-so.
   const { rowCount } = await pool.query(
     `UPDATE docs d
-        SET position = o.pos, folder_id = $3
+        SET position = o.pos, folder_id = $3, parent_id = NULL
        FROM (SELECT id, ordinality - 1 AS pos
                FROM unnest($1::text[]) WITH ORDINALITY AS t(id, ordinality)) o
       WHERE d.id = o.id
@@ -585,8 +586,8 @@ app.post('/api/docs/:id/children', requireUser, wrap(async (req, res) => {
   try {
     await client.query('BEGIN');
     await client.query(
-      'INSERT INTO docs (id, title, icon, created_by, folder_id, visibility) VALUES ($1, $2, $3, $4, $5, $6)',
-      [id, title, icon, req.user.id, parent.rows[0].folder_id, parent.rows[0].visibility],
+      'INSERT INTO docs (id, title, icon, created_by, folder_id, visibility, parent_id) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+      [id, title, icon, req.user.id, parent.rows[0].folder_id, parent.rows[0].visibility, parentId],
     );
     await client.query(`INSERT INTO doc_access (doc_id, user_id, role) VALUES ($1, $2, 'owner')`, [id, req.user.id]);
     // The parent's next save recomputes this from its content and will find the
@@ -619,14 +620,23 @@ app.post('/api/docs/:id/links', requireUser, wrap(async (req, res) => {
   const child = await pool.query('SELECT 1 FROM docs WHERE id = $1 AND deleted_at IS NULL', [childId]);
   if (!child.rowCount) return res.status(404).json({ error: 'not found' });
 
-  // Dragging the same page onto the same parent twice must not stack up two
-  // reference blocks, so an existing link is a no-op rather than an append.
-  const existing = await pool.query('SELECT 1 FROM doc_links WHERE from_id = $1 AND to_id = $2', [parentId, childId]);
-  if (existing.rowCount) return res.json({ ok: true, already: true });
+  // The sidebar draws this edge by recursing through it, so a page may not end
+  // up inside its own descendant. Same walk the folder tree is guarded by.
+  const { rows: parents } = await pool.query('SELECT id, parent_id FROM docs WHERE deleted_at IS NULL');
+  if (wouldFolderCycle(new Map(parents.map((r) => [r.id, r.parent_id])), childId, parentId)) {
+    return res.status(400).json({ error: 'that would nest a page inside itself' });
+  }
 
-  if (!(await referenceChild(parentId, childId))) return res.status(409).json({ error: NO_BODY_TO_NEST_IN });
+  // Dragging the same page onto the same parent twice must not stack up two
+  // reference blocks, so an existing link skips the append. The move itself is
+  // still applied: a page the parent merely mentions in prose has a link row
+  // already, and dropping it on that row is a request to give it a home.
+  const existing = await pool.query('SELECT 1 FROM doc_links WHERE from_id = $1 AND to_id = $2', [parentId, childId]);
+  const already = existing.rowCount > 0;
+  if (!already && !(await referenceChild(parentId, childId))) return res.status(409).json({ error: NO_BODY_TO_NEST_IN });
   await pool.query('INSERT INTO doc_links (from_id, to_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [parentId, childId]);
-  res.json({ ok: true });
+  await pool.query('UPDATE docs SET parent_id = $1, updated_at = now() WHERE id = $2', [parentId, childId]);
+  res.json({ ok: true, already });
 }));
 
 // Read a doc's title + plain text (decoded from the Yjs state; used by API clients).
@@ -901,7 +911,9 @@ app.patch('/api/docs/:id', requireUser, async (req, res) => {
       return res.status(403).json({ error: 'folder not accessible' });
     }
     vals.push(folderId);
-    sets.push(`folder_id = $${vals.length}`);
+    // A page filed into a folder is filed *there*, not under whatever page it
+    // used to hang from — otherwise it would owe two homes and show up in both.
+    sets.push(`folder_id = $${vals.length}, parent_id = NULL`);
   }
   if (!sets.length) return res.json({ ok: true });
   vals.push(req.params.id);

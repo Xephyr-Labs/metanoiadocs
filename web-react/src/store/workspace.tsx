@@ -15,6 +15,7 @@ import { MAX_IMPORT_BYTES, stripFrontMatter, titleFromMarkdown } from '../lib/do
 import { readRoute, showDoc, showHome } from '../lib/route';
 import { useDocSaveTick } from '../lib/docSignal';
 import { placeAt } from '../lib/reorder';
+import { nestByParent } from '../lib/pageTree';
 import type { Template } from '../data/templates';
 import type { EditorMode, Folder, Page, PageId, Tag } from '../lib/types';
 
@@ -118,7 +119,7 @@ function buildPages(rows: DocRow[]): Record<PageId, Page> {
       id: r.id,
       title: r.title || 'Untitled',
       icon: r.icon || '📄',
-      parentId: null,
+      parentId: r.parent_id,
       folderId: r.folder_id ?? null,
       position: r.position,
       shared: !!r.shared,
@@ -131,6 +132,14 @@ function buildPages(rows: DocRow[]): Record<PageId, Page> {
       children: [],
   };
   }
+  // A page nested under another one hangs there and nowhere else — the rest of
+  // the sidebar reads `parentId` to decide that, so a parent that is not in this
+  // list (trashed, or private to someone else) has its children handed back to
+  // the top level here rather than every caller having to check.
+  const ordered = Object.values(map).sort(byOrder);
+  const { roots, childrenOf } = nestByParent(ordered);
+  for (const id of roots) map[id].parentId = null;
+  for (const [parentId, childIds] of childrenOf) map[parentId].children = childIds;
   return map;
 }
 
@@ -154,6 +163,7 @@ function buildFolders(rows: FolderRow[], expanded: Set<string>, pages: Record<Pa
   // dragged from a folder to the top level. Position is what drag-reorder
   // writes; title only breaks ties among pages nobody has ordered yet.
   for (const page of Object.values(pages).sort(byOrder)) {
+    if (page.parentId) continue;
     if (page.folderId && map[page.folderId]) map[page.folderId].documentIds.push(page.id);
   }
   for (const row of [...rows].sort((a, b) => a.position - b.position || a.name.localeCompare(b.name))) {
@@ -442,6 +452,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     try {
       await docsApi.linkChild(parentId, childId);
       await refresh();
+      // The Private and Library trees disclose from the store, so the parent has
+      // to be open for the page that just moved into it to be visible at all.
+      setPages((p) => (p[parentId] ? { ...p, [parentId]: { ...p[parentId], expanded: true } } : p));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not nest that page.');
     }
@@ -636,7 +649,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const rootIds = useMemo(
     () =>
       Object.values(pages)
-        .filter((p) => !p.folderId)
+        .filter((p) => !p.folderId && !p.parentId)
         .sort((a, b) => a.position - b.position || a.title.localeCompare(b.title))
         .map((p) => p.id),
     [pages],
@@ -674,7 +687,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     [folders],
   );
   const unfiledIds = useMemo(
-    () => Object.values(pages).filter((p) => !p.folderId).sort(byOrder).map((p) => p.id),
+    () => Object.values(pages).filter((p) => !p.folderId && !p.parentId).sort(byOrder).map((p) => p.id),
     [pages],
   );
 

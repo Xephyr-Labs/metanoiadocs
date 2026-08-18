@@ -55,14 +55,20 @@ function DocumentRow({ id, depth, ancestors = NO_ANCESTORS }: { id: PageId; dept
     enabled: placeable,
     onDrop: (_mime, draggedId, zone) => {
       if (draggedId === id) return;
-      if (zone === 'inside') ws.linkPage(id, draggedId);
+      // Opening on the drop is the whole feedback for the gesture: the page has
+      // left the top level, and this is where it went.
+      if (zone === 'inside') { ws.linkPage(id, draggedId); setLinksOpen(true); }
       else ws.reorderPage(draggedId, id, zone);
     },
   });
   if (!page) return null;
   const selected = ws.currentId === id;
   const fav = ws.favoriteIds.includes(id);
-  const canExpand = page.linkCount > 0 && ancestors.length < MAX_LINK_DEPTH;
+  // Pages nested under this one are already in the store — they left the top
+  // level to be here, so they show whenever this row is open, without a fetch.
+  // Links are the looser relation and still cost a round trip.
+  const nested = page.children;
+  const canExpand = (nested.length > 0 || page.linkCount > 0) && ancestors.length < MAX_LINK_DEPTH;
 
   // Refetched on every open rather than cached forever: a page linked since the
   // last time this was expanded should be there when it is expanded again.
@@ -79,12 +85,16 @@ function DocumentRow({ id, depth, ancestors = NO_ANCESTORS }: { id: PageId; dept
 
   // Only pages already in the tree can be rendered as rows, and a page that
   // links back to one of its own ancestors is dropped rather than nested.
-  const linkedRows = (linked ?? []).filter((linkId) => ws.pages[linkId] && linkId !== id && !ancestors.includes(linkId));
+  const linkedRows = (linked ?? []).filter(
+    (linkId) => ws.pages[linkId] && linkId !== id && !ancestors.includes(linkId) && !nested.includes(linkId),
+  );
   // Every folder used to be its own "Move to X" row, so this menu grew a line
   // per folder and eventually ran off the bottom of the screen. They live in a
   // submenu now, and the folder the page is already in isn't offered.
   const moveTargets = [
-    ...(page.folderId ? [{ icon: FileText, label: 'Top level', onSelect: () => ws.movePage(id, null) }] : []),
+    // Also the way out of a parent page: a nested page has no folder to leave,
+    // so without this its only escape is a drag onto the edge of another row.
+    ...(page.folderId || page.parentId ? [{ icon: FileText, label: 'Top level', onSelect: () => ws.movePage(id, null) }] : []),
     ...Object.values(ws.folders)
       .filter((folder) => folder.id !== page.folderId)
       .sort((a, b) => a.name.localeCompare(b.name))
@@ -169,11 +179,13 @@ function DocumentRow({ id, depth, ancestors = NO_ANCESTORS }: { id: PageId; dept
     </div>
     {linksOpen && (
       <div role="group">
-        {linkedRows.length ? (
-          linkedRows.map((linkId) => (
-            <DocumentRow key={linkId} id={linkId} depth={depth + 1} ancestors={[...ancestors, id]} />
-          ))
-        ) : (
+        {nested.map((childId) => (
+          <DocumentRow key={childId} id={childId} depth={depth + 1} ancestors={[...ancestors, id]} />
+        ))}
+        {linkedRows.map((linkId) => (
+          <DocumentRow key={linkId} id={linkId} depth={depth + 1} ancestors={[...ancestors, id]} />
+        ))}
+        {!nested.length && !linkedRows.length && (
           <p className="py-1 text-xs text-faint" style={{ paddingLeft: 8 + (depth + 1) * 16 + 26 }}>
             {linked === null ? 'Loading…' : 'No linked pages you can open.'}
           </p>
