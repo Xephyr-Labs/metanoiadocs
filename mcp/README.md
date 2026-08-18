@@ -10,13 +10,17 @@ read, create, and edit your docs — **as you**, respecting team/private access.
 |---|---|
 | `search_docs` | Full-text search → id, title, snippet |
 | `list_docs` | List accessible docs |
+| `list_folders` | Workspace folders (for `move_doc`) |
+| `move_doc` | Move a doc into a folder, or out to the top level |
+| `link_docs` | Nest one doc under another (parent gains a reference to it) |
+| `share_doc` | Grant a member editor access by email (owner only) |
 | `read_doc` | A doc's title + plain-text content |
 | `create_doc` | New doc from markdown (headings, lists, to-dos, quotes, code, dividers → real blocks) |
 | `write_doc` | Append or replace a doc's content with markdown |
 | `comment_on_doc` | Add a comment (supports `@username` mentions) |
 | `set_visibility` | Switch a doc between team / private (owner only) |
 | `add_tag` | Tag a doc |
-| `list_members` | Workspace members (for @-mentions) |
+| `list_members` | Workspace members (for @-mentions and `share_doc`) |
 
 ## Setup
 
