@@ -1813,6 +1813,14 @@ registerTaskRoutes(app, { requireUser, wrap });
 registerHomeRoutes(app, { requireUser, wrap });
 registerFolderRoutes(app, { requireUser, wrap });
 
+// A build's files are content-hashed and the previous build's are gone, so a tab
+// that has been open across a deploy asks for chunk names that no longer exist.
+// Falling through to index.html answered those with 200 text/html, which an
+// `import()` refuses as a module — the shell rendered and the editor silently
+// never mounted. A missing asset is a missing asset: say 404 and let the client
+// reload into the current build.
+app.get(/^\/assets\//, (_req, res) => res.status(404).type('text/plain').send('Not found'));
+
 app.get('*', (_req, res) => res.sendFile(path.join(WEB_DIST, 'index.html')));
 
 // Last-resort error handler so a thrown/rejected route returns 500 instead of crashing.

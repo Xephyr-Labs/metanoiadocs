@@ -8,6 +8,22 @@ import { AuthProvider, useAuth } from './store/auth';
 import { WorkspaceProvider } from './store/workspace';
 import './index.css';
 
+// A deploy replaces every content-hashed chunk, so a tab left open across one
+// asks for files that no longer exist and the lazily-loaded editor never
+// arrives — the shell renders and the document body stays empty. Vite reports
+// that as `vite:preloadError`; the fix is simply to be the new build, and the
+// session flag is what stops a genuinely broken chunk from reloading forever.
+window.addEventListener('vite:preloadError', (event) => {
+  event.preventDefault();
+  // Rate-limited rather than once-per-session: a chunk that is broken in the
+  // new build would otherwise reload forever, while a second deploy an hour
+  // later still has to be able to heal the same tab.
+  const last = Number(sessionStorage.getItem('mn-build-reload') || 0);
+  if (Date.now() - last < 60_000) return;
+  sessionStorage.setItem('mn-build-reload', String(Date.now()));
+  location.reload();
+});
+
 // Apply the saved "smaller text" preference before first paint (no flash).
 if (localStorage.getItem('mn-text-size') === 'small') {
   document.documentElement.dataset.textSize = 'small';
