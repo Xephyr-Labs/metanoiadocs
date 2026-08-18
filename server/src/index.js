@@ -548,6 +548,21 @@ app.post('/api/docs', requireUser, async (req, res) => {
  * persisted by the same path a typed edit takes. Writing the state row behind a
  * live session's back would just be overwritten by that session.
  */
+// Write a page reference into `parentId`'s body — the block that makes `childId`
+// hang under it in the sidebar. False means the parent has no body yet (nobody
+// has ever opened it), the one failure both callers below report identically.
+async function referenceChild(parentId, childId) {
+  let linked = false;
+  const conn = await hocuspocus.openDirectConnection(parentId);
+  try {
+    await conn.transact((doc) => { linked = appendPageReference(doc, childId); });
+  } finally {
+    await conn.disconnect();
+  }
+  return linked;
+}
+const NO_BODY_TO_NEST_IN = 'That page has no body to add a child to yet — open it once first.';
+
 app.post('/api/docs/:id/children', requireUser, wrap(async (req, res) => {
   const parentId = req.params.id;
   if (!(await grantOn(parentId, req.user.id))) return res.status(403).json({ error: 'forbidden' });
@@ -563,14 +578,7 @@ app.post('/api/docs/:id/children', requireUser, wrap(async (req, res) => {
 
   // Write the reference first: a child nobody can reach from its parent is worse
   // than no child at all, and this is the step that can fail.
-  let linked = false;
-  const conn = await hocuspocus.openDirectConnection(parentId);
-  try {
-    await conn.transact((doc) => { linked = appendPageReference(doc, id); });
-  } finally {
-    await conn.disconnect();
-  }
-  if (!linked) return res.status(409).json({ error: 'That page has no body to add a child to yet — open it once first.' });
+  if (!(await referenceChild(parentId, id))) return res.status(409).json({ error: NO_BODY_TO_NEST_IN });
 
   // The child keeps the parent's company: same folder, same visibility.
   const client = await pool.connect();
@@ -592,6 +600,33 @@ app.post('/api/docs/:id/children', requireUser, wrap(async (req, res) => {
     client.release();
   }
   res.json({ id, title, icon, folder_id: parent.rows[0].folder_id, visibility: parent.rows[0].visibility });
+}));
+
+// Nest an *existing* page under another one (sidebar drag, or the link_docs MCP
+// tool). Same mechanism as /children — a reference block in the parent's body —
+// so nothing new has to be taught to the sidebar or to backlinks.
+//
+// Mutual references are fine and deliberate: the sidebar's own disclosure caps
+// depth and refuses to re-expand an ancestor, so A→B→A cannot run away.
+app.post('/api/docs/:id/links', requireUser, wrap(async (req, res) => {
+  const parentId = req.params.id;
+  const childId = String(req.body?.childId || '');
+  if (!childId) return res.status(400).json({ error: 'childId required' });
+  if (childId === parentId) return res.status(400).json({ error: 'a page cannot be nested under itself' });
+  if (!(await grantOn(parentId, req.user.id))) return res.status(403).json({ error: 'forbidden' });
+  if (!(await grantOn(childId, req.user.id))) return res.status(403).json({ error: 'forbidden' });
+
+  const child = await pool.query('SELECT 1 FROM docs WHERE id = $1 AND deleted_at IS NULL', [childId]);
+  if (!child.rowCount) return res.status(404).json({ error: 'not found' });
+
+  // Dragging the same page onto the same parent twice must not stack up two
+  // reference blocks, so an existing link is a no-op rather than an append.
+  const existing = await pool.query('SELECT 1 FROM doc_links WHERE from_id = $1 AND to_id = $2', [parentId, childId]);
+  if (existing.rowCount) return res.json({ ok: true, already: true });
+
+  if (!(await referenceChild(parentId, childId))) return res.status(409).json({ error: NO_BODY_TO_NEST_IN });
+  await pool.query('INSERT INTO doc_links (from_id, to_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [parentId, childId]);
+  res.json({ ok: true });
 }));
 
 // Read a doc's title + plain text (decoded from the Yjs state; used by API clients).
@@ -1629,6 +1664,18 @@ app.post('/api/docs/:id/versions', requireUser, async (req, res) => {
   );
   res.json({ id });
 });
+
+// A snapshot's decoded text, so the History panel can show what is in a version
+// before anyone restores it. Same decode path as /docs/:id/text, pointed at the
+// archived state instead of the live one.
+app.get('/api/docs/:id/versions/:vid/text', requireUser, wrap(async (req, res) => {
+  if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
+  const v = await pool.query('SELECT state FROM doc_versions WHERE id = $1 AND doc_id = $2', [req.params.vid, req.params.id]);
+  if (!v.rows[0]) return res.status(404).json({ error: 'version not found' });
+  let text = '';
+  try { text = extractText(v.rows[0].state).text; } catch { /* an unreadable snapshot previews as empty */ }
+  res.json({ id: req.params.vid, text });
+}));
 
 // Restore = create a NEW doc from the snapshot (non-destructive; safe with live
 // collaborators on the original).

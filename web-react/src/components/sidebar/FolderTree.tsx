@@ -1,5 +1,6 @@
 import { ChevronRight, Download, FilePlus, FileText, FileType, Folder, FolderInput, FolderOpen, Link2, MoreHorizontal, Plus, Printer, Star, Trash2, Upload } from 'lucide-react';
 import { useState } from 'react';
+import { DOC_MIME, FOLDER_MIME, dragSource, useRowDrop } from './rowDrag';
 import { cn } from '../../lib/cn';
 import { docsApi } from '../../lib/docsApi';
 import { docUrl } from '../../lib/route';
@@ -46,13 +47,21 @@ function DocumentRow({ id, depth, ancestors = NO_ANCESTORS }: { id: PageId; dept
   const ws = useWorkspace();
   const page = ws.pages[id];
   const [hover, setHover] = useState(false);
-  const [edge, setEdge] = useState<'before' | 'after' | null>(null);
   const [linksOpen, setLinksOpen] = useState(false);
   const [linked, setLinked] = useState<PageId[] | null>(null);
+  const placeable = ancestors.length === 0;
+  const drop = useRowDrop({
+    accept: { [DOC_MIME]: 'thirds' },
+    enabled: placeable,
+    onDrop: (_mime, draggedId, zone) => {
+      if (draggedId === id) return;
+      if (zone === 'inside') ws.linkPage(id, draggedId);
+      else ws.reorderPage(draggedId, id, zone);
+    },
+  });
   if (!page) return null;
   const selected = ws.currentId === id;
   const fav = ws.favoriteIds.includes(id);
-  const placeable = ancestors.length === 0;
   const canExpand = page.linkCount > 0 && ancestors.length < MAX_LINK_DEPTH;
 
   // Refetched on every open rather than cached forever: a page linked since the
@@ -90,39 +99,14 @@ function DocumentRow({ id, depth, ancestors = NO_ANCESTORS }: { id: PageId; dept
     <div
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
-      draggable
-      onDragStart={(e) => {
-        e.dataTransfer.effectAllowed = 'move';
-        e.dataTransfer.setData('application/x-metanoia-document', id);
-      }}
-      // Which half of the row the pointer is over decides whether the page
-      // lands above or below this one — the same gesture a file manager uses,
-      // and the only way to express "first in the folder".
-      onDragOver={(e) => {
-        if (!placeable || !e.dataTransfer.types.includes('application/x-metanoia-document')) return;
-        e.preventDefault();
-        e.stopPropagation(); // a folder row must not also claim this drop
-        e.dataTransfer.dropEffect = 'move';
-        const box = e.currentTarget.getBoundingClientRect();
-        setEdge(e.clientY - box.top < box.height / 2 ? 'before' : 'after');
-      }}
-      onDragLeave={() => setEdge(null)}
-      // The side is recomputed from the drop itself rather than read off the
-      // indicator's state: a quick drag can drop on the same frame the first
-      // dragover arrived, and the state would still be null.
-      onDrop={(e) => {
-        if (!placeable) return;
-        const dragged = e.dataTransfer.getData('application/x-metanoia-document');
-        if (!dragged) return;
-        e.preventDefault();
-        e.stopPropagation();
-        const box = e.currentTarget.getBoundingClientRect();
-        const place = e.clientY - box.top < box.height / 2 ? 'before' : 'after';
-        setEdge(null);
-        if (dragged !== id) ws.reorderPage(dragged, id, place);
-      }}
+      {...dragSource(DOC_MIME, id)}
+      {...drop.props}
       onClick={() => ws.select(id)}
-      className={cn('group/row relative flex h-8 cursor-pointer items-center rounded-md pr-1 text-base leading-5 transition-colors duration-120', selected ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-hover')}
+      className={cn(
+        'group/row relative flex h-8 cursor-pointer items-center rounded-md pr-1 text-base leading-5 transition-colors duration-120',
+        selected ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-hover',
+        drop.zone === 'inside' && 'bg-accent-soft text-accent',
+      )}
       style={{ paddingLeft: 8 + depth * 16 }}
       role="treeitem"
       aria-selected={selected}
@@ -130,9 +114,9 @@ function DocumentRow({ id, depth, ancestors = NO_ANCESTORS }: { id: PageId; dept
       tabIndex={0}
       onKeyDown={(e) => { if (e.key === 'Enter') ws.select(id); }}
     >
-      {edge && (
+      {(drop.zone === 'before' || drop.zone === 'after') && (
         <span
-          className={cn('pointer-events-none absolute left-1 right-1 h-0.5 rounded-full bg-accent', edge === 'before' ? 'top-0' : 'bottom-0')}
+          className={cn('pointer-events-none absolute left-1 right-1 h-0.5 rounded-full bg-accent', drop.zone === 'before' ? 'top-0' : 'bottom-0')}
         />
       )}
       {/* One w-5 slot: the page icon at rest, a disclosure chevron while
@@ -204,8 +188,19 @@ function FolderRow({ id, depth }: { id: string; depth: number }) {
   const ws = useWorkspace();
   const folder = ws.folders[id];
   const [hover, setHover] = useState(false);
-  const [dragOver, setDragOver] = useState(false);
   const [renaming, setRenaming] = useState(false);
+  // A page dropped anywhere on a folder goes into it; a folder splits into
+  // thirds so it can be both a neighbour to reorder against and a container.
+  const drop = useRowDrop({
+    accept: { [DOC_MIME]: 'whole', [FOLDER_MIME]: 'thirds' },
+    onDrop: (mime, draggedId, zone) => {
+      const openIt = () => { if (!ws.folders[id]?.expanded) ws.toggleFolder(id); };
+      if (mime === DOC_MIME) { ws.movePage(draggedId, id); openIt(); return; }
+      if (draggedId === id) return;
+      if (zone === 'inside') { ws.moveFolder(draggedId, id); openIt(); }
+      else ws.reorderFolder(draggedId, id, zone);
+    },
+  });
   if (!folder) return null;
   const hasChildren = folder.children.length > 0 || folder.documentIds.length > 0;
   const tint = FOLDER_TINT[folder.color] ?? 'text-faint';
@@ -239,27 +234,18 @@ function FolderRow({ id, depth }: { id: string; depth: number }) {
       <div
         onMouseEnter={() => setHover(true)}
         onMouseLeave={() => setHover(false)}
-        onDragOver={(e) => {
-          if (e.dataTransfer.types.includes('application/x-metanoia-document')) {
-            e.preventDefault();
-            e.dataTransfer.dropEffect = 'move';
-            setDragOver(true);
-          }
-        }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={(e) => {
-          e.preventDefault();
-          setDragOver(false);
-          const documentId = e.dataTransfer.getData('application/x-metanoia-document');
-          if (!documentId) return;
-          ws.movePage(documentId, id);
-          if (!folder.expanded) ws.toggleFolder(id);
-        }}
-        className={cn('group/row flex h-8 items-center rounded-md pr-1 text-base leading-5 text-ink hover:bg-hover', dragOver && 'bg-accent-soft text-accent')}
+        {...dragSource(FOLDER_MIME, id)}
+        {...drop.props}
+        className={cn('group/row relative flex h-8 items-center rounded-md pr-1 text-base leading-5 text-ink hover:bg-hover', drop.zone === 'inside' && 'bg-accent-soft text-accent')}
         style={{ paddingLeft: 8 + depth * 16 }}
         role="treeitem"
         aria-expanded={hasChildren ? !!folder.expanded : undefined}
       >
+        {(drop.zone === 'before' || drop.zone === 'after') && (
+          <span
+            className={cn('pointer-events-none absolute left-1 right-1 h-0.5 rounded-full bg-accent', drop.zone === 'before' ? 'top-0' : 'bottom-0')}
+          />
+        )}
         {/* One w-5 slot shared with doc rows so names line up: folder icon at
             rest, chevron while hovering the row. */}
         <button type="button" onClick={() => ws.toggleFolder(id)} className="mr-1.5 flex h-5 w-5 shrink-0 items-center justify-center rounded hover:bg-hover" aria-label={folder.expanded ? 'Collapse folder' : 'Expand folder'}>

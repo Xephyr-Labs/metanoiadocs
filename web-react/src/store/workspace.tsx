@@ -14,6 +14,7 @@ import { setPendingSeed } from '../editor/pendingSeed';
 import { MAX_IMPORT_BYTES, stripFrontMatter, titleFromMarkdown } from '../lib/docFiles';
 import { readRoute, showDoc, showHome } from '../lib/route';
 import { useDocSaveTick } from '../lib/docSignal';
+import { placeAt } from '../lib/reorder';
 import type { Template } from '../data/templates';
 import type { EditorMode, Folder, Page, PageId, Tag } from '../lib/types';
 
@@ -76,6 +77,9 @@ interface WorkspaceState {
   movePage: (id: PageId, folderId: string | null) => Promise<void>;
   createChildPage: (parentId: PageId) => Promise<PageId | null>;
   reorderPage: (dragId: PageId, targetId: PageId, place: 'before' | 'after') => Promise<void>;
+  linkPage: (parentId: PageId, childId: PageId) => Promise<void>;
+  reorderFolder: (dragId: string, targetId: string, place: 'before' | 'after') => Promise<void>;
+  moveFolder: (id: string, parentId: string | null) => Promise<void>;
   createFolder: (parentId: string | null) => Promise<string | null>;
   renameFolder: (id: string, name: string) => Promise<void>;
   setFolderColor: (id: string, color: string) => void;
@@ -166,6 +170,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const pagesRef = useRef(pages);
   pagesRef.current = pages;
+  const foldersRef = useRef(folders);
+  foldersRef.current = folders;
   const bootstrapped = useRef(false);
 
   const [workspaceId] = useState('ws-metanoia');
@@ -410,13 +416,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     if (!dragged || !target || dragId === targetId) return;
 
     const folderId = target.folderId;
-    const ids = Object.values(all)
-      .filter((p) => p.folderId === folderId && p.id !== dragId)
-      .sort(byOrder)
-      .map((p) => p.id);
-    const at = ids.indexOf(targetId);
-    if (at === -1) return;
-    ids.splice(place === 'before' ? at : at + 1, 0, dragId);
+    const siblings = Object.values(all).filter((p) => p.folderId === folderId).sort(byOrder).map((p) => p.id);
+    const ids = placeAt(siblings, dragId, targetId, place);
+    if (!ids) return;
 
     // Paint the new order immediately — the round trip is long enough that the
     // row visibly springs back to where it was dragged from otherwise.
@@ -429,6 +431,52 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     });
     await docsApi.reorder(folderId, ids).catch(() => {});
     await refresh();
+  }, [refresh]);
+
+  // Nest an existing page under another one — dropping a page onto the middle of
+  // another page's row. The reference that does the nesting goes into the parent's
+  // body server-side, exactly as "Add a page inside" does. A parent nobody has
+  // opened yet has no body to write into, and that 409 has to reach the user:
+  // silently doing nothing looks identical to a drop that missed.
+  const linkPage = useCallback(async (parentId: PageId, childId: PageId) => {
+    try {
+      await docsApi.linkChild(parentId, childId);
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not nest that page.');
+    }
+  }, [refresh]);
+
+  // Drop a folder above or below another one. Same whole-list contract as
+  // reorderPage, but no optimistic paint: the tree renders from each folder's
+  // `children` array, which is derived on refresh — repositioning the folders
+  // alone would leave the rows drawn in their old order anyway.
+  const reorderFolder = useCallback(async (dragId: string, targetId: string, place: 'before' | 'after') => {
+    const all = foldersRef.current;
+    const target = all[targetId];
+    if (!all[dragId] || !target || dragId === targetId) return;
+    const parentId = target.parentId;
+    const siblings = Object.values(all)
+      .filter((f) => f.parentId === parentId)
+      .sort((a, b) => a.position - b.position || a.name.localeCompare(b.name))
+      .map((f) => f.id);
+    const ids = placeAt(siblings, dragId, targetId, place);
+    if (!ids) return;
+    await docsApi.reorderFolders(parentId, ids).catch(() => {});
+    await refresh();
+  }, [refresh]);
+
+  // Nest a folder inside another. The server rejects a move that would make a
+  // folder its own ancestor; that message is worth showing rather than swallowing.
+  const moveFolder = useCallback(async (id: string, parentId: string | null) => {
+    if (id === parentId) return;
+    try {
+      await docsApi.patchFolder(id, { parentId });
+      if (parentId) folderExpandedRef.current.add(parentId);
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not move that folder.');
+    }
   }, [refresh]);
 
   const renameFolder = useCallback(async (id: string, name: string) => {
@@ -639,7 +687,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       sidebarCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
       settingsOpen, trashOpen, inboxOpen, mode, fullWidth, theme,
       refresh, select, toggleExpand, toggleFavorite, setVisibility, rename, applyTitleFromEditor,
-      createPage, movePage, createChildPage, reorderPage, createFolder, renameFolder, setFolderColor, setIcon, toggleFolder, deleteFolder, createFromTemplate, importMarkdown, deletePage, restorePage,
+      createPage, movePage, createChildPage, reorderPage, linkPage, reorderFolder, moveFolder, createFolder, renameFolder, setFolderColor, setIcon, toggleFolder, deleteFolder, createFromTemplate, importMarkdown, deletePage, restorePage,
       refreshTags, addTagToPage, removeTagFromPage, setTagFilter,
       setSidebarCollapsed, setSidebarWidth, setMobileDrawer, setRightPanel, setPaletteOpen,
       setShareOpen, setSettingsOpen, setTrashOpen, setInboxOpen, setMode, setFullWidth, toggleTheme,
@@ -652,7 +700,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       sidebarCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
       settingsOpen, trashOpen, inboxOpen, mode, fullWidth, theme,
       refresh, select, toggleExpand, toggleFavorite, setVisibility, rename, applyTitleFromEditor,
-      createPage, movePage, createChildPage, reorderPage, createFolder, renameFolder, setFolderColor, setIcon, toggleFolder, deleteFolder, createFromTemplate, importMarkdown, deletePage, restorePage,
+      createPage, movePage, createChildPage, reorderPage, linkPage, reorderFolder, moveFolder, createFolder, renameFolder, setFolderColor, setIcon, toggleFolder, deleteFolder, createFromTemplate, importMarkdown, deletePage, restorePage,
       refreshTags, addTagToPage, removeTagFromPage, toggleTheme,
     ],
   );

@@ -169,6 +169,9 @@ export const docsApi = {
     req('/folders', { method: 'POST', body: JSON.stringify(body) }),
   patchFolder: (id: string, body: { name?: string; color?: string; parentId?: string | null }) =>
     req(`/folders/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  /** `ids` is the parent's whole subfolder list in its new order, not just the moved one. */
+  reorderFolders: (parentId: string | null, ids: string[]) =>
+    req('/folders/reorder', { method: 'POST', body: JSON.stringify({ parentId, ids }) }),
   removeFolder: (id: string) => req(`/folders/${id}`, { method: 'DELETE' }),
   /** `content` is markdown, built into real blocks server-side (used by import). */
   create: (body: { title?: string; icon?: string; folderId?: string | null; content?: string }): Promise<DocRow> =>
@@ -176,6 +179,9 @@ export const docsApi = {
   /** Create a page nested under `parentId` — the parent gains a reference to it. */
   createChild: (parentId: string, title?: string): Promise<DocRow> =>
     req(`/docs/${parentId}/children`, { method: 'POST', body: JSON.stringify({ title }) }),
+  /** Nest an *existing* page under `parentId`, the same way createChild nests a new one. */
+  linkChild: (parentId: string, childId: string): Promise<{ ok: true; already?: boolean }> =>
+    req(`/docs/${parentId}/links`, { method: 'POST', body: JSON.stringify({ childId }) }),
   patch: (id: string, body: { title?: string; icon?: string; folderId?: string | null }) =>
     req(`/docs/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   remove: (id: string) => req(`/docs/${id}`, { method: 'DELETE' }),
@@ -236,6 +242,12 @@ export const docsApi = {
   deleteComment: (cid: string) => req(`/comments/${cid}`, { method: 'DELETE' }),
 
   versions: (id: string): Promise<VersionRow[]> => req(`/docs/${id}/versions`),
+  /** A snapshot's plain text, for previewing it before restoring. */
+  versionText: (id: string, vid: string): Promise<{ id: string; text: string }> =>
+    req(`/docs/${id}/versions/${vid}/text`),
+  /** Non-destructive: the snapshot becomes a new "… (restored)" doc, which this returns. */
+  restoreVersion: (id: string, vid: string): Promise<{ id: string; title: string }> =>
+    req(`/docs/${id}/versions/${vid}/restore`, { method: 'POST' }),
   snapshot: (id: string, label: string) =>
     req(`/docs/${id}/versions`, { method: 'POST', body: JSON.stringify({ label }) }),
 

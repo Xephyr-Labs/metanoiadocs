@@ -9,11 +9,22 @@ import { useWorkspace } from '../../store/workspace';
 import { DocIcon } from '../ui/DocIcon';
 import { Menu } from '../ui/Menu';
 import { rowAction } from '../ui/styles';
+import { DOC_MIME, dragSource, useRowDrop } from './rowDrag';
 
 function Row({ id, depth }: { id: PageId; depth: number }) {
   const ws = useWorkspace();
   const page = ws.pages[id];
   const [hover, setHover] = useState(false);
+  // Same gesture as the folder tree: the outer quarters place this page above or
+  // below its neighbour, the middle nests it under them.
+  const drop = useRowDrop({
+    accept: { [DOC_MIME]: 'thirds' },
+    onDrop: (_mime, draggedId, zone) => {
+      if (draggedId === id) return;
+      if (zone === 'inside') ws.linkPage(id, draggedId);
+      else ws.reorderPage(draggedId, id, zone);
+    },
+  });
   if (!page) return null;
   const selected = ws.currentId === id;
   const hasChildren = page.children.length > 0;
@@ -24,6 +35,8 @@ function Row({ id, depth }: { id: PageId; depth: number }) {
       <div
         onMouseEnter={() => setHover(true)}
         onMouseLeave={() => setHover(false)}
+        {...dragSource(DOC_MIME, id)}
+        {...drop.props}
         onClick={() => ws.select(id)}
         role="treeitem"
         aria-selected={selected}
@@ -35,11 +48,17 @@ function Row({ id, depth }: { id: PageId; depth: number }) {
           if (e.key === 'ArrowLeft' && hasChildren && page.expanded) ws.toggleExpand(id);
         }}
         className={cn(
-          'group/row flex h-8 cursor-pointer items-center rounded-md pr-1 text-base leading-5 transition-colors duration-120',
+          'group/row relative flex h-8 cursor-pointer items-center rounded-md pr-1 text-base leading-5 transition-colors duration-120',
           selected ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-hover',
+          drop.zone === 'inside' && 'bg-accent-soft text-accent',
         )}
         style={{ paddingLeft: 8 + depth * 16 }}
       >
+        {(drop.zone === 'before' || drop.zone === 'after') && (
+          <span
+            className={cn('pointer-events-none absolute left-1 right-1 h-0.5 rounded-full bg-accent', drop.zone === 'before' ? 'top-0' : 'bottom-0')}
+          />
+        )}
         {/* One icon slot shared by the doc icon and the expand chevron — the
             chevron overlays the icon on hover/select. Keeps every top-level row's
             icon in the SAME column as the nav + Recent icons above, instead of a

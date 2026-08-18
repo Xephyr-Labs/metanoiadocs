@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { Bot, Check, History, Info, ListTree, Loader2, MessageSquareText, Send, Sparkles, X } from 'lucide-react';
+import { Bot, Check, History, Info, ListTree, Loader2, MessageSquareText, RotateCcw, Send, Sparkles, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { aiStream, docsApi, type CommentRow, type UserRow, type VersionRow } from '../../lib/docsApi';
 import { applyCommentHighlights, clearPendingAnchor, clearPendingFocus, onCommentRequest, usePendingAnchor, usePendingFocus } from '../../editor/comments';
@@ -351,21 +351,79 @@ function DetailsTab() {
 }
 
 function HistoryTab({ docId }: { docId: string }) {
+  const ws = useWorkspace();
   const [versions, setVersions] = useState<VersionRow[] | null>(null);
+  const [openId, setOpenId] = useState<string | null>(null);
+  // Cached per version id: a snapshot never changes, so it is fetched once.
+  const [preview, setPreview] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
   useEffect(() => {
     setVersions(null);
+    setOpenId(null);
+    setPreview({});
+    setErr(null);
     docsApi.versions(docId).then(setVersions).catch(() => setVersions([]));
   }, [docId]);
+
+  const toggle = async (v: VersionRow) => {
+    const next = openId === v.id ? null : v.id;
+    setOpenId(next);
+    if (!next || preview[v.id] !== undefined) return;
+    const row = await docsApi.versionText(docId, v.id).catch(() => null);
+    setPreview((p) => ({ ...p, [v.id]: row?.text?.trim() || 'This snapshot has no text.' }));
+  };
+
+  // Restoring is non-destructive on purpose: it opens a copy and leaves this
+  // page alone, so it is safe to try while other people are editing.
+  const restore = async (v: VersionRow) => {
+    setBusy(v.id);
+    setErr(null);
+    try {
+      const row = await docsApi.restoreVersion(docId, v.id);
+      await ws.refresh();
+      ws.select(row.id);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Could not restore that version.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
   if (versions === null) return <div className="flex justify-center py-10"><Loader2 size={18} className="animate-spin text-faint" /></div>;
   if (versions.length === 0) return <EmptyState icon={History} title="No versions yet" hint="Snapshots are saved automatically as you edit." compact />;
   return (
     <div className="p-2">
+      {err && <p className="px-3 pb-2 text-xs text-red-500">{err}</p>}
       {versions.map((v, i) => (
-        <div key={v.id} className={cn('flex w-full flex-col rounded-md px-3 py-2 text-left', i === 0 && 'bg-hover')}>
-          <span className="text-sm font-medium text-ink">{relativeTime(v.created_at)}</span>
-          <span className="text-2xs text-faint">{v.label || 'autosave'}{v.author ? ` · ${v.author}` : ''}</span>
+        <div key={v.id} className={cn('rounded-md', i === 0 && 'bg-hover')}>
+          <div className="flex items-center gap-1 pr-2">
+            <button
+              type="button"
+              onClick={() => toggle(v)}
+              className="flex min-w-0 flex-1 flex-col px-3 py-2 text-left"
+              aria-expanded={openId === v.id}
+            >
+              <span className="text-sm font-medium text-ink">{relativeTime(v.created_at)}</span>
+              <span className="text-2xs text-faint">{v.label || 'autosave'}{v.author ? ` · ${v.author}` : ''}</span>
+            </button>
+            <IconButton
+              size="sm"
+              label="Restore as a copy"
+              icon={busy === v.id ? <Loader2 size={15} className="animate-spin" /> : <RotateCcw size={15} />}
+              onClick={() => restore(v)}
+              disabled={busy !== null}
+            />
+          </div>
+          {openId === v.id && (
+            <p className="max-h-64 overflow-y-auto whitespace-pre-wrap px-3 pb-3 text-xs leading-relaxed text-muted">
+              {preview[v.id] ?? 'Loading…'}
+            </p>
+          )}
         </div>
       ))}
+      <p className="px-3 pt-3 text-2xs text-faint">Restoring opens a copy. This page is left as it is.</p>
     </div>
   );
 }
