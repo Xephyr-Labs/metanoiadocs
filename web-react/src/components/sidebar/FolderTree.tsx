@@ -145,7 +145,7 @@ function DocumentRow({ id, depth, ancestors = NO_ANCESTORS }: { id: PageId; dept
           <PageIcon icon={page.icon} size={16} className={selected ? 'shrink-0 text-accent' : 'shrink-0 text-faint'} />
         </span>
       )}
-      <span className={cn('flex h-5 min-w-0 flex-1 items-center truncate', selected && 'font-medium text-accent')}>
+      <span className={cn('block h-5 min-w-0 flex-1 truncate leading-5', selected && 'font-medium text-accent')}>
         {page.title}
       </span>
       <span className={cn('flex shrink-0 items-center gap-0.5 transition-opacity', hover ? 'opacity-100' : 'opacity-0')}>

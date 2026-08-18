@@ -94,7 +94,7 @@ function Row({ id, depth }: { id: PageId; depth: number }) {
             </button>
           )}
         </span>
-        <span className={cn('flex h-5 flex-1 !self-center items-center truncate', selected && 'font-medium text-accent')}>
+        <span className={cn('block h-5 min-w-0 flex-1 !self-center truncate leading-5', selected && 'font-medium text-accent')}>
           {page.title}
         </span>
 

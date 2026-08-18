@@ -38,7 +38,7 @@ function NavItem({ icon, label, onClick, trailing, active }: { icon: ReactNode; 
       className={cn('group flex h-8 w-full items-center gap-2 rounded-md px-2 text-base leading-5 transition-colors duration-120', active ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-hover')}
     >
       <span className={cn('flex h-5 w-5 shrink-0 items-center justify-center', active ? 'text-accent' : 'text-faint group-hover:text-muted')}>{icon}</span>
-      <span className="flex h-5 flex-1 !self-center items-center truncate text-left">{label}</span>
+      <span className="block h-5 min-w-0 flex-1 !self-center truncate leading-5 text-left">{label}</span>
       {trailing}
     </button>
   );
@@ -47,7 +47,7 @@ function NavItem({ icon, label, onClick, trailing, active }: { icon: ReactNode; 
 function SectionLabel({ children, action }: { children: ReactNode; action?: ReactNode }) {
   return (
     <div className="flex h-7 items-center justify-between px-2">
-      <span className="text-2xs font-semibold uppercase tracking-wide text-faint">{children}</span>
+      <span className="mn-side-label text-2xs font-semibold uppercase text-muted">{children}</span>
       {action}
     </div>
   );
@@ -62,7 +62,7 @@ function CollapsibleSection({ label, defaultOpen, children }: { label: string; d
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="group flex h-7 w-full items-center gap-1 px-2 text-2xs font-semibold uppercase tracking-wide text-faint hover:text-muted"
+        className="mn-side-label group flex h-7 w-full items-center gap-1 px-2 text-2xs font-semibold uppercase text-muted hover:text-ink"
       >
         <ChevronRight size={12} className={cn('transition-transform duration-180', open && 'rotate-90')} />
         {label}
@@ -83,7 +83,7 @@ function DocRow({ id }: { id: string }) {
       className={cn('flex h-8 w-full items-center gap-1.5 rounded-md px-2 text-base leading-5 transition-colors duration-120', ws.currentId === id ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-hover')}
     >
       <PageIcon icon={p.icon} size={16} />
-      <span className="flex h-5 flex-1 !self-center items-center truncate text-left">{p.title}</span>
+      <span className="block h-5 min-w-0 flex-1 !self-center truncate leading-5 text-left">{p.title}</span>
       {p.favorite && <Star size={14} className="shrink-0 fill-current text-amber-400" />}
     </button>
   );
@@ -127,7 +127,7 @@ export function Sidebar() {
   };
 
   return (
-    <aside className="relative flex h-full shrink-0 flex-col bg-canvas" style={{ width: ws.sidebarWidth }}>
+    <aside className="mn-side relative flex h-full shrink-0 flex-col bg-canvas" style={{ width: ws.sidebarWidth }}>
       {/* workspace switcher */}
       <div className="flex h-[45px] shrink-0 items-center px-2">
         <Menu
@@ -150,7 +150,7 @@ export function Sidebar() {
               <span className="flex h-5 w-5 shrink-0 items-center justify-center">
                 <LogoMark size={16} />
               </span>
-              <span className="flex h-5 flex-1 !self-center items-center truncate text-base font-semibold text-ink">{activeWs.name}</span>
+              <span className="block h-5 min-w-0 flex-1 !self-center truncate leading-5 text-base font-semibold text-ink">{activeWs.name}</span>
               <ChevronDown size={16} className="shrink-0 text-faint opacity-0 transition-opacity group-hover:opacity-100" />
             </button>
           }
@@ -224,7 +224,7 @@ export function Sidebar() {
                     )}
                   >
                     <span className="text-md leading-none">{p.icon}</span>
-                    <span className="flex h-5 flex-1 !self-center items-center truncate text-left">{p.name}</span>
+                    <span className="block h-5 min-w-0 flex-1 !self-center truncate leading-5 text-left">{p.name}</span>
                     {Number(p.overdue) > 0 ? (
                       <span className="shrink-0 text-2xs font-semibold text-danger">{p.overdue}</span>
                     ) : open > 0 ? (
@@ -293,7 +293,7 @@ export function Sidebar() {
                   className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-base leading-5 text-ink transition-colors duration-120 hover:bg-hover"
                 >
                   <span className={cn('h-2.5 w-2.5 shrink-0 rounded-full', swatch(t.color).dot)} />
-                  <span className="flex h-5 flex-1 !self-center items-center truncate text-left">{t.name}</span>
+                  <span className="block h-5 min-w-0 flex-1 !self-center truncate leading-5 text-left">{t.name}</span>
                   {t.count ? <span className="text-2xs text-faint">{t.count}</span> : null}
                 </button>
               ))}
@@ -312,7 +312,7 @@ export function Sidebar() {
                 className="flex h-8 w-full items-center gap-1.5 rounded-md px-2 text-base leading-5 text-ink transition-colors duration-120 hover:bg-hover"
               >
                 <span className="text-md leading-none">{t.icon}</span>
-                <span className="flex h-5 flex-1 !self-center items-center truncate text-left">{t.name}</span>
+                <span className="block h-5 min-w-0 flex-1 !self-center truncate leading-5 text-left">{t.name}</span>
                 <Plus size={14} className="shrink-0 text-faint" />
               </button>
             ))}
