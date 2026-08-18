@@ -41,9 +41,14 @@
   --topbar-h: 45px;
   --reading-w: 720px;
 
-  /* One display face for document title + headings; Inter stays the UI face.
+  /* Three faces, three jobs. Fraunces titles a document, Inter sets its prose,
+   * and Geist wears the chrome around both — drawn for small sizes and dense
+   * lists, so the sidebar recedes and the page leads. Keeping prose on Inter is
+   * the point: chrome and content should not read as the same layer.
    * Fraunces at opsz high, soft/wonk 0 = a crisp high-contrast editorial serif. */
   --font-display: 'Fraunces Variable', 'Fraunces', Georgia, ui-serif, serif;
+  --font-ui: 'Geist Variable', 'Geist', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-body: 'Inter Variable', 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   /* Code face — system mono, no webfont to download. */
   --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
 
@@ -117,8 +122,8 @@ body {
   margin: 0;
   background: var(--canvas);
   color: var(--ink);
-  font-family: 'Inter Variable', 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
-  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11', 'ss03';
+  font-family: var(--font-ui);
+  font-feature-settings: 'ss01', 'ss03';
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
@@ -265,7 +270,7 @@ textarea:focus-visible,
    * rgba(0, 0, 0, 0.1) when this is undefined — invisible on a dark canvas, so
    * the floating table of contents looked like a single stray mark. */
   --affine-black-10: var(--line-strong);
-  --affine-font-family: 'Inter Variable', 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --affine-font-family: var(--font-body);
   /* Both live in @toeverything/theme, a stylesheet we don't ship — undefined,
    * BlockSuite renders code as body Inter on a transparent background. They
    * paint code blocks AND inline `code` chips. */
@@ -466,7 +471,11 @@ affine-image[data-mn-align='right'] affine-block-caption-editor {
   }
 }
 
-/* ------------------------------------------------------------------ *
+/* Hallmark · component: sidebar-type · genre: modern-minimal · theme: project tokens (preserved)
+ * faces: Fraunces (titles) · Inter (prose) · Geist (chrome) — three jobs, no fourth
+ * colour: every value a token; no new palette entries
+ *
+ * ------------------------------------------------------------------ *
  * Sidebar typography. The tree is the one surface read at a glance all
  * day, so it is set like a list, not like prose: Inter wants a touch of
  * negative tracking at 14px, uppercase labels want the opposite, and
@@ -474,7 +483,7 @@ affine-image[data-mn-align='right'] affine-block-caption-editor {
  * drift with the widths of 1 and 7.
  * ------------------------------------------------------------------ */
 .mn-side {
-  letter-spacing: -0.006em;
+  letter-spacing: -0.01em;
   font-variant-numeric: tabular-nums;
 }
 .mn-side-label {
