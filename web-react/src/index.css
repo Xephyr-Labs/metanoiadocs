@@ -26,6 +26,20 @@
   --comment: #fdfaee;
   --comment-mark: rgba(250, 204, 21, 0.32);
 
+  /* Table row/column tints. Eight hues and one strength: the hue is mixed INTO
+   * the canvas, so the same eight tokens serve light and dark and only the
+   * strength flips — a 12% wash over white is the same weight as 30% over the
+   * dark canvas. */
+  --table-hue-blue: #2383e2;
+  --table-hue-green: #2f9e63;
+  --table-hue-grey: #8a8985;
+  --table-hue-orange: #d9730d;
+  --table-hue-purple: #8b5cf6;
+  --table-hue-red: #d44c47;
+  --table-hue-teal: #0d9488;
+  --table-hue-yellow: #d9a406;
+  --table-tint: 12%;
+
   /* Tooltips stay dark in both themes — they float over content, not in it. */
   --tooltip: #2f2f2c;
 
@@ -65,7 +79,12 @@
   color-scheme: light;
 }
 
-.dark {
+/* Scoped to the root element, not to any `.dark`: BlockSuite stamps the name of
+ * its own theme as a CLASS on every captioned block wrapper — a table renders
+ * inside `<div class="affine-block-component dark">`. A bare `.dark` selector
+ * matches that div and re-declares the whole palette halfway down the tree, so
+ * the tokens a table reads stayed dark after the page went light. */
+html.dark {
   /* Wider lightness steps between canvas → surface → hover → selected so active
    * rows, hovers and panels are locatable instead of melting into the canvas. */
   --canvas: #191919;
@@ -89,6 +108,8 @@
 
   --comment: #26241c;
   --comment-mark: rgba(214, 178, 66, 0.30);
+
+  --table-tint: 30%;
 
   --code-bg: #1f1f1e;
   --code-line: #2e2e2c;
@@ -213,14 +234,37 @@ textarea:focus-visible,
  * popovers render transparent over the page. Map just the handful they read
  * onto our own tokens; they inherit through the shadow DOM and follow the
  * light/dark toggle for free. */
-:root,
-.dark {
+:root {
   --affine-v2-layer-background-primary: var(--canvas);
   --affine-v2-layer-background-overlayPanel: var(--canvas);
   --affine-v2-layer-background-hoverOverlay: var(--hover);
   --affine-v2-layer-insideBorder-border: var(--line);
   --affine-v2-icon-primary: var(--muted);
+  --affine-v2-icon-secondary: var(--faint);
   --affine-v2-text-primary: var(--ink);
+
+  /* The table block's whole palette lives in that same unshipped stylesheet.
+   * Row/column "Background color" writes one of these var() strings straight
+   * into the cell's inline style, so an undefined name is not a fallback —
+   * it is an invalid declaration, and the colour the user picked did nothing
+   * at all. Same reason the drag handles and the resize indicator painted as
+   * transparent pills. */
+  --affine-v2-table-headerBackground-default: var(--canvas);
+  --affine-v2-table-headerBackground-blue: color-mix(in srgb, var(--table-hue-blue) var(--table-tint), var(--canvas));
+  --affine-v2-table-headerBackground-green: color-mix(in srgb, var(--table-hue-green) var(--table-tint), var(--canvas));
+  --affine-v2-table-headerBackground-grey: color-mix(in srgb, var(--table-hue-grey) var(--table-tint), var(--canvas));
+  --affine-v2-table-headerBackground-orange: color-mix(in srgb, var(--table-hue-orange) var(--table-tint), var(--canvas));
+  --affine-v2-table-headerBackground-purple: color-mix(in srgb, var(--table-hue-purple) var(--table-tint), var(--canvas));
+  --affine-v2-table-headerBackground-red: color-mix(in srgb, var(--table-hue-red) var(--table-tint), var(--canvas));
+  --affine-v2-table-headerBackground-teal: color-mix(in srgb, var(--table-hue-teal) var(--table-tint), var(--canvas));
+  --affine-v2-table-headerBackground-yellow: color-mix(in srgb, var(--table-hue-yellow) var(--table-tint), var(--canvas));
+  --affine-v2-table-border: var(--line-strong);
+  --affine-v2-table-indicator-activated: var(--accent);
+  --affine-v2-table-indicator-border: var(--line);
+  --affine-v2-table-indicator-drag: var(--line-strong);
+  --affine-v2-table-indicator-hover: var(--hover);
+  --affine-v2-table-indicator-pointerActive: var(--canvas);
+  --affine-v2-table-indicator-pointerDefault: var(--faint);
 }
 
 /* These sit on :root, not on affine-editor-container, because BlockSuite's
@@ -381,7 +425,7 @@ affine-image[data-mn-align='right'] affine-block-caption-editor {
 /* Idle it is furniture; approached, it is navigation. Dark needs more of the
  * dash to survive at rest — the same 55% that reads as a quiet mark on white
  * disappears into a near-black canvas. */
-.dark .mn-toc .outline-viewer-indicator {
+html.dark .mn-toc .outline-viewer-indicator {
   opacity: 0.72;
 }
 .mn-toc:hover .outline-viewer-indicator {

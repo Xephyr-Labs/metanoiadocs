@@ -7,7 +7,10 @@ import type { Config } from 'tailwindcss';
  * so raw hex/rgb in the vars is fine.
  */
 export default {
-  darkMode: 'class',
+  // `html.dark`, not a bare `.dark`: BlockSuite writes its theme name as a class
+  // on block wrappers inside the editor, and a bare selector would let those
+  // turn on dark variants mid-page.
+  darkMode: ['class', 'html.dark'],
   content: ['./index.html', './src/**/*.{ts,tsx}'],
   theme: {
     extend: {
