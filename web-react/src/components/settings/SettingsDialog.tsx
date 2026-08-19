@@ -34,7 +34,8 @@ import { LogoMark } from '../brand/Logo';
 import { Menu } from '../ui/Menu';
 import { Modal } from '../ui/Modal';
 import { SegmentedControl } from '../ui/SegmentedControl';
-import { copyText, toast } from '../../lib/clipboard';
+import { copyText } from '../../lib/clipboard';
+import { toast } from '../../lib/toast';
 
 function Avatar({ name, size = 32 }: { name: string; size?: number }) {
   const a = avatarFor(name);

@@ -253,7 +253,10 @@ export function TopBar() {
               { icon: ArrowUpRight, label: 'Open in new tab', onSelect: () => window.open(location.href, '_blank') },
               // One row instead of three: the formats belong together and this
               // menu already carries everything else a page can do.
-              {
+              // A design is a canvas: docx, markdown and the print stylesheet all
+              // render its (empty) page mode, so the export that means anything
+              // lives on the canvas bar instead.
+              ...(page.kind === 'design' ? [] : [{
                 icon: Download,
                 label: 'Export',
                 separatorBefore: true,
@@ -262,7 +265,7 @@ export function TopBar() {
                   { icon: FileText, label: 'Markdown (.md)', onSelect: () => downloadMarkdown(page.id) },
                   { icon: Printer, label: 'PDF', onSelect: () => printDoc(page.id) },
                 ],
-              },
+              }]),
               { icon: Trash2, label: 'Move to Trash', danger: true, separatorBefore: true, onSelect: () => ws.deletePage(page.id) },
             ]}
             trigger={<span><IconButton icon={<MoreHorizontal size={18} />} label="More" /></span>}

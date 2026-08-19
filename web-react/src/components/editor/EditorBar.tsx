@@ -11,11 +11,13 @@ import {
   AlignHorizontalDistributeCenter, AlignHorizontalJustifyCenter, AlignHorizontalJustifyEnd,
   AlignHorizontalJustifyStart, AlignVerticalDistributeCenter, AlignVerticalJustifyCenter,
   AlignVerticalJustifyEnd, AlignVerticalJustifyStart,
-  Bold, Check, ChevronDown, Code, FileText, Italic, Link2, List, ListOrdered,
+  Bold, Check, ChevronDown, Code, Download, FileText, Italic, Link2, List, ListOrdered,
   ListTodo, Maximize2, Minimize2, PencilRuler, Presentation, Strikethrough,
 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { applyAlign, selectedCount } from '../../editor/designAlign';
+import { exportCanvasPng } from '../../editor/designExport';
+import { toast } from '../../lib/toast';
 import { MIN_FOR, type AlignMode } from '../../lib/align';
 import type { EditorMode } from '../../lib/types';
 import { cn } from '../../lib/cn';
@@ -255,6 +257,20 @@ export function EditorBar({ editor, mode, design, onMode, fullWidth, onFullWidth
             </span>
           ))}
         </span>
+      )}
+
+      {edgeless && (
+        <>
+          <Divider />
+          <IconButton
+            size="sm"
+            icon={<Download size={16} />}
+            label="Export as PNG"
+            onClick={async () => {
+              if (!(await exportCanvasPng(editor))) toast('Nothing to export from this canvas yet');
+            }}
+          />
+        </>
       )}
 
       <span className="flex-1" />
