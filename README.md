@@ -4,7 +4,7 @@
   <p>
     <b>A self-hosted, real-time collaborative docs workspace.</b><br/>
     Notion-style editing · team &amp; private pages · comments &amp; @-mentions ·
-    <b>free, unlimited members, forever</b>.
+    designs on a canvas · <b>free, unlimited members, forever</b>.
   </p>
   <p>
     <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-blue.svg"></a>
@@ -35,12 +35,13 @@ an original Node/Postgres backend — real-time sync, no proprietary server code
 - **Rich block editor** — headings, lists, to-dos, tables, databases/kanban, code, LaTeX, images, embeds, toggles.
 - **Team & private pages** — every doc is team-visible by default; flip any page to **Private** (owner-only) from the top bar.
 - **Comments & @-mentions** — threaded, block-anchored comments; @-mention teammates for an in-app + email notification.
-- **Organize** — nested page tree with drag-reorder, colored **tags**, favorites, and folders.
+- **Organize** — nested page tree with drag-reorder, colored **tags**, favorites, and folders. Every folder has its own page listing what's inside it, and its own link to send someone.
 - **Projects** — per-project **kanban**, backlog, table, Gantt and calendar views, with sprints, epics/stories, dependencies, milestones and assignees. Any task can link to the page that specifies it.
+- **Designs** — a canvas that lives beside the docs: shapes, connectors, frames, freehand and images, with a frames panel, align/distribute, and PNG export. A design *is* a document, so it inherits sharing, folders, search, comments and version history.
 - **Find anything** — hybrid full-text + fuzzy (typo-tolerant) search and a ⌘K command palette.
 - **Ambient intelligence** — a per-doc rail that surfaces related pages, auto tag & link suggestions, and extracted tasks / decisions / risks / deadlines, plus duplicate & stale detection. Computed locally in Postgres on save — **no LLM, no external calls**.
-- **Import & export** — drop in `.md` files (front matter, nested lists, tables and inline marks survive), and take any page back out as **Markdown** or **PDF**.
-- **Version history** — automatic + manual snapshots, non-destructive restore.
+- **Import & export** — drop in `.md` files (front matter, nested lists, tables and inline marks survive), and take any page back out as **Markdown**, **Word** or **PDF** — or any canvas as a **PNG**.
+- **Version history** — automatic snapshots as you write, plus ones you take by hand. Browse them on a dated timeline with the *rendered page* beside it, not a text dump, then restore in place — the state you replaced is saved first as "Before restore", so the restore is itself undoable. Or open any version as a separate copy and leave the page alone.
 - **Public share links** — publish any page read-only, server-enforced.
 - **AI assist** — optional OpenAI-compatible copilot, configured in Settings (bring your own key).
 - **MCP server** — let AI agents (Claude Desktop/Code, Cursor, …) search, read, and write your docs as you, over the [Model Context Protocol](https://modelcontextprotocol.io). See [`mcp/`](mcp/).
