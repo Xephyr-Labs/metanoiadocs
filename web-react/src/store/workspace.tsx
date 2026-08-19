@@ -12,23 +12,27 @@ import { docsApi, type DocRow, type FolderRow } from '../lib/docsApi';
 import { tasksApi, type ProjectRow } from '../lib/tasksApi';
 import { setPendingSeed } from '../editor/pendingSeed';
 import { MAX_IMPORT_BYTES, stripFrontMatter, titleFromMarkdown } from '../lib/docFiles';
-import { readRoute, showDoc, showHome } from '../lib/route';
+import { readRoute, showDoc, showFolder, showHome } from '../lib/route';
+import { folderChain } from '../lib/folderPath';
 import { useDocSaveTick } from '../lib/docSignal';
 import { placeAt } from '../lib/reorder';
 import { nestByParent } from '../lib/pageTree';
 import type { Template } from '../data/templates';
 import type { EditorMode, Folder, Page, PageId, Tag } from '../lib/types';
 
-export type RightTab = 'intel' | 'comments' | 'outline' | 'details' | 'history' | 'ai';
+export type RightTab = 'intel' | 'comments' | 'outline' | 'details' | 'ai';
 
-/** Which surface fills the main column. Cheaper than a router for three screens. */
-export type View = 'home' | 'doc' | 'project';
+/** Which surface fills the main column. Cheaper than a router for four screens. */
+export type View = 'home' | 'doc' | 'project' | 'folder';
 
 interface WorkspaceState {
   view: View;
   activeProjectId: string | null;
+  activeFolderId: string | null;
   openHome: () => void;
   openProject: (id: string) => void;
+  /** Show a folder's contents in the main column — where a /f/<id> link lands. */
+  openFolder: (id: string) => void;
   projects: ProjectRow[];
   refreshProjects: () => Promise<void>;
 
@@ -50,6 +54,11 @@ interface WorkspaceState {
   markInboxRead: () => void;
   currentId: PageId | null;
   currentPage: Page | null;
+  /** The document whose version history is open, or null. Full-screen, so it is
+   *  its own piece of state rather than a right-panel tab. */
+  historyDocId: PageId | null;
+  openHistory: (id: PageId) => void;
+  closeHistory: () => void;
   loading: boolean;
   error: string | null;
   workspaceId: string;
@@ -194,6 +203,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [sidebarWidth, setSidebarWidth] = useState(260);
   const [mobileDrawerOpen, setMobileDrawer] = useState(false);
   const [rightPanel, setRightPanel] = useState<RightTab | null>(null);
+  const [activeFolderId, setActiveFolderId] = useState<string | null>(null);
+  const [historyDocId, setHistoryDocId] = useState<PageId | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -238,22 +249,30 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  // Arriving on a page link opens the document rather than the dashboard.
+  // Arriving on a page or folder link opens it rather than the dashboard.
   useEffect(() => {
-    if (readRoute().docId) setView('doc');
+    const { docId, folderId } = readRoute();
+    if (docId) setView('doc');
+    else if (folderId) { setActiveFolderId(folderId); setView('folder'); }
   }, []);
 
   // Back/forward. The address is the source of truth here — this is the one
   // path where the URL changes without select() having been called.
   useEffect(() => {
     const onPop = () => {
-      const { docId } = readRoute();
+      const { docId, folderId } = readRoute();
       if (docId) {
         setCurrentId((cur) => (pagesRef.current[docId] ? docId : cur));
         setView('doc');
+      } else if (folderId) {
+        setActiveFolderId(folderId);
+        setView('folder');
       } else {
         setView('home');
       }
+      // A version-history takeover is tied to the page underneath it; going
+      // back should leave it, not strand it over whatever loads next.
+      setHistoryDocId(null);
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
@@ -316,6 +335,45 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     // /d/<id> in the bar stops claiming a document is open.
     showHome();
   }, []);
+
+  /** Open a folder, and show in the sidebar where it lives — a link that only
+   *  changed the main column leaves the reader unable to see the folder's
+   *  neighbours, which is half of what a folder is. */
+  const openFolder = useCallback((id: string) => {
+    setActiveFolderId(id);
+    setView('folder');
+    setMobileDrawer(false);
+    setFolders((prev) => {
+      let next = prev;
+      for (const f of folderChain(prev, id)) {
+        folderExpandedRef.current.add(f.id);
+        if (!next[f.id]?.expanded) next = { ...next, [f.id]: { ...next[f.id], expanded: true } };
+      }
+      return next;
+    });
+    showFolder(id);
+  }, []);
+
+  // A /f/<id> address arrives before the folder list does, so the reveal waits
+  // for the folders and then runs exactly once — re-running it would fight
+  // anyone who collapsed the tree by hand.
+  const pendingFolderReveal = useRef<string | null>(readRoute().folderId);
+  useEffect(() => {
+    const id = pendingFolderReveal.current;
+    if (!id || !folders[id]) return;
+    pendingFolderReveal.current = null;
+    setFolders((prev) => {
+      let next = prev;
+      for (const f of folderChain(prev, id)) {
+        folderExpandedRef.current.add(f.id);
+        if (!next[f.id]?.expanded) next = { ...next, [f.id]: { ...next[f.id], expanded: true } };
+      }
+      return next;
+    });
+  }, [folders]);
+
+  const openHistory = useCallback((id: PageId) => setHistoryDocId(id), []);
+  const closeHistory = useCallback(() => setHistoryDocId(null), []);
 
   const select = useCallback((id: PageId) => {
     setCurrentId(id);
@@ -698,7 +756,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       pages, folders, folderRootIds, unfiledIds, rootIds, workspaceRootIds, privateRootIds, sharedRootIds, libraryRootIds, favoriteIds, recentIds: liveRecentIds,
       allTags, tagFilter, unreadCount, refreshUnread, markInboxRead,
       currentId, currentPage, loading, error, workspaceId,
-      view, activeProjectId, openHome, openProject, projects, refreshProjects,
+      historyDocId, openHistory, closeHistory,
+      view, activeProjectId, activeFolderId, openHome, openProject, openFolder, projects, refreshProjects,
       sidebarCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
       settingsOpen, trashOpen, inboxOpen, mode, fullWidth, theme,
       refresh, select, toggleExpand, toggleFavorite, setVisibility, rename, applyTitleFromEditor,
@@ -711,7 +770,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       pages, folders, folderRootIds, unfiledIds, rootIds, workspaceRootIds, privateRootIds, sharedRootIds, libraryRootIds, favoriteIds, liveRecentIds,
       allTags, tagFilter, unreadCount, refreshUnread, markInboxRead,
       currentId, currentPage, loading, error, workspaceId,
-      view, activeProjectId, openHome, openProject, projects, refreshProjects,
+      historyDocId, openHistory, closeHistory,
+      view, activeProjectId, activeFolderId, openHome, openProject, openFolder, projects, refreshProjects,
       sidebarCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
       settingsOpen, trashOpen, inboxOpen, mode, fullWidth, theme,
       refresh, select, toggleExpand, toggleFavorite, setVisibility, rename, applyTitleFromEditor,

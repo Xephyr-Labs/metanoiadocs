@@ -11,16 +11,25 @@
 
 /** `/share/<token>` is handled in main.tsx before the app mounts. */
 const DOC_PATH = /^\/d\/([^/?#]+)/;
+const FOLDER_PATH = /^\/f\/([^/?#]+)/;
 
 export const docUrl = (docId: string, blockId?: string) =>
   `${location.origin}/d/${encodeURIComponent(docId)}${blockId ? `#${encodeURIComponent(blockId)}` : ''}`;
 
-/** What the current address says is open. Both parts may be absent. */
-export function readRoute(): { docId: string | null; blockId: string | null } {
-  const m = DOC_PATH.exec(location.pathname);
+/** The address of a folder, for "Copy link". Folders are workspace-wide, so any
+ *  signed-in member who follows one lands on the same folder — there is no
+ *  per-folder grant to check, the way there is for a document. */
+export const folderUrl = (folderId: string) =>
+  `${location.origin}/f/${encodeURIComponent(folderId)}`;
+
+/** What the current address says is open. Every part may be absent. */
+export function readRoute(): { docId: string | null; folderId: string | null; blockId: string | null } {
+  const doc = DOC_PATH.exec(location.pathname);
+  const folder = FOLDER_PATH.exec(location.pathname);
   const hash = location.hash.slice(1);
   return {
-    docId: m ? decodeURIComponent(m[1]) : null,
+    docId: doc ? decodeURIComponent(doc[1]) : null,
+    folderId: folder ? decodeURIComponent(folder[1]) : null,
     blockId: hash ? decodeURIComponent(hash) : null,
   };
 }
@@ -34,6 +43,13 @@ export function showDoc(docId: string, { replace = false } = {}): void {
   const path = `/d/${encodeURIComponent(docId)}`;
   if (location.pathname === path && !location.hash) return;
   history[replace ? 'replaceState' : 'pushState']({ docId }, '', path);
+}
+
+/** Point the address at a folder. Same contract as `showDoc`. */
+export function showFolder(folderId: string, { replace = false } = {}): void {
+  const path = `/f/${encodeURIComponent(folderId)}`;
+  if (location.pathname === path && !location.hash) return;
+  history[replace ? 'replaceState' : 'pushState']({ folderId }, '', path);
 }
 
 export function showHome({ replace = false } = {}): void {

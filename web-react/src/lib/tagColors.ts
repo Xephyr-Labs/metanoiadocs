@@ -18,3 +18,20 @@ const MAP: Record<string, Swatch> = {
 };
 
 export const swatch = (color: string): Swatch => MAP[color] ?? MAP.gray;
+
+/** Folder icon tint per palette colour; gray stays the quiet default. Lives
+ *  here beside the swatches so the sidebar tree and the folder page cannot
+ *  drift into two different greens. */
+const FOLDER_TINT: Record<string, string> = {
+  gray: 'text-faint',
+  red: 'text-red-500',
+  orange: 'text-orange-500',
+  yellow: 'text-yellow-500',
+  green: 'text-green-500',
+  teal: 'text-teal-500',
+  blue: 'text-blue-500',
+  purple: 'text-purple-500',
+  pink: 'text-pink-500',
+};
+
+export const folderTint = (color: string): string => FOLDER_TINT[color] ?? 'text-faint';

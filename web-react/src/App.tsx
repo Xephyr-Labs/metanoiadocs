@@ -2,6 +2,8 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { useEffect } from 'react';
 import { CommandPalette } from './components/palette/CommandPalette';
 import { EditorArea } from './components/editor/EditorArea';
+import { FolderView } from './components/folder/FolderView';
+import { HistoryView } from './components/history/HistoryView';
 import { Home } from './components/home/Home';
 import { ProjectView } from './components/project/ProjectView';
 import { RightPanel } from './components/panel/RightPanel';
@@ -51,7 +53,10 @@ export default function App() {
         <div className="flex min-w-0 flex-1 flex-col">
           <TopBar />
           <main className="min-h-0 flex-1">
-            {ws.view === 'home' ? <Home /> : ws.view === 'project' ? <ProjectView /> : <EditorArea />}
+            {ws.view === 'home' ? <Home />
+              : ws.view === 'project' ? <ProjectView />
+              : ws.view === 'folder' ? <FolderView />
+              : <EditorArea />}
           </main>
         </div>
 
@@ -82,6 +87,8 @@ export default function App() {
         </AnimatePresence>
       </div>
 
+      {/* Full-screen, so it sits outside the app shell rather than in it. */}
+      <HistoryView />
       <CommandPalette />
       <ShareDialog />
       <SettingsDialog />

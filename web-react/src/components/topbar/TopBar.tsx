@@ -3,11 +3,12 @@ import {
   ChevronDown,
   ChevronRight,
   Cloud,
-  Copy,
   Download,
   FileText,
   FileType,
+  FolderOpen,
   Globe,
+  History,
   Link2,
   Lock,
   MessageSquareText,
@@ -35,6 +36,7 @@ import { Button } from '../ui/Button';
 import { PageIcon } from '../ui/PageIcon';
 import { IconButton } from '../ui/IconButton';
 import { Menu } from '../ui/Menu';
+import { copyLink } from '../../lib/clipboard';
 
 /** Google-Docs-style stack of everyone else currently in the open doc. */
 function PresenceStack() {
@@ -88,6 +90,7 @@ export function TopBar() {
   // off", but the doc breadcrumb and doc actions must not follow them there.
   const page = ws.view === 'doc' ? ws.currentPage : null;
   const project = ws.view === 'project' ? ws.projects.find((p) => p.id === ws.activeProjectId) : null;
+  const folder = ws.view === 'folder' && ws.activeFolderId ? ws.folders[ws.activeFolderId] : null;
   const isMobile = useMediaQuery('(max-width: 767px)');
 
   return (
@@ -131,6 +134,13 @@ export function TopBar() {
           <span className="flex items-center gap-1.5 px-1.5 font-medium text-ink">
             <span className="text-md leading-none">{project.icon}</span>
             {project.name}
+          </span>
+        ) : folder ? (
+          // The folder's own page carries its full path; the bar just says
+          // which folder you are in, the way it says which page.
+          <span className="flex min-w-0 items-center gap-1.5 px-1.5 font-medium text-ink">
+            <FolderOpen size={16} className="shrink-0 text-faint" />
+            <span className="truncate">{folder.name}</span>
           </span>
         ) : (
           <span className="px-1.5 text-muted">{ws.view === 'home' ? 'Home' : 'Metanoia'}</span>
@@ -238,8 +248,8 @@ export function TopBar() {
                 { icon: ws.theme === 'dark' ? Sun : Moon, label: ws.theme === 'dark' ? 'Light mode' : 'Dark mode', onSelect: ws.toggleTheme },
                 { icon: PanelRight, label: 'Outline & details', onSelect: () => ws.setRightPanel(ws.rightPanel ? null : 'outline') },
               ] : []),
-              { icon: Link2, label: 'Copy link', separatorBefore: isMobile, onSelect: () => navigator.clipboard?.writeText(location.href) },
-              { icon: Copy, label: 'Version history', onSelect: () => ws.setRightPanel('history') },
+              { icon: Link2, label: 'Copy link', separatorBefore: isMobile, onSelect: () => { copyLink(location.href); } },
+              { icon: History, label: 'Version history', onSelect: () => ws.openHistory(page.id) },
               { icon: ArrowUpRight, label: 'Open in new tab', onSelect: () => window.open(location.href, '_blank') },
               // One row instead of three: the formats belong together and this
               // menu already carries everything else a page can do.

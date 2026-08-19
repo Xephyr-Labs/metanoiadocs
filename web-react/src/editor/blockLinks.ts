@@ -9,6 +9,7 @@ import { ActionPlacement, ToolbarModuleExtension, type ToolbarContext } from '@b
 import { BlockFlavourIdentifier } from '@blocksuite/affine/std';
 import { LinkIcon } from '@blocksuite/icons/lit';
 import { docUrl } from '../lib/route';
+import { copyText } from '../lib/clipboard';
 
 /** Actions to add to every block toolbar in `docId`'s editor. */
 export function blockLinkExtensions(docId: string) {
@@ -30,12 +31,13 @@ export function blockLinkExtensions(docId: string) {
               if (!blockId) return;
               const url = docUrl(docId, blockId);
               // Clipboard writes need a user gesture and a secure context; a
-              // toolbar click is one, but http:// on a LAN address is not, so
-              // say when it failed rather than leaving the click silent.
-              navigator.clipboard
-                ?.writeText(url)
-                .then(() => toast(ctx.host, 'Link to block copied'))
-                .catch(() => toast(ctx.host, 'Could not copy — your browser blocked clipboard access'));
+              // toolbar click is one, but http:// on a LAN address is not —
+              // there `navigator.clipboard` is absent entirely, which is why
+              // this has to go through the fallback rather than optional-chain
+              // into nothing.
+              copyText(url).then((ok) =>
+                toast(ctx.host, ok ? 'Link to block copied' : 'Could not copy — your browser blocked clipboard access'),
+              );
             },
           },
         ],

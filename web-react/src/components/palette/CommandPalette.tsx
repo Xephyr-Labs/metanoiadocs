@@ -1,4 +1,4 @@
-import { ArrowRight, Clock, FilePlus2, Moon, PanelRight, Search, Settings, Share2, Sparkles, Sun } from 'lucide-react';
+import { ArrowRight, Clock, FilePlus2, History, Moon, PanelRight, Search, Settings, Share2, Sparkles, Sun } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '../../lib/cn';
 import { docsApi, type SearchRow } from '../../lib/docsApi';
@@ -35,6 +35,11 @@ export function CommandPalette() {
   const commands: Item[] = useMemo(() => [
     { kind: 'command', id: 'new', title: 'Create new page', icon: FilePlus2, run: () => ws.createPage(null) },
     { kind: 'command', id: 'share', title: 'Share current page', icon: Share2, run: () => ws.setShareOpen(true) },
+    // Only with a page open: version history is a property of a document, and
+    // an entry that silently does nothing from Home is worse than no entry.
+    ...(ws.currentId
+      ? [{ kind: 'command' as const, id: 'history', title: 'Version history', icon: History, run: () => ws.openHistory(ws.currentId!) }]
+      : []),
     { kind: 'command', id: 'ai', title: 'Ask AI', icon: Sparkles, run: () => ws.setRightPanel('ai') },
     { kind: 'command', id: 'panel', title: 'Toggle side panel', icon: PanelRight, run: () => ws.setRightPanel(ws.rightPanel ? null : 'outline') },
     { kind: 'command', id: 'theme', title: ws.theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode', icon: ws.theme === 'dark' ? Sun : Moon, run: ws.toggleTheme },

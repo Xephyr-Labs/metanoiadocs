@@ -2,28 +2,16 @@ import { ChevronRight, Download, FilePlus, FileText, FileType, Folder, FolderInp
 import { useState } from 'react';
 import { DOC_MIME, FOLDER_MIME, dragSource, useRowDrop } from './rowDrag';
 import { cn } from '../../lib/cn';
-import { docUrl } from '../../lib/route';
+import { docUrl, folderUrl } from '../../lib/route';
+import { copyLink } from '../../lib/clipboard';
 import { downloadDocx, downloadMarkdown, pickMarkdownFiles, printDoc } from '../../lib/docFiles';
-import { TAG_COLORS, swatch } from '../../lib/tagColors';
+import { TAG_COLORS, folderTint, swatch } from '../../lib/tagColors';
 import type { PageId } from '../../lib/types';
 import { useWorkspace } from '../../store/workspace';
 import { PageIcon } from '../ui/PageIcon';
 import { Menu } from '../ui/Menu';
 import { RowInput } from '../ui/RowInput';
 import { rowAction } from '../ui/styles';
-
-/** Folder icon tint per palette color; gray stays the quiet default. */
-const FOLDER_TINT: Record<string, string> = {
-  gray: 'text-faint',
-  red: 'text-red-500',
-  orange: 'text-orange-500',
-  yellow: 'text-yellow-500',
-  green: 'text-green-500',
-  teal: 'text-teal-500',
-  blue: 'text-blue-500',
-  purple: 'text-purple-500',
-  pink: 'text-pink-500',
-};
 
 const ColorDot = (color: string) =>
   function Dot({ className }: { size?: number | string; strokeWidth?: number | string; className?: string }) {
@@ -132,7 +120,7 @@ function DocumentRow({ id, depth }: { id: PageId; depth: number }) {
               label: 'Add a page inside',
               onSelect: () => { ws.createChildPage(id); },
             },
-            { icon: Link2, label: 'Copy link', onSelect: () => navigator.clipboard?.writeText(docUrl(id)) },
+            { icon: Link2, label: 'Copy link', onSelect: () => { copyLink(docUrl(id)); } },
             {
               icon: Download,
               label: 'Export',
@@ -178,7 +166,8 @@ function FolderRow({ id, depth }: { id: string; depth: number }) {
   });
   if (!folder) return null;
   const hasChildren = folder.children.length > 0 || folder.documentIds.length > 0;
-  const tint = FOLDER_TINT[folder.color] ?? 'text-faint';
+  const tint = folderTint(folder.color);
+  const active = ws.view === 'folder' && ws.activeFolderId === id;
   const children = folder.expanded && (
     <div role="group">
       {folder.documentIds.map((docId) => <DocumentRow key={docId} id={docId} depth={depth + 1} />)}
@@ -211,7 +200,11 @@ function FolderRow({ id, depth }: { id: string; depth: number }) {
         onMouseLeave={() => setHover(false)}
         {...dragSource(FOLDER_MIME, id)}
         {...drop.props}
-        className={cn('group/row relative flex h-8 items-center rounded-md pr-1 text-base leading-5 text-ink hover:bg-hover', drop.zone === 'inside' && 'bg-accent-soft text-accent')}
+        className={cn(
+          'group/row relative flex h-8 items-center rounded-md pr-1 text-base leading-5 text-ink hover:bg-hover',
+          active && 'bg-selected font-medium',
+          drop.zone === 'inside' && 'bg-accent-soft text-accent',
+        )}
         style={{ paddingLeft: 8 + depth * 16 }}
         role="treeitem"
         aria-expanded={hasChildren ? !!folder.expanded : undefined}
@@ -232,15 +225,22 @@ function FolderRow({ id, depth }: { id: string; depth: number }) {
             <Folder size={16} className={cn('shrink-0', tint)} />
           )}
         </button>
-        <button type="button" onClick={() => ws.toggleFolder(id)} className="flex min-w-0 flex-1 items-center text-left">
-          <span className="truncate">{folder.name}</span>
+        {/* The name opens the folder's page — that is where its link lands and
+            what a folder now has to show. Expanding stays on the icon beside it,
+            so both readings of a folder row are still one click. */}
+        <button type="button" onClick={() => ws.openFolder(id)} className="flex min-w-0 flex-1 items-center text-left">
+          <span className={cn('truncate', active && 'text-accent')}>{folder.name}</span>
         </button>
         <span className={cn('flex shrink-0 items-center gap-0.5 transition-opacity', hover ? 'opacity-100' : 'opacity-0')}>
           <Menu
             trigger={<button type="button" onClick={(e) => e.stopPropagation()} className={rowAction} aria-label="Folder actions"><MoreHorizontal size={16} /></button>}
             items={[
+              { icon: FolderOpen, label: 'Open', onSelect: () => ws.openFolder(id) },
               { icon: Plus, label: 'New page', onSelect: () => ws.createPage(id) },
               { icon: Folder, label: 'New subfolder', onSelect: () => ws.createFolder(id) },
+              // A folder is workspace-wide, so this link opens for any member —
+              // no per-folder grant to hand out first.
+              { icon: Link2, label: 'Copy link', onSelect: () => { copyLink(folderUrl(id)); } },
               { icon: Upload, label: 'Import Markdown…', onSelect: () => { pickMarkdownFiles().then((f) => { if (f.length) ws.importMarkdown(f, id); }); } },
               { icon: FileText, label: 'Rename', onSelect: () => setRenaming(true) },
               // Nine swatches inline made this menu taller than the sidebar.

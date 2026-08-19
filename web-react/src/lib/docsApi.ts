@@ -245,6 +245,16 @@ export const docsApi = {
   /** A snapshot's plain text, for previewing it before restoring. */
   versionText: (id: string, vid: string): Promise<{ id: string; text: string }> =>
     req(`/docs/${id}/versions/${vid}/text`),
+  /** A snapshot's raw Yjs state — the History view renders it as the real page. */
+  versionState: async (id: string, vid: string): Promise<Uint8Array> => {
+    const res = await fetch(`/api/docs/${id}/versions/${vid}/state`, { credentials: 'include' });
+    if (!res.ok) throw new Error(`Could not load that version (${res.status})`);
+    return new Uint8Array(await res.arrayBuffer());
+  },
+  /** Roll the page itself back. The state it replaces is snapshotted first, so
+   *  the restore shows up in the same list as "Before restore" and is undoable. */
+  restoreVersionInPlace: (id: string, vid: string): Promise<{ ok: true; undoVersionId: string }> =>
+    req(`/docs/${id}/versions/${vid}/restore-in-place`, { method: 'POST' }),
   /** Non-destructive: the snapshot becomes a new "… (restored)" doc, which this returns. */
   restoreVersion: (id: string, vid: string): Promise<{ id: string; title: string }> =>
     req(`/docs/${id}/versions/${vid}/restore`, { method: 'POST' }),

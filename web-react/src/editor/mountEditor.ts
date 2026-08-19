@@ -18,6 +18,7 @@ import {
 } from '@blocksuite/affine/shared/services';
 import { ColorScheme } from '@blocksuite/affine/model';
 import { HocuspocusProvider } from '@hocuspocus/provider';
+import { applyUpdate } from 'yjs';
 import { IndexeddbPersistence } from 'y-indexeddb';
 import { Signal } from '@preact/signals-core';
 import { avatarFor } from '../lib/avatar';
@@ -84,6 +85,11 @@ interface MountArgs {
   mode: 'page' | 'edgeless';
   userName: string;
   share?: string; // public read-only share token
+  /** Render an archived version instead of the live document: the snapshot's
+   *  Yjs state is applied to a detached doc with no provider and no local
+   *  cache behind it, and the editor is read-only. Nothing is ever written
+   *  back — history is a preview, and restoring is a separate, explicit act. */
+  snapshot?: Uint8Array;
   onTitle?: (title: string) => void;
   onSaved?: () => void;
   /** Page index for the "@" menu. Omitted for public viewers. */
@@ -92,6 +98,10 @@ interface MountArgs {
   createPage?: (title: string) => Promise<string | null>;
   /** A reference chip was clicked — open that page. */
   onOpenDoc?: (docId: string) => void;
+  /** The document was rewritten wholesale on the server (a version restore).
+   *  The Yjs state has already converged; the editor has to be rebuilt for the
+   *  screen to agree with it. */
+  onRemoteRewrite?: () => void;
 }
 
 function docModeService(editor: { mode: string }, mode: 'page' | 'edgeless') {
@@ -108,7 +118,7 @@ function docModeService(editor: { mode: string }, mode: 'page' | 'edgeless') {
 
 export async function mountEditor(
   root: HTMLElement,
-  { docId, title, mode, userName, share, onTitle, onSaved, pages, createPage, onOpenDoc }: MountArgs,
+  { docId, title, mode, userName, share, snapshot, onTitle, onSaved, pages, createPage, onOpenDoc, onRemoteRewrite }: MountArgs,
 ) {
   installEffects();
   chartEffects(); // register the metanoia:chart custom elements once
@@ -141,21 +151,32 @@ export async function mountEditor(
   if (pages) rememberDocs(pages());
   const store = doc.getStore({ id: docId });
 
+  // A snapshot IS the content — it arrives over HTTP and stays local. Opening a
+  // provider here would sync the archived state onto the live document, which
+  // is exactly the accident version history exists to protect against.
+  if (snapshot) applyUpdate(doc.spaceDoc, snapshot);
+
   // Live sync to our server. Cookie authenticates a member; a share token
   // authenticates a read-only public viewer.
-  const provider = new HocuspocusProvider({
-    url: wsBase(),
-    name: docId,
-    document: doc.spaceDoc,
-    parameters: share ? { doc: docId, share } : { doc: docId },
-    awareness: collection.awarenessStore.awareness,
+  const provider = snapshot
+    ? null
+    : new HocuspocusProvider({
+        url: wsBase(),
+        name: docId,
+        document: doc.spaceDoc,
+        parameters: share ? { doc: docId, share } : { doc: docId },
+        awareness: collection.awarenessStore.awareness,
+      });
+
+  provider?.on('stateless', ({ payload }: { payload: string }) => {
+    try { if (JSON.parse(payload)?.type === 'doc-restored') onRemoteRewrite?.(); } catch { /* not ours */ }
   });
 
   // Local-first persistence: edits are written to IndexedDB, so the doc opens
   // instantly and survives being offline; Hocuspocus merges everything back on
   // reconnect (Yjs is a CRDT, so offline + remote edits combine without conflict).
   // Public read-only viewers don't need a local cache.
-  const idb = share ? null : new IndexeddbPersistence(`mn-doc-${docId}`, doc.spaceDoc);
+  const idb = share || snapshot ? null : new IndexeddbPersistence(`mn-doc-${docId}`, doc.spaceDoc);
 
   // Name + color ride on awareness: BlockSuite paints remote carets/selections
   // with them, and the TopBar avatar stack reads them via attachPresence.
@@ -166,7 +187,9 @@ export async function mountEditor(
     name: displayName,
     color: avatarFor(displayName).color,
   });
-  const detachPresence = attachPresence(collection.awarenessStore.awareness);
+  // A snapshot has no connection and no collaborators; publishing its awareness
+  // would put a phantom reader in the live document's presence stack.
+  const detachPresence = snapshot ? () => {} : attachPresence(collection.awarenessStore.awareness);
 
   // Kill BlockSuite's hover tooltips ("Bold", "Underline", …). They portal into
   // body as .blocksuite-portal divs with the tooltip inside a shadow root, so
@@ -189,10 +212,10 @@ export async function mountEditor(
   // Whether the server's copy actually arrived. Everything below turns on this:
   // a slow sync and an empty document look identical from here, and only one of
   // them may be written to.
-  const synced = await new Promise<boolean>((resolve) => {
+  const synced = snapshot ? true : await new Promise<boolean>((resolve) => {
     let done = false;
     const finish = (ok: boolean) => { if (!done) { done = true; resolve(ok); } };
-    provider.on('synced', () => finish(true));
+    provider?.on('synced', () => finish(true));
     // Long enough for a big document over a slow link. It no longer authorises
     // a write, so waiting costs a spinner rather than the document.
     setTimeout(() => finish(false), 20000);
@@ -200,8 +223,14 @@ export async function mountEditor(
 
   store.load();
 
-  // Public viewer: read-only. Set before the editor mounts so no caret/tools show.
-  if (share) store.readonly = true;
+  // Public viewer and version preview alike: read-only. Set before the editor
+  // mounts so no caret or tools show.
+  if (share || snapshot) store.readonly = true;
+
+  // An archived state that decodes to nothing is a broken snapshot, not an
+  // empty page — say so rather than rendering a blank sheet that looks like
+  // the version wiped the document.
+  if (snapshot && !store.root) throw new Error('This version could not be rendered.');
 
   // A document that has neither synced nor cached anything locally is unknown,
   // not empty. Seeding one on a timeout is what put a second, empty page root
@@ -215,7 +244,7 @@ export async function mountEditor(
   // Only the first client to reach a still-empty doc seeds the skeleton (page ->
   // surface + note + blocks). A read-only viewer never seeds. If the doc was
   // created from a template, seed its blocks; otherwise a single empty paragraph.
-  if (!share && !store.root) {
+  if (!share && !snapshot && !store.root) {
     const seed = takePendingSeed(docId);
     try {
       const pageId = store.addBlock('affine:page', { title: new Text(title) });
@@ -251,7 +280,7 @@ export async function mountEditor(
   // Two clients switching to canvas at the same instant would add two surfaces;
   // BlockSuite reads the first, so the loser is inert.
   const ensureSurface = () => {
-    if (share) return;
+    if (share || snapshot) return;
     const pageRoot = store.root as { id: string; children?: { flavour: string }[] } | null;
     if (!pageRoot || (pageRoot.children ?? []).some((c) => c.flavour === 'affine:surface')) return;
     try { store.addBlock('affine:surface', {}, pageRoot.id, 0); } catch { /* raced, fine */ }
@@ -298,8 +327,11 @@ export async function mountEditor(
     // Alignment is a property of the document, so a public viewer must see it
     // too; the toolbar it is set from never opens for them (readonly store).
     ...imageAlignExtensions(),
-    // "@" page references. A public viewer gets neither the menu nor our title
-    // resolver — it has no page index to offer and cannot create pages.
+    // "@" page references. These carry the title resolver as well as the menu,
+    // so a version preview keeps them too — without the resolver every mention
+    // in an old version renders struck through as a deleted page. The menu
+    // itself is unreachable there: the store is read-only, so nothing can type
+    // an "@". A public viewer gets neither: it has no page index to offer.
     ...(share || !pages || !createPage
       ? []
       : [
@@ -325,7 +357,7 @@ export async function mountEditor(
 
   // Inline comments: selection button + quote highlights. Not for public
   // viewers (comments API needs a member session).
-  const detachComments = share
+  const detachComments = share || snapshot
     ? null
     : attachComments(editor, docId, (cb) => {
         doc.spaceDoc.on('update', cb);
@@ -385,7 +417,7 @@ export async function mountEditor(
     }, 1200);
   };
   // A read-only viewer never writes back title/search text.
-  if (!share) {
+  if (!share && !snapshot) {
     doc.spaceDoc.on('update', push);
     push();
   }
@@ -407,7 +439,7 @@ export async function mountEditor(
       try { themeObserver.disconnect(); } catch { /* noop */ }
       try { virtualKeyboard.dispose(); } catch { /* noop */ }
       try { doc.spaceDoc.off('update', push); } catch { /* noop */ }
-      try { provider.destroy(); } catch { /* noop */ }
+      try { provider?.destroy(); } catch { /* noop */ }
       try { idb?.destroy(); } catch { /* noop */ }
       try { collection.dispose?.(); } catch { /* noop */ }
       root.replaceChildren();

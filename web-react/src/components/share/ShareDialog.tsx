@@ -2,6 +2,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { AlertCircle, Check, Copy, Globe, Link2, Loader2, Lock, Users } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { docsApi, type AccessRow } from '../../lib/docsApi';
+import { copyText } from '../../lib/clipboard';
 import { sendInvite } from '../../lib/api';
 import { avatarFor } from '../../lib/avatar';
 import { useWorkspace } from '../../store/workspace';
@@ -66,9 +67,12 @@ export function ShareDialog() {
   };
 
   const link = token ? `${location.origin}/share/${token}` : '';
-  const copy = () => {
+  const copy = async () => {
     if (!link) return;
-    navigator.clipboard?.writeText(link).catch(() => {});
+    if (!(await copyText(link))) {
+      setMsg({ ok: false, text: 'Could not copy — your browser blocked clipboard access.' });
+      return;
+    }
     setCopied(true);
     setTimeout(() => setCopied(false), 1600);
   };

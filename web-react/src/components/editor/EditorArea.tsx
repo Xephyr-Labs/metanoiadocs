@@ -39,6 +39,12 @@ export function EditorArea() {
     [ws],
   );
 
+  // Bumped when the server says this document was restored: BlockSuite builds
+  // its block models at mount, so a wholesale rewrite of the document needs the
+  // editor rebuilt — the Yjs state has already converged underneath it.
+  const [rewriteKey, setRewriteKey] = useState(0);
+  const onRestored = useCallback(() => { setRewriteKey((k) => k + 1); ws.refresh(); }, [ws]);
+
   const [refreshKey, setRefreshKey] = useState(0);
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Intelligence and backlinks both key off a save, but neither should refetch
@@ -103,7 +109,7 @@ export function EditorArea() {
                 (sidebar, rail, top bar) is excluded while presenting. */}
             <div data-slides-pane className="relative min-w-0 flex-1 bg-canvas">
             <LazyEditor
-              key={page.id}
+              key={`${page.id}:${rewriteKey}`}
               docId={page.id}
               title={page.title}
               mode={ws.mode}
@@ -113,6 +119,7 @@ export function EditorArea() {
               pages={linkTargets}
               createPage={createLinkedPage}
               onOpenDoc={(id) => ws.select(id)}
+              onRemoteRewrite={onRestored}
               // The deck rail drives this editor (add/focus/present), so it
               // needs the mounted element here too, not only in page mode.
               onEditor={setEditorEl}
@@ -134,6 +141,7 @@ export function EditorArea() {
                 <PageHeader page={page} fullWidth={ws.fullWidth} suggested={intel.data?.suggestedTags ?? []} />
                 <div className="relative pb-40">
                   <LazyEditor
+                    key={`${page.id}:${rewriteKey}`}
                     docId={page.id}
                     title={page.title}
                     mode="page"
@@ -144,6 +152,7 @@ export function EditorArea() {
                     pages={linkTargets}
                     createPage={createLinkedPage}
                     onOpenDoc={(id) => ws.select(id)}
+                    onRemoteRewrite={onRestored}
                     onEditor={setEditorEl}
                   />
                   {/* After the editor in DOM order: the layer is absolutely

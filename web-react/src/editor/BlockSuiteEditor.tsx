@@ -12,6 +12,9 @@ export interface EditorProps {
   mode: EditorMode;
   userName: string;
   share?: string;
+  /** Render this archived Yjs state read-only instead of connecting to the live
+   *  document (version history). Changing it remounts the editor. */
+  snapshot?: Uint8Array;
   fullWidth?: boolean;
   onTitle?: (title: string) => void;
   onSaved?: () => void;
@@ -19,6 +22,8 @@ export interface EditorProps {
   pages?: () => LinkTarget[];
   createPage?: (title: string) => Promise<string | null>;
   onOpenDoc?: (docId: string) => void;
+  /** Someone restored a version of this document — remount to render it. */
+  onRemoteRewrite?: () => void;
   /** The mounted `affine-editor-container`, or null on unmount. Lets chrome
    *  outside the editor (the formatting bar) drive it through BlockSuite's
    *  command chain. */
@@ -30,8 +35,8 @@ export interface EditorProps {
  * flips mode in place. Content persists + syncs via Hocuspocus inside mountEditor.
  */
 export function BlockSuiteEditor({
-  docId, title, mode, userName, share, fullWidth,
-  onTitle, onSaved, pages, createPage, onOpenDoc, onEditor,
+  docId, title, mode, userName, share, snapshot, fullWidth,
+  onTitle, onSaved, pages, createPage, onOpenDoc, onRemoteRewrite, onEditor,
 }: EditorProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const instRef = useRef<Awaited<ReturnType<typeof mountEditor>> | null>(null);
@@ -54,6 +59,8 @@ export function BlockSuiteEditor({
   onOpenDocRef.current = onOpenDoc;
   const onEditorRef = useRef(onEditor);
   onEditorRef.current = onEditor;
+  const onRemoteRewriteRef = useRef(onRemoteRewrite);
+  onRemoteRewriteRef.current = onRemoteRewrite;
 
   useEffect(() => {
     let alive = true;
@@ -67,11 +74,13 @@ export function BlockSuiteEditor({
       mode: 'page',
       userName,
       share,
+      snapshot,
       onTitle: (t) => onTitleRef.current?.(t),
       onSaved: () => onSavedRef.current?.(),
       pages: pagesRef.current ? () => pagesRef.current?.() ?? [] : undefined,
       createPage: createPageRef.current ? (t) => createPageRef.current!(t) : undefined,
       onOpenDoc: onOpenDocRef.current ? (id) => onOpenDocRef.current?.(id) : undefined,
+      onRemoteRewrite: () => onRemoteRewriteRef.current?.(),
     })
       .then((inst) => {
         if (!alive) { inst.destroy(); return; }
@@ -94,7 +103,7 @@ export function BlockSuiteEditor({
       instRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [docId, userName, share]);
+  }, [docId, userName, share, snapshot]);
 
   useEffect(() => {
     instRef.current?.setMode(mode === 'page' ? 'page' : 'edgeless');
@@ -110,10 +119,10 @@ export function BlockSuiteEditor({
   useEffect(() => {
     if (loading) return;
     const { docId: routedDoc, blockId } = readRoute();
-    if (!blockId || routedDoc !== docId) return;
+    if (snapshot || !blockId || routedDoc !== docId) return;
     history.replaceState(history.state, '', location.pathname);
     return revealBlock(blockId, instRef.current?.editor ?? document);
-  }, [loading, docId]);
+  }, [loading, docId, snapshot]);
 
   const edgeless = mode !== 'page';
   return (

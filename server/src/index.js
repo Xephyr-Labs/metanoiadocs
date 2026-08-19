@@ -27,7 +27,9 @@ import {
 import { requestMagicLink, consumeMagicLink, sendInviteEmail, sendNotificationEmail } from './auth.js';
 import { lockedFor, noteFailure, clearFailures, lockoutError } from './throttle.js';
 import { getSetting, setSetting } from './db.js';
+import * as Y from 'yjs';
 import { buildDocState, appendToDocState, appendPageReference, extractText, extractBlocks, docToMarkdown } from './blocks.js';
+import { rewriteDoc } from './restore.js';
 import { wouldFolderCycle } from './folders.js';
 import { printHtml } from './print.js';
 import { docxFromMarkdown } from './docx.js';
@@ -1689,8 +1691,93 @@ app.get('/api/docs/:id/versions/:vid/text', requireUser, wrap(async (req, res) =
   res.json({ id: req.params.vid, text });
 }));
 
-// Restore = create a NEW doc from the snapshot (non-destructive; safe with live
-// collaborators on the original).
+// The snapshot's raw Yjs state, so the History view can render the version as
+// the page it was — tables, images, charts — instead of a text dump. Read-only:
+// the client applies it to a detached doc with no provider behind it.
+app.get('/api/docs/:id/versions/:vid/state', requireUser, wrap(async (req, res) => {
+  if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
+  const v = await pool.query('SELECT state FROM doc_versions WHERE id = $1 AND doc_id = $2', [req.params.vid, req.params.id]);
+  if (!v.rows[0]) return res.status(404).json({ error: 'version not found' });
+  // A snapshot never changes, so it is safe to cache hard in the browser.
+  res.set('Cache-Control', 'private, max-age=31536000, immutable');
+  res.type('application/octet-stream').send(Buffer.from(v.rows[0].state));
+}));
+
+/**
+ * Roll this page back to a version, in place.
+ *
+ * The current state is snapshotted first, so a restore is itself undoable from
+ * the same panel. The rewrite is applied to the live Hocuspocus document when
+ * one is loaded, which both broadcasts it to everyone editing and persists it
+ * through the store hook; the direct write after it means the rollback survives
+ * a crash before that debounced save lands.
+ */
+app.post('/api/docs/:id/versions/:vid/restore-in-place', requireUser, wrap(async (req, res) => {
+  const role = await grantOn(req.params.id, req.user.id);
+  if (!role || role === 'viewer') return res.status(403).json({ error: 'forbidden' });
+  const docId = req.params.id;
+  const v = await pool.query('SELECT state FROM doc_versions WHERE id = $1 AND doc_id = $2', [req.params.vid, docId]);
+  if (!v.rows[0]) return res.status(404).json({ error: 'version not found' });
+
+  const cur = await pool.query('SELECT state FROM doc_states WHERE doc_id = $1', [docId]);
+  if (!cur.rows[0]) return res.status(400).json({ error: 'nothing to restore over' });
+  const undoId = crypto.randomUUID();
+  await pool.query(
+    'INSERT INTO doc_versions (id, doc_id, state, label, created_by) VALUES ($1, $2, $3, $4, $5)',
+    [undoId, docId, cur.rows[0].state, 'Before restore', req.user.id]
+  );
+  // Same cap the autosave keeps. Without it, restoring repeatedly on a page
+  // nobody is editing would grow the history without bound — the store hook
+  // only prunes when someone types.
+  await pool.query(
+    `DELETE FROM doc_versions WHERE doc_id = $1 AND id NOT IN (
+       SELECT id FROM doc_versions WHERE doc_id = $1 ORDER BY created_at DESC LIMIT 50)`,
+    [docId]
+  );
+
+  // `loadingDocuments` covers the sliver where someone opened the page a
+  // moment ago and its state is still being fetched — restoring past that
+  // document would be overwritten the instant it finished loading.
+  const live = hocuspocus.documents.get(docId) || (await hocuspocus.loadingDocuments?.get(docId));
+  const target = live || (() => { const d = new Y.Doc(); Y.applyUpdate(d, new Uint8Array(cur.rows[0].state)); return d; })();
+  try {
+    rewriteDoc(target, v.rows[0].state);
+  } catch (e) {
+    await pool.query('DELETE FROM doc_versions WHERE id = $1', [undoId]);
+    return res.status(400).json({ error: e.message || 'could not restore that version' });
+  }
+
+  const state = Buffer.from(Y.encodeStateAsUpdate(target));
+  await pool.query(
+    `INSERT INTO doc_states (doc_id, state, updated_at) VALUES ($1, $2, now())
+     ON CONFLICT (doc_id) DO UPDATE SET state = EXCLUDED.state, updated_at = now()`,
+    [docId, state]
+  );
+  await pool.query('UPDATE docs SET updated_at = now(), updated_by = $2 WHERE id = $1', [docId, req.user.id]);
+  // The sidebar title and the search text are pushed by whichever editor is
+  // open (see mountEditor); a headless restore refreshes them here so a page
+  // restored from a phone still searches on its restored contents.
+  try {
+    const { text, title } = extractText(state);
+    await pool.query(
+      `UPDATE docs SET search_text = $2, title = coalesce(nullif($3, ''), title) WHERE id = $1`,
+      [docId, (text || '').slice(0, 100000), (title || '').slice(0, 300)]
+    );
+  } catch { /* an odd snapshot still restores; only search text goes stale */ }
+
+  // Yjs converges on its own — but BlockSuite builds its block models when the
+  // editor mounts, and a wholesale swap of the blocks map leaves those models
+  // pointing at entries that no longer exist: the data is right and the screen
+  // is stale. So the document tells every open editor to rebuild itself.
+  if (live) {
+    try { live.broadcastStateless(JSON.stringify({ type: 'doc-restored', versionId: req.params.vid })); }
+    catch { /* nobody connected, or a closed socket: the next open reads the restored state anyway */ }
+  }
+
+  res.json({ ok: true, undoVersionId: undoId, live: !!live });
+}));
+
+// Restore as a copy: the snapshot becomes a NEW doc and this page is untouched.
 app.post('/api/docs/:id/versions/:vid/restore', requireUser, async (req, res) => {
   if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
   const v = await pool.query('SELECT state FROM doc_versions WHERE id = $1 AND doc_id = $2', [req.params.vid, req.params.id]);

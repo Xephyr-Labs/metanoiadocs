@@ -10,6 +10,7 @@ import { DocIcon } from '../ui/DocIcon';
 import { Menu } from '../ui/Menu';
 import { rowAction } from '../ui/styles';
 import { DOC_MIME, dragSource, useRowDrop } from './rowDrag';
+import { copyLink } from '../../lib/clipboard';
 
 function Row({ id, depth }: { id: PageId; depth: number }) {
   const ws = useWorkspace();
@@ -118,7 +119,7 @@ function Row({ id, depth }: { id: PageId; depth: number }) {
             }
             items={[
               { icon: Star, label: fav ? 'Remove from Favorites' : 'Add to Favorites', onSelect: () => ws.toggleFavorite(id) },
-              { icon: Link2, label: 'Copy link', onSelect: () => navigator.clipboard?.writeText(docUrl(id)) },
+              { icon: Link2, label: 'Copy link', onSelect: () => { copyLink(docUrl(id)); } },
               { icon: Copy, label: 'Duplicate' },
               { icon: FileText, label: 'Rename', onSelect: () => ws.select(id) },
               {

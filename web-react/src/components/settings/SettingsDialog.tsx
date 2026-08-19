@@ -34,6 +34,7 @@ import { LogoMark } from '../brand/Logo';
 import { Menu } from '../ui/Menu';
 import { Modal } from '../ui/Modal';
 import { SegmentedControl } from '../ui/SegmentedControl';
+import { copyText, toast } from '../../lib/clipboard';
 
 function Avatar({ name, size = 32 }: { name: string; size?: number }) {
   const a = avatarFor(name);
@@ -690,7 +691,13 @@ function Tokens() {
               <IconButton
                 icon={copied ? <Check size={16} className="text-accent" /> : <Copy size={16} />}
                 label="Copy"
-                onClick={() => { navigator.clipboard?.writeText(fresh); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
+                onClick={async () => {
+                  // This token is shown once. Claiming it was copied when it
+                  // wasn't loses it for good, so the tick waits for the truth.
+                  if (!(await copyText(fresh))) { toast('Could not copy — select the token and copy it by hand'); return; }
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 1500);
+                }}
               />
             </div>
           </div>
