@@ -442,6 +442,7 @@ app.get('/api/docs', requireUser, async (req, res) => {
   const { rows } = await pool.query(
     `SELECT d.id, d.title, d.icon, d.folder_id, d.parent_id, d.position, d.updated_at,
             coalesce(a.role, 'editor') AS role, d.visibility, d.kind,
+            ub.name AS updated_by_name,
             (d.share_token IS NOT NULL) AS shared,
             (f.doc_id IS NOT NULL) AS favorite,
             lk.link_count,
@@ -452,6 +453,7 @@ app.get('/api/docs', requireUser, async (req, res) => {
            FROM doc_links l JOIN docs t ON t.id = l.to_id AND t.deleted_at IS NULL
           WHERE l.from_id = d.id
        ) lk ON true
+       LEFT JOIN users ub ON ub.id = d.updated_by
        LEFT JOIN doc_access a ON a.doc_id = d.id AND a.user_id = $1
        LEFT JOIN favorites f ON f.doc_id = d.id AND f.user_id = $1
        LEFT JOIN LATERAL (

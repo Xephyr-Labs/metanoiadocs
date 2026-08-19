@@ -8,7 +8,7 @@ import { useWorkspace } from '../../store/workspace';
 
 /** Add/remove coloured tags on a doc. Sits under the page icon in the header. */
 /** `trailing` rides on the same wrapped row — suggested tags, today. */
-export function TagChips({ page, trailing }: { page: Page; trailing?: ReactNode }) {
+export function TagChips({ page, trailing, compact }: { page: Page; trailing?: ReactNode; compact?: boolean }) {
   const ws = useWorkspace();
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
@@ -27,7 +27,7 @@ export function TagChips({ page, trailing }: { page: Page; trailing?: ReactNode 
   };
 
   return (
-    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+    <div className={compact ? 'flex flex-wrap items-center gap-1.5' : 'mt-2 flex flex-wrap items-center gap-1.5'}>
       {page.tags.map((t) => {
         const s = swatch(t.color);
         return (

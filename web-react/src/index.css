@@ -39,7 +39,7 @@
 
   --sidebar-w: 260px;
   --topbar-h: 45px;
-  --reading-w: 720px;
+  --reading-w: 760px;
 
   /* Three faces, three jobs. Fraunces titles a document, Inter sets its prose,
    * and Geist wears the chrome around both — drawn for small sizes and dense
@@ -551,6 +551,27 @@ affine-editor-container .affine-paragraph-rich-text-wrapper.h6 { font-size: 0.92
 /* Comfortable body rhythm. */
 affine-editor-container affine-note { --affine-line-height: 1.72; }
 
+/* Space ABOVE a heading, tight below it — that asymmetry is what makes a
+ * section read as a section. Without it the scale is stepped but the page is
+ * an undifferentiated column. The margin sits on the block, not the rich-text
+ * wrapper, so the gap collapses correctly against the block above. */
+affine-editor-container affine-paragraph:has(.h1),
+affine-editor-container affine-paragraph:has(.h2) {
+  margin-top: 1.9em;
+  margin-bottom: 0.35em;
+}
+affine-editor-container affine-paragraph:has(.h3),
+affine-editor-container affine-paragraph:has(.h4),
+affine-editor-container affine-paragraph:has(.h5),
+affine-editor-container affine-paragraph:has(.h6) {
+  margin-top: 1.5em;
+  margin-bottom: 0.3em;
+}
+/* …except the first block in the document, which must not be pushed off. */
+affine-editor-container affine-note > affine-block-children-container > affine-paragraph:first-child {
+  margin-top: 0;
+}
+
 /* ------------------------------------------------------------------ *
  * Code blocks. BlockSuite ships the structure (sticky line-number gutter,
  * shiki tokens, a toolbar pinned at top:0 of the block); we give it a
@@ -633,11 +654,44 @@ affine-editor-container .affine-database-block-table {
   max-width: 100%;
   overflow-x: auto;
 }
+/* A table is the densest thing on the page, so give its cells room to breathe
+ * and put the grid on our own hairline token.
+ *
+ * No header-row tint: BlockSuite's table has no header concept — no thead, and
+ * the model is just rows/columns/cells — so styling row 1 as a header would be
+ * asserting something the document does not say, and would be wrong for every
+ * table whose first row is data. The cell padding lives on `rich-text`, which
+ * is where BlockSuite puts it (the td itself is a 1px shell). */
+affine-editor-container affine-table table td rich-text {
+  /* !important because BlockSuite sets this from a hashed class, which outranks
+   * an element-only selector — same reason the heading sizes above use it. */
+  padding: 10px 14px !important;
+}
+affine-editor-container affine-table table td {
+  border-color: var(--line);
+}
 
 /* "Smaller text" preference — shrinks the editor body font (headings keep their
  * scale). Toggled via document.documentElement[data-text-size]. */
 :root[data-text-size="small"] affine-editor-container {
   --affine-font-base: 14px;
+}
+
+/* The metadata band we portal in under the title (DocMetaBand). It sits inside
+ * BlockSuite's content column, so it needs no measure of its own — only the
+ * breathing room the title's own padding used to provide. */
+affine-editor-container .mn-doc-meta {
+  /* Sits in the editor's own column, on the editor's own variables — so it
+   * tracks the reading measure and follows full-width mode without a second
+   * copy of those numbers living over here. */
+  box-sizing: border-box;
+  width: 100%;
+  max-width: var(--affine-editor-width, var(--reading-w));
+  /* align-self, NOT `margin: 0 auto` — the parent is a column flex container,
+   * where an auto cross-axis margin switches stretch off and the band collapses
+   * to the width of its own text. */
+  align-self: center;
+  padding: 0 var(--affine-editor-side-padding, 24px) 2px;
 }
 
 /* Tighten BlockSuite's tall default title padding so the page title sits close

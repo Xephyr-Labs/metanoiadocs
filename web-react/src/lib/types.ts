@@ -20,6 +20,8 @@ export interface Page {
   visibility: 'team' | 'private';
   /** A design opens on the canvas; everything else about it is a document. */
   kind: 'doc' | 'design';
+  /** Who saved it last. Null on a page nobody has edited since it was made. */
+  updatedByName: string | null;
   updatedAt: string;
   /** Pages this one @-references. Drives the sidebar disclosure arrow. */
   linkCount: number;

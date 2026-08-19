@@ -14,6 +14,7 @@ import { CommentMarkers } from './CommentMarkers';
 import { EditorBar } from './EditorBar';
 import { FramesPanel } from '../design/FramesPanel';
 import { FloatingToc } from './FloatingToc';
+import { DocMetaBand } from './DocMetaBand';
 import { PageHeader } from './PageHeader';
 import { SlidesRail } from './SlidesRail';
 
@@ -144,7 +145,14 @@ export function EditorArea() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
               >
-                <PageHeader page={page} fullWidth={ws.fullWidth} suggested={intel.data?.suggestedTags ?? []} />
+                <PageHeader page={page} fullWidth={ws.fullWidth} />
+                {/* Portalled in under BlockSuite's title — see DocMetaBand. */}
+                <DocMetaBand
+                  editor={editorEl}
+                  page={page}
+                  suggested={intel.data?.suggestedTags ?? []}
+                  savedTick={refreshKey}
+                />
                 <div className="relative pb-40">
                   <LazyEditor
                     key={`${page.id}:${rewriteKey}`}

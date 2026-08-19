@@ -139,6 +139,7 @@ function buildPages(rows: DocRow[]): Record<PageId, Page> {
       role: r.role,
       visibility: r.visibility === 'private' ? 'private' : 'team',
       kind: r.kind === 'design' ? 'design' : 'doc',
+      updatedByName: r.updated_by_name ?? null,
       updatedAt: r.updated_at,
       linkCount: r.link_count ?? 0,
       tags: r.tags ?? [],

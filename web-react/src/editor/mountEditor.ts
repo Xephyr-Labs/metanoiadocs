@@ -390,7 +390,13 @@ export async function mountEditor(
   const push = () => {
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
-      const docTitle = (editor.querySelector('doc-title') as HTMLElement | null)?.innerText?.trim() || '';
+      // From the MODEL, never the DOM: <doc-title> is a container others can
+      // render into (our metadata band does), and innerText swept that chrome
+      // into the title and saved it. The model has exactly one title in it.
+      let docTitle = '';
+      try {
+        docTitle = String((store.root as { props?: { title?: { toString(): string } } } | null)?.props?.title ?? '').trim();
+      } catch { docTitle = ''; }
       const text = docPlainText(store)
         || (editor.querySelector('editor-host') as HTMLElement | null)?.innerText || editor.innerText || '';
       // `links` rides along with the text so backlinks stay in step with the

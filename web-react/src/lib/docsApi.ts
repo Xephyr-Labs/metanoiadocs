@@ -41,6 +41,8 @@ export interface DocRow {
   visibility: 'team' | 'private';
   /** 'design' opens on the canvas instead of as a page. */
   kind: 'doc' | 'design';
+  /** Who saved it last, for the metadata band. Null until someone edits it. */
+  updated_by_name: string | null;
   shared: boolean;
   favorite: boolean;
   /** How many pages this one @-references. 0 = no disclosure arrow in the sidebar. */
