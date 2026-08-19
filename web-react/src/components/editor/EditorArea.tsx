@@ -12,6 +12,7 @@ import { EmptyState } from '../ui/EmptyState';
 import { Backlinks } from './Backlinks';
 import { CommentMarkers } from './CommentMarkers';
 import { EditorBar } from './EditorBar';
+import { FramesPanel } from '../design/FramesPanel';
 import { FloatingToc } from './FloatingToc';
 import { PageHeader } from './PageHeader';
 import { SlidesRail } from './SlidesRail';
@@ -109,6 +110,7 @@ export function EditorArea() {
         {canvas ? (
           <div className="absolute inset-0 flex">
             {slides && <SlidesRail editor={editorEl} />}
+            {page.kind === 'design' && !slides && <FramesPanel editor={editorEl} />}
             {/* The pane the deck goes fullscreen with — everything outside it
                 (sidebar, rail, top bar) is excluded while presenting. */}
             <div data-slides-pane className="relative min-w-0 flex-1 bg-canvas">
