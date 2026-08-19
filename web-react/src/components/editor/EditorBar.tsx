@@ -8,10 +8,15 @@ import { updateBlockType } from '@blocksuite/affine/blocks/note';
 import { toggleLink } from '@blocksuite/affine/inlines/link';
 import { getTextStyle, toggleBold, toggleCode, toggleItalic, toggleStrike } from '@blocksuite/affine/inlines/preset';
 import {
+  AlignHorizontalDistributeCenter, AlignHorizontalJustifyCenter, AlignHorizontalJustifyEnd,
+  AlignHorizontalJustifyStart, AlignVerticalDistributeCenter, AlignVerticalJustifyCenter,
+  AlignVerticalJustifyEnd, AlignVerticalJustifyStart,
   Bold, Check, ChevronDown, Code, FileText, Italic, Link2, List, ListOrdered,
   ListTodo, Maximize2, Minimize2, PencilRuler, Presentation, Strikethrough,
 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
+import { applyAlign, selectedCount } from '../../editor/designAlign';
+import { MIN_FOR, type AlignMode } from '../../lib/align';
 import type { EditorMode } from '../../lib/types';
 import { cn } from '../../lib/cn';
 import { IconButton } from '../ui/IconButton';
@@ -45,6 +50,18 @@ const MARKS = [
   { id: 'code', label: 'Inline code', keys: ['⌘', 'E'], icon: Code, cmd: toggleCode },
 ] as const;
 
+/** Align first, then distribute — the order everyone's muscle memory expects. */
+const ALIGNMENTS: { mode: AlignMode; label: string; icon: typeof Bold }[] = [
+  { mode: 'left', label: 'Align left', icon: AlignHorizontalJustifyStart },
+  { mode: 'center-x', label: 'Align horizontal centres', icon: AlignHorizontalJustifyCenter },
+  { mode: 'right', label: 'Align right', icon: AlignHorizontalJustifyEnd },
+  { mode: 'top', label: 'Align top', icon: AlignVerticalJustifyStart },
+  { mode: 'middle', label: 'Align vertical centres', icon: AlignVerticalJustifyCenter },
+  { mode: 'bottom', label: 'Align bottom', icon: AlignVerticalJustifyEnd },
+  { mode: 'distribute-x', label: 'Distribute horizontally', icon: AlignHorizontalDistributeCenter },
+  { mode: 'distribute-y', label: 'Distribute vertically', icon: AlignVerticalDistributeCenter },
+];
+
 const Divider = () => <span className="mx-1 h-4 w-px shrink-0 bg-line" aria-hidden />;
 
 interface Props {
@@ -72,6 +89,19 @@ export function EditorBar({ editor, mode, design, onMode, fullWidth, onFullWidth
   // No caret in the document means every command below is a no-op. Say so with
   // the disabled state rather than letting the buttons look live and do nothing.
   const idle = blockLabel === null;
+
+  // How many canvas elements are selected, which is all the align buttons need
+  // to know. Polled rather than subscribed: the gfx controller does not exist
+  // for a beat after the canvas mounts, and SlidesRail already reads this canvas
+  // on a tick. Upgrade to `gfx.selection.slots.updated` if it ever feels laggy.
+  const [selected, setSelected] = useState(0);
+  useEffect(() => {
+    if (!editor || !edgeless) { setSelected(0); return; }
+    const read = () => setSelected(selectedCount(editor));
+    read();
+    const t = setInterval(read, 400);
+    return () => clearInterval(t);
+  }, [editor, edgeless]);
 
   const std = useCallback((): Std | null => {
     const host = editor?.querySelector('editor-host') as { std?: Std } | null;
@@ -208,6 +238,23 @@ export function EditorBar({ editor, mode, design, onMode, fullWidth, onFullWidth
             onClick={() => runMark(toggleLink)}
           />
         </>
+      )}
+
+      {edgeless && (
+        <span className="flex items-center gap-0.5">
+          {ALIGNMENTS.map(({ mode, label, icon: Icon }, i) => (
+            <span key={mode} className="flex items-center">
+              {i === 6 && <Divider />}
+              <IconButton
+                size="sm"
+                icon={<Icon size={16} />}
+                label={label}
+                disabled={selected < MIN_FOR(mode)}
+                onClick={() => applyAlign(editor, mode)}
+              />
+            </span>
+          ))}
+        </span>
       )}
 
       <span className="flex-1" />
