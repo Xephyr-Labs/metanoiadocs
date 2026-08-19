@@ -51,6 +51,8 @@ interface Props {
   /** The mounted `affine-editor-container`, or null before it loads. */
   editor: Element | null;
   mode: EditorMode;
+  /** A design has no page view — the toggle drops the Page segment. */
+  design?: boolean;
   onMode: (m: EditorMode) => void;
   fullWidth: boolean;
   onFullWidth: (v: boolean) => void;
@@ -62,7 +64,7 @@ interface Props {
  * know it exists — this is the always-there entry point. It drives the same
  * command chain the floating toolbar does, so the two never disagree.
  */
-export function EditorBar({ editor, mode, onMode, fullWidth, onFullWidth }: Props) {
+export function EditorBar({ editor, mode, design, onMode, fullWidth, onFullWidth }: Props) {
   const [marks, setMarks] = useState<Record<string, boolean>>({});
   const [blockLabel, setBlockLabel] = useState<string | null>(null);
   // Slides is the same canvas, so both hide the block-formatting half of the bar.
@@ -215,7 +217,7 @@ export function EditorBar({ editor, mode, onMode, fullWidth, onFullWidth }: Prop
         value={mode}
         onChange={(m) => onMode(m as EditorMode)}
         segments={[
-          { value: 'page', label: 'Page', icon: <FileText size={14} /> },
+          ...(design ? [] : [{ value: 'page', label: 'Page', icon: <FileText size={14} /> }]),
           { value: 'edgeless', label: 'Edgeless', icon: <PencilRuler size={14} /> },
           { value: 'slides', label: 'Slides', icon: <Presentation size={14} /> },
         ]}

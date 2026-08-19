@@ -82,9 +82,12 @@ export function EditorArea() {
     );
   }
 
+  // A design IS the canvas — there is no page view of one, so the stored mode
+  // does not apply to it and cannot drift out of step with what is rendered.
+  const mode = page.kind === 'design' && ws.mode === 'page' ? 'edgeless' : ws.mode;
   // Slides render the same canvas as edgeless, with the deck rail beside it.
-  const canvas = ws.mode !== 'page';
-  const slides = ws.mode === 'slides';
+  const canvas = mode !== 'page';
+  const slides = mode === 'slides';
 
   return (
     <div className="relative flex h-full flex-col bg-canvas">
@@ -94,7 +97,8 @@ export function EditorArea() {
       <div className="hidden shrink-0 border-b border-line md:block">
         <EditorBar
           editor={editorEl}
-          mode={ws.mode}
+          mode={mode}
+          design={page.kind === 'design'}
           onMode={(m) => ws.setMode(m)}
           fullWidth={ws.fullWidth}
           onFullWidth={ws.setFullWidth}
@@ -112,7 +116,7 @@ export function EditorArea() {
               key={`${page.id}:${rewriteKey}`}
               docId={page.id}
               title={page.title}
-              mode={ws.mode}
+              mode={mode}
               userName={auth.user?.name ?? 'You'}
               onTitle={(t) => ws.applyTitleFromEditor(page.id, t)}
               onSaved={bumpSoon}

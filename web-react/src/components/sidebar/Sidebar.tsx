@@ -241,6 +241,28 @@ export function Sidebar() {
           )}
         </section>
 
+        {/* Designs are documents that open on the canvas, so they also show up
+            in folders and search — this section is the shortcut to them, not
+            their only home. */}
+        <section className="mb-5">
+          <SectionLabel
+            action={
+              <button type="button" onClick={() => { ws.createDesign(); }} className={rowAction} aria-label="New design">
+                <Plus size={14} />
+              </button>
+            }
+          >
+            Designs
+          </SectionLabel>
+          {ws.designIds.length ? (
+            <div className="space-y-px">{ws.designIds.map((id) => <DocRow key={id} id={id} />)}</div>
+          ) : (
+            <button onClick={() => { ws.createDesign(); }} className="mt-0.5 flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-faint hover:bg-hover hover:text-muted">
+              <Plus size={14} /> New design
+            </button>
+          )}
+        </section>
+
         <section className="mb-5">
             <SectionLabel
             action={

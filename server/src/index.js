@@ -441,7 +441,7 @@ app.get('/api/docs/mine', requireUser, async (req, res) => {
 app.get('/api/docs', requireUser, async (req, res) => {
   const { rows } = await pool.query(
     `SELECT d.id, d.title, d.icon, d.folder_id, d.parent_id, d.position, d.updated_at,
-            coalesce(a.role, 'editor') AS role, d.visibility,
+            coalesce(a.role, 'editor') AS role, d.visibility, d.kind,
             (d.share_token IS NOT NULL) AS shared,
             (f.doc_id IS NOT NULL) AS favorite,
             lk.link_count,
@@ -505,6 +505,7 @@ app.post('/api/docs', requireUser, async (req, res) => {
   const icon = String(req.body?.icon || '📄').slice(0, 8);
   const folderId = typeof req.body?.folderId === 'string' ? req.body.folderId : null;
   const visibility = req.body?.visibility === 'private' ? 'private' : 'team';
+  const kind = req.body?.kind === 'design' ? 'design' : 'doc';
   // Optional markdown body (used by the MCP server / API clients). Built into a
   // BlockSuite Yjs state so the doc opens with real content.
   const content = typeof req.body?.content === 'string' ? req.body.content : null;
@@ -515,8 +516,8 @@ app.post('/api/docs', requireUser, async (req, res) => {
   try {
     await client.query('BEGIN');
     await client.query(
-      'INSERT INTO docs (id, title, icon, created_by, folder_id, visibility) VALUES ($1, $2, $3, $4, $5, $6)',
-      [id, title, icon, req.user.id, folderId, visibility]
+      'INSERT INTO docs (id, title, icon, created_by, folder_id, visibility, kind) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+      [id, title, icon, req.user.id, folderId, visibility, kind]
     );
     await client.query(
       `INSERT INTO doc_access (doc_id, user_id, role) VALUES ($1, $2, 'owner')`,
@@ -534,7 +535,7 @@ app.post('/api/docs', requireUser, async (req, res) => {
   } finally {
     client.release();
   }
-  res.json({ id, title, icon, parent_id: null, folder_id: folderId, role: 'owner', visibility, shared: false, favorite: false });
+  res.json({ id, title, icon, parent_id: null, folder_id: folderId, role: 'owner', visibility, kind, shared: false, favorite: false });
 });
 
 /**

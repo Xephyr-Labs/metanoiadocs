@@ -39,6 +39,8 @@ export interface DocRow {
   updated_at: string;
   role: string;
   visibility: 'team' | 'private';
+  /** 'design' opens on the canvas instead of as a page. */
+  kind: 'doc' | 'design';
   shared: boolean;
   favorite: boolean;
   /** How many pages this one @-references. 0 = no disclosure arrow in the sidebar. */
@@ -174,7 +176,7 @@ export const docsApi = {
     req('/folders/reorder', { method: 'POST', body: JSON.stringify({ parentId, ids }) }),
   removeFolder: (id: string) => req(`/folders/${id}`, { method: 'DELETE' }),
   /** `content` is markdown, built into real blocks server-side (used by import). */
-  create: (body: { title?: string; icon?: string; folderId?: string | null; content?: string }): Promise<DocRow> =>
+  create: (body: { title?: string; icon?: string; folderId?: string | null; content?: string; kind?: 'doc' | 'design' }): Promise<DocRow> =>
     req('/docs', { method: 'POST', body: JSON.stringify(body) }),
   /** Create a page nested under `parentId` — the parent gains a reference to it. */
   createChild: (parentId: string, title?: string): Promise<DocRow> =>

@@ -18,6 +18,8 @@ export interface Page {
   favorite: boolean;
   role: string; // owner | editor | viewer
   visibility: 'team' | 'private';
+  /** A design opens on the canvas; everything else about it is a document. */
+  kind: 'doc' | 'design';
   updatedAt: string;
   /** Pages this one @-references. Drives the sidebar disclosure arrow. */
   linkCount: number;

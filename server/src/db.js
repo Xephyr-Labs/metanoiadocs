@@ -105,6 +105,11 @@ export async function initSchema() {
     -- grant needed, so members who join later see it too); 'private' = only the
     -- owner plus anyone explicitly shared via doc_access. Default team.
     ALTER TABLE docs ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'team';
+    -- 'doc' opens as a page, 'design' opens on the canvas. A design is a
+    -- document in every other respect — same sharing, folders, trash, search,
+    -- comments and version history — which is the whole reason it is a column
+    -- here rather than a table of its own.
+    ALTER TABLE docs ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'doc';
 
     -- Per-user favorites (star). Absent row = not favorited.
     CREATE TABLE IF NOT EXISTS favorites (

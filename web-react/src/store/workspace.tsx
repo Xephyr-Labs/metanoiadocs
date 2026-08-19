@@ -84,6 +84,9 @@ interface WorkspaceState {
   rename: (id: PageId, title: string) => void;
   applyTitleFromEditor: (id: PageId, title: string) => void;
   createPage: (folderId: string | null) => Promise<PageId | null>;
+  /** A design is a page that opens on the canvas. Same everything else. */
+  createDesign: () => Promise<PageId | null>;
+  designIds: PageId[];
   movePage: (id: PageId, folderId: string | null) => Promise<void>;
   createChildPage: (parentId: PageId) => Promise<PageId | null>;
   reorderPage: (dragId: PageId, targetId: PageId, place: 'before' | 'after') => Promise<void>;
@@ -135,6 +138,7 @@ function buildPages(rows: DocRow[]): Record<PageId, Page> {
       favorite: !!r.favorite,
       role: r.role,
       visibility: r.visibility === 'private' ? 'private' : 'team',
+      kind: r.kind === 'design' ? 'design' : 'doc',
       updatedAt: r.updated_at,
       linkCount: r.link_count ?? 0,
       tags: r.tags ?? [],
@@ -436,6 +440,18 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     }
   }, [refresh]);
 
+  const createDesign = useCallback(async (): Promise<PageId | null> => {
+    try {
+      const row = await docsApi.create({ title: 'Untitled design', icon: '🎨', kind: 'design' });
+      await refresh();
+      select(row.id);
+      return row.id;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not create that design.');
+      return null;
+    }
+  }, [refresh, select]);
+
   const createFolder = useCallback(async (parentId: string | null): Promise<string | null> => {
     try {
       const row = await docsApi.createFolder({ name: 'New folder', parentId });
@@ -706,10 +722,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const toggleTheme = useCallback(() => setTheme((t) => (t === 'dark' ? 'light' : 'dark')), []);
 
+  // Designs have their own section, so they are kept out of the document tree —
+  // a page that appears in two places at once is the thing this sidebar has
+  // repeatedly had to fix. Filed into a folder, a design still shows there.
   const rootIds = useMemo(
     () =>
       Object.values(pages)
-        .filter((p) => !p.folderId && !p.parentId)
+        .filter((p) => !p.folderId && !p.parentId && p.kind !== 'design')
         .sort((a, b) => a.position - b.position || a.title.localeCompare(b.title))
         .map((p) => p.id),
     [pages],
@@ -736,6 +755,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     () => Object.values(pages).filter((p) => p.shared).map((p) => p.id),
     [pages],
   );
+  const designIds = useMemo(
+    () => Object.values(pages).filter((p) => p.kind === 'design').sort(byOrder).map((p) => p.id),
+    [pages],
+  );
   const favoriteIds = useMemo(
     () => Object.values(pages).filter((p) => p.favorite).map((p) => p.id),
     [pages],
@@ -747,13 +770,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     [folders],
   );
   const unfiledIds = useMemo(
-    () => Object.values(pages).filter((p) => !p.folderId && !p.parentId).sort(byOrder).map((p) => p.id),
+    () => Object.values(pages).filter((p) => !p.folderId && !p.parentId && p.kind !== 'design').sort(byOrder).map((p) => p.id),
     [pages],
   );
 
   const value = useMemo<WorkspaceState>(
     () => ({
-      pages, folders, folderRootIds, unfiledIds, rootIds, workspaceRootIds, privateRootIds, sharedRootIds, libraryRootIds, favoriteIds, recentIds: liveRecentIds,
+      pages, folders, folderRootIds, unfiledIds, rootIds, workspaceRootIds, privateRootIds, sharedRootIds, libraryRootIds, favoriteIds, designIds, recentIds: liveRecentIds,
       allTags, tagFilter, unreadCount, refreshUnread, markInboxRead,
       currentId, currentPage, loading, error, workspaceId,
       historyDocId, openHistory, closeHistory,
@@ -761,13 +784,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       sidebarCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
       settingsOpen, trashOpen, inboxOpen, mode, fullWidth, theme,
       refresh, select, toggleExpand, toggleFavorite, setVisibility, rename, applyTitleFromEditor,
-      createPage, movePage, createChildPage, reorderPage, linkPage, reorderFolder, moveFolder, createFolder, renameFolder, setFolderColor, setIcon, toggleFolder, deleteFolder, createFromTemplate, importMarkdown, deletePage, restorePage,
+      createPage, createDesign, movePage, createChildPage, reorderPage, linkPage, reorderFolder, moveFolder, createFolder, renameFolder, setFolderColor, setIcon, toggleFolder, deleteFolder, createFromTemplate, importMarkdown, deletePage, restorePage,
       refreshTags, addTagToPage, removeTagFromPage, setTagFilter,
       setSidebarCollapsed, setSidebarWidth, setMobileDrawer, setRightPanel, setPaletteOpen,
       setShareOpen, setSettingsOpen, setTrashOpen, setInboxOpen, setMode, setFullWidth, toggleTheme,
     }),
     [
-      pages, folders, folderRootIds, unfiledIds, rootIds, workspaceRootIds, privateRootIds, sharedRootIds, libraryRootIds, favoriteIds, liveRecentIds,
+      pages, folders, folderRootIds, unfiledIds, rootIds, workspaceRootIds, privateRootIds, sharedRootIds, libraryRootIds, favoriteIds, designIds, liveRecentIds,
       allTags, tagFilter, unreadCount, refreshUnread, markInboxRead,
       currentId, currentPage, loading, error, workspaceId,
       historyDocId, openHistory, closeHistory,
@@ -775,7 +798,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       sidebarCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
       settingsOpen, trashOpen, inboxOpen, mode, fullWidth, theme,
       refresh, select, toggleExpand, toggleFavorite, setVisibility, rename, applyTitleFromEditor,
-      createPage, movePage, createChildPage, reorderPage, linkPage, reorderFolder, moveFolder, createFolder, renameFolder, setFolderColor, setIcon, toggleFolder, deleteFolder, createFromTemplate, importMarkdown, deletePage, restorePage,
+      createPage, createDesign, movePage, createChildPage, reorderPage, linkPage, reorderFolder, moveFolder, createFolder, renameFolder, setFolderColor, setIcon, toggleFolder, deleteFolder, createFromTemplate, importMarkdown, deletePage, restorePage,
       refreshTags, addTagToPage, removeTagFromPage, toggleTheme,
     ],
   );
