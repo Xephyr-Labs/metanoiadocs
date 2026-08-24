@@ -13,6 +13,15 @@
 const DOC_PATH = /^\/d\/([^/?#]+)/;
 const FOLDER_PATH = /^\/f\/([^/?#]+)/;
 
+/** Every address this app answers, and nothing else on the origin.
+ *
+ *  The service worker's navigation fallback is allowlisted to exactly these:
+ *  docs.xephyrlabs.com also serves sibling apps under /bexpharma, /taskgantt and
+ *  /jira, and a fallback that covered the whole origin handed them the app shell
+ *  out of the precache instead of letting the request reach Caddy. A new route
+ *  here is a new route there — that is the point of the shared list. */
+export const APP_PATHS = [/^\/$/, DOC_PATH, FOLDER_PATH];
+
 export const docUrl = (docId: string, blockId?: string) =>
   `${location.origin}/d/${encodeURIComponent(docId)}${blockId ? `#${encodeURIComponent(blockId)}` : ''}`;
 

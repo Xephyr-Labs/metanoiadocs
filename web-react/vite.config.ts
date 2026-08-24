@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react';
 import { vanillaExtractPlugin } from '@vanilla-extract/vite-plugin';
 import wasm from 'vite-plugin-wasm';
 import { VitePWA } from 'vite-plugin-pwa';
+import { APP_PATHS } from './src/lib/route';
 
 // BlockSuite ships thousands of ESM sub-packages that Vite's dep-optimizer must
 // NOT pre-bundle (they use import.meta / wasm / vanilla-extract). This exclude
@@ -107,8 +108,10 @@ export default defineConfig({
       workbox: {
         // The editor chunk is large; allow it in the precache so the app loads offline.
         maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
-        // Never let the SPA navigation fallback swallow the API, live sync, or share links.
-        navigateFallbackDenylist: [/^\/api/, /^\/sync/, /^\/share/],
+        // The fallback answers for the app's own addresses only. Everything else on
+        // this origin — the API, live sync, share links, the sibling apps Caddy
+        // routes to — goes to the network.
+        navigateFallbackAllowlist: APP_PATHS,
       },
     }),
   ],
