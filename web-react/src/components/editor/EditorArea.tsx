@@ -17,6 +17,7 @@ import { FloatingToc } from './FloatingToc';
 import { DocMetaBand } from './DocMetaBand';
 import { PageHeader } from './PageHeader';
 import { SlidesRail } from './SlidesRail';
+import { focusDocTitle, takeTitleFocus } from '../../lib/titleFocus';
 
 export function EditorArea() {
   const ws = useWorkspace();
@@ -66,6 +67,15 @@ export function EditorArea() {
   // the coordinate space the gutter markers measure against.
   const [editorEl, setEditorEl] = useState<Element | null>(null);
   const markerHost = editorEl as HTMLElement | null;
+
+  // A rename started in the sidebar finishes here. The title is a block in the
+  // document, so the caret has to land in the editor for the edit to stick —
+  // see lib/titleFocus. Declared above the early return below: it is a hook.
+  const pageId = page?.id;
+  useEffect(() => {
+    if (!editorEl || !pageId || !takeTitleFocus(pageId)) return;
+    return focusDocTitle(editorEl);
+  }, [editorEl, pageId]);
 
   if (!page) {
     return (

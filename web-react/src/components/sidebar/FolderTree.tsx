@@ -11,6 +11,7 @@ import { useWorkspace } from '../../store/workspace';
 import { PageIcon } from '../ui/PageIcon';
 import { Menu } from '../ui/Menu';
 import { RowInput } from '../ui/RowInput';
+import { requestTitleFocus } from '../../lib/titleFocus';
 import { rowAction } from '../ui/styles';
 
 const ColorDot = (color: string) =>
@@ -104,7 +105,12 @@ function DocumentRow({ id, depth }: { id: PageId; depth: number }) {
           <PageIcon icon={page.icon} size={16} className={selected ? 'shrink-0 text-accent' : 'shrink-0 text-faint'} />
         </span>
       )}
-      <span className={cn('block h-5 min-w-0 flex-1 truncate leading-5', selected && 'font-medium text-accent')}>
+      {/* Rename lives on the name, not the whole row: the chevron and the ⋯
+          button are double-click targets too, and neither means "rename". */}
+      <span
+        onDoubleClick={() => { requestTitleFocus(id); ws.select(id); }}
+        className={cn('block h-5 min-w-0 flex-1 truncate leading-5', selected && 'font-medium text-accent')}
+      >
         {page.title}
       </span>
       <span className={cn('flex shrink-0 items-center gap-0.5 transition-opacity', hover ? 'opacity-100' : 'opacity-0')}>
@@ -228,7 +234,12 @@ function FolderRow({ id, depth }: { id: string; depth: number }) {
         {/* The name opens the folder's page — that is where its link lands and
             what a folder now has to show. Expanding stays on the icon beside it,
             so both readings of a folder row are still one click. */}
-        <button type="button" onClick={() => ws.openFolder(id)} className="flex min-w-0 flex-1 items-center text-left">
+        <button
+          type="button"
+          onClick={() => ws.openFolder(id)}
+          onDoubleClick={() => setRenaming(true)}
+          className="flex min-w-0 flex-1 items-center text-left"
+        >
           <span className={cn('truncate', active && 'text-accent')}>{folder.name}</span>
         </button>
         <span className={cn('flex shrink-0 items-center gap-0.5 transition-opacity', hover ? 'opacity-100' : 'opacity-0')}>

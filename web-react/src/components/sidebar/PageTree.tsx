@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { cn } from '../../lib/cn';
 import { downloadDocx, downloadMarkdown, printDoc } from '../../lib/docFiles';
 import { docUrl } from '../../lib/route';
+import { requestTitleFocus } from '../../lib/titleFocus';
 import type { PageId } from '../../lib/types';
 import { useWorkspace } from '../../store/workspace';
 import { DocIcon } from '../ui/DocIcon';
@@ -95,7 +96,12 @@ function Row({ id, depth }: { id: PageId; depth: number }) {
             </button>
           )}
         </span>
-        <span className={cn('block h-5 min-w-0 flex-1 !self-center truncate leading-5', selected && 'font-medium text-accent')}>
+        {/* Rename lives on the name, not the whole row: the chevron and the ⋯
+            button are double-click targets too, and neither means "rename". */}
+        <span
+          onDoubleClick={() => { requestTitleFocus(id); ws.select(id); }}
+          className={cn('block h-5 min-w-0 flex-1 !self-center truncate leading-5', selected && 'font-medium text-accent')}
+        >
           {page.title}
         </span>
 
@@ -121,7 +127,7 @@ function Row({ id, depth }: { id: PageId; depth: number }) {
               { icon: Star, label: fav ? 'Remove from Favorites' : 'Add to Favorites', onSelect: () => ws.toggleFavorite(id) },
               { icon: Link2, label: 'Copy link', onSelect: () => { copyLink(docUrl(id)); } },
               { icon: Copy, label: 'Duplicate' },
-              { icon: FileText, label: 'Rename', onSelect: () => ws.select(id) },
+              { icon: FileText, label: 'Rename', onSelect: () => { requestTitleFocus(id); ws.select(id); } },
               {
                 icon: Download,
                 label: 'Export',
