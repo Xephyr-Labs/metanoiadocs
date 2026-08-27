@@ -4,6 +4,7 @@ import { cn } from '../lib/cn';
 import { readRoute, revealBlock } from '../lib/route';
 import { PageSkeleton } from '../components/ui/Skeleton';
 import { mountEditor } from './mountEditor';
+import { keepGrammarlyOut } from './noGrammarly';
 import type { LinkTarget } from './pageLinks';
 
 export interface EditorProps {
@@ -68,6 +69,8 @@ export function BlockSuiteEditor({
     setFailed(null);
     const host = hostRef.current;
     if (!host) return;
+    // Before the first block renders, so no editable is ever briefly unmarked.
+    const releaseGrammarly = keepGrammarlyOut(host);
     mountEditor(host, {
       docId,
       title: titleRef.current,
@@ -98,6 +101,7 @@ export function BlockSuiteEditor({
       });
     return () => {
       alive = false;
+      releaseGrammarly();
       onEditorRef.current?.(null);
       instRef.current?.destroy();
       instRef.current = null;
