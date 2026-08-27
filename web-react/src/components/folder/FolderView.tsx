@@ -8,7 +8,7 @@ import { AlertCircle, Check, ChevronRight, Folder, FolderOpen, FolderPlus, Link2
 import { useEffect, useState } from 'react';
 import { folderChain } from '../../lib/folderPath';
 import { folderTint } from '../../lib/tagColors';
-import { pickMarkdownFiles } from '../../lib/docFiles';
+import { pickImportFiles } from '../../lib/docFiles';
 import { folderUrl } from '../../lib/route';
 import { copyText } from '../../lib/clipboard';
 import { relativeTime } from '../../lib/time';
@@ -130,7 +130,7 @@ export function FolderView() {
           <Button
             size="sm"
             leftIcon={<Upload size={14} />}
-            onClick={() => { pickMarkdownFiles().then((f) => { if (f.length) ws.importMarkdown(f, folder.id); }); }}
+            onClick={() => { pickImportFiles().then((f) => { if (f.length) ws.importFiles(f, folder.id); }); }}
           >
             Import
           </Button>

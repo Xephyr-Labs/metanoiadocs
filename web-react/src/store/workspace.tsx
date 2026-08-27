@@ -11,7 +11,7 @@ import {
 import { docsApi, type DocRow, type FolderRow } from '../lib/docsApi';
 import { tasksApi, type ProjectRow } from '../lib/tasksApi';
 import { setPendingSeed } from '../editor/pendingSeed';
-import { MAX_IMPORT_BYTES, stripFrontMatter, titleFromMarkdown } from '../lib/docFiles';
+import { MAX_IMPORT_BYTES } from '../lib/docFiles';
 import { readRoute, showDoc, showFolder, showHome } from '../lib/route';
 import { folderChain } from '../lib/folderPath';
 import { useDocSaveTick } from '../lib/docSignal';
@@ -100,7 +100,7 @@ interface WorkspaceState {
   toggleFolder: (id: string) => void;
   deleteFolder: (id: string) => Promise<void>;
   createFromTemplate: (t: Template) => Promise<PageId | null>;
-  importMarkdown: (files: File[], folderId: string | null) => Promise<PageId | null>;
+  importFiles: (files: File[], folderId: string | null) => Promise<PageId | null>;
   deletePage: (id: PageId) => void;
   restorePage: (id: PageId) => Promise<void>;
   refreshTags: () => Promise<void>;
@@ -616,18 +616,24 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
    * stops the run but keeps everything imported before it, which is why the
    * refresh below happens either way.
    */
-  const importMarkdown = useCallback(async (files: File[], folderId: string | null): Promise<PageId | null> => {
+  const importFiles = useCallback(async (files: File[], folderId: string | null): Promise<PageId | null> => {
     let first: PageId | null = null;
-    try {
-      for (const file of files) {
-        if (file.size > MAX_IMPORT_BYTES) throw new Error(`${file.name} is bigger than 2 MB.`);
-        const md = stripFrontMatter(await file.text());
-        const row = await docsApi.create({ title: titleFromMarkdown(md, file.name), folderId, content: md });
+    // One file failing no longer abandons the rest: a bad PDF in a selection of
+    // ten used to import nothing after it, with only the first error shown.
+    const failed: string[] = [];
+    const warnings: string[] = [];
+    for (const file of files) {
+      try {
+        if (file.size > MAX_IMPORT_BYTES) throw new Error(`it is bigger than 25 MB`);
+        const row = await docsApi.import(file, folderId);
+        warnings.push(...(row.warnings ?? []));
         first ??= row.id;
+      } catch (e) {
+        failed.push(`${file.name} — ${e instanceof Error ? e.message : 'could not be imported'}`);
       }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not import that file.');
     }
+    if (failed.length) setError(failed.join('\n'));
+    else if (warnings.length) setError(warnings.join('\n'));
     if (!first) return null;
     if (folderId) {
       folderExpandedRef.current.add(folderId);
@@ -785,7 +791,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       sidebarCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
       settingsOpen, trashOpen, inboxOpen, mode, fullWidth, theme,
       refresh, select, toggleExpand, toggleFavorite, setVisibility, rename, applyTitleFromEditor,
-      createPage, createDesign, movePage, createChildPage, reorderPage, linkPage, reorderFolder, moveFolder, createFolder, renameFolder, setFolderColor, setIcon, toggleFolder, deleteFolder, createFromTemplate, importMarkdown, deletePage, restorePage,
+      createPage, createDesign, movePage, createChildPage, reorderPage, linkPage, reorderFolder, moveFolder, createFolder, renameFolder, setFolderColor, setIcon, toggleFolder, deleteFolder, createFromTemplate, importFiles, deletePage, restorePage,
       refreshTags, addTagToPage, removeTagFromPage, setTagFilter,
       setSidebarCollapsed, setSidebarWidth, setMobileDrawer, setRightPanel, setPaletteOpen,
       setShareOpen, setSettingsOpen, setTrashOpen, setInboxOpen, setMode, setFullWidth, toggleTheme,
@@ -799,7 +805,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       sidebarCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
       settingsOpen, trashOpen, inboxOpen, mode, fullWidth, theme,
       refresh, select, toggleExpand, toggleFavorite, setVisibility, rename, applyTitleFromEditor,
-      createPage, createDesign, movePage, createChildPage, reorderPage, linkPage, reorderFolder, moveFolder, createFolder, renameFolder, setFolderColor, setIcon, toggleFolder, deleteFolder, createFromTemplate, importMarkdown, deletePage, restorePage,
+      createPage, createDesign, movePage, createChildPage, reorderPage, linkPage, reorderFolder, moveFolder, createFolder, renameFolder, setFolderColor, setIcon, toggleFolder, deleteFolder, createFromTemplate, importFiles, deletePage, restorePage,
       refreshTags, addTagToPage, removeTagFromPage, toggleTheme,
     ],
   );

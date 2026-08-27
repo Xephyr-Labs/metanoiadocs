@@ -33,6 +33,7 @@ import { rewriteDoc } from './restore.js';
 import { wouldFolderCycle } from './folders.js';
 import { printHtml } from './print.js';
 import { docxFromMarkdown } from './docx.js';
+import { fileToMarkdown, IMPORT_EXTENSIONS } from './import.js';
 import { topTerms, extractSignals, findMentions, simhash, hamming, keyphrases, summarize, tokenize, coalesceByKey, blocksFromText } from './intelligence.js';
 import { registerTaskRoutes } from './tasks.js';
 import { registerHomeRoutes } from './home.js';
@@ -501,29 +502,23 @@ app.post('/api/docs/reorder', requireUser, wrap(async (req, res) => {
   res.json({ ok: true, moved: rowCount });
 }));
 
-app.post('/api/docs', requireUser, async (req, res) => {
+/**
+ * Create a doc and, when there is markdown for it, its Yjs state — in one
+ * transaction, so a failure part-way cannot leave a doc row with no content.
+ * Shared by the JSON create route and the file import below.
+ */
+async function createDocRow({ title, icon, userId, folderId, visibility, kind, content }) {
   const id = crypto.randomUUID();
-  const title = String(req.body?.title || 'Untitled').slice(0, 200);
-  const icon = String(req.body?.icon || '📄').slice(0, 8);
-  const folderId = typeof req.body?.folderId === 'string' ? req.body.folderId : null;
-  const visibility = req.body?.visibility === 'private' ? 'private' : 'team';
-  const kind = req.body?.kind === 'design' ? 'design' : 'doc';
-  // Optional markdown body (used by the MCP server / API clients). Built into a
-  // BlockSuite Yjs state so the doc opens with real content.
-  const content = typeof req.body?.content === 'string' ? req.body.content : null;
-  if (folderId && !(await visibleFolder(folderId, req.user.id))) {
-    return res.status(403).json({ error: 'folder not accessible' });
-  }
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     await client.query(
       'INSERT INTO docs (id, title, icon, created_by, folder_id, visibility, kind) VALUES ($1, $2, $3, $4, $5, $6, $7)',
-      [id, title, icon, req.user.id, folderId, visibility, kind]
+      [id, title, icon, userId, folderId, visibility, kind]
     );
     await client.query(
       `INSERT INTO doc_access (doc_id, user_id, role) VALUES ($1, $2, 'owner')`,
-      [id, req.user.id]
+      [id, userId]
     );
     if (content) {
       const state = Buffer.from(buildDocState(title, content));
@@ -537,7 +532,79 @@ app.post('/api/docs', requireUser, async (req, res) => {
   } finally {
     client.release();
   }
-  res.json({ id, title, icon, parent_id: null, folder_id: folderId, role: 'owner', visibility, kind, shared: false, favorite: false });
+  return { id, title, icon, parent_id: null, folder_id: folderId, role: 'owner', visibility, kind, shared: false, favorite: false };
+}
+
+app.post('/api/docs', requireUser, async (req, res) => {
+  const folderId = typeof req.body?.folderId === 'string' ? req.body.folderId : null;
+  if (folderId && !(await visibleFolder(folderId, req.user.id))) {
+    return res.status(403).json({ error: 'folder not accessible' });
+  }
+  res.json(await createDocRow({
+    title: String(req.body?.title || 'Untitled').slice(0, 200),
+    icon: String(req.body?.icon || '📄').slice(0, 8),
+    userId: req.user.id,
+    folderId,
+    visibility: req.body?.visibility === 'private' ? 'private' : 'team',
+    kind: req.body?.kind === 'design' ? 'design' : 'doc',
+    // Optional markdown body (used by the MCP server / API clients). Built into
+    // a BlockSuite Yjs state so the doc opens with real content.
+    content: typeof req.body?.content === 'string' ? req.body.content : null,
+  }));
+});
+
+const IMAGE_MIME = {
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif',
+  '.webp': 'image/webp', '.bmp': 'image/bmp', '.tif': 'image/tiff', '.tiff': 'image/tiff',
+  '.svg': 'image/svg+xml', '.emf': 'image/emf', '.wmf': 'image/wmf',
+};
+
+/**
+ * Import one file as a new doc: .md, .txt, .docx or .pdf.
+ *
+ * Raw bytes rather than multipart — one file per request, so a form parser
+ * would be pure ceremony; the name and destination ride on the query string.
+ * Everything format-specific lives in import.js, and what arrives here is the
+ * markdown the rest of the app already speaks.
+ */
+app.post('/api/docs/import', requireUser, express.raw({ type: '*/*', limit: '25mb' }), async (req, res) => {
+  const name = String(req.query.name || 'document').slice(0, 255);
+  const folderId = typeof req.query.folderId === 'string' && req.query.folderId ? req.query.folderId : null;
+  if (folderId && !(await visibleFolder(folderId, req.user.id))) {
+    return res.status(403).json({ error: 'folder not accessible' });
+  }
+
+  // Pictures pulled out of a .docx go into the same blob table the editor uses,
+  // keyed by content hash so a document that repeats a logo stores it once.
+  const saveImage = async (bytes, filename) => {
+    const key = crypto.createHash('sha256').update(bytes).digest('hex');
+    const ext = (/\.[^.]+$/.exec(filename || '')?.[0] || '').toLowerCase();
+    await pool.query(
+      `INSERT INTO blobs (key, mime, data) VALUES ($1, $2, $3) ON CONFLICT (key) DO NOTHING`,
+      [key, IMAGE_MIME[ext] || 'application/octet-stream', bytes]
+    );
+    return `/api/blob/${key}`;
+  };
+
+  let file;
+  try {
+    file = await fileToMarkdown({ name, bytes: req.body, saveImage });
+  } catch (e) {
+    // 415: the request was fine, the file was not. The message is written for
+    // the person who chose it, so it goes back verbatim.
+    return res.status(415).json({ error: e.message, accepted: IMPORT_EXTENSIONS });
+  }
+
+  const row = await createDocRow({
+    title: file.title,
+    icon: '📄',
+    userId: req.user.id,
+    folderId,
+    visibility: 'team',
+    kind: 'doc',
+    content: file.markdown,
+  });
+  res.json({ ...row, warnings: file.warnings });
 });
 
 /**

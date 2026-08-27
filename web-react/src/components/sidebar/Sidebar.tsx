@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { useRef, useState, type ReactNode } from 'react';
 import { cn } from '../../lib/cn';
-import { pickMarkdownFiles } from '../../lib/docFiles';
+import { pickImportFiles } from '../../lib/docFiles';
 import { avatarFor } from '../../lib/avatar';
 import { swatch } from '../../lib/tagColors';
 import { LogoMark } from '../brand/Logo';
@@ -136,11 +136,11 @@ export function Sidebar() {
             { label: `${activeWs.icon}  ${activeWs.name}` },
             {
               icon: Upload,
-              label: 'Import Markdown…',
+              label: 'Import…',
               separatorBefore: true,
               // No folder: an import from here lands beside the other unfiled
               // documents, and the per-folder menu is where you say otherwise.
-              onSelect: () => { pickMarkdownFiles().then((f) => { if (f.length) ws.importMarkdown(f, null); }); },
+              onSelect: () => { pickImportFiles().then((f) => { if (f.length) ws.importFiles(f, null); }); },
             },
             { icon: Settings, label: 'Settings', separatorBefore: true, onSelect: () => ws.setSettingsOpen(true) },
             { icon: LogOut, label: 'Log out', danger: true, onSelect: () => auth.logout() },

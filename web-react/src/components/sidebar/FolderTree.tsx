@@ -4,7 +4,7 @@ import { DOC_MIME, FOLDER_MIME, dragSource, useRowDrop } from './rowDrag';
 import { cn } from '../../lib/cn';
 import { docUrl, folderUrl } from '../../lib/route';
 import { copyLink } from '../../lib/clipboard';
-import { downloadDocx, downloadMarkdown, pickMarkdownFiles, printDoc } from '../../lib/docFiles';
+import { downloadDocx, downloadMarkdown, pickImportFiles, printDoc } from '../../lib/docFiles';
 import { TAG_COLORS, folderTint, swatch } from '../../lib/tagColors';
 import type { PageId } from '../../lib/types';
 import { useWorkspace } from '../../store/workspace';
@@ -252,7 +252,7 @@ function FolderRow({ id, depth }: { id: string; depth: number }) {
               // A folder is workspace-wide, so this link opens for any member —
               // no per-folder grant to hand out first.
               { icon: Link2, label: 'Copy link', onSelect: () => { copyLink(folderUrl(id)); } },
-              { icon: Upload, label: 'Import Markdown…', onSelect: () => { pickMarkdownFiles().then((f) => { if (f.length) ws.importMarkdown(f, id); }); } },
+              { icon: Upload, label: 'Import…', onSelect: () => { pickImportFiles().then((f) => { if (f.length) ws.importFiles(f, id); }); } },
               { icon: FileText, label: 'Rename', onSelect: () => setRenaming(true) },
               // Nine swatches inline made this menu taller than the sidebar.
               // The trigger wears the folder's current colour, so the row still

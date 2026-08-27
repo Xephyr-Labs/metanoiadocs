@@ -177,6 +177,24 @@ export const docsApi = {
   reorderFolders: (parentId: string | null, ids: string[]) =>
     req('/folders/reorder', { method: 'POST', body: JSON.stringify({ parentId, ids }) }),
   removeFolder: (id: string) => req(`/folders/${id}`, { method: 'DELETE' }),
+  /**
+   * Import one file as a new doc: .md, .txt, .docx or .pdf.
+   *
+   * Raw bytes, not multipart — one file per request, so the name and
+   * destination ride on the query string. Everything format-specific happens
+   * server-side (server/src/import.js); .docx and .pdf cannot be read here.
+   */
+  import: (file: File, folderId: string | null): Promise<DocRow & { warnings?: string[] }> => {
+    const q = new URLSearchParams({ name: file.name });
+    if (folderId) q.set('folderId', folderId);
+    return req(`/docs/import?${q}`, {
+      method: 'POST',
+      body: file,
+      // The browser would otherwise send the File's own type, which is empty
+      // for .md and wrong often enough elsewhere; the server goes by extension.
+      headers: { 'Content-Type': 'application/octet-stream' },
+    });
+  },
   /** `content` is markdown, built into real blocks server-side (used by import). */
   create: (body: { title?: string; icon?: string; folderId?: string | null; content?: string; kind?: 'doc' | 'design' }): Promise<DocRow> =>
     req('/docs', { method: 'POST', body: JSON.stringify(body) }),
