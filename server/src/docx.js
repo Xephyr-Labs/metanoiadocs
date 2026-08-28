@@ -8,7 +8,7 @@
 // A .docx is a ZIP of XML parts; see zip.js for the container. Everything here
 // is the OOXML: one document part, a stylesheet, a numbering definition, the
 // relationship files that tie them together, and the images.
-import { parseMarkdown } from './blocks.js';
+import { parseMarkdown, imageDescAsParagraph } from './blocks.js';
 import { zipSync, imageSize } from './zip.js';
 
 const esc = (s) =>
@@ -304,7 +304,7 @@ function numberingXml(orderedCount) {
  * @returns {Promise<Buffer>}
  */
 export async function docxFromMarkdown({ title, markdown, meta, loadImage }) {
-  const descs = parseMarkdown(markdown || '');
+  const descs = parseMarkdown(markdown || '').map(imageDescAsParagraph);
 
   // Resolve every image up front: the XML builder is synchronous, and a
   // half-written relationship is a corrupt file rather than a missing picture.

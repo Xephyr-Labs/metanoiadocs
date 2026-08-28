@@ -153,6 +153,19 @@ export function parseMarkdown(md) {
     if (/^\s*$/.test(line)) { blank = true; continue; }
     if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) { out.push({ flavour: 'affine:divider' }); blank = false; continue; }
     let m;
+    // A line that is only an image becomes a real image block. The source has
+    // to be a blob this server already holds (`/api/blob/<sha256>`) — that is
+    // what the .docx importer emits and what the MCP server uploads to before
+    // it writes — because BlockSuite addresses images by blob key, not by URL.
+    // Anything else stays literal text rather than rendering as a broken image.
+    if ((m = line.match(/^\s*!\[([^\]]*)\]\(([^)\s]+)\)\s*$/))) {
+      const key = /^(?:[a-z]+:\/\/[^/]+)?\/api\/blob\/([^?#]+)/i.exec(m[2])?.[1];
+      if (key) {
+        out.push({ flavour: 'affine:image', caption: m[1], sourceId: decodeURIComponent(key) });
+        blank = false;
+        continue;
+      }
+    }
     if ((m = line.match(/^(#{1,6})\s+(.*)$/))) { out.push({ flavour: 'affine:paragraph', type: 'h' + m[1].length, text: m[2] }); blank = false; continue; }
     if ((m = line.match(/^(\s*)[-*]\s+\[([ xX])\]\s+(.*)$/))) { out.push({ flavour: 'affine:list', type: 'todo', checked: m[2].toLowerCase() === 'x', text: m[3], depth: indentDepth(m[1]) }); blank = false; continue; }
     if ((m = line.match(/^(\s*)\d+\.\s+(.*)$/))) { out.push({ flavour: 'affine:list', type: 'numbered', text: m[2], depth: indentDepth(m[1]) }); blank = false; continue; }
@@ -173,6 +186,17 @@ export function parseMarkdown(md) {
   }
   return out;
 }
+
+/**
+ * An image descriptor as the markdown paragraph it came from. Renderers that
+ * turn descriptors into something other than BlockSuite blocks (docx, print)
+ * already parse `![alt](src)` out of paragraph text, images and all, so they
+ * take their descriptors through here rather than growing a second image path.
+ */
+export const imageDescAsParagraph = (d) =>
+  d.flavour === 'affine:image'
+    ? { flavour: 'affine:paragraph', type: 'text', text: `![${d.caption || ''}](/api/blob/${d.sourceId})` }
+    : d;
 
 function makeBlock(blocks, desc, resolveLink, pending) {
   const id = blockId();
@@ -210,6 +234,18 @@ function makeBlock(blocks, desc, resolveLink, pending) {
     b.set('prop:meta:createdBy', desc.by || 'migration');
     b.set('prop:meta:updatedAt', desc.now || 0);
     b.set('prop:meta:updatedBy', desc.by || 'migration');
+  } else if (desc.flavour === 'affine:image') {
+    // width/height 0 tells the editor to render the image at its natural size,
+    // so we never have to decode the bytes just to learn how big they are.
+    b.set('prop:sourceId', desc.sourceId || '');
+    b.set('prop:caption', desc.caption || '');
+    b.set('prop:width', 0);
+    b.set('prop:height', 0);
+    b.set('prop:size', -1);
+    b.set('prop:rotate', 0);
+    b.set('prop:index', 'a0');
+    b.set('prop:xywh', '[0,0,0,0]');
+    b.set('prop:lockedBySelf', false);
   } else if (desc.flavour === 'affine:code') {
     b.set('prop:text', plainYText(desc.text));
     b.set('prop:language', desc.language || 'plain');

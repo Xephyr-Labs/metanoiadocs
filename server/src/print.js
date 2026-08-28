@@ -5,7 +5,7 @@
 // process to babysit) out of the deployment for a feature that is one dialog
 // either way. Layout is defined here rather than by @media print rules on the
 // app shell, so what gets printed does not depend on the editor's DOM.
-import { parseMarkdown } from './blocks.js';
+import { parseMarkdown, imageDescAsParagraph } from './blocks.js';
 
 const esc = (s) =>
   String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -149,7 +149,7 @@ a { color: #1b64da; text-decoration: none; }
  * dialog on load, which is the whole point when it is opened from "Export PDF".
  */
 export function printHtml({ title, icon, markdown, meta, auto = true }) {
-  const body = blocksToHtml(parseMarkdown(markdown));
+  const body = blocksToHtml(parseMarkdown(markdown).map(imageDescAsParagraph));
   return `<!doctype html>
 <html lang="en">
 <head>

@@ -1676,7 +1676,9 @@ app.put('/api/blob/:key', requireUser, express.raw({ type: '*/*', limit: '25mb' 
 // ponytail: token gates the whole blob space, not per-doc; tighten if blobs ever
 // carry cross-doc secrets.
 app.get('/api/blob/:key', async (req, res) => {
-  const user = await userForSession(sessionToken(req));
+  // Cookie session or Bearer PAT — a token that can PUT a blob must be able to
+  // read it back, or a programmatic client cannot check what it just uploaded.
+  const user = await userForRequest(req);
   if (!user) {
     const share = String(req.query.share || '');
     const ok = share && (await pool.query(

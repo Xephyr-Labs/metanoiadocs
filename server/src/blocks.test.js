@@ -156,3 +156,28 @@ test('collectMarkdownLinks dedupes and drops unresolved keys', () => {
   const found = collectMarkdownLinks('[[arch]] [[road]] [[arch]] [[nope]]', resolve);
   assert.deepEqual(found.sort(), ['id-arch', 'id-road']);
 });
+
+test('a markdown image line becomes a real image block, and round-trips', () => {
+  const key = 'a'.repeat(64);
+  const md = ['Before.', '', `![press preview](/api/blob/${key})`, '', 'After.'].join('\n');
+
+  const state = buildDocState('T', md);
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, new Uint8Array(state));
+  const images = [...doc.getMap('blocks')]
+    .map(([, b]) => b)
+    .filter((b) => b instanceof Y.Map && b.get('sys:flavour') === 'affine:image');
+
+  assert.equal(images.length, 1);
+  assert.equal(images[0].get('prop:sourceId'), key);
+  assert.equal(images[0].get('prop:caption'), 'press preview');
+  assert.match(docToMarkdown(state).markdown, new RegExp(`!\\[press preview\\]\\(/api/blob/${key}\\)`));
+});
+
+test('an image whose source is not a stored blob stays literal text', () => {
+  const state = buildDocState('T', '![x](/workspace/group/og.png)');
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, new Uint8Array(state));
+  const flavours = [...doc.getMap('blocks')].map(([, b]) => b.get('sys:flavour'));
+  assert.ok(!flavours.includes('affine:image'));
+});
