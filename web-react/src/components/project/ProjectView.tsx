@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CalendarDays, GanttChartSquare, KanbanSquare, ListTodo, MoreHorizontal, Plus, Table2, Tags, FolderOpen } from 'lucide-react';
+import { CalendarDays, Columns3, GanttChartSquare, KanbanSquare, ListTodo, MoreHorizontal, Plus, Table2, Tags, FolderOpen } from 'lucide-react';
 import { useWorkspace } from '../../store/workspace';
 import { cn } from '../../lib/cn';
 import type { TaskRow, TaskStatus } from '../../lib/tasksApi';
@@ -15,6 +15,7 @@ import { Board } from './Board';
 import { Calendar } from './Calendar';
 import { Gantt } from './Gantt';
 import { KindsProvider } from './kinds';
+import { PropsDialog } from './props/PropsDialog';
 import { TaskDialog } from './TaskDialog';
 import { TaskKindsDialog } from './TaskKindsDialog';
 import { TaskTable } from './TaskTable';
@@ -35,6 +36,7 @@ export function ProjectView() {
   const [tab, setTab] = useState('board');
   const [open, setOpen] = useState<TaskRow | null>(null);
   const [kindsOpen, setKindsOpen] = useState(false);
+  const [propsOpen, setPropsOpen] = useState(false);
   // Scope for board/table/gantt/calendar: 'all', 'backlog', or a sprint id.
   const [scope, setScope] = useState('all');
   const p = useProject(ws.activeProjectId);
@@ -98,7 +100,10 @@ export function ProjectView() {
         <Menu
           align="end"
           trigger={<IconButton icon={<MoreHorizontal size={16} />} label="Project settings" />}
-          items={[{ icon: Tags, label: 'Task types…', onSelect: () => setKindsOpen(true) }]}
+          items={[
+            { icon: Tags, label: 'Task types…', onSelect: () => setKindsOpen(true) },
+            { icon: Columns3, label: 'Properties…', onSelect: () => setPropsOpen(true) },
+          ]}
         />
       </header>
 
@@ -137,9 +142,11 @@ export function ProjectView() {
           <TaskTable
             tasks={scoped}
             users={p.users}
+            props={p.props}
             onPatch={p.patch}
             onOpen={setOpen}
             onDelete={(id) => { p.remove(id); ws.refreshProjects(); }}
+            onSetProp={p.setProp}
           />
         ) : tab === 'gantt' ? (
           <Gantt tasks={scoped} onOpen={setOpen} />
@@ -169,6 +176,16 @@ export function ProjectView() {
         onCreate={p.createKind}
         onPatch={p.patchKind}
         onDelete={p.deleteKind}
+      />
+
+      <PropsDialog
+        open={propsOpen}
+        onOpenChange={setPropsOpen}
+        props={p.props}
+        projects={ws.projects}
+        onCreate={p.createProp}
+        onPatch={p.patchProp}
+        onDelete={p.deleteProp}
       />
     </div>
     </KindsProvider>
