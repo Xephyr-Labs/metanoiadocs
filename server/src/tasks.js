@@ -473,24 +473,46 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
   }));
 
   app.post('/api/tasks/:id/page', requireUser, wrap(async (req, res) => {
-    const { rows } = await pool.query(
-      'SELECT id, title, doc_id FROM tasks WHERE id = $1 AND deleted_at IS NULL',
-      [req.params.id]
-    );
-    if (!rows[0]) return res.status(404).json({ error: 'not found' });
-    // Idempotent: a second call returns the page the first one made.
-    if (rows[0].doc_id) return res.json({ docId: rows[0].doc_id });
-    const doc = await createDocRow({
-      title: rows[0].title || 'Untitled',
-      icon: '📄',
-      userId: req.user.id,
-      folderId: null,
-      visibility: 'team',
-      kind: 'task',
-      content: null,
-    });
-    await pool.query('UPDATE tasks SET doc_id = $1 WHERE id = $2', [doc.id, req.params.id]);
-    res.json({ docId: doc.id });
+    // SELECT ... FOR UPDATE serialises concurrent first-opens of the same row:
+    // the second caller blocks until the first commits its doc_id, then reads
+    // it back instead of racing to create a second document.
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const { rows } = await client.query(
+        'SELECT id, title, doc_id FROM tasks WHERE id = $1 AND deleted_at IS NULL FOR UPDATE',
+        [req.params.id]
+      );
+      if (!rows[0]) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'not found' });
+      }
+      // Idempotent: a second call returns the page the first one made.
+      if (rows[0].doc_id) {
+        await client.query('ROLLBACK');
+        return res.json({ docId: rows[0].doc_id });
+      }
+      // createDocRow opens its own transaction on its own pool client, so it is
+      // not part of this one — the row lock above is what stops a second caller
+      // from reaching this line for the same task.
+      const doc = await createDocRow({
+        title: rows[0].title || 'Untitled',
+        icon: '📄',
+        userId: req.user.id,
+        folderId: null,
+        visibility: 'team',
+        kind: 'task',
+        content: null,
+      });
+      await client.query('UPDATE tasks SET doc_id = $1 WHERE id = $2', [doc.id, req.params.id]);
+      await client.query('COMMIT');
+      res.json({ docId: doc.id });
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
   }));
 
   app.delete('/api/tasks/:id', requireUser, wrap(async (req, res) => {
