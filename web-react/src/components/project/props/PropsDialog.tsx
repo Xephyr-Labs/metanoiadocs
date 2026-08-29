@@ -16,6 +16,59 @@ interface Props {
   onDelete: (id: string) => void;
 }
 
+/**
+ * Option rows are keyed by id, never by label — a rename must never mint a
+ * new id, or every task that stored the old id renders blank (the value is
+ * still in `tasks.props`, but nothing in `prop.options` matches it anymore).
+ */
+function OptionsEditor({ prop, onPatch }: { prop: PropRow; onPatch: Props['onPatch'] }) {
+  const [draft, setDraft] = useState('');
+
+  const setOptions = (options: PropRow['options']) => onPatch(prop.id, { options });
+
+  const addOption = () => {
+    const label = draft.trim();
+    if (label && !prop.options.some((o) => o.label === label)) {
+      setOptions([...prop.options, { id: crypto.randomUUID(), label, color: 'gray' }]);
+    }
+    setDraft('');
+  };
+
+  return (
+    <div className="ml-9 flex flex-col gap-1 pb-1.5">
+      {prop.options.map((o) => (
+        <div key={o.id} className="flex items-center gap-2">
+          <input
+            className={field}
+            defaultValue={o.label}
+            onBlur={(e) => {
+              const next = e.target.value.trim();
+              if (next && next !== o.label) {
+                setOptions(prop.options.map((opt) => (opt.id === o.id ? { ...opt, label: next } : opt)));
+              } else {
+                e.target.value = o.label;
+              }
+            }}
+            onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+          />
+          <IconButton
+            icon={<Trash2 size={14} />}
+            label={`Delete option ${o.label}`}
+            onClick={() => setOptions(prop.options.filter((opt) => opt.id !== o.id))}
+          />
+        </div>
+      ))}
+      <input
+        className={field}
+        placeholder="Add option…"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => e.key === 'Enter' && addOption()}
+      />
+    </div>
+  );
+}
+
 /** Per-project custom properties. Modelled on TaskKindsDialog. */
 export function PropsDialog({ open, onOpenChange, props, projects, onCreate, onPatch, onDelete }: Props) {
   const [label, setLabel] = useState('');
@@ -34,27 +87,17 @@ export function PropsDialog({ open, onOpenChange, props, projects, onCreate, onP
     <Modal open={open} onOpenChange={onOpenChange} title="Properties" width={520}>
       <div className="space-y-2 p-4">
         {props.map((p) => (
-          <div key={p.id} className="flex items-center gap-2">
-            <input
-              className={field}
-              defaultValue={p.label}
-              onBlur={(e) => e.target.value !== p.label && onPatch(p.id, { label: e.target.value })}
-            />
-            <span className="w-28 shrink-0 text-2xs text-muted">{PROP_TYPE_LABEL[p.type]}</span>
-            {(p.type === 'select' || p.type === 'multi_select') && (
+          <div key={p.id}>
+            <div className="flex items-center gap-2">
               <input
                 className={field}
-                placeholder="Options, comma separated"
-                defaultValue={p.options.map((o) => o.label).join(', ')}
-                onBlur={(e) => onPatch(p.id, {
-                  options: e.target.value.split(',').map((s) => s.trim()).filter(Boolean).map((labelText) => {
-                    const existing = p.options.find((o) => o.label === labelText);
-                    return existing ?? { id: crypto.randomUUID(), label: labelText, color: 'gray' };
-                  }),
-                })}
+                defaultValue={p.label}
+                onBlur={(e) => e.target.value !== p.label && onPatch(p.id, { label: e.target.value })}
               />
-            )}
-            <IconButton icon={<Trash2 size={14} />} label={`Delete ${p.label}`} onClick={() => onDelete(p.id)} />
+              <span className="w-28 shrink-0 text-2xs text-muted">{PROP_TYPE_LABEL[p.type]}</span>
+              <IconButton icon={<Trash2 size={14} />} label={`Delete ${p.label}`} onClick={() => onDelete(p.id)} />
+            </div>
+            {(p.type === 'select' || p.type === 'multi_select') && <OptionsEditor prop={p} onPatch={onPatch} />}
           </div>
         ))}
         {!props.length && <p className="text-sm text-faint">No custom properties yet.</p>}
