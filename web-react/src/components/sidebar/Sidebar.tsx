@@ -12,14 +12,15 @@ import {
   Trash2,
   Upload,
 } from 'lucide-react';
-import { useRef, useState, type ReactNode } from 'react';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { cn } from '../../lib/cn';
 import { pickImportFiles } from '../../lib/docFiles';
 import { avatarFor } from '../../lib/avatar';
+import { nestByParent } from '../../lib/pageTree';
 import { swatch } from '../../lib/tagColors';
 import { LogoMark } from '../brand/Logo';
 import { PageIcon } from '../ui/PageIcon';
-import { tasksApi } from '../../lib/tasksApi';
+import { tasksApi, type ProjectRow } from '../../lib/tasksApi';
 import { workspaces } from '../../data/mock';
 import { templates } from '../../data/templates';
 import { useAuth } from '../../store/auth';
@@ -77,10 +78,19 @@ function CollapsibleSection({ label, defaultOpen, children }: { label: string; d
  * a database can nest under another; the naming input for "new sub-database
  * under this row" lives one level down, alongside its siblings, and its
  * placement is driven by `namingParent` — see `Sidebar`'s comment.
+ *
+ * Which id belongs under which parent is decided once, up in `Sidebar`, by
+ * `nestByParent` — the same helper the page and folder trees use. That's what
+ * keeps a project whose parent got archived (or a parent_id that loops back
+ * on itself) visible at the top level instead of vanishing or hanging the
+ * recursion; re-filtering `ws.projects` by `parent_id` at each level here
+ * would lose both guarantees.
  */
 function ProjectRows({
   parentId,
   depth,
+  roots,
+  childrenOf,
   namingParent,
   onNewUnder,
   onCommitName,
@@ -88,13 +98,16 @@ function ProjectRows({
 }: {
   parentId: string | null;
   depth: number;
+  roots: string[];
+  childrenOf: Map<string, string[]>;
   namingParent: string | null | undefined;
   onNewUnder: (parentId: string) => void;
   onCommitName: (name: string) => void;
   onCancelName: () => void;
 }) {
   const ws = useWorkspace();
-  const kids = ws.projects.filter((p) => (p.parent_id ?? null) === parentId);
+  const ids = parentId === null ? roots : (childrenOf.get(parentId) ?? []);
+  const kids = ids.map((id) => ws.projects.find((p) => p.id === id)).filter((p): p is ProjectRow => !!p);
   const naming = namingParent === parentId;
   if (!kids.length && !naming) return null;
   return (
@@ -107,7 +120,7 @@ function ProjectRows({
               <button
                 type="button"
                 onClick={() => ws.openProject(p.id)}
-                style={{ paddingLeft: 8 + depth * 12 }}
+                style={{ paddingLeft: 8 + depth * 16 }}
                 className={cn(
                   'flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-md pr-2 text-base leading-5 transition-colors duration-120',
                   ws.view === 'project' && ws.activeProjectId === p.id ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-hover',
@@ -133,6 +146,8 @@ function ProjectRows({
             <ProjectRows
               parentId={p.id}
               depth={depth + 1}
+              roots={roots}
+              childrenOf={childrenOf}
               namingParent={namingParent}
               onNewUnder={onNewUnder}
               onCommitName={onCommitName}
@@ -192,6 +207,13 @@ export function Sidebar() {
     setNamingParent(undefined);
     ws.openProject(p.id);
   };
+
+  // Computed once for the whole tree: a project whose parent was archived (or
+  // whose parent_id loops) comes back as a root here instead of disappearing.
+  const projectTree = useMemo(
+    () => nestByParent(ws.projects.map((p) => ({ id: p.id, parentId: p.parent_id }))),
+    [ws.projects],
+  );
 
   const onResizeStart = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -291,6 +313,8 @@ export function Sidebar() {
               <ProjectRows
                 parentId={null}
                 depth={0}
+                roots={projectTree.roots}
+                childrenOf={projectTree.childrenOf}
                 namingParent={namingParent}
                 onNewUnder={setNamingParent}
                 onCommitName={createProject}
