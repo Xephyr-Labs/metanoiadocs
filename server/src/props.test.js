@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PROP_TYPES, propKey, canChangeType, normalizeOptions, coercePropValue, propsPatch, relationError } from './props.js';
+import { PROP_TYPES, propKey, canChangeType, normalizeOptions, coercePropValue, propsPatch, relationError, docKind } from './props.js';
 
 test('propKey slugs a label and never collides', () => {
   assert.equal(propKey('Story Points'), 'story-points');
@@ -71,6 +71,14 @@ test('propsPatch reports the first invalid value instead of storing it', () => {
 test('propsPatch keeps an explicit null so a value can be cleared', () => {
   const defs = [{ id: 'p1', type: 'text' }];
   assert.deepEqual(propsPatch(defs, { p1: null }), { ok: true, value: { p1: null } });
+});
+
+test('docKind accepts the three kinds and falls back to doc', () => {
+  assert.equal(docKind('design'), 'design');
+  assert.equal(docKind('task'), 'task');
+  assert.equal(docKind('doc'), 'doc');
+  assert.equal(docKind('nonsense'), 'doc');
+  assert.equal(docKind(undefined), 'doc');
 });
 
 test('relationError guards the property and both ends of the edge', () => {

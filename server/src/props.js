@@ -98,6 +98,11 @@ export function propsPatch(defs, patch) {
   return { ok: true, value };
 }
 
+/** A document is a page, a design opens on the canvas, a task is a row's page. */
+export function docKind(value) {
+  return value === 'design' || value === 'task' ? value : 'doc';
+}
+
 /** Why this relation edge is not allowed, or null when it is. */
 export function relationError(prop, fromProjectId, toProjectId) {
   if (!prop) return 'unknown property';

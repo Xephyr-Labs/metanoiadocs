@@ -131,7 +131,7 @@ const TASK_SELECT = `
         FROM task_deps d WHERE d.task_id = t.id
     ) dp ON true`;
 
-export function registerTaskRoutes(app, { requireUser, wrap }) {
+export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
   // ── projects ────────────────────────────────────────────────────────────
   app.get('/api/projects', requireUser, wrap(async (_req, res) => {
     const { rows } = await pool.query(
@@ -463,7 +463,34 @@ export function registerTaskRoutes(app, { requireUser, wrap }) {
       vals
     );
     if (!rows[0]) return res.status(404).json({ error: 'not found' });
+    if (b.title !== undefined && rows[0].doc_id) {
+      await pool.query(
+        'UPDATE docs SET title = $1, updated_at = now() WHERE id = $2 AND title <> $1',
+        [String(b.title).slice(0, 200), rows[0].doc_id]
+      );
+    }
     res.json(rows[0]);
+  }));
+
+  app.post('/api/tasks/:id/page', requireUser, wrap(async (req, res) => {
+    const { rows } = await pool.query(
+      'SELECT id, title, doc_id FROM tasks WHERE id = $1 AND deleted_at IS NULL',
+      [req.params.id]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'not found' });
+    // Idempotent: a second call returns the page the first one made.
+    if (rows[0].doc_id) return res.json({ docId: rows[0].doc_id });
+    const doc = await createDocRow({
+      title: rows[0].title || 'Untitled',
+      icon: '📄',
+      userId: req.user.id,
+      folderId: null,
+      visibility: 'team',
+      kind: 'task',
+      content: null,
+    });
+    await pool.query('UPDATE tasks SET doc_id = $1 WHERE id = $2', [doc.id, req.params.id]);
+    res.json({ docId: doc.id });
   }));
 
   app.delete('/api/tasks/:id', requireUser, wrap(async (req, res) => {

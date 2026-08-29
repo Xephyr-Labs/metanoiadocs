@@ -35,6 +35,7 @@ import { printHtml } from './print.js';
 import { docxFromMarkdown } from './docx.js';
 import { fileToMarkdown, IMPORT_EXTENSIONS } from './import.js';
 import { topTerms, extractSignals, findMentions, simhash, hamming, keyphrases, summarize, tokenize, coalesceByKey, blocksFromText } from './intelligence.js';
+import { docKind } from './props.js';
 import { registerTaskRoutes } from './tasks.js';
 import { registerPropRoutes } from './props-routes.js';
 import { registerHomeRoutes } from './home.js';
@@ -547,7 +548,7 @@ app.post('/api/docs', requireUser, async (req, res) => {
     userId: req.user.id,
     folderId,
     visibility: req.body?.visibility === 'private' ? 'private' : 'team',
-    kind: req.body?.kind === 'design' ? 'design' : 'doc',
+    kind: docKind(req.body?.kind),
     // Optional markdown body (used by the MCP server / API clients). Built into
     // a BlockSuite Yjs state so the doc opens with real content.
     content: typeof req.body?.content === 'string' ? req.body.content : null,
@@ -994,6 +995,14 @@ app.patch('/api/docs/:id', requireUser, async (req, res) => {
     `UPDATE docs SET ${sets.join(', ')}, updated_at = now() WHERE id = $${vals.length}`,
     vals
   );
+  if (typeof req.body?.title === 'string') {
+    // The row and its page show the same title. Write only when it differs,
+    // which is what stops the two updates looping.
+    await pool.query(
+      'UPDATE tasks SET title = $1 WHERE doc_id = $2 AND title <> $1',
+      [req.body.title.slice(0, 500), req.params.id]
+    );
+  }
   res.json({ ok: true });
 });
 
@@ -1969,7 +1978,7 @@ app.delete('/api/comments/:cid', requireUser, async (req, res) => {
 app.use(express.static(WEB_DIST));
 // Projects/tasks and the home dashboard live in their own modules — this file
 // is long enough. Must register before the SPA catch-all below.
-registerTaskRoutes(app, { requireUser, wrap });
+registerTaskRoutes(app, { requireUser, wrap, createDocRow });
 registerPropRoutes(app, { requireUser, wrap });
 registerHomeRoutes(app, { requireUser, wrap });
 registerFolderRoutes(app, { requireUser, wrap });
