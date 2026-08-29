@@ -75,6 +75,16 @@ export function TaskPeek({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [task?.id]);
 
+  // Esc closes the peek — the same reflex every other overlay in the app answers
+  // to. No backdrop and no Modal here on purpose: a click outside must still
+  // reach the board underneath.
+  useEffect(() => {
+    if (!task) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [task, onClose]);
+
   if (!task) return null;
 
   const candidates = tasks.filter((t) => t.id !== task.id && !task.deps.includes(t.id));
@@ -223,6 +233,7 @@ export function TaskPeek({
               mode="page"
               userName={auth.user?.name ?? 'You'}
               fullWidth
+              onTitle={(t) => ws.applyTitleFromEditor(docId, t)}
             />
           )}
         </section>
