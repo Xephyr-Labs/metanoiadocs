@@ -97,3 +97,12 @@ export function propsPatch(defs, patch) {
   }
   return { ok: true, value };
 }
+
+/** Why this relation edge is not allowed, or null when it is. */
+export function relationError(prop, fromProjectId, toProjectId) {
+  if (!prop) return 'unknown property';
+  if (prop.type !== 'relation') return 'that property is not a relation';
+  if (prop.project_id !== fromProjectId) return 'that property belongs to another database';
+  if (prop.target_project_id !== toProjectId) return 'that row is not in the linked database';
+  return null;
+}

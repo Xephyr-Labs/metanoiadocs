@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { pool } from './db.js';
-import { PROP_TYPES, propKey, canChangeType, normalizeOptions } from './props.js';
+import { PROP_TYPES, propKey, canChangeType, normalizeOptions, relationError } from './props.js';
 
 const MAX_PROPS = 40;
 
@@ -110,5 +110,70 @@ export function registerPropRoutes(app, { requireUser, wrap }) {
     } finally {
       client.release();
     }
+  }));
+
+  const RELATED = `
+    SELECT t.id, t.title, t.project_id, p.name AS project_name, t.doc_id
+      FROM tasks t JOIN projects p ON p.id = t.project_id
+     WHERE t.deleted_at IS NULL`;
+
+  async function edgeContext(taskId, propId, toId) {
+    const { rows } = await pool.query(
+      'SELECT id, project_id FROM tasks WHERE id = ANY($1) AND deleted_at IS NULL',
+      [[taskId, toId]]
+    );
+    const from = rows.find((r) => r.id === taskId);
+    const to = rows.find((r) => r.id === toId);
+    if (!from || !to) return { error: 'not found', status: 404 };
+    const { rows: props } = await pool.query('SELECT * FROM db_props WHERE id = $1', [propId]);
+    const bad = relationError(props[0] ?? null, from.project_id, to.project_id);
+    return bad ? { error: bad, status: 400 } : { ok: true };
+  }
+
+  app.post('/api/tasks/:id/relations', requireUser, wrap(async (req, res) => {
+    const { propId, toId } = req.body || {};
+    if (!propId || !toId) return res.status(400).json({ error: 'propId and toId required' });
+    const ctx = await edgeContext(req.params.id, propId, toId);
+    if (ctx.error) return res.status(ctx.status).json({ error: ctx.error });
+    await pool.query(
+      `INSERT INTO task_relations (prop_id, from_id, to_id) VALUES ($1,$2,$3)
+       ON CONFLICT DO NOTHING`,
+      [propId, req.params.id, toId]
+    );
+    res.json({ ok: true });
+  }));
+
+  app.delete('/api/tasks/:id/relations', requireUser, wrap(async (req, res) => {
+    const { propId, toId } = req.body || {};
+    await pool.query(
+      'DELETE FROM task_relations WHERE prop_id = $1 AND from_id = $2 AND to_id = $3',
+      [propId, req.params.id, toId]
+    );
+    res.json({ ok: true });
+  }));
+
+  app.get('/api/tasks/:id', requireUser, wrap(async (req, res) => {
+    const { rows } = await pool.query(
+      'SELECT * FROM tasks WHERE id = $1 AND deleted_at IS NULL', [req.params.id]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'not found' });
+    const { rows: out } = await pool.query(
+      `${RELATED} AND t.id IN (SELECT to_id FROM task_relations WHERE from_id = $1)`,
+      [req.params.id]
+    );
+    const { rows: edges } = await pool.query(
+      'SELECT prop_id, to_id FROM task_relations WHERE from_id = $1', [req.params.id]
+    );
+    const { rows: backlinks } = await pool.query(
+      `${RELATED} AND t.id IN (SELECT from_id FROM task_relations WHERE to_id = $1)`,
+      [req.params.id]
+    );
+    const byId = new Map(out.map((r) => [r.id, r]));
+    const relations = {};
+    for (const e of edges) {
+      const row = byId.get(e.to_id);
+      if (row) (relations[e.prop_id] ||= []).push(row);
+    }
+    res.json({ ...rows[0], relations, backlinks });
   }));
 }

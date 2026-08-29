@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PROP_TYPES, propKey, canChangeType, normalizeOptions, coercePropValue, propsPatch } from './props.js';
+import { PROP_TYPES, propKey, canChangeType, normalizeOptions, coercePropValue, propsPatch, relationError } from './props.js';
 
 test('propKey slugs a label and never collides', () => {
   assert.equal(propKey('Story Points'), 'story-points');
@@ -71,4 +71,13 @@ test('propsPatch reports the first invalid value instead of storing it', () => {
 test('propsPatch keeps an explicit null so a value can be cleared', () => {
   const defs = [{ id: 'p1', type: 'text' }];
   assert.deepEqual(propsPatch(defs, { p1: null }), { ok: true, value: { p1: null } });
+});
+
+test('relationError guards the property and both ends of the edge', () => {
+  const prop = { id: 'p1', type: 'relation', project_id: 'A', target_project_id: 'B' };
+  assert.equal(relationError(prop, 'A', 'B'), null);
+  assert.equal(relationError(null, 'A', 'B'), 'unknown property');
+  assert.equal(relationError({ ...prop, type: 'text' }, 'A', 'B'), 'that property is not a relation');
+  assert.equal(relationError(prop, 'C', 'B'), 'that property belongs to another database');
+  assert.equal(relationError(prop, 'A', 'C'), 'that row is not in the linked database');
 });

@@ -385,6 +385,17 @@ export async function initSchema() {
     -- ponytail: filtering across databases on a property is a JSONB scan —
     -- add a GIN index here, or a real EAV table, if that ever measures slow.
     ALTER TABLE tasks ADD COLUMN IF NOT EXISTS props JSONB NOT NULL DEFAULT '{}';
+
+    -- Relation values are edges, not JSON: the foreign keys clear every edge
+    -- pointing at a row that gets deleted, so no page renders a dead link.
+    CREATE TABLE IF NOT EXISTS task_relations (
+      prop_id TEXT NOT NULL REFERENCES db_props(id) ON DELETE CASCADE,
+      from_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      to_id   TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      PRIMARY KEY (prop_id, from_id, to_id)
+    );
+    -- "which rows point at me" is what a row page asks on every open.
+    CREATE INDEX IF NOT EXISTS task_relations_to_idx ON task_relations(to_id);
   `);
 
   await normalizeLegacyFolderImport();
