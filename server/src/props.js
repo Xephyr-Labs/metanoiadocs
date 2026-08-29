@@ -20,8 +20,14 @@ export function propKey(label, taken = []) {
   return `${base}-${n}`;
 }
 
-// Pairs where no stored value is destroyed by the change. Anything else is a
-// 400 rather than a silent data loss.
+// Pairs allowed because the stored value stays readable after the flip —
+// anything else is a 400 rather than a silent data loss. text<->url is
+// lossless both ways. select -> multi_select is lossless. multi_select ->
+// select is NOT lossless: it leaves a stored array in place under a
+// single-value type, which selectedOptions() can still read without
+// throwing. A caller that ever WRITES a single value for this property must
+// truncate that array explicitly — this pair does not make the value safe
+// to treat as a scalar.
 const COMPATIBLE = [['text', 'url'], ['select', 'multi_select']];
 
 export function canChangeType(from, to) {
