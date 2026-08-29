@@ -72,10 +72,50 @@ export interface ProjectRow {
   color: string;
   doc_id: string | null;
   position: number;
+  parent_id: string | null;
   /** Postgres count() arrives as a string. */
   total: string;
   done: string;
   overdue: string;
+}
+
+export type PropType =
+  | 'text' | 'number' | 'select' | 'multi_select'
+  | 'date' | 'checkbox' | 'person' | 'url' | 'relation';
+
+export const PROP_TYPES: PropType[] = [
+  'text', 'number', 'select', 'multi_select', 'date', 'checkbox', 'person', 'url', 'relation',
+];
+
+export const PROP_TYPE_LABEL: Record<PropType, string> = {
+  text: 'Text', number: 'Number', select: 'Select', multi_select: 'Multi-select',
+  date: 'Date', checkbox: 'Checkbox', person: 'Person', url: 'URL', relation: 'Relation',
+};
+
+export interface PropOption {
+  id: string;
+  label: string;
+  color: string;
+}
+
+export interface PropRow {
+  id: string;
+  project_id: string;
+  key: string;
+  label: string;
+  type: PropType;
+  options: PropOption[];
+  target_project_id: string | null;
+  position: number;
+}
+
+/** A row in another database, as shown on a relation chip. */
+export interface RelatedRow {
+  id: string;
+  title: string;
+  project_id: string;
+  project_name: string;
+  doc_id: string | null;
 }
 
 export interface TaskRow {
@@ -98,6 +138,12 @@ export interface TaskRow {
   position: number;
   done_at: string | null;
   deps: string[];
+  props: Record<string, unknown>;
+}
+
+export interface TaskDetail extends TaskRow {
+  relations: Record<string, RelatedRow[]>;
+  backlinks: RelatedRow[];
 }
 
 export interface TaskPatch {
@@ -115,6 +161,7 @@ export interface TaskPatch {
   kind?: TaskKind;
   sprintId?: string | null;
   parentId?: string | null;
+  props?: Record<string, unknown>;
 }
 
 export interface ActivityRow {
@@ -155,11 +202,24 @@ export const tasksApi = {
   home: (): Promise<HomePayload> => req('/home'),
 
   projects: (): Promise<ProjectRow[]> => req('/projects'),
-  createProject: (b: { name: string; icon?: string; color?: string; docId?: string }): Promise<ProjectRow> =>
+  createProject: (b: { name: string; icon?: string; color?: string; docId?: string; parentId?: string | null }): Promise<ProjectRow> =>
     req('/projects', { method: 'POST', ...body(b) }),
   patchProject: (id: string, b: Partial<{ name: string; icon: string; color: string; position: number }>) =>
     req(`/projects/${id}`, { method: 'PATCH', ...body(b) }),
   archiveProject: (id: string) => req(`/projects/${id}`, { method: 'DELETE' }),
+  moveProject: (id: string, b: { parentId: string | null; position?: number }): Promise<ProjectRow> =>
+    req(`/projects/${id}/move`, { method: 'POST', ...body(b) }),
+
+  props: (projectId: string): Promise<PropRow[]> => req(`/projects/${projectId}/props`),
+  createProp: (
+    projectId: string,
+    b: { label: string; type?: PropType; options?: PropOption[]; targetProjectId?: string },
+  ): Promise<PropRow> => req(`/projects/${projectId}/props`, { method: 'POST', ...body(b) }),
+  patchProp: (
+    id: string,
+    b: Partial<{ label: string; type: PropType; options: PropOption[]; position: number; targetProjectId: string | null }>,
+  ): Promise<PropRow> => req(`/props/${id}`, { method: 'PATCH', ...body(b) }),
+  deleteProp: (id: string) => req(`/props/${id}`, { method: 'DELETE' }),
 
   kinds: (projectId: string): Promise<TaskKindRow[]> => req(`/projects/${projectId}/kinds`),
   createKind: (projectId: string, b: { label: string; color?: string; isGroup?: boolean }): Promise<TaskKindRow> =>
@@ -176,6 +236,14 @@ export const tasksApi = {
   patchTask: (id: string, b: TaskPatch): Promise<TaskRow> =>
     req(`/tasks/${id}`, { method: 'PATCH', ...body(b) }),
   deleteTask: (id: string) => req(`/tasks/${id}`, { method: 'DELETE' }),
+
+  task: (id: string): Promise<TaskDetail> => req(`/tasks/${id}`),
+  addRelation: (id: string, propId: string, toId: string) =>
+    req(`/tasks/${id}/relations`, { method: 'POST', ...body({ propId, toId }) }),
+  removeRelation: (id: string, propId: string, toId: string) =>
+    req(`/tasks/${id}/relations`, { method: 'DELETE', ...body({ propId, toId }) }),
+  /** Creates the row's page on first call, returns the same id after that. */
+  taskPage: (id: string): Promise<{ docId: string }> => req(`/tasks/${id}/page`, { method: 'POST' }),
 
   sprints: (projectId: string): Promise<SprintRow[]> => req(`/projects/${projectId}/sprints`),
   createSprint: (projectId: string, b: { name: string; startAt?: string | null; endAt?: string | null }): Promise<SprintRow> =>

@@ -60,6 +60,7 @@ export interface FolderRow {
   created_at: string;
   document_count: number;
   folder_count: number;
+  favorite: boolean;
 }
 
 export function normalizeFolderRows(value: unknown): FolderRow[] {
@@ -234,6 +235,8 @@ export const docsApi = {
     req(`/docs/${docId}/tags/${tagId}`, { method: 'DELETE' }),
   favorite: (id: string, favorite: boolean) =>
     req(`/docs/${id}/favorite`, { method: 'PUT', body: JSON.stringify({ favorite }) }),
+  favoriteFolder: (id: string, favorite: boolean) =>
+    req(`/folders/${id}/favorite`, { method: 'PUT', body: JSON.stringify({ favorite }) }),
   setVisibility: (id: string, visibility: 'team' | 'private') =>
     req(`/docs/${id}/visibility`, { method: 'PUT', body: JSON.stringify({ visibility }) }),
   access: (id: string): Promise<AccessRow[]> => req(`/docs/${id}/access`),
