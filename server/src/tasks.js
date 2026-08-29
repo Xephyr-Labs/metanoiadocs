@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import { pool } from './db.js';
 import { propsPatch } from './props.js';
 import { propsFor } from './props-routes.js';
+import { wouldProjectCycle } from './project-tree.js';
 
 export const STATUSES = ['todo', 'doing', 'review', 'done'];
 
@@ -144,7 +145,7 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
          LEFT JOIN tasks t ON t.project_id = p.id
         WHERE p.archived_at IS NULL
         GROUP BY p.id
-        ORDER BY p.position ASC, p.created_at ASC`
+        ORDER BY p.parent_id NULLS FIRST, p.position ASC, p.created_at ASC`
     );
     res.json(rows);
   }));
@@ -152,18 +153,35 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
   app.post('/api/projects', requireUser, wrap(async (req, res) => {
     const id = crypto.randomUUID();
     const { rows } = await pool.query(
-      `INSERT INTO projects (id, name, icon, color, doc_id, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      `INSERT INTO projects (id, name, icon, color, doc_id, parent_id, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
       [
         id,
         String(req.body?.name || 'Untitled project').slice(0, 200),
         String(req.body?.icon || '📋').slice(0, 8),
         String(req.body?.color || 'blue').slice(0, 20),
         req.body?.docId || null,
+        req.body?.parentId || null,
         req.user.id,
       ]
     );
     res.json({ ...rows[0], total: '0', done: '0', overdue: '0' });
+  }));
+
+  app.post('/api/projects/:id/move', requireUser, wrap(async (req, res) => {
+    const parentId = typeof req.body?.parentId === 'string' ? req.body.parentId : null;
+    const { rows: all } = await pool.query('SELECT id, parent_id FROM projects WHERE archived_at IS NULL');
+    const parents = new Map(all.map((r) => [r.id, r.parent_id]));
+    if (!parents.has(req.params.id)) return res.status(404).json({ error: 'not found' });
+    if (parentId && !parents.has(parentId)) return res.status(400).json({ error: 'unknown parent' });
+    if (wouldProjectCycle(parents, req.params.id, parentId)) {
+      return res.status(400).json({ error: 'that would put a database inside itself' });
+    }
+    const { rows } = await pool.query(
+      `UPDATE projects SET parent_id = $1, position = $2 WHERE id = $3 RETURNING *`,
+      [parentId, Number(req.body?.position) || 0, req.params.id]
+    );
+    res.json(rows[0]);
   }));
 
   app.patch('/api/projects/:id', requireUser, wrap(async (req, res) => {

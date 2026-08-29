@@ -396,6 +396,13 @@ export async function initSchema() {
     );
     -- "which rows point at me" is what a row page asks on every open.
     CREATE INDEX IF NOT EXISTS task_relations_to_idx ON task_relations(to_id);
+
+    -- A database can nest under another, the way folders and pages already do.
+    -- NULL is top level. Cascade: a sub-database has no meaning without its
+    -- parent, and its rows already cascade from projects.
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS parent_id TEXT
+      REFERENCES projects(id) ON DELETE CASCADE;
+    CREATE INDEX IF NOT EXISTS projects_parent_idx ON projects(parent_id, position);
   `);
 
   await normalizeLegacyFolderImport();
