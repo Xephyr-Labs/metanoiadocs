@@ -2,6 +2,8 @@
 // table, gantt, calendar) writes back through the same PATCH.
 import crypto from 'node:crypto';
 import { pool } from './db.js';
+import { propsPatch } from './props.js';
+import { propsFor } from './props-routes.js';
 
 export const STATUSES = ['todo', 'doing', 'review', 'done'];
 
@@ -440,6 +442,15 @@ export function registerTaskRoutes(app, { requireUser, wrap }) {
         }
       }
       set('parent_id', parentId);
+    }
+    if (b.props !== undefined) {
+      const { rows: owner } = await pool.query('SELECT project_id FROM tasks WHERE id = $1', [req.params.id]);
+      if (!owner[0]) return res.status(404).json({ error: 'not found' });
+      const checked = propsPatch(await propsFor(owner[0].project_id), b.props);
+      if (!checked.ok) return res.status(400).json({ error: checked.error });
+      // Merge, not replace: an untouched key elsewhere in props must survive.
+      vals.push(JSON.stringify(checked.value));
+      sets.push(`props = props || $${vals.length}::jsonb`);
     }
     if (!sets.length) return res.json({ ok: true });
 

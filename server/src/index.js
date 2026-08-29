@@ -36,6 +36,7 @@ import { docxFromMarkdown } from './docx.js';
 import { fileToMarkdown, IMPORT_EXTENSIONS } from './import.js';
 import { topTerms, extractSignals, findMentions, simhash, hamming, keyphrases, summarize, tokenize, coalesceByKey, blocksFromText } from './intelligence.js';
 import { registerTaskRoutes } from './tasks.js';
+import { registerPropRoutes } from './props-routes.js';
 import { registerHomeRoutes } from './home.js';
 import { registerFolderRoutes, visibleFolder } from './folders-routes.js';
 import { TRASH_RETENTION_DAYS, startTrashSweeper } from './retention.js';
@@ -1969,6 +1970,7 @@ app.use(express.static(WEB_DIST));
 // Projects/tasks and the home dashboard live in their own modules — this file
 // is long enough. Must register before the SPA catch-all below.
 registerTaskRoutes(app, { requireUser, wrap });
+registerPropRoutes(app, { requireUser, wrap });
 registerHomeRoutes(app, { requireUser, wrap });
 registerFolderRoutes(app, { requireUser, wrap });
 

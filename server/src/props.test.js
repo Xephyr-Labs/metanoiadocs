@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PROP_TYPES, propKey, canChangeType, normalizeOptions, coercePropValue } from './props.js';
+import { PROP_TYPES, propKey, canChangeType, normalizeOptions, coercePropValue, propsPatch } from './props.js';
 
 test('propKey slugs a label and never collides', () => {
   assert.equal(propKey('Story Points'), 'story-points');
@@ -47,4 +47,28 @@ test('coercePropValue stores what the type says and rejects the rest', () => {
 
 test('every type in PROP_TYPES round-trips a null clear', () => {
   for (const type of PROP_TYPES) assert.equal(coercePropValue(type, null), null);
+});
+
+test('propsPatch coerces per type and drops unknown property ids', () => {
+  const defs = [
+    { id: 'p1', type: 'number' },
+    { id: 'p2', type: 'multi_select' },
+  ];
+  assert.deepEqual(propsPatch(defs, { p1: '3', p2: ['a'], nope: 'x' }), {
+    ok: true,
+    value: { p1: 3, p2: ['a'] },
+  });
+});
+
+test('propsPatch reports the first invalid value instead of storing it', () => {
+  const defs = [{ id: 'p1', type: 'date' }];
+  assert.deepEqual(propsPatch(defs, { p1: 'yesterday' }), {
+    ok: false,
+    error: 'p1 is not a valid date',
+  });
+});
+
+test('propsPatch keeps an explicit null so a value can be cleared', () => {
+  const defs = [{ id: 'p1', type: 'text' }];
+  assert.deepEqual(propsPatch(defs, { p1: null }), { ok: true, value: { p1: null } });
 });

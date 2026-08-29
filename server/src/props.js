@@ -80,3 +80,20 @@ export function coercePropValue(type, value) {
       return String(value).trim().slice(0, 2000);
   }
 }
+
+/** Validates and coerces a whole `tasks.props` patch against a database's
+ *  property definitions. Unknown ids are dropped (e.g. a stale property the
+ *  client hasn't refreshed past); the first invalid value stops the patch
+ *  instead of partially storing it. */
+export function propsPatch(defs, patch) {
+  const byId = new Map(defs.map((d) => [d.id, d]));
+  const value = {};
+  for (const [id, raw] of Object.entries(patch || {})) {
+    const def = byId.get(id);
+    if (!def) continue;
+    const coerced = coercePropValue(def.type, raw);
+    if (coerced === undefined) return { ok: false, error: `${id} is not a valid ${def.type}` };
+    value[id] = coerced;
+  }
+  return { ok: true, value };
+}
