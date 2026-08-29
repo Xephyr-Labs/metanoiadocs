@@ -277,7 +277,10 @@ document menu.
 
 ## Testing
 
-Server, alongside the existing vitest suites:
+Server. The suite is `node --test` with no database harness — no existing
+server test touches `pool` — so each rule below lives in an exported pure
+function that gets a unit test, and the route calling it is verified by a
+documented `curl` check rather than an automated one:
 
 - `db_props` CRUD, including the rejected type change and the 400 on a
   relation without a target.
