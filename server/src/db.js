@@ -362,6 +362,29 @@ export async function initSchema() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
     CREATE UNIQUE INDEX IF NOT EXISTS task_kinds_key_idx ON task_kinds(project_id, key);
+
+    -- ── database properties ─────────────────────────────────────────────────
+    -- A project is a database; these are its columns beyond the fixed task
+    -- fields. Per-project and editable by anyone who can see the project,
+    -- following the task_kinds precedent above.
+    CREATE TABLE IF NOT EXISTS db_props (
+      id                TEXT PRIMARY KEY,
+      project_id        TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      key               TEXT NOT NULL,
+      label             TEXT NOT NULL,
+      type              TEXT NOT NULL DEFAULT 'text',
+      options           JSONB NOT NULL DEFAULT '[]',
+      target_project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+      position          INT NOT NULL DEFAULT 0,
+      created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS db_props_key_idx ON db_props(project_id, key);
+
+    -- Property values, keyed by db_props.id. JSONB rather than an EAV table:
+    -- reading a row needs no join and adding a property needs no migration.
+    -- ponytail: filtering across databases on a property is a JSONB scan —
+    -- add a GIN index here, or a real EAV table, if that ever measures slow.
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS props JSONB NOT NULL DEFAULT '{}';
   `);
 
   await normalizeLegacyFolderImport();
