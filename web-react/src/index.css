@@ -689,6 +689,11 @@ affine-editor-container .mn-chart-gear {
 affine-editor-container .mn-chart:hover .mn-chart-gear { opacity: 1; }
 affine-editor-container .mn-chart-gear:hover { color: var(--ink); }
 
+/* metanoia:database block — wraps a React root rendering the same Board/
+ * TaskTable used by the full project screen. */
+affine-editor-container .mn-db { position: relative; width: 100%; margin: 10px 0; }
+affine-editor-container .mn-db-host { display: block; }
+
 /* Tables (and any wide block) must scroll inside their own box on small
  * screens instead of forcing the page to scroll sideways. */
 affine-editor-container affine-table,

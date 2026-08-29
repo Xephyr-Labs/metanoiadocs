@@ -33,6 +33,10 @@ import { blockLinkExtensions } from './blockLinks';
 import { attachImageAlign, imageAlignExtensions } from './imageAlign';
 import { chartEffects, chartViewExtensions } from './chart';
 import { MetanoiaChartBlockSchema, MetanoiaChartBlockSchemaExtension } from './chart/chart-model';
+import {
+  databaseEffects, databaseViewExtensions,
+  MetanoiaDatabaseBlockSchema, MetanoiaDatabaseBlockSchemaExtension,
+} from './database';
 import { createVirtualKeyboardProvider } from './virtualKeyboard';
 
 let effectsInstalled = false;
@@ -122,17 +126,18 @@ export async function mountEditor(
 ) {
   installEffects();
   chartEffects(); // register the metanoia:chart custom elements once
+  databaseEffects(); // register the metanoia:database custom element once
   const viewManager = getTestViewManager();
   const storeManager = getTestStoreManager();
 
   const schema = new Schema();
   schema.register(AffineSchemas);
-  schema.register([MetanoiaChartBlockSchema]);
+  schema.register([MetanoiaChartBlockSchema, MetanoiaDatabaseBlockSchema]);
 
   const collection = new TestWorkspace({ id: docId, blobSources: { main: new HttpBlobSource(share) } });
   // Register the chart schema into the store's DI (this is the channel the
   // collection actually uses; the standalone `schema` above is not wired in).
-  collection.storeExtensions = [...storeManager.get('store'), MetanoiaChartBlockSchemaExtension];
+  collection.storeExtensions = [...storeManager.get('store'), MetanoiaChartBlockSchemaExtension, MetanoiaDatabaseBlockSchemaExtension];
   collection.start();
   collection.meta.initialize();
 
@@ -349,8 +354,8 @@ export async function mountEditor(
           ...blockLinkExtensions(docId),
         ]),
   ];
-  editor.pageSpecs = [...viewManager.get('page'), ...chartViewExtensions, ...common];
-  editor.edgelessSpecs = [...viewManager.get('edgeless'), ...chartViewExtensions, ...common];
+  editor.pageSpecs = [...viewManager.get('page'), ...chartViewExtensions, ...databaseViewExtensions, ...common];
+  editor.edgelessSpecs = [...viewManager.get('edgeless'), ...chartViewExtensions, ...databaseViewExtensions, ...common];
 
   root.replaceChildren(editor);
   await editor.updateComplete;
