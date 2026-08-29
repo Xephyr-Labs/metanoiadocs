@@ -138,7 +138,7 @@ function buildPages(rows: DocRow[]): Record<PageId, Page> {
       favorite: !!r.favorite,
       role: r.role,
       visibility: r.visibility === 'private' ? 'private' : 'team',
-      kind: r.kind === 'design' ? 'design' : 'doc',
+      kind: r.kind === 'design' ? 'design' : r.kind === 'task' ? 'task' : 'doc',
       updatedByName: r.updated_by_name ?? null,
       updatedAt: r.updated_at,
       linkCount: r.link_count ?? 0,
@@ -735,7 +735,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const rootIds = useMemo(
     () =>
       Object.values(pages)
-        .filter((p) => !p.folderId && !p.parentId && p.kind !== 'design')
+        .filter((p) => !p.folderId && !p.parentId && p.kind !== 'design' && p.kind !== 'task')
         .sort((a, b) => a.position - b.position || a.title.localeCompare(b.title))
         .map((p) => p.id),
     [pages],
@@ -777,7 +777,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     [folders],
   );
   const unfiledIds = useMemo(
-    () => Object.values(pages).filter((p) => !p.folderId && !p.parentId && p.kind !== 'design').sort(byOrder).map((p) => p.id),
+    () => Object.values(pages).filter((p) => !p.folderId && !p.parentId && p.kind !== 'design' && p.kind !== 'task').sort(byOrder).map((p) => p.id),
     [pages],
   );
 

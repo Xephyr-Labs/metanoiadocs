@@ -39,8 +39,8 @@ export interface DocRow {
   updated_at: string;
   role: string;
   visibility: 'team' | 'private';
-  /** 'design' opens on the canvas instead of as a page. */
-  kind: 'doc' | 'design';
+  /** 'design' opens on the canvas; 'task' is a database row's page. */
+  kind: 'doc' | 'design' | 'task';
   /** Who saved it last, for the metadata band. Null until someone edits it. */
   updated_by_name: string | null;
   shared: boolean;

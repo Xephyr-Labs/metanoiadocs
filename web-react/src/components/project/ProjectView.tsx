@@ -16,7 +16,7 @@ import { Calendar } from './Calendar';
 import { Gantt } from './Gantt';
 import { KindsProvider } from './kinds';
 import { PropsDialog } from './props/PropsDialog';
-import { TaskDialog } from './TaskDialog';
+import { TaskPeek } from './TaskPeek';
 import { TaskKindsDialog } from './TaskKindsDialog';
 import { TaskTable } from './TaskTable';
 import { useProject } from './useProject';
@@ -155,13 +155,16 @@ export function ProjectView() {
         )}
       </div>
 
-      <TaskDialog
+      <TaskPeek
+        key={openTask?.id ?? 'none'}
         task={openTask}
         tasks={p.tasks}
+        props={p.props}
         sprints={p.sprints}
         users={p.users}
         onClose={() => setOpen(null)}
         onPatch={(id, body) => { p.patch(id, body); ws.refreshProjects(); }}
+        onSetProp={p.setProp}
         onDelete={(id) => { p.remove(id); ws.refreshProjects(); }}
         onAddDep={p.addDep}
         onRemoveDep={p.removeDep}

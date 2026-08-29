@@ -18,8 +18,8 @@ export interface Page {
   favorite: boolean;
   role: string; // owner | editor | viewer
   visibility: 'team' | 'private';
-  /** A design opens on the canvas; everything else about it is a document. */
-  kind: 'doc' | 'design';
+  /** A design opens on the canvas; a task is a database row's page. */
+  kind: 'doc' | 'design' | 'task';
   /** Who saved it last. Null on a page nobody has edited since it was made. */
   updatedByName: string | null;
   updatedAt: string;
