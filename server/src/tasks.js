@@ -22,6 +22,11 @@ export const DEFAULT_KINDS = [
 /** Enough to fill the picker without turning it into a scroll trap. */
 const MAX_KINDS = 24;
 
+// Serializes /api/projects/:id/move: two near-simultaneous moves each
+// validating against their own stale read could interleave into a real
+// cycle. Fixed and distinct from db.js's SETUP_LOCK key.
+const PROJECT_MOVE_LOCK = 8_140_712;
+
 /**
  * A stable key for a user-typed label, unique within `taken`.
  * The key is what tasks.kind stores, so it must survive a later rename — hence
@@ -170,18 +175,45 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
 
   app.post('/api/projects/:id/move', requireUser, wrap(async (req, res) => {
     const parentId = typeof req.body?.parentId === 'string' ? req.body.parentId : null;
-    const { rows: all } = await pool.query('SELECT id, parent_id FROM projects WHERE archived_at IS NULL');
-    const parents = new Map(all.map((r) => [r.id, r.parent_id]));
-    if (!parents.has(req.params.id)) return res.status(404).json({ error: 'not found' });
-    if (parentId && !parents.has(parentId)) return res.status(400).json({ error: 'unknown parent' });
-    if (wouldProjectCycle(parents, req.params.id, parentId)) {
-      return res.status(400).json({ error: 'that would put a database inside itself' });
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('SELECT pg_advisory_xact_lock($1)', [PROJECT_MOVE_LOCK]);
+      // Unfiltered: archiving a project doesn't archive its children, so a
+      // live child can still point at an archived parent. The cycle walk has
+      // to see archived nodes too, or a walk through one stops early and a
+      // real cycle slips through.
+      const { rows: all } = await client.query('SELECT id, parent_id FROM projects');
+      const parents = new Map(all.map((r) => [r.id, r.parent_id]));
+      if (!parents.has(req.params.id)) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'not found' });
+      }
+      if (parentId) {
+        const { rows: target } = await client.query(
+          'SELECT 1 FROM projects WHERE id = $1 AND archived_at IS NULL', [parentId]
+        );
+        if (!target.length) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({ error: 'unknown parent' });
+        }
+      }
+      if (wouldProjectCycle(parents, req.params.id, parentId)) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'that would put a database inside itself' });
+      }
+      const { rows } = await client.query(
+        `UPDATE projects SET parent_id = $1, position = $2 WHERE id = $3 RETURNING *`,
+        [parentId, Number(req.body?.position) || 0, req.params.id]
+      );
+      await client.query('COMMIT');
+      res.json(rows[0]);
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
     }
-    const { rows } = await pool.query(
-      `UPDATE projects SET parent_id = $1, position = $2 WHERE id = $3 RETURNING *`,
-      [parentId, Number(req.body?.position) || 0, req.params.id]
-    );
-    res.json(rows[0]);
   }));
 
   app.patch('/api/projects/:id', requireUser, wrap(async (req, res) => {
