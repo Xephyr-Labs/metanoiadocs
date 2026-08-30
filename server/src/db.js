@@ -118,6 +118,19 @@ export async function initSchema() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       PRIMARY KEY (user_id, doc_id)
     );
+    -- Pinning covers folders too. doc_id becomes nullable and exactly one of
+    -- the two targets is set; the old (user_id, doc_id) primary key cannot
+    -- express that, so it is replaced by two partial unique indexes. Dropping
+    -- the NOT NULL happens in relaxFavoritesKey() below, not here: Postgres
+    -- refuses ALTER COLUMN ... DROP NOT NULL while the column is still part
+    -- of the primary key ("column is in a primary key"), so it has to wait
+    -- until that migration has dropped favorites_pkey.
+    ALTER TABLE favorites ADD COLUMN IF NOT EXISTS folder_id TEXT
+      REFERENCES folders(id) ON DELETE CASCADE;
+    CREATE UNIQUE INDEX IF NOT EXISTS favorites_doc_idx
+      ON favorites(user_id, doc_id) WHERE doc_id IS NOT NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS favorites_folder_idx
+      ON favorites(user_id, folder_id) WHERE folder_id IS NOT NULL;
     -- Public read-only share link. NULL = private. Unique so the token resolves
     -- to exactly one doc.
     ALTER TABLE docs ADD COLUMN IF NOT EXISTS share_token TEXT;
@@ -362,9 +375,90 @@ export async function initSchema() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
     CREATE UNIQUE INDEX IF NOT EXISTS task_kinds_key_idx ON task_kinds(project_id, key);
+
+    -- ── database properties ─────────────────────────────────────────────────
+    -- A project is a database; these are its columns beyond the fixed task
+    -- fields. Per-project and editable by anyone who can see the project,
+    -- following the task_kinds precedent above.
+    CREATE TABLE IF NOT EXISTS db_props (
+      id                TEXT PRIMARY KEY,
+      project_id        TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      key               TEXT NOT NULL,
+      label             TEXT NOT NULL,
+      type              TEXT NOT NULL DEFAULT 'text',
+      options           JSONB NOT NULL DEFAULT '[]',
+      target_project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+      position          INT NOT NULL DEFAULT 0,
+      created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS db_props_key_idx ON db_props(project_id, key);
+
+    -- Property values, keyed by db_props.id. JSONB rather than an EAV table:
+    -- reading a row needs no join and adding a property needs no migration.
+    -- ponytail: filtering across databases on a property is a JSONB scan —
+    -- add a GIN index here, or a real EAV table, if that ever measures slow.
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS props JSONB NOT NULL DEFAULT '{}';
+
+    -- A doc's title save looks up its owning row by doc_id on every save,
+    -- workspace-wide (not just row pages) — needs an index, not a scan.
+    CREATE INDEX IF NOT EXISTS tasks_doc_idx ON tasks(doc_id) WHERE doc_id IS NOT NULL;
+
+    -- Relation values are edges, not JSON: the foreign keys clear every edge
+    -- pointing at a row that gets deleted, so no page renders a dead link.
+    CREATE TABLE IF NOT EXISTS task_relations (
+      prop_id TEXT NOT NULL REFERENCES db_props(id) ON DELETE CASCADE,
+      from_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      to_id   TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      PRIMARY KEY (prop_id, from_id, to_id)
+    );
+    -- "which rows point at me" is what a row page asks on every open.
+    CREATE INDEX IF NOT EXISTS task_relations_to_idx ON task_relations(to_id);
+
+    -- A database can nest under another, the way folders and pages already do.
+    -- NULL is top level. Cascade: a sub-database has no meaning without its
+    -- parent, and its rows already cascade from projects.
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS parent_id TEXT
+      REFERENCES projects(id) ON DELETE CASCADE;
+    CREATE INDEX IF NOT EXISTS projects_parent_idx ON projects(parent_id, position);
   `);
 
   await normalizeLegacyFolderImport();
+  await relaxFavoritesKey();
+}
+
+/** Drop the (user_id, doc_id) primary key and add the one-target check.
+ *  The PK drop and the CHECK add are not idempotent, so this runs exactly
+ *  once behind a marker — and inside a transaction, so two instances booting
+ *  together cannot both apply it. The DROP NOT NULL in between is idempotent
+ *  on its own but has to happen here too: Postgres won't drop NOT NULL on a
+ *  column that's still part of a primary key, so it must run after the PK
+ *  is gone. */
+async function relaxFavoritesKey() {
+  const marker = 'favorites-allow-folder-targets-v1';
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const claimed = await client.query(
+      'INSERT INTO schema_migrations (key) VALUES ($1) ON CONFLICT (key) DO NOTHING',
+      [marker]
+    );
+    if (!claimed.rowCount) {
+      await client.query('ROLLBACK');
+      return;
+    }
+    await client.query('ALTER TABLE favorites DROP CONSTRAINT IF EXISTS favorites_pkey');
+    await client.query('ALTER TABLE favorites ALTER COLUMN doc_id DROP NOT NULL');
+    await client.query(`
+      ALTER TABLE favorites ADD CONSTRAINT favorites_one_target
+        CHECK ((doc_id IS NULL) <> (folder_id IS NULL))
+    `);
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
 }
 
 async function normalizeLegacyFolderImport() {

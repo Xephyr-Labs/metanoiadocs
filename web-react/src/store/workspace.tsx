@@ -46,6 +46,7 @@ interface WorkspaceState {
   sharedRootIds: PageId[];
   libraryRootIds: PageId[];
   favoriteIds: PageId[];
+  favoriteFolderIds: string[];
   recentIds: PageId[];
   allTags: Tag[];
   tagFilter: string | null;
@@ -80,6 +81,7 @@ interface WorkspaceState {
   select: (id: PageId) => void;
   toggleExpand: (id: PageId) => void;
   toggleFavorite: (id: PageId) => void;
+  toggleFolderFavorite: (id: string) => void;
   setVisibility: (id: PageId, visibility: 'team' | 'private') => void;
   rename: (id: PageId, title: string) => void;
   applyTitleFromEditor: (id: PageId, title: string) => void;
@@ -138,7 +140,7 @@ function buildPages(rows: DocRow[]): Record<PageId, Page> {
       favorite: !!r.favorite,
       role: r.role,
       visibility: r.visibility === 'private' ? 'private' : 'team',
-      kind: r.kind === 'design' ? 'design' : 'doc',
+      kind: r.kind === 'design' ? 'design' : r.kind === 'task' ? 'task' : 'doc',
       updatedByName: r.updated_by_name ?? null,
       updatedAt: r.updated_at,
       linkCount: r.link_count ?? 0,
@@ -171,6 +173,7 @@ function buildFolders(rows: FolderRow[], expanded: Set<string>, pages: Record<Pa
       documentIds: [],
       children: [],
       expanded: expanded.has(row.id),
+      favorite: !!row.favorite,
     };
   }
   // Same comparator as unfiledIds below, so a page keeps its place when it is
@@ -404,6 +407,16 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       const favorite = !cur.favorite;
       docsApi.favorite(id, favorite).catch(() => refresh());
       return { ...p, [id]: { ...cur, favorite } };
+    });
+  }, [refresh]);
+
+  const toggleFolderFavorite = useCallback((id: string) => {
+    setFolders((f) => {
+      const cur = f[id];
+      if (!cur) return f;
+      const favorite = !cur.favorite;
+      docsApi.favoriteFolder(id, favorite).catch(() => refresh());
+      return { ...f, [id]: { ...cur, favorite } };
     });
   }, [refresh]);
 
@@ -735,7 +748,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const rootIds = useMemo(
     () =>
       Object.values(pages)
-        .filter((p) => !p.folderId && !p.parentId && p.kind !== 'design')
+        .filter((p) => !p.folderId && !p.parentId && p.kind !== 'design' && p.kind !== 'task')
         .sort((a, b) => a.position - b.position || a.title.localeCompare(b.title))
         .map((p) => p.id),
     [pages],
@@ -770,6 +783,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     () => Object.values(pages).filter((p) => p.favorite).map((p) => p.id),
     [pages],
   );
+  const favoriteFolderIds = useMemo(
+    () => Object.values(folders).filter((f) => f.favorite).map((f) => f.id),
+    [folders],
+  );
   const liveRecentIds = useMemo(() => recentIds.filter((id) => pages[id]).slice(0, 5), [recentIds, pages]);
   const currentPage = currentId ? pages[currentId] ?? null : null;
   const folderRootIds = useMemo(
@@ -777,34 +794,34 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     [folders],
   );
   const unfiledIds = useMemo(
-    () => Object.values(pages).filter((p) => !p.folderId && !p.parentId && p.kind !== 'design').sort(byOrder).map((p) => p.id),
+    () => Object.values(pages).filter((p) => !p.folderId && !p.parentId && p.kind !== 'design' && p.kind !== 'task').sort(byOrder).map((p) => p.id),
     [pages],
   );
 
   const value = useMemo<WorkspaceState>(
     () => ({
-      pages, folders, folderRootIds, unfiledIds, rootIds, workspaceRootIds, privateRootIds, sharedRootIds, libraryRootIds, favoriteIds, designIds, recentIds: liveRecentIds,
+      pages, folders, folderRootIds, unfiledIds, rootIds, workspaceRootIds, privateRootIds, sharedRootIds, libraryRootIds, favoriteIds, favoriteFolderIds, designIds, recentIds: liveRecentIds,
       allTags, tagFilter, unreadCount, refreshUnread, markInboxRead,
       currentId, currentPage, loading, error, workspaceId,
       historyDocId, openHistory, closeHistory,
       view, activeProjectId, activeFolderId, openHome, openProject, openFolder, projects, refreshProjects,
       sidebarCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
       settingsOpen, trashOpen, inboxOpen, mode, fullWidth, theme,
-      refresh, select, toggleExpand, toggleFavorite, setVisibility, rename, applyTitleFromEditor,
+      refresh, select, toggleExpand, toggleFavorite, toggleFolderFavorite, setVisibility, rename, applyTitleFromEditor,
       createPage, createDesign, movePage, createChildPage, reorderPage, linkPage, reorderFolder, moveFolder, createFolder, renameFolder, setFolderColor, setIcon, toggleFolder, deleteFolder, createFromTemplate, importFiles, deletePage, restorePage,
       refreshTags, addTagToPage, removeTagFromPage, setTagFilter,
       setSidebarCollapsed, setSidebarWidth, setMobileDrawer, setRightPanel, setPaletteOpen,
       setShareOpen, setSettingsOpen, setTrashOpen, setInboxOpen, setMode, setFullWidth, toggleTheme,
     }),
     [
-      pages, folders, folderRootIds, unfiledIds, rootIds, workspaceRootIds, privateRootIds, sharedRootIds, libraryRootIds, favoriteIds, designIds, liveRecentIds,
+      pages, folders, folderRootIds, unfiledIds, rootIds, workspaceRootIds, privateRootIds, sharedRootIds, libraryRootIds, favoriteIds, favoriteFolderIds, designIds, liveRecentIds,
       allTags, tagFilter, unreadCount, refreshUnread, markInboxRead,
       currentId, currentPage, loading, error, workspaceId,
       historyDocId, openHistory, closeHistory,
       view, activeProjectId, activeFolderId, openHome, openProject, openFolder, projects, refreshProjects,
       sidebarCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
       settingsOpen, trashOpen, inboxOpen, mode, fullWidth, theme,
-      refresh, select, toggleExpand, toggleFavorite, setVisibility, rename, applyTitleFromEditor,
+      refresh, select, toggleExpand, toggleFavorite, toggleFolderFavorite, setVisibility, rename, applyTitleFromEditor,
       createPage, createDesign, movePage, createChildPage, reorderPage, linkPage, reorderFolder, moveFolder, createFolder, renameFolder, setFolderColor, setIcon, toggleFolder, deleteFolder, createFromTemplate, importFiles, deletePage, restorePage,
       refreshTags, addTagToPage, removeTagFromPage, toggleTheme,
     ],

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { docsApi, type UserRow } from '../../lib/docsApi';
-import { tasksApi, type SprintRow, type SprintState, type TaskKindRow, type TaskPatch, type TaskRow } from '../../lib/tasksApi';
+import { tasksApi, type PropOption, type PropRow, type PropType, type SprintRow, type SprintState, type TaskKindRow, type TaskPatch, type TaskRow } from '../../lib/tasksApi';
 
 /** What a task-type mutation reports back to the dialog that asked for it. */
 export type KindResult =
@@ -16,6 +16,7 @@ export function useProject(projectId: string | null) {
   const [tasks, setTasks] = useState<TaskRow[]>([]);
   const [sprints, setSprints] = useState<SprintRow[]>([]);
   const [kinds, setKinds] = useState<TaskKindRow[]>([]);
+  const [props, setProps] = useState<PropRow[]>([]);
   const [users, setUsers] = useState<UserRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -23,14 +24,16 @@ export function useProject(projectId: string | null) {
   const refresh = useCallback(async () => {
     if (!projectId) return;
     try {
-      const [t, s, k] = await Promise.all([
+      const [t, s, k, pr] = await Promise.all([
         tasksApi.projectTasks(projectId),
         tasksApi.sprints(projectId).catch(() => [] as SprintRow[]),
         tasksApi.kinds(projectId).catch(() => [] as TaskKindRow[]),
+        tasksApi.props(projectId).catch(() => [] as PropRow[]),
       ]);
       setTasks(t);
       setSprints(s);
       setKinds(k);
+      setProps(pr);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not load tasks.');
@@ -135,6 +138,48 @@ export function useProject(projectId: string | null) {
     }
   }, [refresh]);
 
+  const setProp = useCallback(async (taskId: string, propId: string, value: unknown) => {
+    setTasks((prev) => prev.map((t) => (t.id === taskId
+      ? { ...t, props: { ...t.props, [propId]: value } } : t)));
+    try {
+      await tasksApi.patchTask(taskId, { props: { [propId]: value } });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not save that property.');
+      refresh();
+    }
+  }, [refresh]);
+
+  const createProp = useCallback(async (b: { label: string; type: PropType; targetProjectId?: string }) => {
+    if (!projectId) return 'No database is open.';
+    try {
+      const row = await tasksApi.createProp(projectId, b);
+      setProps((prev) => [...prev, row]);
+      return null;
+    } catch (e) {
+      return e instanceof Error ? e.message : 'Could not add that property.';
+    }
+  }, [projectId]);
+
+  const patchProp = useCallback(async (id: string, b: Partial<{ label: string; options: PropOption[] }>) => {
+    const before = props;
+    setProps((prev) => prev.map((p) => (p.id === id ? { ...p, ...b } as PropRow : p)));
+    try {
+      const row = await tasksApi.patchProp(id, b);
+      setProps((prev) => prev.map((p) => (p.id === id ? row : p)));
+    } catch {
+      setProps(before);
+    }
+  }, [props]);
+
+  const deleteProp = useCallback(async (id: string) => {
+    setProps((prev) => prev.filter((p) => p.id !== id));
+    setTasks((prev) => prev.map((t) => {
+      const { [id]: _gone, ...rest } = t.props;
+      return { ...t, props: rest };
+    }));
+    await tasksApi.deleteProp(id).catch(() => refresh());
+  }, [refresh]);
+
   const createSprint = useCallback(async (name: string) => {
     if (!projectId) return;
     try {
@@ -162,9 +207,10 @@ export function useProject(projectId: string | null) {
   }, [refresh]);
 
   return {
-    tasks, sprints, kinds, users, loading, error, setError, refresh,
+    tasks, sprints, kinds, props, users, loading, error, setError, refresh,
     patch, create, remove, addDep, removeDep,
     createKind, patchKind, deleteKind,
+    setProp, createProp, patchProp, deleteProp,
     createSprint, patchSprint, deleteSprint,
   };
 }

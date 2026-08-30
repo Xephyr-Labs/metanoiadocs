@@ -39,8 +39,8 @@ export interface DocRow {
   updated_at: string;
   role: string;
   visibility: 'team' | 'private';
-  /** 'design' opens on the canvas instead of as a page. */
-  kind: 'doc' | 'design';
+  /** 'design' opens on the canvas; 'task' is a database row's page. */
+  kind: 'doc' | 'design' | 'task';
   /** Who saved it last, for the metadata band. Null until someone edits it. */
   updated_by_name: string | null;
   shared: boolean;
@@ -60,6 +60,7 @@ export interface FolderRow {
   created_at: string;
   document_count: number;
   folder_count: number;
+  favorite: boolean;
 }
 
 export function normalizeFolderRows(value: unknown): FolderRow[] {
@@ -234,6 +235,8 @@ export const docsApi = {
     req(`/docs/${docId}/tags/${tagId}`, { method: 'DELETE' }),
   favorite: (id: string, favorite: boolean) =>
     req(`/docs/${id}/favorite`, { method: 'PUT', body: JSON.stringify({ favorite }) }),
+  favoriteFolder: (id: string, favorite: boolean) =>
+    req(`/folders/${id}/favorite`, { method: 'PUT', body: JSON.stringify({ favorite }) }),
   setVisibility: (id: string, visibility: 'team' | 'private') =>
     req(`/docs/${id}/visibility`, { method: 'PUT', body: JSON.stringify({ visibility }) }),
   access: (id: string): Promise<AccessRow[]> => req(`/docs/${id}/access`),

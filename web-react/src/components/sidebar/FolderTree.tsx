@@ -246,6 +246,7 @@ function FolderRow({ id, depth }: { id: string; depth: number }) {
           <Menu
             trigger={<button type="button" onClick={(e) => e.stopPropagation()} className={rowAction} aria-label="Folder actions"><MoreHorizontal size={16} /></button>}
             items={[
+              { icon: Star, label: folder.favorite ? 'Remove from Favorites' : 'Add to Favorites', onSelect: () => ws.toggleFolderFavorite(id) },
               { icon: FolderOpen, label: 'Open', onSelect: () => ws.openFolder(id) },
               { icon: Plus, label: 'New page', onSelect: () => ws.createPage(id) },
               { icon: Folder, label: 'New subfolder', onSelect: () => ws.createFolder(id) },

@@ -2,6 +2,9 @@
 // table, gantt, calendar) writes back through the same PATCH.
 import crypto from 'node:crypto';
 import { pool } from './db.js';
+import { propsPatch } from './props.js';
+import { propsFor } from './props-routes.js';
+import { wouldProjectCycle } from './project-tree.js';
 
 export const STATUSES = ['todo', 'doing', 'review', 'done'];
 
@@ -18,6 +21,11 @@ export const DEFAULT_KINDS = [
 
 /** Enough to fill the picker without turning it into a scroll trap. */
 const MAX_KINDS = 24;
+
+// Serializes /api/projects/:id/move: two near-simultaneous moves each
+// validating against their own stale read could interleave into a real
+// cycle. Fixed and distinct from db.js's SETUP_LOCK key.
+const PROJECT_MOVE_LOCK = 8_140_712;
 
 /**
  * A stable key for a user-typed label, unique within `taken`.
@@ -129,7 +137,7 @@ const TASK_SELECT = `
         FROM task_deps d WHERE d.task_id = t.id
     ) dp ON true`;
 
-export function registerTaskRoutes(app, { requireUser, wrap }) {
+export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
   // ── projects ────────────────────────────────────────────────────────────
   app.get('/api/projects', requireUser, wrap(async (_req, res) => {
     const { rows } = await pool.query(
@@ -142,7 +150,7 @@ export function registerTaskRoutes(app, { requireUser, wrap }) {
          LEFT JOIN tasks t ON t.project_id = p.id
         WHERE p.archived_at IS NULL
         GROUP BY p.id
-        ORDER BY p.position ASC, p.created_at ASC`
+        ORDER BY p.parent_id NULLS FIRST, p.position ASC, p.created_at ASC`
     );
     res.json(rows);
   }));
@@ -150,18 +158,62 @@ export function registerTaskRoutes(app, { requireUser, wrap }) {
   app.post('/api/projects', requireUser, wrap(async (req, res) => {
     const id = crypto.randomUUID();
     const { rows } = await pool.query(
-      `INSERT INTO projects (id, name, icon, color, doc_id, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      `INSERT INTO projects (id, name, icon, color, doc_id, parent_id, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
       [
         id,
         String(req.body?.name || 'Untitled project').slice(0, 200),
         String(req.body?.icon || '📋').slice(0, 8),
         String(req.body?.color || 'blue').slice(0, 20),
         req.body?.docId || null,
+        req.body?.parentId || null,
         req.user.id,
       ]
     );
     res.json({ ...rows[0], total: '0', done: '0', overdue: '0' });
+  }));
+
+  app.post('/api/projects/:id/move', requireUser, wrap(async (req, res) => {
+    const parentId = typeof req.body?.parentId === 'string' ? req.body.parentId : null;
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('SELECT pg_advisory_xact_lock($1)', [PROJECT_MOVE_LOCK]);
+      // Unfiltered: archiving a project doesn't archive its children, so a
+      // live child can still point at an archived parent. The cycle walk has
+      // to see archived nodes too, or a walk through one stops early and a
+      // real cycle slips through.
+      const { rows: all } = await client.query('SELECT id, parent_id FROM projects');
+      const parents = new Map(all.map((r) => [r.id, r.parent_id]));
+      if (!parents.has(req.params.id)) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'not found' });
+      }
+      if (parentId) {
+        const { rows: target } = await client.query(
+          'SELECT 1 FROM projects WHERE id = $1 AND archived_at IS NULL', [parentId]
+        );
+        if (!target.length) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({ error: 'unknown parent' });
+        }
+      }
+      if (wouldProjectCycle(parents, req.params.id, parentId)) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'that would put a database inside itself' });
+      }
+      const { rows } = await client.query(
+        `UPDATE projects SET parent_id = $1, position = $2 WHERE id = $3 RETURNING *`,
+        [parentId, Number(req.body?.position) || 0, req.params.id]
+      );
+      await client.query('COMMIT');
+      res.json(rows[0]);
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
   }));
 
   app.patch('/api/projects/:id', requireUser, wrap(async (req, res) => {
@@ -441,6 +493,15 @@ export function registerTaskRoutes(app, { requireUser, wrap }) {
       }
       set('parent_id', parentId);
     }
+    if (b.props !== undefined) {
+      const { rows: owner } = await pool.query('SELECT project_id FROM tasks WHERE id = $1', [req.params.id]);
+      if (!owner[0]) return res.status(404).json({ error: 'not found' });
+      const checked = propsPatch(await propsFor(owner[0].project_id), b.props);
+      if (!checked.ok) return res.status(400).json({ error: checked.error });
+      // Merge, not replace: an untouched key elsewhere in props must survive.
+      vals.push(JSON.stringify(checked.value));
+      sets.push(`props = props || $${vals.length}::jsonb`);
+    }
     if (!sets.length) return res.json({ ok: true });
 
     sets.push('updated_at = now()');
@@ -452,11 +513,69 @@ export function registerTaskRoutes(app, { requireUser, wrap }) {
       vals
     );
     if (!rows[0]) return res.status(404).json({ error: 'not found' });
+    if (b.title !== undefined && rows[0].doc_id) {
+      await pool.query(
+        'UPDATE docs SET title = $1, updated_at = now() WHERE id = $2 AND title <> $1',
+        [String(b.title).slice(0, 200), rows[0].doc_id]
+      );
+    }
     res.json(rows[0]);
   }));
 
+  app.post('/api/tasks/:id/page', requireUser, wrap(async (req, res) => {
+    // SELECT ... FOR UPDATE serialises concurrent first-opens of the same row:
+    // the second caller blocks until the first commits its doc_id, then reads
+    // it back instead of racing to create a second document.
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const { rows } = await client.query(
+        'SELECT id, title, doc_id FROM tasks WHERE id = $1 AND deleted_at IS NULL FOR UPDATE',
+        [req.params.id]
+      );
+      if (!rows[0]) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'not found' });
+      }
+      // Idempotent: a second call returns the page the first one made.
+      if (rows[0].doc_id) {
+        await client.query('ROLLBACK');
+        return res.json({ docId: rows[0].doc_id });
+      }
+      // createDocRow opens its own transaction on its own pool client, so it is
+      // not part of this one — the row lock above is what stops a second caller
+      // from reaching this line for the same task.
+      const doc = await createDocRow({
+        title: rows[0].title || 'Untitled',
+        icon: '📄',
+        userId: req.user.id,
+        folderId: null,
+        visibility: 'team',
+        kind: 'task',
+        content: null,
+      });
+      await client.query('UPDATE tasks SET doc_id = $1 WHERE id = $2', [doc.id, req.params.id]);
+      await client.query('COMMIT');
+      res.json({ docId: doc.id });
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+  }));
+
   app.delete('/api/tasks/:id', requireUser, wrap(async (req, res) => {
-    await pool.query('UPDATE tasks SET deleted_at = now() WHERE id = $1', [req.params.id]);
+    // A row's page (kind = 'task') is excluded from every sidebar list — it's
+    // reachable only through its row. Trash it in the same statement, or it
+    // survives, findable only by search and belonging to nothing.
+    await pool.query(
+      `WITH row AS (
+         UPDATE tasks SET deleted_at = now() WHERE id = $1 AND deleted_at IS NULL RETURNING doc_id
+       )
+       UPDATE docs SET deleted_at = now() WHERE id = (SELECT doc_id FROM row) AND deleted_at IS NULL`,
+      [req.params.id]
+    );
     res.json({ ok: true });
   }));
 

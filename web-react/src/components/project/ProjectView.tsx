@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CalendarDays, GanttChartSquare, KanbanSquare, ListTodo, MoreHorizontal, Plus, Table2, Tags, FolderOpen } from 'lucide-react';
+import { CalendarDays, Columns3, GanttChartSquare, KanbanSquare, ListTodo, MoreHorizontal, Plus, Table2, Tags, FolderOpen } from 'lucide-react';
 import { useWorkspace } from '../../store/workspace';
 import { cn } from '../../lib/cn';
 import type { TaskRow, TaskStatus } from '../../lib/tasksApi';
@@ -15,7 +15,8 @@ import { Board } from './Board';
 import { Calendar } from './Calendar';
 import { Gantt } from './Gantt';
 import { KindsProvider } from './kinds';
-import { TaskDialog } from './TaskDialog';
+import { PropsDialog } from './props/PropsDialog';
+import { TaskPeek } from './TaskPeek';
 import { TaskKindsDialog } from './TaskKindsDialog';
 import { TaskTable } from './TaskTable';
 import { useProject } from './useProject';
@@ -35,6 +36,7 @@ export function ProjectView() {
   const [tab, setTab] = useState('board');
   const [open, setOpen] = useState<TaskRow | null>(null);
   const [kindsOpen, setKindsOpen] = useState(false);
+  const [propsOpen, setPropsOpen] = useState(false);
   // Scope for board/table/gantt/calendar: 'all', 'backlog', or a sprint id.
   const [scope, setScope] = useState('all');
   const p = useProject(ws.activeProjectId);
@@ -67,6 +69,17 @@ export function ProjectView() {
   // Keep the live task in the dialog: patches land in p.tasks, not in `open`.
   const openTask = open ? p.tasks.find((t) => t.id === open.id) ?? null : null;
 
+  // A title edit from the board/table/peek writes tasks.title (and,
+  // server-side, docs.title) but never touches ws.pages — the cache
+  // EditorArea reads `title` from for a full-screen open. Without this, that
+  // path would mount the editor with a stale title and, by design, write it
+  // into the document, undoing the very rename that was just made.
+  const syncPageTitle = (id: string, body: { title?: string }) => {
+    if (body.title === undefined) return;
+    const t = p.tasks.find((x) => x.id === id);
+    if (t?.doc_id) ws.applyTitleFromEditor(t.doc_id, body.title);
+  };
+
   const scoped = scope === 'all' ? p.tasks
     : scope === 'backlog' ? p.tasks.filter((t) => !t.sprint_id)
     : p.tasks.filter((t) => t.sprint_id === scope);
@@ -98,7 +111,10 @@ export function ProjectView() {
         <Menu
           align="end"
           trigger={<IconButton icon={<MoreHorizontal size={16} />} label="Project settings" />}
-          items={[{ icon: Tags, label: 'Task types…', onSelect: () => setKindsOpen(true) }]}
+          items={[
+            { icon: Tags, label: 'Task types…', onSelect: () => setKindsOpen(true) },
+            { icon: Columns3, label: 'Properties…', onSelect: () => setPropsOpen(true) },
+          ]}
         />
       </header>
 
@@ -137,9 +153,11 @@ export function ProjectView() {
           <TaskTable
             tasks={scoped}
             users={p.users}
-            onPatch={p.patch}
+            props={p.props}
+            onPatch={(id, body) => { p.patch(id, body); syncPageTitle(id, body); }}
             onOpen={setOpen}
             onDelete={(id) => { p.remove(id); ws.refreshProjects(); }}
+            onSetProp={p.setProp}
           />
         ) : tab === 'gantt' ? (
           <Gantt tasks={scoped} onOpen={setOpen} />
@@ -148,13 +166,16 @@ export function ProjectView() {
         )}
       </div>
 
-      <TaskDialog
+      <TaskPeek
+        key={openTask?.id ?? 'none'}
         task={openTask}
         tasks={p.tasks}
+        props={p.props}
         sprints={p.sprints}
         users={p.users}
         onClose={() => setOpen(null)}
-        onPatch={(id, body) => { p.patch(id, body); ws.refreshProjects(); }}
+        onPatch={(id, body) => { p.patch(id, body); ws.refreshProjects(); syncPageTitle(id, body); }}
+        onSetProp={p.setProp}
         onDelete={(id) => { p.remove(id); ws.refreshProjects(); }}
         onAddDep={p.addDep}
         onRemoveDep={p.removeDep}
@@ -169,6 +190,16 @@ export function ProjectView() {
         onCreate={p.createKind}
         onPatch={p.patchKind}
         onDelete={p.deleteKind}
+      />
+
+      <PropsDialog
+        open={propsOpen}
+        onOpenChange={setPropsOpen}
+        props={p.props}
+        projects={ws.projects}
+        onCreate={p.createProp}
+        onPatch={p.patchProp}
+        onDelete={p.deleteProp}
       />
     </div>
     </KindsProvider>

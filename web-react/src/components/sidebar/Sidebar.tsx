@@ -2,6 +2,7 @@ import {
   ChevronDown,
   ChevronRight,
   ChevronsLeftRight,
+  Folder,
   Home,
   Inbox,
   LogOut,
@@ -12,14 +13,15 @@ import {
   Trash2,
   Upload,
 } from 'lucide-react';
-import { useRef, useState, type ReactNode } from 'react';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { cn } from '../../lib/cn';
 import { pickImportFiles } from '../../lib/docFiles';
 import { avatarFor } from '../../lib/avatar';
+import { nestByParent } from '../../lib/pageTree';
 import { swatch } from '../../lib/tagColors';
 import { LogoMark } from '../brand/Logo';
 import { PageIcon } from '../ui/PageIcon';
-import { tasksApi } from '../../lib/tasksApi';
+import { tasksApi, type ProjectRow } from '../../lib/tasksApi';
 import { workspaces } from '../../data/mock';
 import { templates } from '../../data/templates';
 import { useAuth } from '../../store/auth';
@@ -72,6 +74,103 @@ function CollapsibleSection({ label, defaultOpen, children }: { label: string; d
   );
 }
 
+/**
+ * A database in the tree. Kept as a recursive component (not a flat map) so
+ * a database can nest under another; the naming input for "new sub-database
+ * under this row" lives one level down, alongside its siblings, and its
+ * placement is driven by `namingParent` — see `Sidebar`'s comment.
+ *
+ * Which id belongs under which parent is decided once, up in `Sidebar`, by
+ * `nestByParent` — the same helper the page and folder trees use. That's what
+ * keeps a project whose parent got archived (or a parent_id that loops back
+ * on itself) visible at the top level instead of vanishing or hanging the
+ * recursion; re-filtering `ws.projects` by `parent_id` at each level here
+ * would lose both guarantees.
+ */
+function ProjectRows({
+  parentId,
+  depth,
+  roots,
+  childrenOf,
+  namingParent,
+  onNewUnder,
+  onCommitName,
+  onCancelName,
+}: {
+  parentId: string | null;
+  depth: number;
+  roots: string[];
+  childrenOf: Map<string, string[]>;
+  namingParent: string | null | undefined;
+  onNewUnder: (parentId: string) => void;
+  onCommitName: (name: string) => void;
+  onCancelName: () => void;
+}) {
+  const ws = useWorkspace();
+  const ids = parentId === null ? roots : (childrenOf.get(parentId) ?? []);
+  const kids = ids.map((id) => ws.projects.find((p) => p.id === id)).filter((p): p is ProjectRow => !!p);
+  const naming = namingParent === parentId;
+  if (!kids.length && !naming) return null;
+  return (
+    <>
+      {kids.map((p) => {
+        const open = Number(p.total) - Number(p.done);
+        return (
+          <div key={p.id}>
+            <div className="group flex items-center">
+              <button
+                type="button"
+                onClick={() => ws.openProject(p.id)}
+                style={{ paddingLeft: 8 + depth * 16 }}
+                className={cn(
+                  'flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-md pr-2 text-base leading-5 transition-colors duration-120',
+                  ws.view === 'project' && ws.activeProjectId === p.id ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-hover',
+                )}
+              >
+                <span className="text-md leading-none">{p.icon}</span>
+                <span className="block h-5 min-w-0 flex-1 !self-center truncate leading-5 text-left">{p.name}</span>
+                {Number(p.overdue) > 0 ? (
+                  <span className="shrink-0 text-2xs font-semibold text-danger">{p.overdue}</span>
+                ) : open > 0 ? (
+                  <span className="shrink-0 text-2xs text-faint">{open}</span>
+                ) : null}
+              </button>
+              <button
+                type="button"
+                aria-label={`New database under ${p.name}`}
+                onClick={() => onNewUnder(p.id)}
+                className={cn(rowAction, 'opacity-0 group-hover:opacity-100')}
+              >
+                <Plus size={14} />
+              </button>
+            </div>
+            <ProjectRows
+              parentId={p.id}
+              depth={depth + 1}
+              roots={roots}
+              childrenOf={childrenOf}
+              namingParent={namingParent}
+              onNewUnder={onNewUnder}
+              onCommitName={onCommitName}
+              onCancelName={onCancelName}
+            />
+          </div>
+        );
+      })}
+      {naming && (
+        <RowInput
+          icon={<span className="text-md leading-none">📋</span>}
+          placeholder="Database name…"
+          label="New database name"
+          depth={depth}
+          onCommit={onCommitName}
+          onCancel={onCancelName}
+        />
+      )}
+    </>
+  );
+}
+
 function DocRow({ id }: { id: string }) {
   const ws = useWorkspace();
   const p = ws.pages[id];
@@ -89,6 +188,26 @@ function DocRow({ id }: { id: string }) {
   );
 }
 
+function FavoriteFolderRow({ id }: { id: string }) {
+  const ws = useWorkspace();
+  const f = ws.folders[id];
+  if (!f) return null;
+  return (
+    <button
+      type="button"
+      onClick={() => ws.openFolder(id)}
+      className={cn(
+        'flex h-8 w-full items-center gap-1.5 rounded-md px-2 text-base leading-5 transition-colors duration-120',
+        ws.view === 'folder' && ws.activeFolderId === id ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-hover',
+      )}
+    >
+      <Folder size={16} className="shrink-0" />
+      <span className="block h-5 min-w-0 flex-1 !self-center truncate leading-5 text-left">{f.name}</span>
+      <Star size={14} className="shrink-0 fill-current text-amber-400" />
+    </button>
+  );
+}
+
 export function Sidebar() {
   const ws = useWorkspace();
   const auth = useAuth();
@@ -97,15 +216,25 @@ export function Sidebar() {
   const dragging = useRef(false);
   const [, force] = useState(0);
 
-  // The name is typed in the tree itself; `naming` is just whether that row is
-  // showing. Errors surface inside it, so nothing is caught here.
-  const [naming, setNaming] = useState(false);
+  // The name is typed in the tree itself. `namingParent` is which row shows
+  // that input: undefined = none, null = new top-level database, a string =
+  // new sub-database of that project id. One value keeps a single input on
+  // screen whether it was opened from the section header or a row's +.
+  // Errors surface inside the input, so nothing is caught here.
+  const [namingParent, setNamingParent] = useState<string | null | undefined>(undefined);
   const createProject = async (name: string) => {
-    const p = await tasksApi.createProject({ name });
+    const p = await tasksApi.createProject({ name, parentId: namingParent ?? null });
     await ws.refreshProjects();
-    setNaming(false);
+    setNamingParent(undefined);
     ws.openProject(p.id);
   };
+
+  // Computed once for the whole tree: a project whose parent was archived (or
+  // whose parent_id loops) comes back as a root here instead of disappearing.
+  const projectTree = useMemo(
+    () => nestByParent(ws.projects.map((p) => ({ id: p.id, parentId: p.parent_id }))),
+    [ws.projects],
+  );
 
   const onResizeStart = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -183,59 +312,41 @@ export function Sidebar() {
           </section>
         )}
 
-        {ws.favoriteIds.length > 0 && (
+        {(ws.favoriteFolderIds.length > 0 || ws.favoriteIds.length > 0) && (
           <section className="mb-5">
             <SectionLabel>Favorites</SectionLabel>
-            <div className="space-y-px">{ws.favoriteIds.map((id) => <DocRow key={id} id={id} />)}</div>
+            <div className="space-y-px">
+              {ws.favoriteFolderIds.map((id) => <FavoriteFolderRow key={id} id={id} />)}
+              {ws.favoriteIds.map((id) => <DocRow key={id} id={id} />)}
+            </div>
           </section>
         )}
 
         <section className="mb-5">
           <SectionLabel
             action={
-              <button type="button" onClick={() => setNaming(true)} className={rowAction} aria-label="New project">
+              <button type="button" onClick={() => setNamingParent(null)} className={rowAction} aria-label="New project">
                 <Plus size={14} />
               </button>
             }
           >
             Projects
           </SectionLabel>
-          {naming && (
-            <RowInput
-              icon={<span className="text-md leading-none">📋</span>}
-              placeholder="Project name…"
-              label="New project name"
-              onCommit={createProject}
-              onCancel={() => setNaming(false)}
-            />
-          )}
-          {ws.projects.length ? (
+          {ws.projects.length || namingParent !== undefined ? (
             <div className="space-y-px">
-              {ws.projects.map((p) => {
-                const open = Number(p.total) - Number(p.done);
-                return (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => ws.openProject(p.id)}
-                    className={cn(
-                      'flex h-8 w-full items-center gap-1.5 rounded-md px-2 text-base leading-5 transition-colors duration-120',
-                      ws.view === 'project' && ws.activeProjectId === p.id ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-hover',
-                    )}
-                  >
-                    <span className="text-md leading-none">{p.icon}</span>
-                    <span className="block h-5 min-w-0 flex-1 !self-center truncate leading-5 text-left">{p.name}</span>
-                    {Number(p.overdue) > 0 ? (
-                      <span className="shrink-0 text-2xs font-semibold text-danger">{p.overdue}</span>
-                    ) : open > 0 ? (
-                      <span className="shrink-0 text-2xs text-faint">{open}</span>
-                    ) : null}
-                  </button>
-                );
-              })}
+              <ProjectRows
+                parentId={null}
+                depth={0}
+                roots={projectTree.roots}
+                childrenOf={projectTree.childrenOf}
+                namingParent={namingParent}
+                onNewUnder={setNamingParent}
+                onCommitName={createProject}
+                onCancelName={() => setNamingParent(undefined)}
+              />
             </div>
-          ) : naming ? null : (
-            <button onClick={() => setNaming(true)} className="mt-0.5 flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-faint hover:bg-hover hover:text-muted">
+          ) : (
+            <button onClick={() => setNamingParent(null)} className="mt-0.5 flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-faint hover:bg-hover hover:text-muted">
               <Plus size={14} /> New project
             </button>
           )}
