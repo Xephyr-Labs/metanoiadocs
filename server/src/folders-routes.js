@@ -20,16 +20,19 @@ async function folderParents() {
 }
 
 export function registerFolderRoutes(app, { requireUser, wrap }) {
-  app.get('/api/folders', requireUser, wrap(async (_req, res) => {
+  app.get('/api/folders', requireUser, wrap(async (req, res) => {
     const { rows } = await pool.query(
       `SELECT f.id, f.name, f.parent_id, f.position, f.color, f.created_by, f.created_at,
               (SELECT count(*)::int FROM docs d
                 WHERE d.folder_id = f.id AND d.deleted_at IS NULL) AS document_count,
               (SELECT count(*)::int FROM folders child
-                WHERE child.parent_id = f.id AND child.deleted_at IS NULL) AS folder_count
+                WHERE child.parent_id = f.id AND child.deleted_at IS NULL) AS folder_count,
+              EXISTS (SELECT 1 FROM favorites fav
+                       WHERE fav.folder_id = f.id AND fav.user_id = $1) AS favorite
          FROM folders f
         WHERE f.deleted_at IS NULL
-        ORDER BY f.parent_id NULLS FIRST, f.position ASC, lower(f.name), f.id`
+        ORDER BY f.parent_id NULLS FIRST, f.position ASC, lower(f.name), f.id`,
+      [req.user.id]
     );
     res.json(rows);
   }));
@@ -119,6 +122,25 @@ export function registerFolderRoutes(app, { requireUser, wrap }) {
       throw e;
     } finally {
       client.release();
+    }
+    res.json({ ok: true });
+  }));
+
+  // Folders are workspace-wide, so there is no per-folder grant to check —
+  // existing and not deleted is the whole condition.
+  app.put('/api/folders/:id/favorite', requireUser, wrap(async (req, res) => {
+    if (!(await visibleFolder(req.params.id, req.user.id))) {
+      return res.status(404).json({ error: 'not found' });
+    }
+    if (req.body?.favorite === false) {
+      await pool.query('DELETE FROM favorites WHERE user_id = $1 AND folder_id = $2', [
+        req.user.id, req.params.id,
+      ]);
+    } else {
+      await pool.query(
+        'INSERT INTO favorites (user_id, folder_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+        [req.user.id, req.params.id]
+      );
     }
     res.json({ ok: true });
   }));

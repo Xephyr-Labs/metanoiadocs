@@ -118,6 +118,19 @@ export async function initSchema() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       PRIMARY KEY (user_id, doc_id)
     );
+    -- Pinning covers folders too. doc_id becomes nullable and exactly one of
+    -- the two targets is set; the old (user_id, doc_id) primary key cannot
+    -- express that, so it is replaced by two partial unique indexes. Dropping
+    -- the NOT NULL happens in relaxFavoritesKey() below, not here: Postgres
+    -- refuses ALTER COLUMN ... DROP NOT NULL while the column is still part
+    -- of the primary key ("column is in a primary key"), so it has to wait
+    -- until that migration has dropped favorites_pkey.
+    ALTER TABLE favorites ADD COLUMN IF NOT EXISTS folder_id TEXT
+      REFERENCES folders(id) ON DELETE CASCADE;
+    CREATE UNIQUE INDEX IF NOT EXISTS favorites_doc_idx
+      ON favorites(user_id, doc_id) WHERE doc_id IS NOT NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS favorites_folder_idx
+      ON favorites(user_id, folder_id) WHERE folder_id IS NOT NULL;
     -- Public read-only share link. NULL = private. Unique so the token resolves
     -- to exactly one doc.
     ALTER TABLE docs ADD COLUMN IF NOT EXISTS share_token TEXT;
@@ -406,6 +419,42 @@ export async function initSchema() {
   `);
 
   await normalizeLegacyFolderImport();
+  await relaxFavoritesKey();
+}
+
+/** Drop the (user_id, doc_id) primary key and add the one-target check.
+ *  The PK drop and the CHECK add are not idempotent, so this runs exactly
+ *  once behind a marker — and inside a transaction, so two instances booting
+ *  together cannot both apply it. The DROP NOT NULL in between is idempotent
+ *  on its own but has to happen here too: Postgres won't drop NOT NULL on a
+ *  column that's still part of a primary key, so it must run after the PK
+ *  is gone. */
+async function relaxFavoritesKey() {
+  const marker = 'favorites-allow-folder-targets-v1';
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const claimed = await client.query(
+      'INSERT INTO schema_migrations (key) VALUES ($1) ON CONFLICT (key) DO NOTHING',
+      [marker]
+    );
+    if (!claimed.rowCount) {
+      await client.query('ROLLBACK');
+      return;
+    }
+    await client.query('ALTER TABLE favorites DROP CONSTRAINT IF EXISTS favorites_pkey');
+    await client.query('ALTER TABLE favorites ALTER COLUMN doc_id DROP NOT NULL');
+    await client.query(`
+      ALTER TABLE favorites ADD CONSTRAINT favorites_one_target
+        CHECK ((doc_id IS NULL) <> (folder_id IS NULL))
+    `);
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
 }
 
 async function normalizeLegacyFolderImport() {
