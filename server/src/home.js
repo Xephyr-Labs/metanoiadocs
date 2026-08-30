@@ -34,11 +34,11 @@ const ACTIVITY_SQL = `
     UNION ALL
     SELECT 'task_created', t.created_by, t.created_at, t.doc_id, p.id, p.name, p.icon, t.id, t.title
       FROM tasks t JOIN projects p ON p.id = t.project_id
-     WHERE t.deleted_at IS NULL AND p.archived_at IS NULL AND t.created_by IS NOT NULL
+     WHERE t.deleted_at IS NULL AND p.archived_at IS NULL AND p.mode <> 'data' AND t.created_by IS NOT NULL
     UNION ALL
     SELECT 'task_done', t.updated_by, t.done_at, t.doc_id, p.id, p.name, p.icon, t.id, t.title
       FROM tasks t JOIN projects p ON p.id = t.project_id
-     WHERE t.deleted_at IS NULL AND p.archived_at IS NULL AND t.done_at IS NOT NULL
+     WHERE t.deleted_at IS NULL AND p.archived_at IS NULL AND p.mode <> 'data' AND t.done_at IS NOT NULL
   )
   SELECT e.*, u.name AS actor_name
     FROM events e LEFT JOIN users u ON u.id = e.actor_id
@@ -56,7 +56,7 @@ const MY_TASKS_SQL = `
               ELSE 'later' END AS bucket
     FROM tasks t JOIN projects p ON p.id = t.project_id
    WHERE t.assignee_id = $1 AND t.status <> 'done'
-     AND t.deleted_at IS NULL AND p.archived_at IS NULL
+     AND t.deleted_at IS NULL AND p.archived_at IS NULL AND p.mode <> 'data'
    ORDER BY t.due_at ASC NULLS LAST, t.priority DESC
    LIMIT 60`;
 
@@ -81,21 +81,21 @@ export function registerHomeRoutes(app, { requireUser, wrap }) {
                 count(t.id) FILTER (WHERE t.deleted_at IS NULL AND t.status <> 'done'
                                       AND t.due_at < current_date) AS overdue
            FROM projects p LEFT JOIN tasks t ON t.project_id = p.id
-          WHERE p.archived_at IS NULL
+          WHERE p.archived_at IS NULL AND p.mode <> 'data'
           GROUP BY p.id ORDER BY p.position ASC, p.created_at ASC LIMIT 12`
       ),
       pool.query(
         `SELECT
            (SELECT count(*) FROM tasks t JOIN projects p ON p.id = t.project_id
              WHERE t.assignee_id = $1 AND t.status <> 'done'
-               AND t.deleted_at IS NULL AND p.archived_at IS NULL) AS my_open,
+               AND t.deleted_at IS NULL AND p.archived_at IS NULL AND p.mode <> 'data') AS my_open,
            (SELECT count(*) FROM tasks t JOIN projects p ON p.id = t.project_id
              WHERE t.assignee_id = $1 AND t.status <> 'done' AND t.due_at < current_date
-               AND t.deleted_at IS NULL AND p.archived_at IS NULL) AS my_overdue,
+               AND t.deleted_at IS NULL AND p.archived_at IS NULL AND p.mode <> 'data') AS my_overdue,
            (SELECT count(*) FROM tasks t JOIN projects p ON p.id = t.project_id
              WHERE t.assignee_id = $1 AND t.status <> 'done'
                AND t.due_at BETWEEN current_date AND current_date + 7
-               AND t.deleted_at IS NULL AND p.archived_at IS NULL) AS my_week,
+               AND t.deleted_at IS NULL AND p.archived_at IS NULL AND p.mode <> 'data') AS my_week,
            (SELECT count(*) FROM docs d ${VISIBLE_JOIN}
              WHERE d.deleted_at IS NULL AND ${VISIBLE}
                AND d.updated_at > now() - interval '7 days') AS docs_week`,

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { CalendarDays, Columns3, GanttChartSquare, KanbanSquare, ListTodo, MoreHorizontal, Plus, Table2, Tags, FolderOpen } from 'lucide-react';
 import { useWorkspace } from '../../store/workspace';
 import { cn } from '../../lib/cn';
@@ -29,6 +29,11 @@ const TABS = [
   { value: 'calendar', label: 'Calendar', icon: <CalendarDays size={14} /> },
 ];
 
+/** Backlog, Board and Gantt read status, sprints and start/due dates, which a
+ *  data database does not have — so it gets the table, and a calendar only
+ *  once it has a date property for one to read. */
+const DATA_TABS = TABS.filter((t) => t.value === 'table' || t.value === 'calendar');
+
 /** One project, five views over the same task list. */
 export function ProjectView() {
   const ws = useWorkspace();
@@ -40,10 +45,19 @@ export function ProjectView() {
   // Scope for board/table/gantt/calendar: 'all', 'backlog', or a sprint id.
   const [scope, setScope] = useState('all');
   const p = useProject(ws.activeProjectId);
+  const isData = project?.mode === 'data';
+  const dateProps = useMemo(() => p.props.filter((prop) => prop.type === 'date'), [p.props]);
+  const tabs = useMemo(
+    () => (isData ? DATA_TABS.filter((t) => t.value !== 'calendar' || dateProps.length > 0) : TABS),
+    [isData, dateProps.length],
+  );
 
   // Sprint ids are per-project; a stale scope from the last project would
   // filter every view down to nothing.
   useEffect(() => setScope('all'), [ws.activeProjectId]);
+  useEffect(() => {
+    if (!tabs.some((t) => t.value === tab)) setTab(tabs[0]?.value ?? 'table');
+  }, [tabs, tab]);
 
   if (!project) {
     return (
@@ -56,7 +70,7 @@ export function ProjectView() {
   }
 
   // No window.prompt: create untitled and let the dialog's title field take it.
-  const add = async (extra: { status?: TaskStatus; dueAt?: string; sprintId?: string | null } = {}) => {
+  const add = async (extra: { status?: TaskStatus; dueAt?: string; sprintId?: string | null; props?: Record<string, unknown> } = {}) => {
     // A task added while a sprint is scoped lands in that sprint.
     const sprintId = extra.sprintId !== undefined ? extra.sprintId
       : scope !== 'all' && scope !== 'backlog' ? scope : undefined;
@@ -104,9 +118,9 @@ export function ProjectView() {
             ))}
           </select>
         )}
-        <SegmentedControl aria-label="Project view" segments={TABS} value={tab} onChange={setTab} />
+        <SegmentedControl aria-label="Project view" segments={tabs} value={tab} onChange={setTab} />
         <Button variant="primary" size="sm" leftIcon={<Plus size={14} />} onClick={() => add()}>
-          Task
+          {isData ? 'Row' : 'Task'}
         </Button>
         <Menu
           align="end"
@@ -152,6 +166,7 @@ export function ProjectView() {
         ) : tab === 'table' ? (
           <TaskTable
             tasks={scoped}
+            mode={project.mode}
             users={p.users}
             props={p.props}
             onPatch={(id, body) => { p.patch(id, body); syncPageTitle(id, body); }}
@@ -162,13 +177,23 @@ export function ProjectView() {
         ) : tab === 'gantt' ? (
           <Gantt tasks={scoped} onOpen={setOpen} />
         ) : (
-          <Calendar tasks={scoped} onOpen={setOpen} onAdd={(dueAt) => add({ dueAt })} />
+          <Calendar
+            tasks={scoped}
+            dateProps={isData ? dateProps : []}
+            onOpen={setOpen}
+            onAdd={(date, propId) => add(propId ? { props: { [propId]: date } } : { dueAt: date })}
+            onMove={(id, date, propId) => {
+              if (propId) p.setProp(id, propId, date);
+              else p.patch(id, { dueAt: date });
+            }}
+          />
         )}
       </div>
 
       <TaskPeek
         key={openTask?.id ?? 'none'}
         task={openTask}
+        mode={project.mode}
         tasks={p.tasks}
         props={p.props}
         sprints={p.sprints}

@@ -4,15 +4,16 @@ import {
   ChevronRight,
   ChevronsLeftRight,
   Folder,
-  FolderPlus,
   Home,
   Inbox,
+  KanbanSquare,
   LogOut,
   MoreHorizontal,
   Plus,
   Search,
   Settings,
   Star,
+  Table2,
   Trash2,
   Upload,
 } from 'lucide-react';
@@ -25,7 +26,7 @@ import { swatch } from '../../lib/tagColors';
 import { toast } from '../../lib/toast';
 import { LogoMark } from '../brand/Logo';
 import { PageIcon } from '../ui/PageIcon';
-import { tasksApi, type ProjectRow } from '../../lib/tasksApi';
+import { tasksApi, type ProjectMode, type ProjectRow } from '../../lib/tasksApi';
 import { workspaces } from '../../data/mock';
 import { templates } from '../../data/templates';
 import { useAuth } from '../../store/auth';
@@ -99,6 +100,7 @@ function ProjectRows({
   namingParent,
   onNewUnder,
   onArchive,
+  onSetMode,
   onCommitName,
   onCancelName,
 }: {
@@ -107,8 +109,9 @@ function ProjectRows({
   roots: string[];
   childrenOf: Map<string, string[]>;
   namingParent: string | null | undefined;
-  onNewUnder: (parentId: string) => void;
+  onNewUnder: (parentId: string, mode: ProjectMode) => void;
   onArchive: (project: ProjectRow) => void;
+  onSetMode: (project: ProjectRow, mode: ProjectMode) => void;
   onCommitName: (name: string) => void;
   onCancelName: () => void;
 }) {
@@ -144,7 +147,7 @@ function ProjectRows({
               <button
                 type="button"
                 aria-label={`New database under ${p.name}`}
-                onClick={() => onNewUnder(p.id)}
+                onClick={() => onNewUnder(p.id, 'tasks')}
                 className={cn(rowAction, 'opacity-0 group-hover:opacity-100')}
               >
                 <Plus size={14} />
@@ -160,7 +163,14 @@ function ProjectRows({
                   </button>
                 }
                 items={[
-                  { icon: FolderPlus, label: 'New database inside', onSelect: () => onNewUnder(p.id) },
+                  { icon: KanbanSquare, label: 'New database inside', onSelect: () => onNewUnder(p.id, 'tasks') },
+                  { icon: Table2, label: 'New data database inside', onSelect: () => onNewUnder(p.id, 'data') },
+                  {
+                    icon: p.mode === 'data' ? KanbanSquare : Table2,
+                    label: p.mode === 'data' ? 'Turn into a task database' : 'Turn into a data database',
+                    separatorBefore: true,
+                    onSelect: () => onSetMode(p, p.mode === 'data' ? 'tasks' : 'data'),
+                  },
                   {
                     icon: Archive,
                     label: 'Archive database',
@@ -179,6 +189,7 @@ function ProjectRows({
               namingParent={namingParent}
               onNewUnder={onNewUnder}
               onArchive={onArchive}
+              onSetMode={onSetMode}
               onCommitName={onCommitName}
               onCancelName={onCancelName}
             />
@@ -250,11 +261,34 @@ export function Sidebar() {
   // screen whether it was opened from the section header or a row's +.
   // Errors surface inside the input, so nothing is caught here.
   const [namingParent, setNamingParent] = useState<string | null | undefined>(undefined);
+  // Which kind of database the open naming input will make. A data database
+  // holds records — no status, no assignee, no dates — so the choice is made
+  // when it is created rather than discovered later.
+  const [namingMode, setNamingMode] = useState<ProjectMode>('tasks');
+  const startNaming = (parentId: string | null, mode: ProjectMode) => {
+    setNamingMode(mode);
+    setNamingParent(parentId);
+  };
   const createProject = async (name: string) => {
-    const p = await tasksApi.createProject({ name, parentId: namingParent ?? null });
+    const p = await tasksApi.createProject({ name, parentId: namingParent ?? null, mode: namingMode });
     await ws.refreshProjects();
     setNamingParent(undefined);
     ws.openProject(p.id);
+  };
+
+  /** Switching mode hides fields, it never drops them: the task columns keep
+   *  their values underneath, so this is reversible from the same menu. */
+  const setProjectMode = async (project: ProjectRow, mode: ProjectMode) => {
+    try {
+      await tasksApi.patchProject(project.id, { mode });
+    } catch {
+      toast(`Could not change ${project.name}.`);
+      return;
+    }
+    await ws.refreshProjects();
+    toast(mode === 'data'
+      ? `${project.name} is a data database. Its task fields are hidden, not deleted.`
+      : `${project.name} is a task database again.`);
   };
 
   /** Archiving hides a database and its rows without destroying either, so the
@@ -375,9 +409,18 @@ export function Sidebar() {
         <section className="mb-5">
           <SectionLabel
             action={
-              <button type="button" onClick={() => setNamingParent(null)} className={rowAction} aria-label="New project">
-                <Plus size={14} />
-              </button>
+              <Menu
+                align="end"
+                trigger={
+                  <button type="button" className={rowAction} aria-label="New database">
+                    <Plus size={14} />
+                  </button>
+                }
+                items={[
+                  { icon: KanbanSquare, label: 'New database', onSelect: () => startNaming(null, 'tasks') },
+                  { icon: Table2, label: 'New data database', onSelect: () => startNaming(null, 'data') },
+                ]}
+              />
             }
           >
             Projects
@@ -390,14 +433,15 @@ export function Sidebar() {
                 roots={projectTree.roots}
                 childrenOf={projectTree.childrenOf}
                 namingParent={namingParent}
-                onNewUnder={setNamingParent}
+                onNewUnder={startNaming}
                 onArchive={archiveProject}
+                onSetMode={setProjectMode}
                 onCommitName={createProject}
                 onCancelName={() => setNamingParent(undefined)}
               />
             </div>
           ) : (
-            <button onClick={() => setNamingParent(null)} className="mt-0.5 flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-faint hover:bg-hover hover:text-muted">
+            <button onClick={() => startNaming(null, 'tasks')} className="mt-0.5 flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-faint hover:bg-hover hover:text-muted">
               <Plus size={14} /> New project
             </button>
           )}

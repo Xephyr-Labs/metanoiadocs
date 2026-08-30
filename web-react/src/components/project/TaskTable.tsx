@@ -1,12 +1,14 @@
 import { Trash2 } from 'lucide-react';
 import type { UserRow } from '../../lib/docsApi';
 import { cn } from '../../lib/cn';
-import { STATUSES, STATUS_LABEL, type PropRow, type TaskPatch, type TaskRow, type TaskStatus } from '../../lib/tasksApi';
+import { STATUSES, STATUS_LABEL, type ProjectMode, type PropRow, type TaskPatch, type TaskRow, type TaskStatus } from '../../lib/tasksApi';
 import { PropertyValue } from './props/PropertyValue';
 import { isOverdue } from './TaskChip';
 
 interface Props {
   tasks: TaskRow[];
+  /** A data database has no status, assignee, dates or progress to show. */
+  mode: ProjectMode;
   users: UserRow[];
   props: PropRow[];
   onPatch: (id: string, body: TaskPatch) => void;
@@ -20,18 +22,20 @@ const input =
   'w-full rounded border border-transparent bg-transparent px-1 py-0.5 text-sm text-ink outline-none hover:border-line focus:border-accent focus:bg-canvas';
 
 /** Dense editable grid. Every field writes straight through on change. */
-export function TaskTable({ tasks, users, props, onPatch, onOpen, onDelete, onSetProp }: Props) {
+export function TaskTable({ tasks, mode, users, props, onPatch, onOpen, onDelete, onSetProp }: Props) {
+  // A data database's rows are records: no status, assignee, dates or progress.
+  const work = mode !== 'data';
   return (
     <div className="scrollarea h-full overflow-auto p-4">
       <table className="w-full border-collapse text-sm">
         <thead>
           <tr className="border-b border-line text-left text-2xs uppercase tracking-wide text-faint">
-            <th className={cn(cell, 'w-[38%] font-semibold')}>Task</th>
-            <th className={cn(cell, 'font-semibold')}>Status</th>
-            <th className={cn(cell, 'font-semibold')}>Assignee</th>
-            <th className={cn(cell, 'font-semibold')}>Start</th>
-            <th className={cn(cell, 'font-semibold')}>Due</th>
-            <th className={cn(cell, 'w-[90px] font-semibold')}>Progress</th>
+            <th className={cn(cell, 'w-[38%] font-semibold')}>{work ? 'Task' : 'Name'}</th>
+            {work && <th className={cn(cell, 'font-semibold')}>Status</th>}
+            {work && <th className={cn(cell, 'font-semibold')}>Assignee</th>}
+            {work && <th className={cn(cell, 'font-semibold')}>Start</th>}
+            {work && <th className={cn(cell, 'font-semibold')}>Due</th>}
+            {work && <th className={cn(cell, 'w-[90px] font-semibold')}>Progress</th>}
             {props.map((p) => (
               <th key={p.id} className={cn(cell, 'font-semibold')}>{p.label}</th>
             ))}
@@ -54,51 +58,55 @@ export function TaskTable({ tasks, users, props, onPatch, onOpen, onDelete, onSe
                   onDoubleClick={() => onOpen(t)}
                 />
               </td>
-              <td className={cell}>
-                <select
-                  className={cn(input, 'cursor-pointer')}
-                  value={t.status}
-                  onChange={(e) => onPatch(t.id, { status: e.target.value as TaskStatus })}
-                >
-                  {STATUSES.map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
-                </select>
-              </td>
-              <td className={cell}>
-                <select
-                  className={cn(input, 'cursor-pointer')}
-                  value={t.assignee_id ?? ''}
-                  onChange={(e) => onPatch(t.id, { assigneeId: e.target.value || null })}
-                >
-                  <option value="">Unassigned</option>
-                  {users.map((u) => <option key={u.id} value={u.id}>{u.name || u.username}</option>)}
-                </select>
-              </td>
-              <td className={cell}>
-                <input
-                  type="date"
-                  className={input}
-                  value={t.start_at?.slice(0, 10) ?? ''}
-                  onChange={(e) => onPatch(t.id, { startAt: e.target.value || null })}
-                />
-              </td>
-              <td className={cell}>
-                <input
-                  type="date"
-                  className={cn(input, isOverdue(t) && 'text-danger')}
-                  value={t.due_at?.slice(0, 10) ?? ''}
-                  onChange={(e) => onPatch(t.id, { dueAt: e.target.value || null })}
-                />
-              </td>
-              <td className={cell}>
-                <input
-                  type="number"
-                  min={0}
-                  max={100}
-                  className={input}
-                  value={t.progress}
-                  onChange={(e) => onPatch(t.id, { progress: Number(e.target.value) })}
-                />
-              </td>
+              {work && (
+                <>
+                <td className={cell}>
+                  <select
+                    className={cn(input, 'cursor-pointer')}
+                    value={t.status}
+                    onChange={(e) => onPatch(t.id, { status: e.target.value as TaskStatus })}
+                  >
+                    {STATUSES.map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
+                  </select>
+                </td>
+                <td className={cell}>
+                  <select
+                    className={cn(input, 'cursor-pointer')}
+                    value={t.assignee_id ?? ''}
+                    onChange={(e) => onPatch(t.id, { assigneeId: e.target.value || null })}
+                  >
+                    <option value="">Unassigned</option>
+                    {users.map((u) => <option key={u.id} value={u.id}>{u.name || u.username}</option>)}
+                  </select>
+                </td>
+                <td className={cell}>
+                  <input
+                    type="date"
+                    className={input}
+                    value={t.start_at?.slice(0, 10) ?? ''}
+                    onChange={(e) => onPatch(t.id, { startAt: e.target.value || null })}
+                  />
+                </td>
+                <td className={cell}>
+                  <input
+                    type="date"
+                    className={cn(input, isOverdue(t) && 'text-danger')}
+                    value={t.due_at?.slice(0, 10) ?? ''}
+                    onChange={(e) => onPatch(t.id, { dueAt: e.target.value || null })}
+                  />
+                </td>
+                <td className={cell}>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    className={input}
+                    value={t.progress}
+                    onChange={(e) => onPatch(t.id, { progress: Number(e.target.value) })}
+                  />
+                </td>
+                </>
+              )}
               {props.map((p) => (
                 <td key={p.id} className={cell}>
                   {p.type === 'relation' ? (

@@ -420,6 +420,11 @@ export async function initSchema() {
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS parent_id TEXT
       REFERENCES projects(id) ON DELETE CASCADE;
     CREATE INDEX IF NOT EXISTS projects_parent_idx ON projects(parent_id, position);
+    -- 'tasks' = a board of work, with status, assignee, dates and the rest.
+    -- 'data'  = a plain table of rows carrying only their custom properties.
+    -- The columns are the same either way: switching mode hides fields, it
+    -- never drops them, so a database can be flipped back with nothing lost.
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS mode TEXT NOT NULL DEFAULT 'tasks';
   `);
 
   await normalizeLegacyFolderImport();
