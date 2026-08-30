@@ -1,11 +1,14 @@
 import {
+  Archive,
   ChevronDown,
   ChevronRight,
   ChevronsLeftRight,
   Folder,
+  FolderPlus,
   Home,
   Inbox,
   LogOut,
+  MoreHorizontal,
   Plus,
   Search,
   Settings,
@@ -19,6 +22,7 @@ import { pickImportFiles } from '../../lib/docFiles';
 import { avatarFor } from '../../lib/avatar';
 import { nestByParent } from '../../lib/pageTree';
 import { swatch } from '../../lib/tagColors';
+import { toast } from '../../lib/toast';
 import { LogoMark } from '../brand/Logo';
 import { PageIcon } from '../ui/PageIcon';
 import { tasksApi, type ProjectRow } from '../../lib/tasksApi';
@@ -94,6 +98,7 @@ function ProjectRows({
   childrenOf,
   namingParent,
   onNewUnder,
+  onArchive,
   onCommitName,
   onCancelName,
 }: {
@@ -103,6 +108,7 @@ function ProjectRows({
   childrenOf: Map<string, string[]>;
   namingParent: string | null | undefined;
   onNewUnder: (parentId: string) => void;
+  onArchive: (project: ProjectRow) => void;
   onCommitName: (name: string) => void;
   onCancelName: () => void;
 }) {
@@ -143,6 +149,27 @@ function ProjectRows({
               >
                 <Plus size={14} />
               </button>
+              <Menu
+                trigger={
+                  <button
+                    type="button"
+                    aria-label={`Actions for ${p.name}`}
+                    className={cn(rowAction, 'opacity-0 group-hover:opacity-100')}
+                  >
+                    <MoreHorizontal size={16} />
+                  </button>
+                }
+                items={[
+                  { icon: FolderPlus, label: 'New database inside', onSelect: () => onNewUnder(p.id) },
+                  {
+                    icon: Archive,
+                    label: 'Archive database',
+                    danger: true,
+                    separatorBefore: true,
+                    onSelect: () => onArchive(p),
+                  },
+                ]}
+              />
             </div>
             <ProjectRows
               parentId={p.id}
@@ -151,6 +178,7 @@ function ProjectRows({
               childrenOf={childrenOf}
               namingParent={namingParent}
               onNewUnder={onNewUnder}
+              onArchive={onArchive}
               onCommitName={onCommitName}
               onCancelName={onCancelName}
             />
@@ -227,6 +255,28 @@ export function Sidebar() {
     await ws.refreshProjects();
     setNamingParent(undefined);
     ws.openProject(p.id);
+  };
+
+  /** Archiving hides a database and its rows without destroying either, so the
+   *  toast offers the way back rather than a confirmation before the fact. */
+  const archiveProject = async (project: ProjectRow) => {
+    try {
+      await tasksApi.archiveProject(project.id);
+    } catch {
+      toast(`Could not archive ${project.name}.`);
+      return;
+    }
+    if (ws.activeProjectId === project.id) ws.openHome();
+    await ws.refreshProjects();
+    toast(`Archived ${project.name}.`, {
+      label: 'Undo',
+      onSelect: () => {
+        tasksApi
+          .patchProject(project.id, { archived: false })
+          .then(() => ws.refreshProjects())
+          .catch(() => toast(`Could not restore ${project.name}.`));
+      },
+    });
   };
 
   // Computed once for the whole tree: a project whose parent was archived (or
@@ -341,6 +391,7 @@ export function Sidebar() {
                 childrenOf={projectTree.childrenOf}
                 namingParent={namingParent}
                 onNewUnder={setNamingParent}
+                onArchive={archiveProject}
                 onCommitName={createProject}
                 onCancelName={() => setNamingParent(undefined)}
               />
