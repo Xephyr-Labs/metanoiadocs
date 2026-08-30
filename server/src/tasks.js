@@ -130,12 +130,18 @@ async function depEdges(projectId) {
   return m;
 }
 
-// Every task row the client sees, with its dependency ids folded in.
+// Every task row the client sees, with its dependency ids folded in and the
+// opening text of its own page, which the gallery view shows on each card.
+// search_text is maintained on save, so this costs a join rather than a Yjs
+// decode; the 240 is slack over the ~180 the card renders, so trimming the
+// title off the front still leaves a full line.
 const TASK_SELECT = `
   SELECT t.*, u.name AS assignee_name,
-         coalesce(dp.deps, '[]'::json) AS deps
+         coalesce(dp.deps, '[]'::json) AS deps,
+         left(pg.search_text, 240) AS preview
     FROM tasks t
     LEFT JOIN users u ON u.id = t.assignee_id
+    LEFT JOIN docs pg ON pg.id = t.doc_id
     LEFT JOIN LATERAL (
       SELECT coalesce(json_agg(d.depends_on_id), '[]') AS deps
         FROM task_deps d WHERE d.task_id = t.id
@@ -440,7 +446,8 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
         pos[0].n, JSON.stringify(checked.value), req.user.id,
       ]
     );
-    res.json({ ...rows[0], deps: [], assignee_name: null });
+    // A task is created before it has a page, so there is nothing to preview yet.
+    res.json({ ...rows[0], deps: [], assignee_name: null, preview: null });
   }));
 
   app.patch('/api/tasks/:id', requireUser, wrap(async (req, res) => {

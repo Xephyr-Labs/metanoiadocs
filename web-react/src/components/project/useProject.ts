@@ -68,7 +68,7 @@ export function useProject(projectId: string | null) {
     if (!projectId) return null;
     try {
       const row = await tasksApi.createTask({ projectId, ...body });
-      setTasks((prev) => [...prev, { ...row, deps: [] }]);
+      setTasks((prev) => [...prev, { ...row, deps: [], preview: null }]);
       return row;
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not create that task.');

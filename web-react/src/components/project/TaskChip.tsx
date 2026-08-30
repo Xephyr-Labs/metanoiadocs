@@ -44,8 +44,14 @@ export const shortDate = (iso: string | null) =>
 export const isOverdue = (t: TaskRow) =>
   !!t.due_at && t.status !== 'done' && t.due_at.slice(0, 10) < todayISO();
 
-/** A task as it appears on the board and in the calendar. */
-export function TaskChip({ task, onOpen, compact }: { task: TaskRow; onOpen: () => void; compact?: boolean }) {
+/**
+ * A task as it appears on the board and in the calendar.
+ *
+ * `flush` drops the card's own rounding, shadow and background so the gallery
+ * can sit it directly under a preview panel inside one shared card frame —
+ * the metadata row stays identical to the board's rather than being copied.
+ */
+export function TaskChip({ task, onOpen, compact, flush }: { task: TaskRow; onOpen: () => void; compact?: boolean; flush?: boolean }) {
   const av = task.assignee_name ? avatarFor(task.assignee_name) : null;
   const overdue = isOverdue(task);
 
@@ -69,7 +75,10 @@ export function TaskChip({ task, onOpen, compact }: { task: TaskRow; onOpen: () 
     <button
       type="button"
       onClick={onOpen}
-      className="w-full rounded-lg bg-canvas p-2.5 text-left shadow-subtle transition-colors duration-120 hover:bg-hover"
+      className={cn(
+        'w-full p-2.5 text-left transition-colors duration-120 hover:bg-hover',
+        flush ? 'bg-transparent' : 'rounded-lg bg-canvas shadow-subtle',
+      )}
     >
       <div className="flex items-start gap-1.5">
         {task.milestone && <Diamond size={12} className="mt-1 shrink-0 fill-current text-accent" />}

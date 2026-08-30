@@ -143,6 +143,9 @@ export interface TaskRow {
   done_at: string | null;
   deps: string[];
   props: Record<string, unknown>;
+  /** Opening text of the row's own page; null when it has no page or an empty
+   *  one. Shown by the gallery view — run it through previewLine() first. */
+  preview: string | null;
 }
 
 export interface TaskDetail extends TaskRow {
