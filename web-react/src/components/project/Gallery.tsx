@@ -6,10 +6,14 @@ import type { TaskRow } from '../../lib/tasksApi';
 import { SegmentedControl } from '../ui/SegmentedControl';
 import { TaskChip } from './TaskChip';
 
+// `clamp` has to match what `preview` can actually fit: the character cap in
+// previewLine() cannot know the box height, so at S a long line used to spill
+// past the panel and get cut flush against the divider. Clamping ellipsizes it
+// on the last visible line instead.
 const SIZES = {
-  s: { label: 'S', min: 190, preview: 'h-20' },
-  m: { label: 'M', min: 250, preview: 'h-28' },
-  l: { label: 'L', min: 330, preview: 'h-40' },
+  s: { label: 'S', min: 190, preview: 'h-20', clamp: 'line-clamp-4' },
+  m: { label: 'M', min: 250, preview: 'h-28', clamp: 'line-clamp-6' },
+  l: { label: 'L', min: 330, preview: 'h-40', clamp: 'line-clamp-[9]' },
 } as const;
 
 type Size = keyof typeof SIZES;
@@ -57,7 +61,7 @@ export function Gallery({
     }
   };
 
-  const { min, preview } = SIZES[size];
+  const { min, preview, clamp } = SIZES[size];
   const ordered = [...tasks].sort((a, b) => a.position - b.position);
 
   return (
@@ -90,15 +94,18 @@ export function Gallery({
                   type="button"
                   onClick={() => onOpen(t)}
                   aria-label={`Open ${t.title || 'Untitled'}`}
+                  // flex-col, not block: a button centres its content vertically by
+                  // default, which parks a short preview in the middle of a tall
+                  // panel with a gap above it.
                   className={cn(
-                    'block w-full border-b border-line bg-surface px-3 py-2 text-left',
+                    'flex w-full flex-col border-b border-line bg-surface px-3 py-2 text-left',
                     preview,
                   )}
                 >
                   {line ? (
-                    <p className="text-2xs leading-4 text-muted">{line}</p>
+                    <p className={cn('text-2xs leading-4 text-muted', clamp)}>{line}</p>
                   ) : (
-                    <span className="flex h-full flex-col items-center justify-center gap-1 text-faint">
+                    <span className="flex flex-1 flex-col items-center justify-center gap-1 text-faint">
                       <FileText size={16} />
                       <span className="text-3xs">Empty page</span>
                     </span>
