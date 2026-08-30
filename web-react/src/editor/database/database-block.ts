@@ -40,6 +40,10 @@ export class MetanoiaDatabaseBlockComponent extends BlockComponent<MetanoiaDatab
       createElement(EmbeddedDatabase, {
         projectId: props.projectId,
         view: props.view,
+        // Set for a public share and a version snapshot alike (mountEditor sets
+        // it before either ever mounts a block) — the project/task endpoints
+        // this component reads need a member session and would 401 there.
+        unavailable: this.store.readonly,
         onPick: (projectId: string) => this.store.updateBlock(this.model, { projectId }),
         onView: (view: 'board' | 'table') => this.store.updateBlock(this.model, { view }),
       }),

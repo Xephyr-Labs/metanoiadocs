@@ -11,6 +11,10 @@ interface Props {
   view: 'board' | 'table';
   onPick: (projectId: string) => void;
   onView: (view: 'board' | 'table') => void;
+  /** True in a public share or a version snapshot: the project/task endpoints
+   *  this block reads need a member session and 401 there. Skip fetching them
+   *  and say so, rather than fetching anyway and reporting the database gone. */
+  unavailable?: boolean;
 }
 
 /**
@@ -29,18 +33,22 @@ interface Props {
  * focus won't see the update until it does — same residual gap `useProject`
  * itself has (no live push channel exists for project metadata).
  */
-export function EmbeddedDatabase({ projectId, view, onPick, onView }: Props) {
+export function EmbeddedDatabase({ projectId, view, onPick, onView, unavailable }: Props) {
   const [projects, setProjects] = useState<ProjectRow[]>([]);
-  const [projectsLoading, setProjectsLoading] = useState(true);
+  const [projectsLoading, setProjectsLoading] = useState(!unavailable);
   useEffect(() => {
+    if (unavailable) return;
     const fetchProjects = () => tasksApi.projects().then(setProjects).catch(() => {}).finally(() => setProjectsLoading(false));
     fetchProjects();
     window.addEventListener('focus', fetchProjects);
     return () => window.removeEventListener('focus', fetchProjects);
-  }, []);
-  const p = useProject(projectId || null);
+  }, [unavailable]);
+  const p = useProject(unavailable ? null : (projectId || null));
   const project = projects.find((x) => x.id === projectId) ?? null;
 
+  if (unavailable) {
+    return <p className="rounded-md border border-line p-4 text-sm text-faint">This embedded database isn't available here.</p>;
+  }
   if (projectsLoading) {
     return <Skeleton className="h-24 w-full" />;
   }

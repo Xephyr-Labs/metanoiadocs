@@ -399,6 +399,10 @@ export async function initSchema() {
     -- add a GIN index here, or a real EAV table, if that ever measures slow.
     ALTER TABLE tasks ADD COLUMN IF NOT EXISTS props JSONB NOT NULL DEFAULT '{}';
 
+    -- A doc's title save looks up its owning row by doc_id on every save,
+    -- workspace-wide (not just row pages) — needs an index, not a scan.
+    CREATE INDEX IF NOT EXISTS tasks_doc_idx ON tasks(doc_id) WHERE doc_id IS NOT NULL;
+
     -- Relation values are edges, not JSON: the foreign keys clear every edge
     -- pointing at a row that gets deleted, so no page renders a dead link.
     CREATE TABLE IF NOT EXISTS task_relations (

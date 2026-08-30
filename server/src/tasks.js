@@ -566,7 +566,16 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
   }));
 
   app.delete('/api/tasks/:id', requireUser, wrap(async (req, res) => {
-    await pool.query('UPDATE tasks SET deleted_at = now() WHERE id = $1', [req.params.id]);
+    // A row's page (kind = 'task') is excluded from every sidebar list — it's
+    // reachable only through its row. Trash it in the same statement, or it
+    // survives, findable only by search and belonging to nothing.
+    await pool.query(
+      `WITH row AS (
+         UPDATE tasks SET deleted_at = now() WHERE id = $1 AND deleted_at IS NULL RETURNING doc_id
+       )
+       UPDATE docs SET deleted_at = now() WHERE id = (SELECT doc_id FROM row) AND deleted_at IS NULL`,
+      [req.params.id]
+    );
     res.json({ ok: true });
   }));
 

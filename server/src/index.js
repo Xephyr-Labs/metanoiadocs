@@ -548,7 +548,10 @@ app.post('/api/docs', requireUser, async (req, res) => {
     userId: req.user.id,
     folderId,
     visibility: req.body?.visibility === 'private' ? 'private' : 'team',
-    kind: docKind(req.body?.kind),
+    // 'task' is a row's page, minted only by POST /api/tasks/:id/page — never
+    // by this public route, or an API/MCP client could create a page that no
+    // sidebar list shows and no UI can reach.
+    kind: docKind(req.body?.kind) === 'design' ? 'design' : 'doc',
     // Optional markdown body (used by the MCP server / API clients). Built into
     // a BlockSuite Yjs state so the doc opens with real content.
     content: typeof req.body?.content === 'string' ? req.body.content : null,
