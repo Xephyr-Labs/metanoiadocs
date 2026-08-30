@@ -3,7 +3,7 @@ import { folderChain } from './folderPath';
 import type { Folder } from './types';
 
 const folder = (id: string, parentId: string | null): Folder => ({
-  id, name: id, color: 'gray', parentId, position: 0, documentIds: [], children: [],
+  id, name: id, color: 'gray', parentId, position: 0, documentIds: [], children: [], favorite: false,
 });
 
 const tree = (...folders: Folder[]): Record<string, Folder> =>

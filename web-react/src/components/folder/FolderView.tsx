@@ -4,7 +4,7 @@
  * success (link copied) · empty (nothing filed here yet)
  */
 import { motion } from 'framer-motion';
-import { AlertCircle, Check, ChevronRight, Folder, FolderOpen, FolderPlus, Link2, Plus, Upload } from 'lucide-react';
+import { AlertCircle, Check, ChevronRight, Folder, FolderOpen, FolderPlus, Link2, Plus, Star, Upload } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { folderChain } from '../../lib/folderPath';
 import { folderTint } from '../../lib/tagColors';
@@ -17,6 +17,7 @@ import { useWorkspace } from '../../store/workspace';
 import { Button } from '../ui/Button';
 import { DocIcon } from '../ui/DocIcon';
 import { EmptyState } from '../ui/EmptyState';
+import { IconButton } from '../ui/IconButton';
 
 /** "4 folders · 12 pages", with the halves that are zero left out entirely. */
 function countLine(folders: number, pages: number): string {
@@ -118,6 +119,11 @@ export function FolderView() {
             <h1 className="truncate font-display text-4xl font-semibold text-ink">{folder.name}</h1>
             <p className="mt-0.5 text-sm text-muted">{countLine(subfolders.length, pages.length)}</p>
           </div>
+          <IconButton
+            icon={<Star size={18} className={cn(folder.favorite && 'fill-amber-400 text-amber-400')} />}
+            label={folder.favorite ? 'Remove from Favorites' : 'Add to Favorites'}
+            onClick={() => ws.toggleFolderFavorite(folder.id)}
+          />
         </div>
 
         <div className="mt-5 flex flex-wrap items-center gap-1.5">

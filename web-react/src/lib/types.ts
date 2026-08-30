@@ -39,6 +39,7 @@ export interface Folder {
   documentIds: PageId[];
   children: string[];
   expanded?: boolean;
+  favorite: boolean;
 }
 
 /** `slides` is the edgeless canvas with deck chrome — same doc, same blocks. */

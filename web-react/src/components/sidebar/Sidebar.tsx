@@ -2,6 +2,7 @@ import {
   ChevronDown,
   ChevronRight,
   ChevronsLeftRight,
+  Folder,
   Home,
   Inbox,
   LogOut,
@@ -187,6 +188,26 @@ function DocRow({ id }: { id: string }) {
   );
 }
 
+function FavoriteFolderRow({ id }: { id: string }) {
+  const ws = useWorkspace();
+  const f = ws.folders[id];
+  if (!f) return null;
+  return (
+    <button
+      type="button"
+      onClick={() => ws.openFolder(id)}
+      className={cn(
+        'flex h-8 w-full items-center gap-1.5 rounded-md px-2 text-base leading-5 transition-colors duration-120',
+        ws.view === 'folder' && ws.activeFolderId === id ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-hover',
+      )}
+    >
+      <Folder size={16} className="shrink-0" />
+      <span className="block h-5 min-w-0 flex-1 !self-center truncate leading-5 text-left">{f.name}</span>
+      <Star size={14} className="shrink-0 fill-current text-amber-400" />
+    </button>
+  );
+}
+
 export function Sidebar() {
   const ws = useWorkspace();
   const auth = useAuth();
@@ -291,10 +312,13 @@ export function Sidebar() {
           </section>
         )}
 
-        {ws.favoriteIds.length > 0 && (
+        {(ws.favoriteFolderIds.length > 0 || ws.favoriteIds.length > 0) && (
           <section className="mb-5">
             <SectionLabel>Favorites</SectionLabel>
-            <div className="space-y-px">{ws.favoriteIds.map((id) => <DocRow key={id} id={id} />)}</div>
+            <div className="space-y-px">
+              {ws.favoriteFolderIds.map((id) => <FavoriteFolderRow key={id} id={id} />)}
+              {ws.favoriteIds.map((id) => <DocRow key={id} id={id} />)}
+            </div>
           </section>
         )}
 
