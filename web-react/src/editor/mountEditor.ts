@@ -277,6 +277,26 @@ export async function mountEditor(
     }
   }
 
+  // The title can now change from OUTSIDE the document too — a row rename in
+  // the task peek/table writes docs.title directly, never touching Yjs. If we
+  // didn't reconcile here, the stale Yjs title would win: the debounced push
+  // below compares Yjs against `lastTitle` and, seeing a "change", would PATCH
+  // the old Yjs title back over the rename a second after every open. So at
+  // mount the database title (the `title` prop) wins over whatever Yjs still
+  // has — this runs once, here, before `lastTitle` is captured below, so it
+  // covers every caller (peek, full page, sidebar) through one path. Typing
+  // into the title block continues to win going forward: that's the push
+  // below, which fires on every subsequent Yjs change, this block does not.
+  if (!share && !snapshot && store.root) {
+    try {
+      const titleModel = (store.root as { props?: { title?: InstanceType<typeof Text> } }).props?.title;
+      const yjsTitle = titleModel ? titleModel.toString() : '';
+      if (titleModel && title && title !== yjsTitle) {
+        titleModel.replace(0, yjsTitle.length, title);
+      }
+    } catch { /* best effort — a save from the user's own typing still works */ }
+  }
+
   // Docs the server built (API, markdown import, templates) had no surface until
   // now, and edgeless/slides mount into the surface — without one the canvas is
   // blank. Heal it, but only when the canvas is actually about to be shown: a

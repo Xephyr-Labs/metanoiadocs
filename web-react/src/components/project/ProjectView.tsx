@@ -69,6 +69,17 @@ export function ProjectView() {
   // Keep the live task in the dialog: patches land in p.tasks, not in `open`.
   const openTask = open ? p.tasks.find((t) => t.id === open.id) ?? null : null;
 
+  // A title edit from the board/table/peek writes tasks.title (and,
+  // server-side, docs.title) but never touches ws.pages — the cache
+  // EditorArea reads `title` from for a full-screen open. Without this, that
+  // path would mount the editor with a stale title and, by design, write it
+  // into the document, undoing the very rename that was just made.
+  const syncPageTitle = (id: string, body: { title?: string }) => {
+    if (body.title === undefined) return;
+    const t = p.tasks.find((x) => x.id === id);
+    if (t?.doc_id) ws.applyTitleFromEditor(t.doc_id, body.title);
+  };
+
   const scoped = scope === 'all' ? p.tasks
     : scope === 'backlog' ? p.tasks.filter((t) => !t.sprint_id)
     : p.tasks.filter((t) => t.sprint_id === scope);
@@ -143,7 +154,7 @@ export function ProjectView() {
             tasks={scoped}
             users={p.users}
             props={p.props}
-            onPatch={p.patch}
+            onPatch={(id, body) => { p.patch(id, body); syncPageTitle(id, body); }}
             onOpen={setOpen}
             onDelete={(id) => { p.remove(id); ws.refreshProjects(); }}
             onSetProp={p.setProp}
@@ -163,7 +174,7 @@ export function ProjectView() {
         sprints={p.sprints}
         users={p.users}
         onClose={() => setOpen(null)}
-        onPatch={(id, body) => { p.patch(id, body); ws.refreshProjects(); }}
+        onPatch={(id, body) => { p.patch(id, body); ws.refreshProjects(); syncPageTitle(id, body); }}
         onSetProp={p.setProp}
         onDelete={(id) => { p.remove(id); ws.refreshProjects(); }}
         onAddDep={p.addDep}

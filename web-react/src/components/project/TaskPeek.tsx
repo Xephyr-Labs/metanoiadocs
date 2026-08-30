@@ -233,7 +233,13 @@ export function TaskPeek({
               mode="page"
               userName={auth.user?.name ?? 'You'}
               fullWidth
-              onTitle={(t) => ws.applyTitleFromEditor(docId, t)}
+              // Typing into the page's own title block writes docs.title (and,
+              // server-side, tasks.title) but never touches this component's
+              // `tasks` list — onPatch is what keeps that cache in step, the
+              // same call the header input below makes. Without this, reopening
+              // the row in the same session hands mountEditor a stale title,
+              // which would overwrite the very edit that was just typed.
+              onTitle={(t) => { ws.applyTitleFromEditor(docId, t); if (t !== task.title) onPatch(task.id, { title: t }); }}
             />
           )}
         </section>
