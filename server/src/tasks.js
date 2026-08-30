@@ -8,6 +8,10 @@ import { wouldProjectCycle } from './project-tree.js';
 
 export const STATUSES = ['todo', 'doing', 'review', 'done'];
 
+/** A database is either a board of work or a plain table of rows. */
+export const PROJECT_MODES = ['tasks', 'data'];
+const isMode = (m) => PROJECT_MODES.includes(m);
+
 const isStatus = (s) => STATUSES.includes(s);
 
 /** Seeded into every project on first read. Not built-ins — all four can be
@@ -158,8 +162,8 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
   app.post('/api/projects', requireUser, wrap(async (req, res) => {
     const id = crypto.randomUUID();
     const { rows } = await pool.query(
-      `INSERT INTO projects (id, name, icon, color, doc_id, parent_id, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      `INSERT INTO projects (id, name, icon, color, doc_id, parent_id, mode, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
       [
         id,
         String(req.body?.name || 'Untitled project').slice(0, 200),
@@ -167,6 +171,7 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
         String(req.body?.color || 'blue').slice(0, 20),
         req.body?.docId || null,
         req.body?.parentId || null,
+        isMode(req.body?.mode) ? req.body.mode : 'tasks',
         req.user.id,
       ]
     );
@@ -224,6 +229,11 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
         vals.push(key === 'position' ? Number(req.body[key]) || 0 : String(req.body[key]).slice(0, 200));
         sets.push(`${col} = $${vals.length}`);
       }
+    }
+    if (req.body?.mode !== undefined) {
+      if (!isMode(req.body.mode)) return res.status(400).json({ error: 'bad mode' });
+      vals.push(req.body.mode);
+      sets.push(`mode = $${vals.length}`);
     }
     // Archiving is a toggle, not a one-way door: the sidebar's Archive action
     // offers an undo, and that undo comes back through here.
@@ -350,7 +360,9 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
   // ── tasks ───────────────────────────────────────────────────────────────
   // Cross-project query. Powers My Tasks and the home dashboard.
   app.get('/api/tasks', requireUser, wrap(async (req, res) => {
-    const where = ['t.deleted_at IS NULL', 'p.archived_at IS NULL'];
+    // Rows of a data database are records, not work: they never belong in a
+    // "what am I meant to be doing" list.
+    const where = ['t.deleted_at IS NULL', 'p.archived_at IS NULL', "p.mode <> 'data'"];
     const vals = [];
     if (req.query.assignee) {
       vals.push(req.query.assignee === 'me' ? req.user.id : String(req.query.assignee));
@@ -403,11 +415,15 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
         WHERE project_id = $1 AND status = $2 AND deleted_at IS NULL`,
       [projectId, status]
     );
+    // Property values at creation: the calendar makes a row already carrying
+    // the date of the day it was created on.
+    const checked = propsPatch(await propsFor(projectId), req.body?.props ?? {});
+    if (!checked.ok) return res.status(400).json({ error: checked.error });
     const { rows } = await pool.query(
       `INSERT INTO tasks (id, project_id, title, status, assignee_id, start_at, due_at,
                           priority, progress, points, milestone, doc_id, parent_id,
-                          kind, sprint_id, position, created_by, updated_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$17) RETURNING *`,
+                          kind, sprint_id, position, props, created_by, updated_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$18) RETURNING *`,
       [
         id, projectId,
         String(req.body?.title || '').slice(0, 500),
@@ -421,7 +437,7 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
         req.body?.docId || null,
         req.body?.parentId || null,
         kind, sprintId,
-        pos[0].n, req.user.id,
+        pos[0].n, JSON.stringify(checked.value), req.user.id,
       ]
     );
     res.json({ ...rows[0], deps: [], assignee_name: null });

@@ -65,6 +65,9 @@ export interface SprintRow {
   points_done: string;
 }
 
+/** A database is either a board of work, or a plain table of records. */
+export type ProjectMode = 'tasks' | 'data';
+
 export interface ProjectRow {
   id: string;
   name: string;
@@ -73,6 +76,7 @@ export interface ProjectRow {
   doc_id: string | null;
   position: number;
   parent_id: string | null;
+  mode: ProjectMode;
   /** Postgres count() arrives as a string. */
   total: string;
   done: string;
@@ -202,9 +206,9 @@ export const tasksApi = {
   home: (): Promise<HomePayload> => req('/home'),
 
   projects: (): Promise<ProjectRow[]> => req('/projects'),
-  createProject: (b: { name: string; icon?: string; color?: string; docId?: string; parentId?: string | null }): Promise<ProjectRow> =>
+  createProject: (b: { name: string; icon?: string; color?: string; docId?: string; parentId?: string | null; mode?: ProjectMode }): Promise<ProjectRow> =>
     req('/projects', { method: 'POST', ...body(b) }),
-  patchProject: (id: string, b: Partial<{ name: string; icon: string; color: string; position: number; archived: boolean }>) =>
+  patchProject: (id: string, b: Partial<{ name: string; icon: string; color: string; position: number; archived: boolean; mode: ProjectMode }>) =>
     req(`/projects/${id}`, { method: 'PATCH', ...body(b) }),
   archiveProject: (id: string) => req(`/projects/${id}`, { method: 'DELETE' }),
   moveProject: (id: string, b: { parentId: string | null; position?: number }): Promise<ProjectRow> =>

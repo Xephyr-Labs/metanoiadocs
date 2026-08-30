@@ -79,7 +79,7 @@ export function EmbeddedDatabase({ projectId, view, onPick, onView, unavailable 
         </header>
         {view === 'board'
           ? <Board tasks={p.tasks} onOpen={() => {}} onAdd={() => {}} onMove={(id, status, position) => p.patch(id, { status, position })} />
-          : <TaskTable tasks={p.tasks} users={p.users} props={p.props} onPatch={p.patch} onSetProp={p.setProp} onOpen={() => {}} onDelete={p.remove} />}
+          : <TaskTable tasks={p.tasks} mode={project.mode} users={p.users} props={p.props} onPatch={p.patch} onSetProp={p.setProp} onOpen={() => {}} onDelete={p.remove} />}
       </div>
     </KindsProvider>
   );
