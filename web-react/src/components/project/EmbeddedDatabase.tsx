@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { tasksApi, type ProjectRow } from '../../lib/tasksApi';
+import { Skeleton } from '../ui/Skeleton';
 import { Board } from './Board';
 import { KindsProvider } from './kinds';
 import { TaskTable } from './TaskTable';
@@ -22,13 +23,27 @@ interface Props {
  * tree from the app's main root — `useWorkspace()`'s context can't cross that
  * boundary, so the project list is fetched directly here, the same
  * context-free REST pattern `useProject` below already uses.
+ *
+ * Refetches on window focus so a rename/delete/create made elsewhere while
+ * this document stays open is picked up. An embed in a tab that never loses
+ * focus won't see the update until it does — same residual gap `useProject`
+ * itself has (no live push channel exists for project metadata).
  */
 export function EmbeddedDatabase({ projectId, view, onPick, onView }: Props) {
   const [projects, setProjects] = useState<ProjectRow[]>([]);
-  useEffect(() => { tasksApi.projects().then(setProjects).catch(() => setProjects([])); }, []);
+  const [projectsLoading, setProjectsLoading] = useState(true);
+  useEffect(() => {
+    const fetchProjects = () => tasksApi.projects().then(setProjects).catch(() => {}).finally(() => setProjectsLoading(false));
+    fetchProjects();
+    window.addEventListener('focus', fetchProjects);
+    return () => window.removeEventListener('focus', fetchProjects);
+  }, []);
   const p = useProject(projectId || null);
   const project = projects.find((x) => x.id === projectId) ?? null;
 
+  if (projectsLoading) {
+    return <Skeleton className="h-24 w-full" />;
+  }
   if (!projectId) {
     return (
       <div className="rounded-md border border-line p-4">
