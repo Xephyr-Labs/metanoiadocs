@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CalendarDays, Columns3, GanttChartSquare, KanbanSquare, ListTodo, MoreHorizontal, Plus, Table2, Tags, FolderOpen } from 'lucide-react';
+import { CalendarDays, Columns3, GanttChartSquare, KanbanSquare, LayoutGrid, ListTodo, MoreHorizontal, Plus, Table2, Tags, FolderOpen } from 'lucide-react';
 import { useWorkspace } from '../../store/workspace';
 import { cn } from '../../lib/cn';
 import type { TaskRow, TaskStatus } from '../../lib/tasksApi';
@@ -13,6 +13,7 @@ import { Skeleton } from '../ui/Skeleton';
 import { Backlog } from './Backlog';
 import { Board } from './Board';
 import { Calendar } from './Calendar';
+import { Gallery } from './Gallery';
 import { Gantt } from './Gantt';
 import { KindsProvider } from './kinds';
 import { PropsDialog } from './props/PropsDialog';
@@ -27,12 +28,16 @@ const TABS = [
   { value: 'table', label: 'Table', icon: <Table2 size={14} /> },
   { value: 'gantt', label: 'Gantt', icon: <GanttChartSquare size={14} /> },
   { value: 'calendar', label: 'Calendar', icon: <CalendarDays size={14} /> },
+  { value: 'gallery', label: 'Gallery', icon: <LayoutGrid size={14} /> },
 ];
 
 /** Backlog, Board and Gantt read status, sprints and start/due dates, which a
- *  data database does not have — so it gets the table, and a calendar only
- *  once it has a date property for one to read. */
-const DATA_TABS = TABS.filter((t) => t.value === 'table' || t.value === 'calendar');
+ *  data database does not have — so it gets the table, the gallery (which reads
+ *  only the row's page), and a calendar only once it has a date property for
+ *  one to read. */
+const DATA_TABS = TABS.filter(
+  (t) => t.value === 'table' || t.value === 'calendar' || t.value === 'gallery',
+);
 
 /** One project, five views over the same task list. */
 export function ProjectView() {
@@ -176,6 +181,8 @@ export function ProjectView() {
           />
         ) : tab === 'gantt' ? (
           <Gantt tasks={scoped} onOpen={setOpen} />
+        ) : tab === 'gallery' ? (
+          <Gallery tasks={scoped} onOpen={setOpen} onAdd={() => add({})} />
         ) : (
           <Calendar
             tasks={scoped}
