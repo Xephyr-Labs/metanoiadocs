@@ -42,7 +42,12 @@ export function TaskTable({ tasks, users, props, onPatch, onOpen, onDelete, onSe
           {tasks.map((t) => (
             <tr key={t.id} className="group border-b border-line last:border-0 hover:bg-hover">
               <td className={cell}>
+                {/* Keyed on the title: this input is uncontrolled, so a title
+                    changed elsewhere — typed into the row's own page, say —
+                    would otherwise sit here stale until the next remount, and
+                    a stray blur would write that stale value back over it. */}
                 <input
+                  key={t.title}
                   className={input}
                   defaultValue={t.title}
                   onBlur={(e) => e.target.value !== t.title && onPatch(t.id, { title: e.target.value })}

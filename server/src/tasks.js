@@ -225,6 +225,11 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
         sets.push(`${col} = $${vals.length}`);
       }
     }
+    // Archiving is a toggle, not a one-way door: the sidebar's Archive action
+    // offers an undo, and that undo comes back through here.
+    if (req.body?.archived !== undefined) {
+      sets.push(req.body.archived ? 'archived_at = now()' : 'archived_at = NULL');
+    }
     if (!sets.length) return res.json({ ok: true });
     vals.push(req.params.id);
     const { rows } = await pool.query(

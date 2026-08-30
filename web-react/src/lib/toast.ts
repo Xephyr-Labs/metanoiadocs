@@ -8,7 +8,13 @@
 let host: HTMLDivElement | null = null;
 let hideTimer: ReturnType<typeof setTimeout> | null = null;
 
-export function toast(message: string): void {
+/** An offer to reverse what just happened, shown inside the toast. */
+export interface ToastAction {
+  label: string;
+  onSelect: () => void;
+}
+
+export function toast(message: string, action?: ToastAction): void {
   if (typeof document === 'undefined') return;
   if (!host) {
     host = document.createElement('div');
@@ -29,11 +35,33 @@ export function toast(message: string): void {
     document.body.appendChild(host);
   }
   host.textContent = message;
+  // Only a toast carrying an action can be clicked; a plain one must never
+  // swallow a click meant for the page underneath it.
+  host.style.pointerEvents = action ? 'auto' : 'none';
+  if (action) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = action.label;
+    button.style.cssText = [
+      'margin-left:12px', 'padding:0', 'border:0', 'background:none',
+      'color:#fff', 'font:inherit', 'font-weight:600',
+      'text-decoration:underline', 'cursor:pointer',
+    ].join(';');
+    button.addEventListener('click', () => {
+      hide();
+      action.onSelect();
+    });
+    host.appendChild(button);
+  }
   // Next frame, so the transition runs on first show as well as on repeats.
   requestAnimationFrame(() => { if (host) host.style.opacity = '1'; });
   if (hideTimer) clearTimeout(hideTimer);
-  hideTimer = setTimeout(() => {
-    if (!host) return;
-    host.style.opacity = '0';
-  }, 2200);
+  // An action needs long enough to read the sentence and reach the button.
+  hideTimer = setTimeout(hide, action ? 6000 : 2200);
+}
+
+function hide(): void {
+  if (!host) return;
+  host.style.opacity = '0';
+  host.style.pointerEvents = 'none';
 }

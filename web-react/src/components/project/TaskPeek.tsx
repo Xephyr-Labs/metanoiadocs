@@ -97,7 +97,10 @@ export function TaskPeek({
     <aside className="fixed right-0 top-0 z-40 flex h-full w-full max-w-[560px] flex-col border-l border-line bg-canvas shadow-modal">
       <header className="flex shrink-0 items-center gap-2.5 border-b border-line px-4 py-3">
         <KindBadge kind={task.kind} />
+        {/* Same reason as the table's title cell: uncontrolled, so it is keyed
+            on the title to pick up a change made in the document body. */}
         <input
+          key={task.title}
           autoFocus={!task.title}
           aria-label="Task title"
           className="min-w-0 flex-1 bg-transparent text-md font-medium text-ink outline-none placeholder:text-faint"
