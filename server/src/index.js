@@ -34,6 +34,7 @@ import { wouldFolderCycle } from './folders.js';
 import { printHtml } from './print.js';
 import { docxFromMarkdown } from './docx.js';
 import { fileToMarkdown, IMPORT_EXTENSIONS } from './import.js';
+import { registerMcpRoute } from './mcp-http.js';
 import { topTerms, extractSignals, findMentions, simhash, hamming, keyphrases, summarize, tokenize, coalesceByKey, blocksFromText } from './intelligence.js';
 import { docKind } from './props.js';
 import { registerTaskRoutes } from './tasks.js';
@@ -113,6 +114,10 @@ app.get('/health', async (_req, res) => {
     res.status(503).json({ ok: false });
   }
 });
+
+// Remote MCP endpoint. Registered here, above the SPA catch-all, so an MCP
+// client never gets index.html back instead of a JSON-RPC reply.
+registerMcpRoute(app, { requireUser, port: PORT });
 
 function sessionToken(req) {
   return cookie.parse(req.headers.cookie || '')[COOKIE] || null;
