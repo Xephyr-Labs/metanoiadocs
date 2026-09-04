@@ -31,6 +31,7 @@ import { attachRefClicks, collectPageLinks, pageLinkExtensions, type LinkTarget 
 import { missingDocMetas } from './docMetas';
 import { blockLinkExtensions } from './blockLinks';
 import { attachImageAlign, imageAlignExtensions } from './imageAlign';
+import { attachCalloutPanels, calloutExtensions } from './callout';
 import { chartEffects, chartViewExtensions } from './chart';
 import { MetanoiaChartBlockSchema, MetanoiaChartBlockSchemaExtension } from './chart/chart-model';
 import {
@@ -320,6 +321,9 @@ export async function mountEditor(
   editor.doc = store;
   editor.mode = mode;
   store.get(FeatureFlagService).setFlag('enable_advanced_block_visibility', true);
+  // Callout ships switched off upstream. It is the block our Confluence-style
+  // panels are built on, and its slash item is how a plain neutral one is made.
+  store.get(FeatureFlagService).setFlag('enable_callout', true);
 
   // Follow the app's dark/light toggle (a `dark` class on <html>) so BlockSuite's
   // own themed surfaces — floating toolbars, slash/@ menus, popovers — switch too.
@@ -352,6 +356,9 @@ export async function mountEditor(
     // Alignment is a property of the document, so a public viewer must see it
     // too; the toolbar it is set from never opens for them (readonly store).
     ...imageAlignExtensions(),
+    // Panel colours are a property of the document, so a public viewer must see
+    // them too; the toolbar they are set from never opens for them.
+    ...calloutExtensions(),
     // "@" page references. These carry the title resolver as well as the menu,
     // so a version preview keeps them too — without the resolver every mention
     // in an old version renders struck through as a deleted page. The menu
@@ -396,6 +403,13 @@ export async function mountEditor(
   // Paint each image's stored alignment onto the DOM (see imageAlign.ts).
   const detachImageAlign = attachImageAlign({
     store: store as unknown as Parameters<typeof attachImageAlign>[0]['store'],
+    root: editor,
+    onChange: (cb) => { doc.spaceDoc.on('update', cb); return () => doc.spaceDoc.off('update', cb); },
+  });
+
+  // Paint each callout's stored panel type onto the DOM (see callout.ts).
+  const detachCalloutPanels = attachCalloutPanels({
+    store: store as unknown as Parameters<typeof attachCalloutPanels>[0]['store'],
     root: editor,
     onChange: (cb) => { doc.spaceDoc.on('update', cb); return () => doc.spaceDoc.off('update', cb); },
   });
@@ -466,6 +480,7 @@ export async function mountEditor(
       try { detachComments?.(); } catch { /* noop */ }
       try { detachRefClicks?.(); } catch { /* noop */ }
       try { detachImageAlign(); } catch { /* noop */ }
+      try { detachCalloutPanels(); } catch { /* noop */ }
       try { detachMermaid(); } catch { /* noop */ }
       try { themeObserver.disconnect(); } catch { /* noop */ }
       try { virtualKeyboard.dispose(); } catch { /* noop */ }

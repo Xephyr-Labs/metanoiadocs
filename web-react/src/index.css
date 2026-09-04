@@ -48,6 +48,15 @@
    * means darker on white and lighter on near-black, from the same hue. */
   --highlight-ink-mix: 18%;
 
+  /* Confluence-style panel types (see editor/callout.ts). Named by role, not by
+   * colour, because the toolbar swatches and the panels themselves have to
+   * agree and only one of the two knows which type it is drawing. */
+  --mn-panel-hue-info: var(--table-hue-blue);
+  --mn-panel-hue-note: var(--table-hue-purple);
+  --mn-panel-hue-success: var(--table-hue-green);
+  --mn-panel-hue-warning: var(--table-hue-orange);
+  --mn-panel-hue-error: var(--table-hue-red);
+
   /* Tooltips stay dark in both themes — they float over content, not in it. */
   --tooltip: #2f2f2c;
 
@@ -381,6 +390,36 @@ affine-editor-container * {
  * affine-page-image; the attribute selector outranks that without needing
  * !important, and the caption follows the image rather than staying centred
  * under a left-aligned picture. */
+/* Confluence-style panels. BlockSuite's callout block paints one hardcoded grey
+ * from a token we don't ship, and its model has no colour — so the type is
+ * stored as a data attribute (editor/callout.ts) and everything below hangs off
+ * a single hue. The container is in the light DOM, so it can be styled from
+ * here; element + class beats BlockSuite's own bare class rule. */
+affine-callout {
+  --mn-panel-hue: var(--table-hue-grey);
+}
+affine-callout[data-mn-panel='info'] { --mn-panel-hue: var(--mn-panel-hue-info); }
+affine-callout[data-mn-panel='note'] { --mn-panel-hue: var(--mn-panel-hue-note); }
+affine-callout[data-mn-panel='success'] { --mn-panel-hue: var(--mn-panel-hue-success); }
+affine-callout[data-mn-panel='warning'] { --mn-panel-hue: var(--mn-panel-hue-warning); }
+affine-callout[data-mn-panel='error'] { --mn-panel-hue: var(--mn-panel-hue-error); }
+
+affine-callout .affine-callout-block-container {
+  background-color: color-mix(in srgb, var(--mn-panel-hue) var(--table-tint), var(--canvas));
+  /* The accent bar is what makes it read as a panel rather than as a long
+   * highlight: the wash alone is too quiet at 12% over white. */
+  border-left: 3px solid color-mix(in srgb, var(--mn-panel-hue) 65%, var(--canvas));
+  border-radius: 4px;
+  padding: 8px 12px;
+}
+
+/* The emoji sits on the first line of the first paragraph, not floating below
+ * it — upstream nudges it down by 14px to clear a heading that our panels do
+ * not have. */
+affine-callout .affine-callout-emoji-container {
+  margin-top: 2px;
+}
+
 affine-image[data-mn-align='left'] affine-page-image,
 affine-image[data-mn-align='left'] .affine-image-container {
   align-items: flex-start;
