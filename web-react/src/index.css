@@ -38,7 +38,15 @@
   --table-hue-red: #d44c47;
   --table-hue-teal: #0d9488;
   --table-hue-yellow: #d9a406;
+  /* Pink is table-less — no table menu offers it — but the text-highlight
+   * palette below does, and imported Notion/AFFiNE docs carry it. */
+  --table-hue-pink: #cf4d90;
   --table-tint: 12%;
+  /* How far a highlight FOREGROUND colour is pulled toward the ink. The wash
+   * strength above cannot serve here: a foreground is the text itself, so it
+   * needs contrast against the canvas, not weight on top of it. Toward the ink
+   * means darker on white and lighter on near-black, from the same hue. */
+  --highlight-ink-mix: 18%;
 
   /* Tooltips stay dark in both themes — they float over content, not in it. */
   --tooltip: #2f2f2c;
@@ -110,6 +118,7 @@ html.dark {
   --comment-mark: rgba(214, 178, 66, 0.30);
 
   --table-tint: 30%;
+  --highlight-ink-mix: 34%;
 
   --code-bg: #1f1f1e;
   --code-line: #2e2e2c;
@@ -327,6 +336,33 @@ textarea:focus-visible,
    * straight through the language-picker dropdown. Sits above the doc header
    * (z-30) and below our own overlays (z-40) and menus/modals (z-50). */
   --affine-z-index-popover: 35;
+
+  /* The format bar's "Color" and "Highlight" menus do not set a colour — they
+   * write the var() NAME itself into the span's inline style ("background-color:
+   * var(--affine-text-highlight-red)"). Those names live in the same unshipped
+   * @toeverything/theme stylesheet, so the declaration was invalid and every
+   * swatch in both menus did nothing at all — the mark was stored in the doc,
+   * it just painted as normal text. Same class of bug as the table backgrounds
+   * above, so the same fix: the eight table hues, washed into the canvas for
+   * backgrounds and pulled toward the ink for foregrounds, one set for both
+   * themes. */
+  --affine-text-highlight-blue: color-mix(in srgb, var(--table-hue-blue) var(--table-tint), var(--canvas));
+  --affine-text-highlight-green: color-mix(in srgb, var(--table-hue-green) var(--table-tint), var(--canvas));
+  --affine-text-highlight-grey: color-mix(in srgb, var(--table-hue-grey) var(--table-tint), var(--canvas));
+  --affine-text-highlight-orange: color-mix(in srgb, var(--table-hue-orange) var(--table-tint), var(--canvas));
+  --affine-text-highlight-pink: color-mix(in srgb, var(--table-hue-pink) var(--table-tint), var(--canvas));
+  --affine-text-highlight-purple: color-mix(in srgb, var(--table-hue-purple) var(--table-tint), var(--canvas));
+  --affine-text-highlight-red: color-mix(in srgb, var(--table-hue-red) var(--table-tint), var(--canvas));
+  --affine-text-highlight-teal: color-mix(in srgb, var(--table-hue-teal) var(--table-tint), var(--canvas));
+  --affine-text-highlight-yellow: color-mix(in srgb, var(--table-hue-yellow) var(--table-tint), var(--canvas));
+  --affine-text-highlight-foreground-blue: color-mix(in srgb, var(--table-hue-blue), var(--ink) var(--highlight-ink-mix));
+  --affine-text-highlight-foreground-green: color-mix(in srgb, var(--table-hue-green), var(--ink) var(--highlight-ink-mix));
+  --affine-text-highlight-foreground-grey: color-mix(in srgb, var(--table-hue-grey), var(--ink) var(--highlight-ink-mix));
+  --affine-text-highlight-foreground-orange: color-mix(in srgb, var(--table-hue-orange), var(--ink) var(--highlight-ink-mix));
+  --affine-text-highlight-foreground-purple: color-mix(in srgb, var(--table-hue-purple), var(--ink) var(--highlight-ink-mix));
+  --affine-text-highlight-foreground-red: color-mix(in srgb, var(--table-hue-red), var(--ink) var(--highlight-ink-mix));
+  --affine-text-highlight-foreground-teal: color-mix(in srgb, var(--table-hue-teal), var(--ink) var(--highlight-ink-mix));
+  --affine-text-highlight-foreground-yellow: color-mix(in srgb, var(--table-hue-yellow), var(--ink) var(--highlight-ink-mix));
 }
 
 affine-editor-container {
