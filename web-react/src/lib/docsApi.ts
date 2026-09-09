@@ -45,6 +45,8 @@ export interface DocRow {
   updated_by_name: string | null;
   shared: boolean;
   favorite: boolean;
+  /** Pinned for everyone. Distinct from `favorite`, which is per person. */
+  pinned: boolean;
   /** How many pages this one @-references. 0 = no disclosure arrow in the sidebar. */
   link_count: number;
   tags: TagRow[];
@@ -76,6 +78,7 @@ export interface FolderRow {
   document_count: number;
   folder_count: number;
   favorite: boolean;
+  pinned: boolean;
 }
 
 export function normalizeFolderRows(value: unknown): FolderRow[] {
@@ -268,6 +271,10 @@ export const docsApi = {
     req(`/docs/${id}/favorite`, { method: 'PUT', body: JSON.stringify({ favorite }) }),
   favoriteFolder: (id: string, favorite: boolean) =>
     req(`/folders/${id}/favorite`, { method: 'PUT', body: JSON.stringify({ favorite }) }),
+  pin: (id: string, pinned: boolean): Promise<{ pinned: boolean; visibleToTeam?: boolean }> =>
+    req(`/docs/${id}/pin`, { method: 'PUT', body: JSON.stringify({ pinned }) }),
+  pinFolder: (id: string, pinned: boolean) =>
+    req(`/folders/${id}/pin`, { method: 'PUT', body: JSON.stringify({ pinned }) }),
   setVisibility: (id: string, visibility: 'team' | 'private') =>
     req(`/docs/${id}/visibility`, { method: 'PUT', body: JSON.stringify({ visibility }) }),
   access: (id: string): Promise<AccessRow[]> => req(`/docs/${id}/access`),

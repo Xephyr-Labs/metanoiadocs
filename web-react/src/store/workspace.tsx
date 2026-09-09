@@ -11,6 +11,7 @@ import {
 import { docsApi, type DocPropRow, type DocRow, type FolderRow } from '../lib/docsApi';
 import { tasksApi, type ProjectRow } from '../lib/tasksApi';
 import { setPendingSeed } from '../editor/pendingSeed';
+import { toast } from '../lib/toast';
 import { MAX_IMPORT_BYTES } from '../lib/docFiles';
 import { readRoute, showDoc, showFolder, showHome } from '../lib/route';
 import { folderChain } from '../lib/folderPath';
@@ -53,6 +54,11 @@ interface WorkspaceState {
   unreadCount: number;
   refreshUnread: () => void;
   markInboxRead: () => void;
+  /** Pinned for the whole workspace - everyone sees these, unlike favorites. */
+  pinnedIds: PageId[];
+  pinnedFolderIds: string[];
+  togglePin: (id: PageId) => void;
+  toggleFolderPin: (id: string) => void;
   /** Page property definitions, workspace-wide. */
   docProps: DocPropRow[];
   /** Write one page's value for one property; null is stored, not dropped. */
@@ -147,6 +153,7 @@ function buildPages(rows: DocRow[]): Record<PageId, Page> {
       position: r.position,
       shared: !!r.shared,
       favorite: !!r.favorite,
+      pinned: !!r.pinned,
       role: r.role,
       visibility: r.visibility === 'private' ? 'private' : 'team',
       kind: r.kind === 'design' ? 'design' : r.kind === 'task' ? 'task' : 'doc',
@@ -184,6 +191,7 @@ function buildFolders(rows: FolderRow[], expanded: Set<string>, pages: Record<Pa
       children: [],
       expanded: expanded.has(row.id),
       favorite: !!row.favorite,
+      pinned: !!row.pinned,
     };
   }
   // Same comparator as unfiledIds below, so a page keeps its place when it is
@@ -431,6 +439,38 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       const favorite = !cur.favorite;
       docsApi.favoriteFolder(id, favorite).catch(() => refresh());
       return { ...f, [id]: { ...cur, favorite } };
+    });
+  }, [refresh]);
+
+  /**
+   * Pin for the whole workspace. A favorite is yours alone; a pin is the team's
+   * shelf, which is why there is no user in any of this.
+   */
+  const togglePin = useCallback((id: PageId) => {
+    setPages((p) => {
+      const cur = p[id];
+      if (!cur) return p;
+      const pinned = !cur.pinned;
+      docsApi.pin(id, pinned)
+        .then((r) => {
+          // A private page can be pinned, but only people already shared on it
+          // will see the row - say so rather than letting it look broken.
+          if (pinned && r?.visibleToTeam === false) {
+            toast('Pinned, but this page is private - only people it is shared with will see it.');
+          }
+        })
+        .catch(() => refresh());
+      return { ...p, [id]: { ...cur, pinned } };
+    });
+  }, [refresh]);
+
+  const toggleFolderPin = useCallback((id: string) => {
+    setFolders((f) => {
+      const cur = f[id];
+      if (!cur) return f;
+      const pinned = !cur.pinned;
+      docsApi.pinFolder(id, pinned).catch(() => refresh());
+      return { ...f, [id]: { ...cur, pinned } };
     });
   }, [refresh]);
 
@@ -857,6 +897,14 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     () => Object.values(pages).filter((p) => p.favorite).map((p) => p.id),
     [pages],
   );
+  const pinnedIds = useMemo(
+    () => Object.values(pages).filter((p) => p.pinned).map((p) => p.id),
+    [pages],
+  );
+  const pinnedFolderIds = useMemo(
+    () => Object.values(folders).filter((f) => f.pinned).map((f) => f.id),
+    [folders],
+  );
   const favoriteFolderIds = useMemo(
     () => Object.values(folders).filter((f) => f.favorite).map((f) => f.id),
     [folders],
@@ -877,6 +925,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       pages, folders, folderRootIds, unfiledIds, rootIds, workspaceRootIds, privateRootIds, sharedRootIds, libraryRootIds, favoriteIds, favoriteFolderIds, designIds, recentIds: liveRecentIds,
       allTags, tagFilter, unreadCount, refreshUnread, markInboxRead,
       docProps, setPageProp, clearPageProp, createDocProp, patchDocProp, deleteDocProp,
+      pinnedIds, pinnedFolderIds, togglePin, toggleFolderPin,
       currentId, currentPage, loading, error, workspaceId,
       historyDocId, openHistory, closeHistory,
       view, activeProjectId, activeFolderId, openHome, openProject, openFolder, projects, refreshProjects,
@@ -892,6 +941,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       pages, folders, folderRootIds, unfiledIds, rootIds, workspaceRootIds, privateRootIds, sharedRootIds, libraryRootIds, favoriteIds, favoriteFolderIds, designIds, liveRecentIds,
       allTags, tagFilter, unreadCount, refreshUnread, markInboxRead,
       docProps, setPageProp, clearPageProp, createDocProp, patchDocProp, deleteDocProp,
+      pinnedIds, pinnedFolderIds, togglePin, toggleFolderPin,
       currentId, currentPage, loading, error, workspaceId,
       historyDocId, openHistory, closeHistory,
       view, activeProjectId, activeFolderId, openHome, openProject, openFolder, projects, refreshProjects,

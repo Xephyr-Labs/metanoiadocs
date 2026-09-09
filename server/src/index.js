@@ -459,6 +459,7 @@ app.get('/api/docs', requireUser, async (req, res) => {
             ub.name AS updated_by_name,
             (d.share_token IS NOT NULL) AS shared,
             (f.doc_id IS NOT NULL) AS favorite,
+            (pin.doc_id IS NOT NULL) AS pinned,
             lk.link_count,
             tg.tags
        FROM docs d
@@ -470,6 +471,8 @@ app.get('/api/docs', requireUser, async (req, res) => {
        LEFT JOIN users ub ON ub.id = d.updated_by
        LEFT JOIN doc_access a ON a.doc_id = d.id AND a.user_id = $1
        LEFT JOIN favorites f ON f.doc_id = d.id AND f.user_id = $1
+       -- No user_id: a pin is the same for everyone, which is the whole point.
+       LEFT JOIN pins pin ON pin.doc_id = d.id
        LEFT JOIN LATERAL (
          SELECT coalesce(
            json_agg(json_build_object('id', t.id, 'name', t.name, 'color', t.color)
@@ -877,6 +880,26 @@ app.put('/api/docs/:id/favorite', requireUser, async (req, res) => {
     );
   }
   res.json({ ok: true });
+});
+
+// Pin a doc for the whole workspace. Any member who can see it can pin or
+// unpin it — the same latitude they already have over folders and tags.
+app.put('/api/docs/:id/pin', requireUser, async (req, res) => {
+  if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
+  if (req.body?.pinned === false) {
+    await pool.query('DELETE FROM pins WHERE doc_id = $1', [req.params.id]);
+    return res.json({ ok: true, pinned: false });
+  }
+  await pool.query(
+    `INSERT INTO pins (doc_id, pinned_by, position)
+     VALUES ($1, $2, coalesce((SELECT max(position) + 1 FROM pins), 0))
+     ON CONFLICT (doc_id) WHERE doc_id IS NOT NULL DO NOTHING`,
+    [req.params.id, req.user.id]
+  );
+  // A private page can be pinned, but only the people already shared on it will
+  // see the row. Say so rather than letting it look broken to the pinner.
+  const { rows } = await pool.query('SELECT visibility FROM docs WHERE id = $1', [req.params.id]);
+  res.json({ ok: true, pinned: true, visibleToTeam: rows[0]?.visibility === 'team' });
 });
 
 // --- Tags (workspace-global, AFFiNE-style) ---------------------------------

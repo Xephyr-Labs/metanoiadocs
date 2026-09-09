@@ -26,6 +26,8 @@ export interface Page {
   /** Pages this one @-references. Drives the sidebar disclosure arrow. */
   linkCount: number;
   tags: Tag[];
+  /** Pinned for the whole workspace, as opposed to `favorite`, which is yours. */
+  pinned: boolean;
   /** Page property values, keyed by DocPropRow.id. Sparse: only what is set. */
   props: Record<string, unknown>;
   children: PageId[];
@@ -42,6 +44,8 @@ export interface Folder {
   children: string[];
   expanded?: boolean;
   favorite: boolean;
+  /** Pinned for the whole workspace, as opposed to `favorite`, which is yours. */
+  pinned: boolean;
 }
 
 /** `slides` is the edgeless canvas with deck chrome — same doc, same blocks. */

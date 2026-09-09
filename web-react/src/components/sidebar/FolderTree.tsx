@@ -1,4 +1,4 @@
-import { ChevronRight, Download, FilePlus, FileText, FileType, Folder, FolderOpen, Link2, MoreHorizontal, Plus, Printer, Star, Trash2, Upload } from 'lucide-react';
+import { ChevronRight, Download, FilePlus, FileText, FileType, Folder, FolderOpen, Link2, MoreHorizontal, Pin, Plus, Printer, Star, Trash2, Upload } from 'lucide-react';
 import { useState } from 'react';
 import { DOC_MIME, FOLDER_MIME, dragSource, useRowDrop } from './rowDrag';
 import { cn } from '../../lib/cn';
@@ -104,6 +104,8 @@ function DocumentRow({ id, depth }: { id: PageId; depth: number }) {
           trigger={<button type="button" onClick={(e) => e.stopPropagation()} className={rowAction} aria-label="Document actions"><MoreHorizontal size={16} /></button>}
           items={[
             { icon: Star, label: fav ? 'Remove from Favorites' : 'Add to Favorites', onSelect: () => ws.toggleFavorite(id) },
+            // Favorites are yours; a pin is the whole team's.
+            { icon: Pin, label: page.pinned ? 'Unpin for everyone' : 'Pin for everyone', onSelect: () => ws.togglePin(id) },
             { icon: FileText, label: 'Open', onSelect: () => ws.select(id) },
             // Creating it opens it, and the parent's arrow appears with the
             // reference the server just wrote into its body.
@@ -233,6 +235,7 @@ function FolderRow({ id, depth }: { id: string; depth: number }) {
             trigger={<button type="button" onClick={(e) => e.stopPropagation()} className={rowAction} aria-label="Folder actions"><MoreHorizontal size={16} /></button>}
             items={[
               { icon: Star, label: folder.favorite ? 'Remove from Favorites' : 'Add to Favorites', onSelect: () => ws.toggleFolderFavorite(id) },
+              { icon: Pin, label: folder.pinned ? 'Unpin for everyone' : 'Pin for everyone', onSelect: () => ws.toggleFolderPin(id) },
               { icon: FolderOpen, label: 'Open', onSelect: () => ws.openFolder(id) },
               { icon: Plus, label: 'New page', onSelect: () => ws.createPage(id) },
               { icon: Folder, label: 'New subfolder', onSelect: () => ws.createFolder(id) },

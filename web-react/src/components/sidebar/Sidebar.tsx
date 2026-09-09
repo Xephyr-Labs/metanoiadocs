@@ -414,6 +414,17 @@ export function Sidebar() {
           </section>
         )}
 
+        {/* Above Favorites on purpose: the team's shelf outranks your own. */}
+        {(ws.pinnedFolderIds.length > 0 || ws.pinnedIds.length > 0) && (
+          <section className="mb-5">
+            <SectionLabel>Pinned</SectionLabel>
+            <div className="space-y-px">
+              {ws.pinnedFolderIds.map((id) => <FavoriteFolderRow key={id} id={id} />)}
+              {ws.pinnedIds.map((id) => <DocRow key={id} id={id} />)}
+            </div>
+          </section>
+        )}
+
         {(ws.favoriteFolderIds.length > 0 || ws.favoriteIds.length > 0) && (
           <section className="mb-5">
             <SectionLabel>Favorites</SectionLabel>

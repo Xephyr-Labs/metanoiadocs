@@ -171,6 +171,23 @@ export async function initSchema() {
     -- Workspace-level key/value settings (AI provider config, etc). Single row
     -- per key; value is JSON. The AI api key lives here — never returned to the
     -- client, only used server-side to call the provider.
+    -- Workspace pins. Favorites are per person and invisible to everyone else;
+    -- a pin is the team's shelf — one row per doc or folder, no user_id in the
+    -- key, so everybody sees the same list. pinned_by is provenance only, not
+    -- ownership: anyone who can see the thing can unpin it, the same way anyone
+    -- can rename a folder here.
+    CREATE TABLE IF NOT EXISTS pins (
+      doc_id     TEXT REFERENCES docs(id) ON DELETE CASCADE,
+      folder_id  TEXT REFERENCES folders(id) ON DELETE CASCADE,
+      pinned_by  TEXT REFERENCES users(id) ON DELETE SET NULL,
+      position   INT NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      -- Exactly one target, never both and never neither.
+      CHECK ((doc_id IS NULL) <> (folder_id IS NULL))
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS pins_doc_idx ON pins(doc_id) WHERE doc_id IS NOT NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS pins_folder_idx ON pins(folder_id) WHERE folder_id IS NOT NULL;
+
     CREATE TABLE IF NOT EXISTS app_settings (
       key        TEXT PRIMARY KEY,
       value      JSONB NOT NULL,
