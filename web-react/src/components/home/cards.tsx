@@ -1,9 +1,12 @@
-import { CheckCircle2, FilePlus2, MessageSquareText, Pencil, Plus } from 'lucide-react';
+import { CheckCircle2, FilePlus2, MessageSquareText, MoreHorizontal, Pencil, Plus } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { cn } from '../../lib/cn';
 import { relativeTime } from '../../lib/time';
 import { avatarFor } from '../../lib/avatar';
 import type { ActivityRow, MyTask, ProjectRow } from '../../lib/tasksApi';
+import { useMoveToFolder } from '../../hooks/useMoveToFolder';
+import { IconButton } from '../ui/IconButton';
+import { Menu } from '../ui/Menu';
 
 /** Panel shell every home card sits in. Hairline + soft, matching the app. */
 export function Card({ title, action, children, className }: {
@@ -97,20 +100,34 @@ export function DocCard({ doc, onOpen }: {
   doc: { id: string; title: string; icon: string; updated_at: string; updated_by_name?: string | null };
   onOpen: () => void;
 }) {
+  // A menu cannot live inside the card's own <button>, so the card is a box
+  // with the button filling it and the menu sitting on top in the corner.
+  const moveTo = useMoveToFolder(doc.id);
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className="flex h-full min-h-[132px] flex-col justify-between gap-3 rounded-lg border border-line bg-canvas p-4 text-left transition-colors duration-120 hover:border-accent/50 hover:bg-accent-soft/50"
-    >
-      <span className="text-xl leading-none">{doc.icon || '📄'}</span>
-      <span className="min-w-0">
-        <span className="block truncate text-sm font-medium text-ink">{doc.title || 'Untitled'}</span>
-        <span className="mt-0.5 block truncate text-xs text-faint">
-          {doc.updated_by_name ? `${doc.updated_by_name} · ` : ''}{relativeTime(doc.updated_at)}
+    <div className="group relative h-full">
+      <button
+        type="button"
+        onClick={onOpen}
+        className="flex h-full min-h-[132px] w-full flex-col justify-between gap-3 rounded-lg border border-line bg-canvas p-4 text-left transition-colors duration-120 hover:border-accent/50 hover:bg-accent-soft/50"
+      >
+        <span className="text-xl leading-none">{doc.icon || '📄'}</span>
+        <span className="min-w-0">
+          <span className="block truncate text-sm font-medium text-ink">{doc.title || 'Untitled'}</span>
+          <span className="mt-0.5 block truncate text-xs text-faint">
+            {doc.updated_by_name ? `${doc.updated_by_name} · ` : ''}{relativeTime(doc.updated_at)}
+          </span>
         </span>
-      </span>
-    </button>
+      </button>
+      {moveTo && (
+        <span className="absolute right-1.5 top-1.5 opacity-0 transition-opacity duration-120 focus-within:opacity-100 group-hover:opacity-100">
+          <Menu
+            align="end"
+            items={[moveTo]}
+            trigger={<span><IconButton icon={<MoreHorizontal size={15} />} label={`Actions for ${doc.title || 'Untitled'}`} /></span>}
+          />
+        </span>
+      )}
+    </div>
   );
 }
 

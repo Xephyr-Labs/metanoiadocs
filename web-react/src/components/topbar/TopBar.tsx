@@ -36,6 +36,7 @@ import { Button } from '../ui/Button';
 import { PageIcon } from '../ui/PageIcon';
 import { IconButton } from '../ui/IconButton';
 import { Menu } from '../ui/Menu';
+import { useMoveToFolder } from '../../hooks/useMoveToFolder';
 import { copyLink } from '../../lib/clipboard';
 
 /** Google-Docs-style stack of everyone else currently in the open doc. */
@@ -92,6 +93,7 @@ export function TopBar() {
   const project = ws.view === 'project' ? ws.projects.find((p) => p.id === ws.activeProjectId) : null;
   const folder = ws.view === 'folder' && ws.activeFolderId ? ws.folders[ws.activeFolderId] : null;
   const isMobile = useMediaQuery('(max-width: 767px)');
+  const moveTo = useMoveToFolder(page?.id);
 
   return (
     <header className="sticky top-0 z-30 flex h-[45px] shrink-0 items-center gap-1 border-b border-line bg-canvas/80 px-2.5 backdrop-blur-md">
@@ -266,6 +268,7 @@ export function TopBar() {
                   { icon: Printer, label: 'PDF', onSelect: () => printDoc(page.id) },
                 ],
               }]),
+              ...(moveTo ? [{ ...moveTo, separatorBefore: true }] : []),
               { icon: Trash2, label: 'Move to Trash', danger: true, separatorBefore: true, onSelect: () => ws.deletePage(page.id) },
             ]}
             trigger={<span><IconButton icon={<MoreHorizontal size={18} />} label="More" /></span>}

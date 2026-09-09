@@ -1,4 +1,4 @@
-import { ChevronRight, Download, FilePlus, FileText, FileType, Folder, FolderInput, FolderOpen, Link2, MoreHorizontal, Plus, Printer, Star, Trash2, Upload } from 'lucide-react';
+import { ChevronRight, Download, FilePlus, FileText, FileType, Folder, FolderOpen, Link2, MoreHorizontal, Plus, Printer, Star, Trash2, Upload } from 'lucide-react';
 import { useState } from 'react';
 import { DOC_MIME, FOLDER_MIME, dragSource, useRowDrop } from './rowDrag';
 import { cn } from '../../lib/cn';
@@ -12,6 +12,7 @@ import { PageIcon } from '../ui/PageIcon';
 import { Menu } from '../ui/Menu';
 import { RowInput } from '../ui/RowInput';
 import { requestTitleFocus } from '../../lib/titleFocus';
+import { useMoveToFolder } from '../../hooks/useMoveToFolder';
 import { rowAction } from '../ui/styles';
 
 const ColorDot = (color: string) =>
@@ -40,6 +41,7 @@ function DocumentRow({ id, depth }: { id: PageId; depth: number }) {
       else ws.reorderPage(draggedId, id, zone);
     },
   });
+  const moveTo = useMoveToFolder(id);
   if (!page) return null;
   const selected = ws.currentId === id;
   const fav = ws.favoriteIds.includes(id);
@@ -48,22 +50,6 @@ function DocumentRow({ id, depth }: { id: PageId; depth: number }) {
   // too, which is what lets a drop open its new parent.
   const nested = page.children;
   const canExpand = nested.length > 0;
-  // Every folder used to be its own "Move to X" row, so this menu grew a line
-  // per folder and eventually ran off the bottom of the screen. They live in a
-  // submenu now, and the folder the page is already in isn't offered.
-  const moveTargets = [
-    // Also the way out of a parent page: a nested page has no folder to leave,
-    // so without this its only escape is a drag onto the edge of another row.
-    ...(page.folderId || page.parentId ? [{ icon: FileText, label: 'Top level', onSelect: () => ws.movePage(id, null) }] : []),
-    ...Object.values(ws.folders)
-      .filter((folder) => folder.id !== page.folderId)
-      .sort((a, b) => a.name.localeCompare(b.name))
-      .map((folder) => ({
-        icon: Folder,
-        label: folder.name,
-        onSelect: () => ws.movePage(id, folder.id),
-      })),
-  ];
   return (
     <div>
     <div
@@ -136,7 +122,7 @@ function DocumentRow({ id, depth }: { id: PageId; depth: number }) {
                 { icon: Printer, label: 'PDF', onSelect: () => printDoc(id) },
               ],
             },
-            ...(moveTargets.length ? [{ icon: FolderInput, label: 'Move to', separatorBefore: true, items: moveTargets }] : []),
+            ...(moveTo ? [{ ...moveTo, separatorBefore: true }] : []),
             { icon: Trash2, label: 'Delete', danger: true, separatorBefore: true, onSelect: () => ws.deletePage(id) },
           ]}
         />
