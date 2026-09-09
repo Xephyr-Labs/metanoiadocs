@@ -15,6 +15,7 @@ import { DocDisplayMetaProvider } from '@blocksuite/affine/shared/services';
 import { insertLinkedNode, RefNodeSlotsProvider } from '@blocksuite/affine/inlines/reference';
 import { LinkedWidgetConfigExtension } from '@blocksuite/affine/widgets/linked-doc';
 import { computed, signal } from '@preact/signals-core';
+import { docsApi } from '../lib/docsApi';
 import { html, type TemplateResult } from 'lit';
 
 /** The slice of a page this module needs. Mirrors `lib/types.ts` Page. */
@@ -35,6 +36,50 @@ export interface PageLinkOptions {
 
 const MAX_MENU_ITEMS = 6;
 const UNTITLED = 'Untitled';
+
+/**
+ * Workspace members, for the "@" menu's people group. Fetched once per page
+ * load and cached at module scope: the menu is rebuilt synchronously on every
+ * keystroke, so it cannot await anything, and a list of colleagues does not
+ * change mid-session. Until it arrives the group simply does not appear.
+ */
+let people: { id: string; name: string; username: string | null }[] = [];
+let peopleLoading = false;
+
+function loadPeople() {
+  if (peopleLoading || people.length) return;
+  peopleLoading = true;
+  docsApi.users()
+    .then((rows) => { people = rows.filter((u) => u.username); })
+    .catch(() => { /* the menu just keeps its pages-only shape */ })
+    .finally(() => { peopleLoading = false; });
+}
+
+/**
+ * A person is written as literal "@username" text, not a reference node.
+ *
+ * That is deliberate: it is the exact shape the server already scans for in
+ * comment bodies, so the same handle means the same person whether it is typed
+ * in a comment or in the page, and no new inline node, schema version or
+ * renderer has to exist for it. The handle is bolded and the trailing space is
+ * not, so the cursor does not carry bold into whatever is typed next.
+ */
+function insertMention(
+  inlineEditor: Parameters<typeof insertLinkedNode>[0]['inlineEditor'],
+  username: string,
+) {
+  const editor = inlineEditor as unknown as {
+    getInlineRange: () => { index: number; length: number } | null;
+    insertText: (range: { index: number; length: number }, text: string, attrs?: unknown) => void;
+    setInlineRange: (range: { index: number; length: number }) => void;
+  } | null;
+  const range = editor?.getInlineRange();
+  if (!editor || !range) return;
+  const handle = `@${username}`;
+  editor.insertText(range, handle, { bold: true });
+  editor.insertText({ index: range.index + handle.length, length: 0 }, ' ');
+  editor.setInlineRange({ index: range.index + handle.length + 1, length: 0 });
+}
 
 /** Subsequence match, the same shape BlockSuite's own `isFuzzyMatch` uses. */
 function fuzzy(title: string, query: string) {
@@ -71,7 +116,26 @@ export function pageLinkExtensions({ pages, currentId, createPage }: PageLinkOpt
 
     const link = (docId: string) => insertLinkedNode({ inlineEditor, docId });
 
+    const matchedPeople = people.filter(
+      (u) => fuzzy(u.username ?? '', query) || fuzzy(u.name || '', query),
+    );
+
     return [
+      {
+        name: 'Mention a person',
+        items: matchedPeople.map((u) => ({
+          key: `person:${u.id}`,
+          name: u.name || (u.username ?? ''),
+          icon: emoji('👤'),
+          action: () => {
+            abort();
+            insertMention(inlineEditor, u.username ?? '');
+          },
+        })),
+        maxDisplay: MAX_MENU_ITEMS,
+        overflowText: `${Math.max(matchedPeople.length - MAX_MENU_ITEMS, 0)} more people`,
+        hidden: matchedPeople.length === 0,
+      },
       {
         name: 'Link to page',
         items: matches.map((p) => ({
@@ -104,6 +168,8 @@ export function pageLinkExtensions({ pages, currentId, createPage }: PageLinkOpt
       },
     ];
   };
+
+  loadPeople();
 
   return [
     LinkedWidgetConfigExtension({ getMenus }),

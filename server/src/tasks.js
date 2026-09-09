@@ -2,11 +2,41 @@
 // table, gantt, calendar) writes back through the same PATCH.
 import crypto from 'node:crypto';
 import { pool } from './db.js';
+import { sendNotificationEmail } from './auth.js';
 import { propsPatch } from './props.js';
 import { propsFor } from './props-routes.js';
 import { wouldProjectCycle } from './project-tree.js';
 
 export const STATUSES = ['todo', 'doing', 'review', 'done'];
+
+/**
+ * Tell someone a task landed on them — inbox row plus an email, the same pair
+ * a comment mention sends. Best-effort: a task must still save when the mail
+ * server is down, so every caller fires this without awaiting it.
+ *
+ * The notification points at the task rather than its page, because a task's
+ * page does not exist until someone opens the task.
+ */
+async function notifyAssignee(task, actor) {
+  if (!task?.assignee_id || task.assignee_id === actor.id) return;
+  const { rows } = await pool.query('SELECT email FROM users WHERE id = $1', [task.assignee_id]);
+  const actorName = actor.name || actor.email;
+  const title = task.title || 'Untitled task';
+  await pool.query(
+    `INSERT INTO notifications (id, user_id, actor_id, actor_name, doc_id, task_id, kind, body)
+     VALUES ($1, $2, $3, $4, $5, $6, 'assigned', $7)`,
+    [crypto.randomUUID(), task.assignee_id, actor.id, actorName, task.doc_id, task.id, title.slice(0, 280)]
+  );
+  const email = rows[0]?.email;
+  if (!email) return;
+  const base = process.env.BASE_URL || '';
+  await sendNotificationEmail(
+    email,
+    `${actorName} assigned you "${title}"`,
+    `${actorName} assigned you "${title}".\n\nOpen MetanoiaDocs: ${base}/`
+  );
+}
+
 
 /** A database is either a board of work or a plain table of rows. */
 export const PROJECT_MODES = ['tasks', 'data'];
@@ -446,6 +476,7 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
         pos[0].n, JSON.stringify(checked.value), req.user.id,
       ]
     );
+    notifyAssignee(rows[0], req.user).catch((err) => console.error('[notify] assign:', err.message));
     // A task is created before it has a page, so there is nothing to preview yet.
     res.json({ ...rows[0], deps: [], assignee_name: null, preview: null });
   }));
@@ -464,7 +495,14 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
       // "recently completed" stay honest when a task is reopened.
       sets.push(b.status === 'done' ? 'done_at = coalesce(done_at, now())' : 'done_at = NULL');
     }
-    if (b.assigneeId !== undefined) set('assignee_id', b.assigneeId || null);
+    // Read the assignee this task had before the write, so that a patch that
+    // merely repeats it — dragging a card, ticking a checkbox — sends nothing.
+    let priorAssignee;
+    if (b.assigneeId !== undefined) {
+      const { rows: cur } = await pool.query('SELECT assignee_id FROM tasks WHERE id = $1', [req.params.id]);
+      priorAssignee = cur[0]?.assignee_id ?? null;
+      set('assignee_id', b.assigneeId || null);
+    }
     for (const [key, col] of [['startAt', 'start_at'], ['dueAt', 'due_at']]) {
       if (b[key] === undefined) continue;
       const d = readDate(b[key]);
@@ -546,6 +584,9 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
         'UPDATE docs SET title = $1, updated_at = now() WHERE id = $2 AND title <> $1',
         [String(b.title).slice(0, 200), rows[0].doc_id]
       );
+    }
+    if (b.assigneeId !== undefined && rows[0].assignee_id !== priorAssignee) {
+      notifyAssignee(rows[0], req.user).catch((err) => console.error('[notify] assign:', err.message));
     }
     res.json(rows[0]);
   }));

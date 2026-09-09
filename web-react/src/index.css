@@ -887,6 +887,17 @@ affine-editor-container affine-table table td {
 /* The metadata band we portal in under the title (DocMetaBand). It sits inside
  * BlockSuite's content column, so it needs no measure of its own — only the
  * breathing room the title's own padding used to provide. */
+/* Page properties, portalled under the title the same way the metadata band is
+ * (PageProperties). Same column maths, so both track the reading measure and
+ * full-width mode from the editor's own variables rather than a second copy. */
+affine-editor-container .mn-doc-props {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: var(--affine-editor-width, var(--reading-w));
+  align-self: center;
+  padding: 0 var(--affine-editor-side-padding, 24px);
+}
+
 affine-editor-container .mn-doc-meta {
   /* Sits in the editor's own column, on the editor's own variables — so it
    * tracks the reading measure and follows full-width mode without a second

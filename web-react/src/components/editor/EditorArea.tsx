@@ -15,6 +15,7 @@ import { EditorBar } from './EditorBar';
 import { FramesPanel } from '../design/FramesPanel';
 import { FloatingToc } from './FloatingToc';
 import { DocMetaBand } from './DocMetaBand';
+import { PageProperties } from './PageProperties';
 import { PageHeader } from './PageHeader';
 import { SlidesRail } from './SlidesRail';
 import { focusDocTitle, takeTitleFocus } from '../../lib/titleFocus';
@@ -163,6 +164,8 @@ export function EditorArea() {
                   suggested={intel.data?.suggestedTags ?? []}
                   savedTick={refreshKey}
                 />
+                {/* After the band on purpose: its host anchors off .mn-doc-meta. */}
+                <PageProperties editor={editorEl} page={page} />
                 <div className="relative pb-40">
                   <LazyEditor
                     key={`${page.id}:${rewriteKey}`}

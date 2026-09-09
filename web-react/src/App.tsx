@@ -10,6 +10,7 @@ import { RightPanel } from './components/panel/RightPanel';
 import { SettingsDialog } from './components/settings/SettingsDialog';
 import { ShareDialog } from './components/share/ShareDialog';
 import { TrashDialog } from './components/trash/TrashDialog';
+import { useDesktopNotifications } from './hooks/useDesktopNotifications';
 import { InboxDialog } from './components/inbox/InboxDialog';
 import { TagView } from './components/tags/TagView';
 import { Sidebar } from './components/sidebar/Sidebar';
@@ -20,6 +21,7 @@ import { useMediaQuery } from './hooks/useMediaQuery';
 import { useWorkspace } from './store/workspace';
 
 export default function App() {
+  useDesktopNotifications();
   useGlobalHotkeys();
   const ws = useWorkspace();
   const isMobile = useMediaQuery('(max-width: 767px)');

@@ -16,6 +16,7 @@ import {
   MoreHorizontal,
   PanelLeft,
   PanelRight,
+  Pin,
   Printer,
   Share2,
   Sparkles,
@@ -36,6 +37,7 @@ import { Button } from '../ui/Button';
 import { PageIcon } from '../ui/PageIcon';
 import { IconButton } from '../ui/IconButton';
 import { Menu } from '../ui/Menu';
+import { useMoveToFolder } from '../../hooks/useMoveToFolder';
 import { copyLink } from '../../lib/clipboard';
 
 /** Google-Docs-style stack of everyone else currently in the open doc. */
@@ -92,6 +94,7 @@ export function TopBar() {
   const project = ws.view === 'project' ? ws.projects.find((p) => p.id === ws.activeProjectId) : null;
   const folder = ws.view === 'folder' && ws.activeFolderId ? ws.folders[ws.activeFolderId] : null;
   const isMobile = useMediaQuery('(max-width: 767px)');
+  const moveTo = useMoveToFolder(page?.id);
 
   return (
     <header className="sticky top-0 z-30 flex h-[45px] shrink-0 items-center gap-1 border-b border-line bg-canvas/80 px-2.5 backdrop-blur-md">
@@ -248,7 +251,9 @@ export function TopBar() {
                 { icon: ws.theme === 'dark' ? Sun : Moon, label: ws.theme === 'dark' ? 'Light mode' : 'Dark mode', onSelect: ws.toggleTheme },
                 { icon: PanelRight, label: 'Outline & details', onSelect: () => ws.setRightPanel(ws.rightPanel ? null : 'outline') },
               ] : []),
-              { icon: Link2, label: 'Copy link', separatorBefore: isMobile, onSelect: () => { copyLink(location.href); } },
+              // Favorites are per person; a pin puts it on the team's shelf.
+              { icon: Pin, label: page.pinned ? 'Unpin for everyone' : 'Pin for everyone', separatorBefore: isMobile, onSelect: () => ws.togglePin(page.id) },
+              { icon: Link2, label: 'Copy link', onSelect: () => { copyLink(location.href); } },
               { icon: History, label: 'Version history', onSelect: () => ws.openHistory(page.id) },
               { icon: ArrowUpRight, label: 'Open in new tab', onSelect: () => window.open(location.href, '_blank') },
               // One row instead of three: the formats belong together and this
@@ -266,6 +271,7 @@ export function TopBar() {
                   { icon: Printer, label: 'PDF', onSelect: () => printDoc(page.id) },
                 ],
               }]),
+              ...(moveTo ? [{ ...moveTo, separatorBefore: true }] : []),
               { icon: Trash2, label: 'Move to Trash', danger: true, separatorBefore: true, onSelect: () => ws.deletePage(page.id) },
             ]}
             trigger={<span><IconButton icon={<MoreHorizontal size={18} />} label="More" /></span>}

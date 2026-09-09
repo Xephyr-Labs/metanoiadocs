@@ -1,4 +1,4 @@
-import { ExternalLink, Link2, Settings2, Trash2, X } from 'lucide-react';
+import { ExternalLink, Link2, MoreHorizontal, Settings2, Trash2, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { UserRow } from '../../lib/docsApi';
 import { cn } from '../../lib/cn';
@@ -11,6 +11,8 @@ import {
 import { LazyEditor } from '../../editor/LazyEditor';
 import { field } from '../ui/styles';
 import { IconButton } from '../ui/IconButton';
+import { Menu } from '../ui/Menu';
+import { useMoveToFolder } from '../../hooks/useMoveToFolder';
 import { useKinds } from './kinds';
 import { KindBadge } from './TaskChip';
 import { PropertyValue } from './props/PropertyValue';
@@ -58,6 +60,9 @@ export function TaskPeek({
   const [depPick, setDepPick] = useState('');
   const [docId, setDocId] = useState<string | null>(task?.doc_id ?? null);
   const [detail, setDetail] = useState<TaskDetail | null>(null);
+  // A task's page is a page like any other, so it can be filed in a folder
+  // straight from here rather than being hunted down in the sidebar first.
+  const moveTo = useMoveToFolder(docId);
 
   // Opening the row is what creates its page — importing a thousand rows must
   // not create a thousand empty documents.
@@ -117,6 +122,13 @@ export function TaskPeek({
           disabled={!docId}
           onClick={() => { if (docId) { ws.select(docId); onClose(); } }}
         />
+        {moveTo && (
+          <Menu
+            align="end"
+            items={[moveTo]}
+            trigger={<span><IconButton icon={<MoreHorizontal size={16} />} label="Task page actions" /></span>}
+          />
+        )}
         <IconButton icon={<X size={16} />} label="Close" onClick={onClose} />
       </header>
 

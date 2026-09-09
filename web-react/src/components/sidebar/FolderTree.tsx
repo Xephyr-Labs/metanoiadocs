@@ -1,4 +1,4 @@
-import { ChevronRight, Download, FilePlus, FileText, FileType, Folder, FolderInput, FolderOpen, Link2, MoreHorizontal, Plus, Printer, Star, Trash2, Upload } from 'lucide-react';
+import { ChevronRight, Download, FilePlus, FileText, FileType, Folder, FolderOpen, Link2, MoreHorizontal, Pin, Plus, Printer, Star, Trash2, Upload } from 'lucide-react';
 import { useState } from 'react';
 import { DOC_MIME, FOLDER_MIME, dragSource, useRowDrop } from './rowDrag';
 import { cn } from '../../lib/cn';
@@ -12,6 +12,7 @@ import { PageIcon } from '../ui/PageIcon';
 import { Menu } from '../ui/Menu';
 import { RowInput } from '../ui/RowInput';
 import { requestTitleFocus } from '../../lib/titleFocus';
+import { useMoveToFolder } from '../../hooks/useMoveToFolder';
 import { rowAction } from '../ui/styles';
 
 const ColorDot = (color: string) =>
@@ -40,6 +41,7 @@ function DocumentRow({ id, depth }: { id: PageId; depth: number }) {
       else ws.reorderPage(draggedId, id, zone);
     },
   });
+  const moveTo = useMoveToFolder(id);
   if (!page) return null;
   const selected = ws.currentId === id;
   const fav = ws.favoriteIds.includes(id);
@@ -48,22 +50,6 @@ function DocumentRow({ id, depth }: { id: PageId; depth: number }) {
   // too, which is what lets a drop open its new parent.
   const nested = page.children;
   const canExpand = nested.length > 0;
-  // Every folder used to be its own "Move to X" row, so this menu grew a line
-  // per folder and eventually ran off the bottom of the screen. They live in a
-  // submenu now, and the folder the page is already in isn't offered.
-  const moveTargets = [
-    // Also the way out of a parent page: a nested page has no folder to leave,
-    // so without this its only escape is a drag onto the edge of another row.
-    ...(page.folderId || page.parentId ? [{ icon: FileText, label: 'Top level', onSelect: () => ws.movePage(id, null) }] : []),
-    ...Object.values(ws.folders)
-      .filter((folder) => folder.id !== page.folderId)
-      .sort((a, b) => a.name.localeCompare(b.name))
-      .map((folder) => ({
-        icon: Folder,
-        label: folder.name,
-        onSelect: () => ws.movePage(id, folder.id),
-      })),
-  ];
   return (
     <div>
     <div
@@ -118,6 +104,8 @@ function DocumentRow({ id, depth }: { id: PageId; depth: number }) {
           trigger={<button type="button" onClick={(e) => e.stopPropagation()} className={rowAction} aria-label="Document actions"><MoreHorizontal size={16} /></button>}
           items={[
             { icon: Star, label: fav ? 'Remove from Favorites' : 'Add to Favorites', onSelect: () => ws.toggleFavorite(id) },
+            // Favorites are yours; a pin is the whole team's.
+            { icon: Pin, label: page.pinned ? 'Unpin for everyone' : 'Pin for everyone', onSelect: () => ws.togglePin(id) },
             { icon: FileText, label: 'Open', onSelect: () => ws.select(id) },
             // Creating it opens it, and the parent's arrow appears with the
             // reference the server just wrote into its body.
@@ -136,7 +124,7 @@ function DocumentRow({ id, depth }: { id: PageId; depth: number }) {
                 { icon: Printer, label: 'PDF', onSelect: () => printDoc(id) },
               ],
             },
-            ...(moveTargets.length ? [{ icon: FolderInput, label: 'Move to', separatorBefore: true, items: moveTargets }] : []),
+            ...(moveTo ? [{ ...moveTo, separatorBefore: true }] : []),
             { icon: Trash2, label: 'Delete', danger: true, separatorBefore: true, onSelect: () => ws.deletePage(id) },
           ]}
         />
@@ -247,6 +235,7 @@ function FolderRow({ id, depth }: { id: string; depth: number }) {
             trigger={<button type="button" onClick={(e) => e.stopPropagation()} className={rowAction} aria-label="Folder actions"><MoreHorizontal size={16} /></button>}
             items={[
               { icon: Star, label: folder.favorite ? 'Remove from Favorites' : 'Add to Favorites', onSelect: () => ws.toggleFolderFavorite(id) },
+              { icon: Pin, label: folder.pinned ? 'Unpin for everyone' : 'Pin for everyone', onSelect: () => ws.toggleFolderPin(id) },
               { icon: FolderOpen, label: 'Open', onSelect: () => ws.openFolder(id) },
               { icon: Plus, label: 'New page', onSelect: () => ws.createPage(id) },
               { icon: Folder, label: 'New subfolder', onSelect: () => ws.createFolder(id) },

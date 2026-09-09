@@ -28,7 +28,8 @@ export function registerFolderRoutes(app, { requireUser, wrap }) {
               (SELECT count(*)::int FROM folders child
                 WHERE child.parent_id = f.id AND child.deleted_at IS NULL) AS folder_count,
               EXISTS (SELECT 1 FROM favorites fav
-                       WHERE fav.folder_id = f.id AND fav.user_id = $1) AS favorite
+                       WHERE fav.folder_id = f.id AND fav.user_id = $1) AS favorite,
+              EXISTS (SELECT 1 FROM pins pin WHERE pin.folder_id = f.id) AS pinned
          FROM folders f
         WHERE f.deleted_at IS NULL
         ORDER BY f.parent_id NULLS FIRST, f.position ASC, lower(f.name), f.id`,
@@ -140,6 +141,25 @@ export function registerFolderRoutes(app, { requireUser, wrap }) {
       await pool.query(
         'INSERT INTO favorites (user_id, folder_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
         [req.user.id, req.params.id]
+      );
+    }
+    res.json({ ok: true });
+  }));
+
+  // Pinning is the team-wide counterpart: one row per folder, no user_id, so
+  // everyone sees the same shelf.
+  app.put('/api/folders/:id/pin', requireUser, wrap(async (req, res) => {
+    if (!(await visibleFolder(req.params.id, req.user.id))) {
+      return res.status(404).json({ error: 'not found' });
+    }
+    if (req.body?.pinned === false) {
+      await pool.query('DELETE FROM pins WHERE folder_id = $1', [req.params.id]);
+    } else {
+      await pool.query(
+        `INSERT INTO pins (folder_id, pinned_by, position)
+         VALUES ($1, $2, coalesce((SELECT max(position) + 1 FROM pins), 0))
+         ON CONFLICT (folder_id) WHERE folder_id IS NOT NULL DO NOTHING`,
+        [req.params.id, req.user.id]
       );
     }
     res.json({ ok: true });

@@ -28,6 +28,7 @@ import { requestMagicLink, consumeMagicLink, sendInviteEmail, sendNotificationEm
 import { lockedFor, noteFailure, clearFailures, lockoutError } from './throttle.js';
 import { getSetting, setSetting } from './db.js';
 import * as Y from 'yjs';
+import { mentionHandles } from './mentions.js';
 import { buildDocState, appendToDocState, appendPageReference, extractText, extractBlocks, docToMarkdown } from './blocks.js';
 import { rewriteDoc } from './restore.js';
 import { wouldFolderCycle } from './folders.js';
@@ -39,6 +40,7 @@ import { topTerms, extractSignals, findMentions, simhash, hamming, keyphrases, s
 import { docKind } from './props.js';
 import { registerTaskRoutes } from './tasks.js';
 import { registerPropRoutes } from './props-routes.js';
+import { registerDocPropRoutes } from './doc-props.js';
 import { registerHomeRoutes } from './home.js';
 import { registerFolderRoutes, visibleFolder } from './folders-routes.js';
 import { TRASH_RETENTION_DAYS, startTrashSweeper } from './retention.js';
@@ -319,10 +321,14 @@ app.get('/api/inbox', requireUser, async (req, res) => {
   const { rows } = await pool.query(
     // comment_id ships too: a client that wants to answer a mention needs the
     // thread it landed in, and re-deriving that by matching bodies is guesswork.
+    // The task join carries kind='assigned' rows: those name a task, which may
+    // not have a page yet, so the client opens the project instead of a doc.
     `SELECT n.id, n.kind, n.actor_name, n.body, n.read_at, n.created_at,
-            n.doc_id, n.comment_id, d.title AS doc_title, d.icon AS doc_icon
+            n.doc_id, n.comment_id, d.title AS doc_title, d.icon AS doc_icon,
+            n.task_id, t.title AS task_title, t.project_id
        FROM notifications n
        LEFT JOIN docs d ON d.id = n.doc_id AND d.deleted_at IS NULL
+       LEFT JOIN tasks t ON t.id = n.task_id AND t.deleted_at IS NULL
       WHERE n.user_id = $1
       ORDER BY n.created_at DESC LIMIT 50`,
     [req.user.id]
@@ -449,10 +455,11 @@ app.get('/api/docs/mine', requireUser, async (req, res) => {
 app.get('/api/docs', requireUser, async (req, res) => {
   const { rows } = await pool.query(
     `SELECT d.id, d.title, d.icon, d.folder_id, d.parent_id, d.position, d.updated_at,
-            coalesce(a.role, 'editor') AS role, d.visibility, d.kind,
+            coalesce(a.role, 'editor') AS role, d.visibility, d.kind, d.props,
             ub.name AS updated_by_name,
             (d.share_token IS NOT NULL) AS shared,
             (f.doc_id IS NOT NULL) AS favorite,
+            (pin.doc_id IS NOT NULL) AS pinned,
             lk.link_count,
             tg.tags
        FROM docs d
@@ -464,6 +471,8 @@ app.get('/api/docs', requireUser, async (req, res) => {
        LEFT JOIN users ub ON ub.id = d.updated_by
        LEFT JOIN doc_access a ON a.doc_id = d.id AND a.user_id = $1
        LEFT JOIN favorites f ON f.doc_id = d.id AND f.user_id = $1
+       -- No user_id: a pin is the same for everyone, which is the whole point.
+       LEFT JOIN pins pin ON pin.doc_id = d.id
        LEFT JOIN LATERAL (
          SELECT coalesce(
            json_agg(json_build_object('id', t.id, 'name', t.name, 'color', t.color)
@@ -871,6 +880,26 @@ app.put('/api/docs/:id/favorite', requireUser, async (req, res) => {
     );
   }
   res.json({ ok: true });
+});
+
+// Pin a doc for the whole workspace. Any member who can see it can pin or
+// unpin it — the same latitude they already have over folders and tags.
+app.put('/api/docs/:id/pin', requireUser, async (req, res) => {
+  if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
+  if (req.body?.pinned === false) {
+    await pool.query('DELETE FROM pins WHERE doc_id = $1', [req.params.id]);
+    return res.json({ ok: true, pinned: false });
+  }
+  await pool.query(
+    `INSERT INTO pins (doc_id, pinned_by, position)
+     VALUES ($1, $2, coalesce((SELECT max(position) + 1 FROM pins), 0))
+     ON CONFLICT (doc_id) WHERE doc_id IS NOT NULL DO NOTHING`,
+    [req.params.id, req.user.id]
+  );
+  // A private page can be pinned, but only the people already shared on it will
+  // see the row. Say so rather than letting it look broken to the pinner.
+  const { rows } = await pool.query('SELECT visibility FROM docs WHERE id = $1', [req.params.id]);
+  res.json({ ok: true, pinned: true, visibleToTeam: rows[0]?.visibility === 'team' });
 });
 
 // --- Tags (workspace-global, AFFiNE-style) ---------------------------------
@@ -1922,8 +1951,7 @@ async function createCommentNotifications({ commentId, docId, body, actor }) {
   const docTitle = doc.rows[0].title || 'Untitled';
 
   // Resolve @usernames in the body against members who have access to this doc.
-  const handles = [...body.matchAll(/@([a-z0-9][a-z0-9._-]*)/gi)]
-    .map((m) => m[1].replace(/[.]+$/, '').toLowerCase());
+  const handles = mentionHandles(body);
   const recipients = new Map(); // user_id -> { kind, email }
   if (handles.length) {
     // A member can be @-mentioned if they can access the doc: an explicit grant,
@@ -1933,7 +1961,7 @@ async function createCommentNotifications({ commentId, docId, body, actor }) {
         WHERE lower(u.username) = ANY($2)
           AND (EXISTS (SELECT 1 FROM doc_access a WHERE a.user_id = u.id AND a.doc_id = $1)
                OR EXISTS (SELECT 1 FROM docs d WHERE d.id = $1 AND d.visibility = 'team'))`,
-      [docId, [...new Set(handles)]]
+      [docId, handles]
     );
     for (const r of rows) recipients.set(r.id, { kind: 'mention', email: r.email });
   }
@@ -1965,6 +1993,71 @@ async function createCommentNotifications({ commentId, docId, body, actor }) {
   }
 }
 
+/**
+ * Notify people @-mentioned in the body of a page, once each.
+ *
+ * The comment notifier next to this one reads a body it was handed; here the
+ * body is a Yjs update, so it is decoded first. A page is saved on a debounce
+ * and every save re-reads the whole text, so the dedupe is the point: someone
+ * mentioned in a paragraph is told the first time that paragraph is saved and
+ * never again, however many times the page is edited afterwards.
+ *
+ * Best-effort throughout — a page must still save when the mail server is down.
+ */
+async function notifyDocMentions(docId, state, actorId) {
+  let text = '';
+  try {
+    // extractText returns { title, text } — the title is scanned too, since a
+    // handle typed into a page title is still a mention.
+    const decoded = extractText(state);
+    text = `${decoded?.title ?? ''}\n${decoded?.text ?? ''}`;
+  } catch {
+    return; // unreadable state is the sync layer's problem, not the notifier's
+  }
+  const handles = mentionHandles(text);
+  if (!handles.length) return;
+
+  const doc = await pool.query('SELECT title FROM docs WHERE id = $1', [docId]);
+  if (!doc.rows[0]) return;
+  const docTitle = doc.rows[0].title || 'Untitled';
+
+  // Same reach as a comment mention: an explicit grant, or a team-visible doc.
+  const { rows: people } = await pool.query(
+    `SELECT u.id, u.email, u.name, u.username FROM users u
+      WHERE lower(u.username) = ANY($2)
+        AND (EXISTS (SELECT 1 FROM doc_access a WHERE a.user_id = u.id AND a.doc_id = $1)
+             OR EXISTS (SELECT 1 FROM docs d WHERE d.id = $1 AND d.visibility = 'team'))`,
+    [docId, handles]
+  );
+  if (!people.length) return;
+
+  const { rows: already } = await pool.query(
+    `SELECT user_id FROM notifications
+      WHERE doc_id = $1 AND kind = 'mention' AND comment_id IS NULL`,
+    [docId]
+  );
+  const told = new Set(already.map((r) => r.user_id));
+
+  const actor = actorId
+    ? (await pool.query('SELECT name, email FROM users WHERE id = $1', [actorId])).rows[0]
+    : null;
+  const actorName = actor?.name || actor?.email || 'Someone';
+
+  for (const person of people) {
+    if (told.has(person.id) || person.id === actorId) continue;
+    await pool.query(
+      `INSERT INTO notifications (id, user_id, actor_id, actor_name, doc_id, kind, body)
+       VALUES ($1, $2, $3, $4, $5, 'mention', $6)`,
+      [crypto.randomUUID(), person.id, actorId, actorName, docId, `Mentioned you in ${docTitle}`]
+    );
+    sendNotificationEmail(
+      person.email,
+      `${actorName} mentioned you in "${docTitle}"`,
+      `${actorName} mentioned you in "${docTitle}".\n\nOpen MetanoiaDocs: ${BASE_URL}/`
+    );
+  }
+}
+
 app.post('/api/comments/:cid/resolve', requireUser, async (req, res) => {
   const c = await pool.query('SELECT doc_id FROM comments WHERE id = $1', [req.params.cid]);
   if (!c.rows[0] || !(await grantOn(c.rows[0].doc_id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
@@ -1988,6 +2081,7 @@ app.use(express.static(WEB_DIST));
 // is long enough. Must register before the SPA catch-all below.
 registerTaskRoutes(app, { requireUser, wrap, createDocRow });
 registerPropRoutes(app, { requireUser, wrap });
+registerDocPropRoutes(app, { requireUser, wrap, grantOn });
 registerHomeRoutes(app, { requireUser, wrap });
 registerFolderRoutes(app, { requireUser, wrap });
 
@@ -2046,6 +2140,8 @@ const hocuspocus = new Hocuspocus({
           'UPDATE docs SET updated_at = now(), updated_by = coalesce($2, updated_by) WHERE id = $1',
           [documentName, actor]
         );
+        notifyDocMentions(documentName, buf, actor).catch((err) =>
+          console.error('[notify] doc mention:', err.message));
         // Auto-snapshot a version at most once per ~8 min of active editing, so
         // history accrues without a row per keystroke.
         const last = await pool.query(

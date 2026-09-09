@@ -45,9 +45,26 @@ export interface DocRow {
   updated_by_name: string | null;
   shared: boolean;
   favorite: boolean;
+  /** Pinned for everyone. Distinct from `favorite`, which is per person. */
+  pinned: boolean;
   /** How many pages this one @-references. 0 = no disclosure arrow in the sidebar. */
   link_count: number;
   tags: TagRow[];
+  props: Record<string, unknown>;
+}
+
+/**
+ * A page property, defined once for the whole workspace. Same shape as a
+ * database's PropRow minus the two things a page has no use for — the project
+ * it belongs to and a relation target.
+ */
+export interface DocPropRow {
+  id: string;
+  key: string;
+  label: string;
+  type: 'text' | 'number' | 'select' | 'multi_select' | 'date' | 'checkbox' | 'person' | 'url';
+  options: { id: string; label: string; color: string }[];
+  position: number;
 }
 
 export interface FolderRow {
@@ -61,6 +78,7 @@ export interface FolderRow {
   document_count: number;
   folder_count: number;
   favorite: boolean;
+  pinned: boolean;
 }
 
 export function normalizeFolderRows(value: unknown): FolderRow[] {
@@ -128,16 +146,21 @@ export interface BacklinkRow {
 
 export interface InboxRow {
   id: string;
-  kind: 'mention' | 'comment';
+  kind: 'mention' | 'comment' | 'assigned';
   /** The comment that triggered it — null for notifications with no thread. */
   comment_id: string | null;
   actor_name: string;
   body: string;
   read_at: string | null;
   created_at: string;
-  doc_id: string;
+  doc_id: string | null;
   doc_title: string;
   doc_icon: string;
+  /** Set on kind='assigned'. The task may have no page yet, so these open the
+   *  project rather than a document. */
+  task_id: string | null;
+  task_title: string | null;
+  project_id: string | null;
 }
 
 export interface Intelligence {
@@ -221,6 +244,17 @@ export const docsApi = {
   restore: (id: string) => req(`/docs/${id}/restore`, { method: 'POST' }),
   /** Destroy a trashed page. Owner or admin only; there is no undo. */
   destroy: (id: string) => req(`/docs/${id}/permanent`, { method: 'DELETE' }),
+  docProps: (): Promise<DocPropRow[]> => req('/doc-props'),
+  createDocProp: (body: { label: string; type: string }): Promise<DocPropRow> =>
+    req('/doc-props', { method: 'POST', body: JSON.stringify(body) }),
+  patchDocProp: (id: string, body: Record<string, unknown>): Promise<DocPropRow> =>
+    req(`/doc-props/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  deleteDocProp: (id: string) => req(`/doc-props/${id}`, { method: 'DELETE' }),
+  setDocProps: (id: string, props: Record<string, unknown>) =>
+    req(`/docs/${id}/props`, { method: 'PATCH', body: JSON.stringify({ props }) }),
+  clearDocProp: (id: string, propId: string) =>
+    req(`/docs/${id}/props/${propId}`, { method: 'DELETE' }),
+
   inbox: (): Promise<InboxRow[]> => req('/inbox'),
   unreadCount: (): Promise<{ count: number }> => req('/notifications/unread-count'),
   markNotificationsRead: () => req('/notifications/read', { method: 'POST' }),
@@ -237,6 +271,10 @@ export const docsApi = {
     req(`/docs/${id}/favorite`, { method: 'PUT', body: JSON.stringify({ favorite }) }),
   favoriteFolder: (id: string, favorite: boolean) =>
     req(`/folders/${id}/favorite`, { method: 'PUT', body: JSON.stringify({ favorite }) }),
+  pin: (id: string, pinned: boolean): Promise<{ pinned: boolean; visibleToTeam?: boolean }> =>
+    req(`/docs/${id}/pin`, { method: 'PUT', body: JSON.stringify({ pinned }) }),
+  pinFolder: (id: string, pinned: boolean) =>
+    req(`/folders/${id}/pin`, { method: 'PUT', body: JSON.stringify({ pinned }) }),
   setVisibility: (id: string, visibility: 'team' | 'private') =>
     req(`/docs/${id}/visibility`, { method: 'PUT', body: JSON.stringify({ visibility }) }),
   access: (id: string): Promise<AccessRow[]> => req(`/docs/${id}/access`),

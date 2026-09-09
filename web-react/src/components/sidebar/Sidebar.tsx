@@ -36,6 +36,8 @@ import { RowInput } from '../ui/RowInput';
 import { rowAction } from '../ui/styles';
 import { PageTree } from './PageTree';
 import { FolderTree } from './FolderTree';
+import { DOC_MIME, dragSource } from './rowDrag';
+import { useMoveToFolder } from '../../hooks/useMoveToFolder';
 
 function NavItem({ icon, label, onClick, trailing, active }: { icon: ReactNode; label: string; onClick?: () => void; trailing?: ReactNode; active?: boolean }) {
   return (
@@ -210,20 +212,36 @@ function ProjectRows({
   );
 }
 
+/** A row in Recent or Favorites. Draggable onto a folder like a tree row, and
+ *  carrying the same "Move to" menu — a page reached from here is usually one
+ *  that has no home yet, which is exactly when it needs filing. */
 function DocRow({ id }: { id: string }) {
   const ws = useWorkspace();
   const p = ws.pages[id];
+  const moveTo = useMoveToFolder(id);
   if (!p) return null;
   return (
-    <button
-      type="button"
-      onClick={() => ws.select(id)}
-      className={cn('flex h-8 w-full items-center gap-1.5 rounded-md px-2 text-base leading-5 transition-colors duration-120', ws.currentId === id ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-hover')}
-    >
-      <PageIcon icon={p.icon} size={16} />
-      <span className="block h-5 min-w-0 flex-1 !self-center truncate leading-5 text-left">{p.title}</span>
-      {p.favorite && <Star size={14} className="shrink-0 fill-current text-amber-400" />}
-    </button>
+    <div className="group/row relative flex items-center">
+      <button
+        type="button"
+        onClick={() => ws.select(id)}
+        {...dragSource(DOC_MIME, id)}
+        className={cn('flex h-8 w-full items-center gap-1.5 rounded-md px-2 pr-7 text-base leading-5 transition-colors duration-120', ws.currentId === id ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-hover')}
+      >
+        <PageIcon icon={p.icon} size={16} />
+        <span className="block h-5 min-w-0 flex-1 !self-center truncate leading-5 text-left">{p.title}</span>
+        {p.favorite && <Star size={14} className="shrink-0 fill-current text-amber-400" />}
+      </button>
+      {moveTo && (
+        <span className="absolute right-1 opacity-0 transition-opacity duration-120 focus-within:opacity-100 group-hover/row:opacity-100">
+          <Menu
+            align="end"
+            items={[moveTo]}
+            trigger={<button type="button" className={rowAction} aria-label={`Actions for ${p.title}`}><MoreHorizontal size={14} /></button>}
+          />
+        </span>
+      )}
+    </div>
   );
 }
 
@@ -393,6 +411,17 @@ export function Sidebar() {
           <section className="mb-5">
             <SectionLabel>Recent</SectionLabel>
             <div className="space-y-px">{ws.recentIds.map((id) => <DocRow key={id} id={id} />)}</div>
+          </section>
+        )}
+
+        {/* Above Favorites on purpose: the team's shelf outranks your own. */}
+        {(ws.pinnedFolderIds.length > 0 || ws.pinnedIds.length > 0) && (
+          <section className="mb-5">
+            <SectionLabel>Pinned</SectionLabel>
+            <div className="space-y-px">
+              {ws.pinnedFolderIds.map((id) => <FavoriteFolderRow key={id} id={id} />)}
+              {ws.pinnedIds.map((id) => <DocRow key={id} id={id} />)}
+            </div>
           </section>
         )}
 

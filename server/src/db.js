@@ -94,6 +94,25 @@ export async function initSchema() {
     ALTER TABLE docs ADD COLUMN IF NOT EXISTS position INT NOT NULL DEFAULT 0;
     CREATE INDEX IF NOT EXISTS folders_parent_idx ON folders(parent_id, position);
     CREATE INDEX IF NOT EXISTS docs_folder_idx ON docs(folder_id, position);
+    -- Properties a page can carry, Notion-style. Workspace-wide definitions so
+    -- "Status" means one thing everywhere and its type and options are declared
+    -- once; the values are per page. Deliberately not db_props: those are scoped
+    -- to a project and carry relations into its rows, neither of which a
+    -- standalone page has.
+    CREATE TABLE IF NOT EXISTS doc_props (
+      id         TEXT PRIMARY KEY,
+      key        TEXT NOT NULL,
+      label      TEXT NOT NULL,
+      type       TEXT NOT NULL DEFAULT 'text',
+      options    JSONB NOT NULL DEFAULT '[]',
+      position   INT NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS doc_props_key_idx ON doc_props(key);
+    -- Values keyed by doc_props.id, same shape as tasks.props: a page sets only
+    -- the properties it actually uses, so the column is sparse by design.
+    ALTER TABLE docs ADD COLUMN IF NOT EXISTS props JSONB NOT NULL DEFAULT '{}';
+
     CREATE TABLE IF NOT EXISTS schema_migrations (
       key        TEXT PRIMARY KEY,
       applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -152,6 +171,23 @@ export async function initSchema() {
     -- Workspace-level key/value settings (AI provider config, etc). Single row
     -- per key; value is JSON. The AI api key lives here — never returned to the
     -- client, only used server-side to call the provider.
+    -- Workspace pins. Favorites are per person and invisible to everyone else;
+    -- a pin is the team's shelf — one row per doc or folder, no user_id in the
+    -- key, so everybody sees the same list. pinned_by is provenance only, not
+    -- ownership: anyone who can see the thing can unpin it, the same way anyone
+    -- can rename a folder here.
+    CREATE TABLE IF NOT EXISTS pins (
+      doc_id     TEXT REFERENCES docs(id) ON DELETE CASCADE,
+      folder_id  TEXT REFERENCES folders(id) ON DELETE CASCADE,
+      pinned_by  TEXT REFERENCES users(id) ON DELETE SET NULL,
+      position   INT NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      -- Exactly one target, never both and never neither.
+      CHECK ((doc_id IS NULL) <> (folder_id IS NULL))
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS pins_doc_idx ON pins(doc_id) WHERE doc_id IS NOT NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS pins_folder_idx ON pins(folder_id) WHERE folder_id IS NOT NULL;
+
     CREATE TABLE IF NOT EXISTS app_settings (
       key        TEXT PRIMARY KEY,
       value      JSONB NOT NULL,
@@ -354,6 +390,14 @@ export async function initSchema() {
       CHECK (task_id <> depends_on_id)
     );
     CREATE INDEX IF NOT EXISTS task_deps_rev_idx ON task_deps(depends_on_id);
+
+    -- kind='assigned' notifications point at a task, not a document: a task's
+    -- page is only created when someone first opens it, so doc_id is usually
+    -- still null at the moment the assignment happens. Declared here rather
+    -- than beside the notifications table because tasks does not exist yet up
+    -- there.
+    ALTER TABLE notifications ADD COLUMN IF NOT EXISTS task_id TEXT
+      REFERENCES tasks(id) ON DELETE CASCADE;
 
     -- Task types, per project and editable by anyone who can see the project.
     -- Epic/Story/Task/Bug are seeded defaults, not built-ins.

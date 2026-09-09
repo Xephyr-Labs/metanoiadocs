@@ -8,9 +8,10 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { docsApi, type DocRow, type FolderRow } from '../lib/docsApi';
+import { docsApi, type DocPropRow, type DocRow, type FolderRow } from '../lib/docsApi';
 import { tasksApi, type ProjectRow } from '../lib/tasksApi';
 import { setPendingSeed } from '../editor/pendingSeed';
+import { toast } from '../lib/toast';
 import { MAX_IMPORT_BYTES } from '../lib/docFiles';
 import { readRoute, showDoc, showFolder, showHome } from '../lib/route';
 import { folderChain } from '../lib/folderPath';
@@ -53,6 +54,20 @@ interface WorkspaceState {
   unreadCount: number;
   refreshUnread: () => void;
   markInboxRead: () => void;
+  /** Pinned for the whole workspace - everyone sees these, unlike favorites. */
+  pinnedIds: PageId[];
+  pinnedFolderIds: string[];
+  togglePin: (id: PageId) => void;
+  toggleFolderPin: (id: string) => void;
+  /** Page property definitions, workspace-wide. */
+  docProps: DocPropRow[];
+  /** Write one page's value for one property; null is stored, not dropped. */
+  setPageProp: (id: PageId, propId: string, value: unknown) => Promise<void>;
+  /** Take a property off one page, leaving the definition alone. */
+  clearPageProp: (id: PageId, propId: string) => Promise<void>;
+  createDocProp: (label: string, type: string) => Promise<DocPropRow>;
+  patchDocProp: (propId: string, body: Record<string, unknown>) => Promise<void>;
+  deleteDocProp: (propId: string) => Promise<void>;
   currentId: PageId | null;
   currentPage: Page | null;
   /** The document whose version history is open, or null. Full-screen, so it is
@@ -138,6 +153,7 @@ function buildPages(rows: DocRow[]): Record<PageId, Page> {
       position: r.position,
       shared: !!r.shared,
       favorite: !!r.favorite,
+      pinned: !!r.pinned,
       role: r.role,
       visibility: r.visibility === 'private' ? 'private' : 'team',
       kind: r.kind === 'design' ? 'design' : r.kind === 'task' ? 'task' : 'doc',
@@ -145,6 +161,7 @@ function buildPages(rows: DocRow[]): Record<PageId, Page> {
       updatedAt: r.updated_at,
       linkCount: r.link_count ?? 0,
       tags: r.tags ?? [],
+      props: r.props ?? {},
       children: [],
   };
   }
@@ -174,6 +191,7 @@ function buildFolders(rows: FolderRow[], expanded: Set<string>, pages: Record<Pa
       children: [],
       expanded: expanded.has(row.id),
       favorite: !!row.favorite,
+      pinned: !!row.pinned,
     };
   }
   // Same comparator as unfiledIds below, so a page keeps its place when it is
@@ -221,8 +239,18 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [allTags, setAllTags] = useState<Tag[]>([]);
   const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
+  // Page property definitions are workspace-wide, so they load once with the
+  // rest of the boot payload rather than per page.
+  const [docProps, setDocProps] = useState<DocPropRow[]>([]);
   const [recentIds, setRecentIds] = useState<PageId[]>(() => {
-    try { return JSON.parse(localStorage.getItem('mn-recents') || '[]'); } catch { return []; }
+    // Same trap as the project filters: parsing succeeding does not make the
+    // value a list of ids, and everything downstream calls .map on it.
+    try {
+      const parsed = JSON.parse(localStorage.getItem('mn-recents') || '[]');
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
   });
   const [mode, setMode] = useState<EditorMode>('page');
   const [fullWidth, setFullWidth] = useState(false);
@@ -298,6 +326,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   // bootstrap already does.
   const saveTick = useDocSaveTick();
   useEffect(() => {
+    // Swallowed on purpose, unlike the mutations below: this is the refresh
+    // itself failing, there is no optimistic state to reconcile, and a save
+    // fires this on a debounce — reporting it would toast on every hiccup.
     if (saveTick) refresh().catch(() => {});
   }, [saveTick, refresh]);
 
@@ -317,6 +348,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         refreshTags();
         refreshUnread();
         refreshProjects();
+        refreshDocProps();
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Failed to load documents.');
       } finally {
@@ -420,6 +452,38 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     });
   }, [refresh]);
 
+  /**
+   * Pin for the whole workspace. A favorite is yours alone; a pin is the team's
+   * shelf, which is why there is no user in any of this.
+   */
+  const togglePin = useCallback((id: PageId) => {
+    setPages((p) => {
+      const cur = p[id];
+      if (!cur) return p;
+      const pinned = !cur.pinned;
+      docsApi.pin(id, pinned)
+        .then((r) => {
+          // A private page can be pinned, but only people already shared on it
+          // will see the row - say so rather than letting it look broken.
+          if (pinned && r?.visibleToTeam === false) {
+            toast('Pinned, but this page is private - only people it is shared with will see it.');
+          }
+        })
+        .catch(() => refresh());
+      return { ...p, [id]: { ...cur, pinned } };
+    });
+  }, [refresh]);
+
+  const toggleFolderPin = useCallback((id: string) => {
+    setFolders((f) => {
+      const cur = f[id];
+      if (!cur) return f;
+      const pinned = !cur.pinned;
+      docsApi.pinFolder(id, pinned).catch(() => refresh());
+      return { ...f, [id]: { ...cur, pinned } };
+    });
+  }, [refresh]);
+
   const setVisibility = useCallback((id: PageId, visibility: 'team' | 'private') => {
     setPages((p) => (p[id] ? { ...p, [id]: { ...p[id], visibility } } : p));
     docsApi.setVisibility(id, visibility).catch(() => refresh());
@@ -480,7 +544,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   const movePage = useCallback(async (id: PageId, folderId: string | null) => {
-    await docsApi.patch(id, { folderId }).catch(() => {});
+    await docsApi.patch(id, { folderId }).catch(() => toast('Could not move that page.'));
+    // The refresh runs either way: it is what puts the row back if the move failed.
     await refresh();
   }, [refresh]);
 
@@ -529,7 +594,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       });
       return next;
     });
-    await docsApi.reorder(folderId, ids).catch(() => {});
+    await docsApi.reorder(folderId, ids).catch(() => toast('Could not save the new order.'));
     await refresh();
   }, [refresh]);
 
@@ -565,7 +630,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       .map((f) => f.id);
     const ids = placeAt(siblings, dragId, targetId, place);
     if (!ids) return;
-    await docsApi.reorderFolders(parentId, ids).catch(() => {});
+    await docsApi.reorderFolders(parentId, ids).catch(() => toast('Could not save the new order.'));
     await refresh();
   }, [refresh]);
 
@@ -605,7 +670,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const deleteFolder = useCallback(async (id: string) => {
-    await docsApi.removeFolder(id).catch(() => {});
+    await docsApi.removeFolder(id).catch(() => toast('Could not delete that folder.'));
     await refresh();
   }, [refresh]);
 
@@ -660,11 +725,81 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   const restorePage = useCallback(async (id: PageId) => {
-    await docsApi.restore(id).catch(() => {});
+    try {
+      await docsApi.restore(id);
+    } catch {
+      // Opening a page the server still has in the trash shows an empty editor
+      // and looks like the restore worked, so bail before navigating.
+      toast('Could not restore that page.');
+      return;
+    }
     await refresh();
     setCurrentId(id);
     setView('doc');
   }, [refresh]);
+
+  const refreshDocProps = useCallback(async () => {
+    setDocProps(await docsApi.docProps().catch(() => []));
+  }, []);
+
+  /**
+   * Write one property's value on one page. A null value is stored, not
+   * dropped: an empty date is still a date the page carries. Use clearPageProp
+   * to take the property off the page entirely.
+   */
+  const setPageProp = useCallback(async (id: PageId, propId: string, value: unknown) => {
+    // Optimistic: a property editor is a form control, and waiting a round trip
+    // to redraw the value someone just typed reads as a dropped keystroke.
+    setPages((prev) => {
+      const page = prev[id];
+      if (!page) return prev;
+      return { ...prev, [id]: { ...page, props: { ...page.props, [propId]: value } } };
+    });
+    // Re-read on failure rather than leaving the optimistic value on screen: a
+    // property that looks saved but never reached the server is worse than a
+    // value that snaps back.
+    await docsApi.setDocProps(id, { [propId]: value }).catch(() => refresh());
+  }, [refresh]);
+
+  /** Take a property off one page, leaving the definition alone. */
+  const clearPageProp = useCallback(async (id: PageId, propId: string) => {
+    setPages((prev) => {
+      const page = prev[id];
+      if (!page) return prev;
+      const props = { ...page.props };
+      delete props[propId];
+      return { ...prev, [id]: { ...page, props } };
+    });
+    await docsApi.clearDocProp(id, propId).catch(() => refresh());
+  }, [refresh]);
+
+  const createDocProp = useCallback(async (label: string, type: string) => {
+    const row = await docsApi.createDocProp({ label, type });
+    setDocProps((prev) => [...prev, row]);
+    return row;
+  }, []);
+
+  const patchDocProp = useCallback(async (propId: string, body: Record<string, unknown>) => {
+    const row = await docsApi.patchDocProp(propId, body);
+    setDocProps((prev) => prev.map((p) => (p.id === row.id ? row : p)));
+  }, []);
+
+  const deleteDocProp = useCallback(async (propId: string) => {
+    await docsApi.deleteDocProp(propId);
+    setDocProps((prev) => prev.filter((p) => p.id !== propId));
+    // The value went with it server-side; drop it here so the page stops
+    // drawing a row for a property that no longer exists.
+    setPages((prev) => {
+      const next: typeof prev = {};
+      for (const [id, page] of Object.entries(prev)) {
+        if (!(propId in page.props)) { next[id] = page; continue; }
+        const props = { ...page.props };
+        delete props[propId];
+        next[id] = { ...page, props };
+      }
+      return next;
+    });
+  }, []);
 
   const refreshUnread = useCallback(async () => {
     const { count } = await docsApi.unreadCount().catch(() => ({ count: 0 }));
@@ -673,8 +808,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const markInboxRead = useCallback(async () => {
     setUnreadCount(0);
-    await docsApi.markNotificationsRead().catch(() => {});
-  }, []);
+    // Otherwise the badge claims zero until the next boot or notification poll,
+    // while the server still has them unread.
+    await docsApi.markNotificationsRead().catch(() => refreshUnread());
+  }, [refreshUnread]);
 
   const refreshTags = useCallback(async () => {
     const t = await docsApi.tags().catch(() => []);
@@ -783,6 +920,14 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     () => Object.values(pages).filter((p) => p.favorite).map((p) => p.id),
     [pages],
   );
+  const pinnedIds = useMemo(
+    () => Object.values(pages).filter((p) => p.pinned).map((p) => p.id),
+    [pages],
+  );
+  const pinnedFolderIds = useMemo(
+    () => Object.values(folders).filter((f) => f.pinned).map((f) => f.id),
+    [folders],
+  );
   const favoriteFolderIds = useMemo(
     () => Object.values(folders).filter((f) => f.favorite).map((f) => f.id),
     [folders],
@@ -802,6 +947,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     () => ({
       pages, folders, folderRootIds, unfiledIds, rootIds, workspaceRootIds, privateRootIds, sharedRootIds, libraryRootIds, favoriteIds, favoriteFolderIds, designIds, recentIds: liveRecentIds,
       allTags, tagFilter, unreadCount, refreshUnread, markInboxRead,
+      docProps, setPageProp, clearPageProp, createDocProp, patchDocProp, deleteDocProp,
+      pinnedIds, pinnedFolderIds, togglePin, toggleFolderPin,
       currentId, currentPage, loading, error, workspaceId,
       historyDocId, openHistory, closeHistory,
       view, activeProjectId, activeFolderId, openHome, openProject, openFolder, projects, refreshProjects,
@@ -816,6 +963,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     [
       pages, folders, folderRootIds, unfiledIds, rootIds, workspaceRootIds, privateRootIds, sharedRootIds, libraryRootIds, favoriteIds, favoriteFolderIds, designIds, liveRecentIds,
       allTags, tagFilter, unreadCount, refreshUnread, markInboxRead,
+      docProps, setPageProp, clearPageProp, createDocProp, patchDocProp, deleteDocProp,
+      pinnedIds, pinnedFolderIds, togglePin, toggleFolderPin,
       currentId, currentPage, loading, error, workspaceId,
       historyDocId, openHistory, closeHistory,
       view, activeProjectId, activeFolderId, openHome, openProject, openFolder, projects, refreshProjects,
