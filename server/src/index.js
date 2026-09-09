@@ -27,6 +27,7 @@ import {
 import { requestMagicLink, consumeMagicLink, sendInviteEmail, sendNotificationEmail } from './auth.js';
 import { lockedFor, noteFailure, clearFailures, lockoutError } from './throttle.js';
 import { idleAbort } from './idle-abort.js';
+import { aiTools } from './ai-tools.js';
 import { getSetting, setSetting } from './db.js';
 import * as Y from 'yjs';
 import { mentionHandles } from './mentions.js';
@@ -1244,6 +1245,11 @@ app.post('/api/invites', requireUser, requireAdmin, async (req, res) => {
 // provider is not actually serving.
 const AI_IDLE_MS = 60_000;
 
+// How many times the copilot may call tools before it has to answer with what
+// it has. A model that searches, reads two docs and replies fits comfortably;
+// one that has lost the plot stops searching forever.
+const AI_MAX_TOOL_ROUNDS = 4;
+
 // Each action is a fixed system prompt kept server-side so the client can't
 // smuggle an arbitrary one through the copilot.
 const AI_ACTIONS = {
@@ -1292,6 +1298,14 @@ app.post('/api/ai', requireUser, async (req, res) => {
   //  - chat: caller sends a `messages` array (the collapsible copilot sidebar).
   //  - action: caller sends {action, selection, prompt} (the inline popup).
   let chatMessages;
+  // Tools are for the chat sidebar only. The inline popup rewrites a selection
+  // and nothing else; handing it search and write tools would let "fix the
+  // grammar here" wander off into the rest of the workspace.
+  let toolSpecs = null;
+  const tools = aiTools({
+    base: `http://127.0.0.1:${PORT}`,
+    headers: req.headers.cookie ? { Cookie: req.headers.cookie } : {},
+  });
   if (Array.isArray(req.body?.messages) && req.body.messages.length) {
     // Trust only role+content; cap history so a runaway client can't blow up the prompt.
     const history = req.body.messages.slice(-20).map((m) => ({
@@ -1299,11 +1313,28 @@ app.post('/api/ai', requireUser, async (req, res) => {
       content: String(m.content || '').slice(0, 20000),
     }));
     const docContext = String(req.body?.selection || '').slice(0, 20000);
+    // The pane sends which doc is open, not its contents: the text is already
+    // here in Postgres, and loading it through the same access-checked route as
+    // everything else means the copilot can never see a doc the user can't.
+    let openDoc = '';
+    const docId = String(req.body?.docId || '');
+    if (docId) {
+      const d = await tools.run('read_doc', JSON.stringify({ id: docId }));
+      if (d && !d.error) {
+        openDoc =
+          `\n\nThe user currently has this document open — id "${docId}", titled "${d.title}". ` +
+          `Assume any question about "this doc"/"the document"/"this page" is about it.\n<document>\n${d.text}\n</document>`;
+      }
+    }
+    toolSpecs = tools.specs;
     chatMessages = [
       {
         role: 'system',
         content:
-          'You are a helpful assistant embedded in a document editor. Answer questions and help with writing. Be concise.' +
+          'You are a helpful assistant embedded in a document editor. Answer questions and help with writing. Be concise.\n' +
+          'For anything about the rest of the workspace, call search_docs and then read_doc — never answer from memory about a document you have not read. ' +
+          'You can change documents with write_doc and create new ones with create_doc, but only when the user actually asks you to; never write to a doc to "show" an edit.' +
+          openDoc +
           (docContext ? `\n\nThe user has this text selected in their document:\n${docContext}` : ''),
       },
       ...history,
@@ -1340,17 +1371,67 @@ app.post('/api/ai', requireUser, async (req, res) => {
   // it a model the provider is not serving is an eternal spinner with no error
   // anywhere.
   const watchdog = idleAbort(AI_IDLE_MS);
+  let wrote = false;
   try {
-    const stream = await client.chat.completions.create({
-      model: cfg.model,
-      max_tokens: 4096,
-      stream: true,
-      messages: chatMessages,
-    }, { signal: watchdog.signal });
-    for await (const chunk of stream) {
-      watchdog.alive();
-      const delta = chunk.choices?.[0]?.delta?.content;
-      if (delta) res.write(`data: ${JSON.stringify({ text: delta })}\n\n`);
+    // Tool rounds. Prose streams straight through as it arrives; a round that
+    // ends in tool calls runs them and goes round again. Tools are withheld on
+    // the last round, which is what guarantees this terminates — with nothing
+    // to call, the model has to answer.
+    for (let round = 0; ; round++) {
+      const stream = await client.chat.completions.create({
+        model: cfg.model,
+        max_tokens: 4096,
+        stream: true,
+        messages: chatMessages,
+        ...(toolSpecs && round < AI_MAX_TOOL_ROUNDS ? { tools: toolSpecs } : {}),
+      }, { signal: watchdog.signal });
+
+      // Tool calls arrive split across deltas — name in one chunk, arguments a
+      // character at a time after it — and are keyed by index, not id.
+      let content = '';
+      const calls = new Map();
+      for await (const chunk of stream) {
+        watchdog.alive();
+        const delta = chunk.choices?.[0]?.delta;
+        if (delta?.content) {
+          content += delta.content;
+          res.write(`data: ${JSON.stringify({ text: delta.content })}\n\n`);
+        }
+        for (const tc of delta?.tool_calls || []) {
+          const slot = calls.get(tc.index) || { id: `call_${tc.index}`, name: '', args: '' };
+          if (tc.id) slot.id = tc.id;
+          if (tc.function?.name) slot.name = tc.function.name;
+          if (tc.function?.arguments) slot.args += tc.function.arguments;
+          calls.set(tc.index, slot);
+        }
+      }
+      if (!calls.size) break;
+
+      chatMessages.push({
+        role: 'assistant',
+        content,
+        tool_calls: [...calls.values()].map((c) => ({
+          id: c.id,
+          type: 'function',
+          function: { name: c.name, arguments: c.args || '{}' },
+        })),
+      });
+      for (const c of calls.values()) {
+        const out = await tools.run(c.name, c.args);
+        watchdog.alive(); // a slow search is progress, not silence
+        if (!out?.error && (c.name === 'write_doc' || c.name === 'create_doc')) wrote = true;
+        chatMessages.push({
+          role: 'tool',
+          tool_call_id: c.id,
+          content: JSON.stringify(out).slice(0, 20000),
+        });
+      }
+    }
+    // A write goes to the persisted Yjs state, which an editor already open on
+    // the page never re-reads. Without this the user asks for an edit, is told
+    // "Done.", and watches an unchanged document.
+    if (wrote) {
+      res.write(`data: ${JSON.stringify({ text: '\n\n(Reload the page to see the change in the editor.)' })}\n\n`);
     }
     res.write('data: [DONE]\n\n');
     res.end();
