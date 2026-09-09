@@ -10,9 +10,11 @@ import { Menu } from '../ui/Menu';
 import { field } from '../ui/styles';
 import { SegmentedControl } from '../ui/SegmentedControl';
 import { Skeleton } from '../ui/Skeleton';
+import { applyFilters, fieldsFor, type Filter } from '../../lib/taskFilter';
 import { Backlog } from './Backlog';
 import { Board } from './Board';
 import { Calendar } from './Calendar';
+import { FilterBar } from './FilterBar';
 import { Gallery } from './Gallery';
 import { Gantt } from './Gantt';
 import { KindsProvider } from './kinds';
@@ -49,6 +51,7 @@ export function ProjectView() {
   const [propsOpen, setPropsOpen] = useState(false);
   // Scope for board/table/gantt/calendar: 'all', 'backlog', or a sprint id.
   const [scope, setScope] = useState('all');
+  const [filters, setFilters] = useState<Filter[]>([]);
   const p = useProject(ws.activeProjectId);
   const isData = project?.mode === 'data';
   const dateProps = useMemo(() => p.props.filter((prop) => prop.type === 'date'), [p.props]);
@@ -56,10 +59,33 @@ export function ProjectView() {
     () => (isData ? DATA_TABS.filter((t) => t.value !== 'calendar' || dateProps.length > 0) : TABS),
     [isData, dateProps.length],
   );
+  const fields = useMemo(
+    () => fieldsFor({
+      mode: project?.mode ?? 'tasks',
+      props: p.props,
+      users: p.users,
+      kinds: p.kinds,
+      sprints: p.sprints,
+    }),
+    [project?.mode, p.props, p.users, p.kinds, p.sprints],
+  );
+
+  // Filters are per project and survive a reload, so a view someone set up is
+  // still there tomorrow. Per browser, not per account — nothing to sync.
+  const filterKey = ws.activeProjectId ? `mn-filters-${ws.activeProjectId}` : null;
 
   // Sprint ids are per-project; a stale scope from the last project would
-  // filter every view down to nothing.
-  useEffect(() => setScope('all'), [ws.activeProjectId]);
+  // filter every view down to nothing. Same for a filter naming a property
+  // that only the last project had.
+  useEffect(() => {
+    setScope('all');
+    try {
+      const saved = filterKey ? localStorage.getItem(filterKey) : null;
+      setFilters(saved ? JSON.parse(saved) : []);
+    } catch {
+      setFilters([]);
+    }
+  }, [ws.activeProjectId, filterKey]);
   useEffect(() => {
     if (!tabs.some((t) => t.value === tab)) setTab(tabs[0]?.value ?? 'table');
   }, [tabs, tab]);
@@ -103,6 +129,22 @@ export function ProjectView() {
     : scope === 'backlog' ? p.tasks.filter((t) => !t.sprint_id)
     : p.tasks.filter((t) => t.sprint_id === scope);
 
+  const visible = applyFilters(scoped, filters, fields);
+  // The backlog is the sprint-planning view, so the sprint scope means nothing
+  // there — but the filters still do.
+  const backlogTasks = applyFilters(p.tasks, filters, fields);
+
+  const changeFilters = (next: Filter[]) => {
+    setFilters(next);
+    if (!filterKey) return;
+    try {
+      if (next.length) localStorage.setItem(filterKey, JSON.stringify(next));
+      else localStorage.removeItem(filterKey);
+    } catch {
+      /* private mode — filters still work for this session, just not the next */
+    }
+  };
+
   return (
     <KindsProvider kinds={p.kinds}>
     <div className="flex h-full flex-col bg-canvas">
@@ -137,6 +179,15 @@ export function ProjectView() {
         />
       </header>
 
+      <div className="flex shrink-0 items-center gap-2 border-b border-line px-4 py-1.5">
+        <FilterBar fields={fields} filters={filters} onChange={changeFilters} />
+        {filters.length > 0 && (
+          <span className="ml-auto shrink-0 text-2xs text-faint">
+            {visible.length} of {scoped.length}
+          </span>
+        )}
+      </div>
+
       {p.error && (
         <div className="border-b border-line bg-surface px-4 py-2 text-sm text-danger">{p.error}</div>
       )}
@@ -149,7 +200,7 @@ export function ProjectView() {
           </div>
         ) : tab === 'backlog' ? (
           <Backlog
-            tasks={p.tasks}
+            tasks={backlogTasks}
             sprints={p.sprints}
             onOpen={setOpen}
             onMoveToSprint={(id, sprintId) => p.patch(id, { sprintId })}
@@ -160,7 +211,7 @@ export function ProjectView() {
           />
         ) : tab === 'board' ? (
           <Board
-            tasks={scoped}
+            tasks={visible}
             onOpen={setOpen}
             onAdd={(status) => add({ status })}
             onMove={(id, status, position) => {
@@ -170,7 +221,7 @@ export function ProjectView() {
           />
         ) : tab === 'table' ? (
           <TaskTable
-            tasks={scoped}
+            tasks={visible}
             mode={project.mode}
             users={p.users}
             props={p.props}
@@ -180,12 +231,12 @@ export function ProjectView() {
             onSetProp={p.setProp}
           />
         ) : tab === 'gantt' ? (
-          <Gantt tasks={scoped} onOpen={setOpen} />
+          <Gantt tasks={visible} onOpen={setOpen} />
         ) : tab === 'gallery' ? (
-          <Gallery tasks={scoped} onOpen={setOpen} onAdd={() => add({})} />
+          <Gallery tasks={visible} onOpen={setOpen} onAdd={() => add({})} />
         ) : (
           <Calendar
-            tasks={scoped}
+            tasks={visible}
             dateProps={isData ? dateProps : []}
             onOpen={setOpen}
             onAdd={(date, propId) => add(propId ? { props: { [propId]: date } } : { dueAt: date })}
