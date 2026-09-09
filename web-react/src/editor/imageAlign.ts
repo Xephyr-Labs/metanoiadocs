@@ -16,8 +16,7 @@
 //   · Painting. A data attribute on the block element, re-applied whenever the
 //     document changes, plus two rules in index.css. Same shape as the mermaid
 //     preview attachment next door.
-import { ActionPlacement, ToolbarModuleExtension, type ToolbarContext } from '@blocksuite/affine/shared/services';
-import { BlockFlavourIdentifier } from '@blocksuite/affine/std';
+import { ActionPlacement, type ToolbarContext } from '@blocksuite/affine/shared/services';
 import { AlignHorizontalCenterIcon, AlignLeftIcon, AlignRightIcon } from '@blocksuite/icons/lit';
 import type { TemplateResult } from 'lit';
 
@@ -52,8 +51,10 @@ function setAlign(model: ImageModelLike, align: ImageAlign) {
   else model.yBlock.set(PROP, align);
 }
 
-/** Alignment actions on the image toolbar. */
-export function imageAlignExtensions() {
+/** Alignment actions for the image toolbar. Registered by imageToolbar.ts —
+ *  BlockSuite's DI throws on a second module for the same toolbar variant, so
+ *  everything we add to the image toolbar has to go through one module. */
+export function imageAlignActions() {
   // The id is also the sort key, so it carries the reading order — plain names
   // would list the three as centre, left, right.
   const action = (order: number, align: ImageAlign, label: string, icon: TemplateResult) => ({
@@ -70,23 +71,16 @@ export function imageAlignExtensions() {
   });
 
   return [
-    ToolbarModuleExtension({
-      id: BlockFlavourIdentifier('custom:affine:image'),
-      config: {
-        actions: [
-          {
-            placement: ActionPlacement.More,
-            // Above BlockSuite's own `c.delete`; see blockLinks.ts.
-            id: 'b.metanoia-align',
-            actions: [
-              action(1, 'left', 'Align left', AlignLeftIcon()),
-              action(2, 'center', 'Align centre', AlignHorizontalCenterIcon()),
-              action(3, 'right', 'Align right', AlignRightIcon()),
-            ],
-          },
-        ],
-      },
-    }),
+    {
+      placement: ActionPlacement.More,
+      // Above BlockSuite's own `c.delete`; see blockLinks.ts.
+      id: 'b.metanoia-align',
+      actions: [
+        action(1, 'left', 'Align left', AlignLeftIcon()),
+        action(2, 'center', 'Align centre', AlignHorizontalCenterIcon()),
+        action(3, 'right', 'Align right', AlignRightIcon()),
+      ],
+    },
   ];
 }
 

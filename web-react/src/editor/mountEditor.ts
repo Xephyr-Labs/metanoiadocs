@@ -30,7 +30,9 @@ import { attachMermaidPreviews } from './mermaidPreview';
 import { attachRefClicks, collectPageLinks, pageLinkExtensions, type LinkTarget } from './pageLinks';
 import { missingDocMetas } from './docMetas';
 import { blockLinkExtensions } from './blockLinks';
-import { attachImageAlign, imageAlignExtensions } from './imageAlign';
+import { attachImageAlign } from './imageAlign';
+import { imageToolbarExtensions } from './imageToolbar';
+import { pageViewportExtension } from './pageViewport';
 import { attachCalloutPanels, calloutExtensions } from './callout';
 import { chartEffects, chartViewExtensions } from './chart';
 import { MetanoiaChartBlockSchema, MetanoiaChartBlockSchemaExtension } from './chart/chart-model';
@@ -38,6 +40,11 @@ import {
   databaseEffects, databaseViewExtensions,
   MetanoiaDatabaseBlockSchema, MetanoiaDatabaseBlockSchemaExtension,
 } from './database';
+import {
+  attachColumns, columnsEffects, columnsViewExtensions,
+  MetanoiaColumnsBlockSchema, MetanoiaColumnsBlockSchemaExtension,
+  MetanoiaColumnBlockSchema, MetanoiaColumnBlockSchemaExtension,
+} from './columns';
 import { createVirtualKeyboardProvider } from './virtualKeyboard';
 
 let effectsInstalled = false;
@@ -128,17 +135,25 @@ export async function mountEditor(
   installEffects();
   chartEffects(); // register the metanoia:chart custom elements once
   databaseEffects(); // register the metanoia:database custom element once
+  columnsEffects(); // register the column elements + widen the schema once
   const viewManager = getTestViewManager();
   const storeManager = getTestStoreManager();
 
   const schema = new Schema();
   schema.register(AffineSchemas);
-  schema.register([MetanoiaChartBlockSchema, MetanoiaDatabaseBlockSchema]);
+  schema.register([
+    MetanoiaChartBlockSchema, MetanoiaDatabaseBlockSchema,
+    MetanoiaColumnsBlockSchema, MetanoiaColumnBlockSchema,
+  ]);
 
   const collection = new TestWorkspace({ id: docId, blobSources: { main: new HttpBlobSource(share) } });
   // Register the chart schema into the store's DI (this is the channel the
   // collection actually uses; the standalone `schema` above is not wired in).
-  collection.storeExtensions = [...storeManager.get('store'), MetanoiaChartBlockSchemaExtension, MetanoiaDatabaseBlockSchemaExtension];
+  collection.storeExtensions = [
+    ...storeManager.get('store'),
+    MetanoiaChartBlockSchemaExtension, MetanoiaDatabaseBlockSchemaExtension,
+    MetanoiaColumnsBlockSchemaExtension, MetanoiaColumnBlockSchemaExtension,
+  ];
   collection.start();
   collection.meta.initialize();
 
@@ -355,7 +370,9 @@ export async function mountEditor(
     },
     // Alignment is a property of the document, so a public viewer must see it
     // too; the toolbar it is set from never opens for them (readonly store).
-    ...imageAlignExtensions(),
+    // Alignment plus the working Download action — one module, because a second
+    // one for the same flavour throws at mount. See imageToolbar.ts.
+    ...imageToolbarExtensions(),
     // Panel colours are a property of the document, so a public viewer must see
     // them too; the toolbar they are set from never opens for them.
     ...calloutExtensions(),
@@ -381,8 +398,11 @@ export async function mountEditor(
           ...blockLinkExtensions(docId),
         ]),
   ];
-  editor.pageSpecs = [...viewManager.get('page'), ...chartViewExtensions, ...databaseViewExtensions, ...common];
-  editor.edgelessSpecs = [...viewManager.get('edgeless'), ...chartViewExtensions, ...databaseViewExtensions, ...common];
+  // pageViewportExtension goes last and only here: it overrides the same
+  // provider the page view extensions register, and the canvas has its own
+  // viewport element that genuinely scrolls.
+  editor.pageSpecs = [...viewManager.get('page'), ...chartViewExtensions, ...databaseViewExtensions, ...columnsViewExtensions, ...common, pageViewportExtension];
+  editor.edgelessSpecs = [...viewManager.get('edgeless'), ...chartViewExtensions, ...databaseViewExtensions, ...columnsViewExtensions, ...common];
 
   root.replaceChildren(editor);
   await editor.updateComplete;
@@ -404,6 +424,14 @@ export async function mountEditor(
   const detachImageAlign = attachImageAlign({
     store: store as unknown as Parameters<typeof attachImageAlign>[0]['store'],
     root: editor,
+    onChange: (cb) => { doc.spaceDoc.on('update', cb); return () => doc.spaceDoc.off('update', cb); },
+  });
+
+  // Side-drop a block to make columns, plus the sweep that keeps a row from
+  // stranding an empty column (see columns/columns-dnd.ts).
+  const detachColumns = attachColumns({
+    editor,
+    store: store as unknown as Parameters<typeof attachColumns>[0]['store'],
     onChange: (cb) => { doc.spaceDoc.on('update', cb); return () => doc.spaceDoc.off('update', cb); },
   });
 
@@ -480,6 +508,7 @@ export async function mountEditor(
       try { detachComments?.(); } catch { /* noop */ }
       try { detachRefClicks?.(); } catch { /* noop */ }
       try { detachImageAlign(); } catch { /* noop */ }
+      try { detachColumns(); } catch { /* noop */ }
       try { detachCalloutPanels(); } catch { /* noop */ }
       try { detachMermaid(); } catch { /* noop */ }
       try { themeObserver.disconnect(); } catch { /* noop */ }
