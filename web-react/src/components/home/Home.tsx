@@ -113,6 +113,22 @@ export function Home() {
 
   const openTask = (t: MyTask) => ws.openProject(t.project_id);
 
+  // "My tasks" merges every project, which is noise for someone who only works
+  // in one of them. The choice is remembered per browser, the way the project
+  // views remember their filters.
+  const [scope, setScope] = useState(() => {
+    try { return localStorage.getItem('mn-home-project') || 'all'; } catch { return 'all'; }
+  });
+  const pickScope = (value: string) => {
+    setScope(value);
+    try {
+      if (value === 'all') localStorage.removeItem('mn-home-project');
+      else localStorage.setItem('mn-home-project', value);
+    } catch {
+      /* private mode — the choice still holds for this session */
+    }
+  };
+
   return (
     <div className="scrollarea h-full overflow-y-auto bg-canvas">
       <div className="mx-auto max-w-[1100px] px-6 py-8 md:px-10">
@@ -169,15 +185,49 @@ export function Home() {
                 a tall neighbor. */}
             <div className="mb-6 grid items-start gap-4 lg:grid-cols-2">
               <div className="grid min-w-0 gap-4">
-                <Card title="My tasks">
-                  {BUCKETS.some((b) => data.myTasks[b].length) ? (
-                    BUCKETS.map((b) => (
-                      <TaskBucket key={b} bucket={b} tasks={data.myTasks[b]} onOpen={openTask} />
-                    ))
-                  ) : (
-                    <EmptyState compact icon={FileText} title="Nothing assigned to you" hint="Tasks you own show up here." />
-                  )}
-                </Card>
+                {(() => {
+                  // Only projects this person actually has tasks in, so every
+                  // option in the list leads somewhere.
+                  const mine = BUCKETS.flatMap((b) => data.myTasks[b]);
+                  const projects = [...new Map(mine.map((t) => [t.project_id, t])).values()]
+                    .sort((a, b) => a.project_name.localeCompare(b.project_name));
+                  // A remembered project whose tasks are all done would leave the
+                  // select showing a blank value, so fall back to everything.
+                  const active = projects.some((p) => p.project_id === scope) ? scope : 'all';
+                  const shown = (b: MyTask['bucket']) =>
+                    active === 'all' ? data.myTasks[b] : data.myTasks[b].filter((t) => t.project_id === active);
+                  return (
+                    <Card
+                      title="My tasks"
+                      action={projects.length > 1 && (
+                        <select
+                          aria-label="Filter tasks by project"
+                          value={active}
+                          onChange={(e) => pickScope(e.target.value)}
+                          className="h-6 max-w-[11rem] cursor-pointer rounded bg-transparent px-1 text-xs text-muted outline-none hover:bg-hover focus:bg-canvas"
+                        >
+                          <option value="all">All projects</option>
+                          {projects.map((p) => (
+                            <option key={p.project_id} value={p.project_id}>{p.project_name}</option>
+                          ))}
+                        </select>
+                      )}
+                    >
+                      {BUCKETS.some((b) => shown(b).length) ? (
+                        BUCKETS.map((b) => (
+                          <TaskBucket key={b} bucket={b} tasks={shown(b)} onOpen={openTask} />
+                        ))
+                      ) : (
+                        <EmptyState
+                          compact
+                          icon={FileText}
+                          title={active === 'all' ? 'Nothing assigned to you' : 'Nothing here in this project'}
+                          hint={active === 'all' ? 'Tasks you own show up here.' : 'Switch back to all projects to see the rest.'}
+                        />
+                      )}
+                    </Card>
+                  );
+                })()}
 
                 <MyDocsCard onOpen={(id) => ws.select(id)} />
               </div>
