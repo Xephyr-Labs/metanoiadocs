@@ -31,7 +31,7 @@ import { aiTools } from './ai-tools.js';
 import { getSetting, setSetting } from './db.js';
 import * as Y from 'yjs';
 import { mentionHandles } from './mentions.js';
-import { buildDocState, appendToDocState, appendPageReference, extractText, extractBlocks, docToMarkdown } from './blocks.js';
+import { buildDocState, appendMarkdownToDoc, appendPageReference, extractText, extractBlocks, docToMarkdown } from './blocks.js';
 import { rewriteDoc } from './restore.js';
 import { wouldFolderCycle } from './folders.js';
 import { printHtml } from './print.js';
@@ -823,33 +823,60 @@ app.get('/api/docs/:id/print', requireUser, async (req, res) => {
   }));
 });
 
-// Write markdown content to a doc: mode 'append' (default) or 'replace'. Editors
-// see the change on their next open/reload (this writes the persisted state).
-app.post('/api/docs/:id/content', requireUser, async (req, res) => {
-  if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
+// Write markdown content to a doc: mode 'append' (default) or 'replace'.
+//
+// Goes through a Hocuspocus direct connection rather than into doc_states, for
+// the same reason referenceChild does: a state row written behind a live
+// session's back is overwritten by that session's next save, and until then
+// nobody with the page open sees anything. Through the connection the blocks
+// are an ordinary edit — they appear in every open editor as they land, and are
+// persisted by the path a typed edit already takes.
+app.post('/api/docs/:id/content', requireUser, wrap(async (req, res) => {
+  const docId = req.params.id;
+  if (!(await grantOn(docId, req.user.id))) return res.status(403).json({ error: 'forbidden' });
   const markdown = String(req.body?.markdown || '');
   const mode = req.body?.mode === 'replace' ? 'replace' : 'append';
-  const d = await pool.query('SELECT title FROM docs WHERE id = $1 AND deleted_at IS NULL', [req.params.id]);
+  const d = await pool.query('SELECT title FROM docs WHERE id = $1 AND deleted_at IS NULL', [docId]);
   if (!d.rows[0]) return res.status(404).json({ error: 'not found' });
-  const cur = await pool.query('SELECT state FROM doc_states WHERE doc_id = $1', [req.params.id]);
+
+  // A replace swaps the whole body, which is what restoring a version does —
+  // same primitive, so the same one is used. An append on a doc with no body
+  // yet has nothing to append to, and becomes the same wholesale write.
   let state;
-  if (mode === 'replace' || !cur.rows[0]) {
-    state = Buffer.from(buildDocState(d.rows[0].title, markdown));
-  } else {
-    state = Buffer.from(appendToDocState(cur.rows[0].state, markdown));
+  let rewrote = mode === 'replace';
+  const conn = await hocuspocus.openDirectConnection(docId, { docId, user: req.user });
+  try {
+    await conn.transact((doc) => {
+      if (mode === 'append' && appendMarkdownToDoc(doc, markdown)) {
+        // appended in place
+      } else {
+        rewriteDoc(doc, buildDocState(d.rows[0].title, markdown));
+        rewrote = true;
+      }
+      state = Buffer.from(Y.encodeStateAsUpdate(doc));
+    });
+  } finally {
+    await conn.disconnect();
   }
-  await pool.query(
-    `INSERT INTO doc_states (doc_id, state, updated_at) VALUES ($1, $2, now())
-     ON CONFLICT (doc_id) DO UPDATE SET state = EXCLUDED.state, updated_at = now()`,
-    [req.params.id, state]
-  );
-  // Keep search current from the freshly-decoded text.
+
+  // Yjs converges on its own, but BlockSuite builds its block models when the
+  // editor mounts: a wholesale swap leaves those models pointing at entries
+  // that no longer exist, so the data is right and the screen is stale. Tell
+  // open editors to rebuild. An append needs none of this.
+  if (rewrote) {
+    try { hocuspocus.documents.get(docId)?.broadcastStateless(JSON.stringify({ type: 'doc-restored' })); }
+    catch { /* nobody connected; the next open reads the written state anyway */ }
+  }
+
+  // The search text is normally pushed up by whichever editor is open. A
+  // headless write refreshes it here, so a doc written by the copilot or an
+  // integration is searchable on what it now says.
   try {
     const { text } = extractText(state);
-    await pool.query('UPDATE docs SET search_text = $1, updated_at = now() WHERE id = $2', [text.slice(0, 100000), req.params.id]);
-  } catch { /* noop */ }
+    await pool.query('UPDATE docs SET search_text = $1, updated_at = now() WHERE id = $2', [text.slice(0, 100000), docId]);
+  } catch { /* an odd state still saves; only the search text goes stale */ }
   res.json({ ok: true });
-});
+}));
 
 // Toggle a doc between team-visible and private (owner only). Private keeps only
 // the owner + anyone explicitly shared via doc_access; team is visible to all.
@@ -1371,7 +1398,6 @@ app.post('/api/ai', requireUser, async (req, res) => {
   // it a model the provider is not serving is an eternal spinner with no error
   // anywhere.
   const watchdog = idleAbort(AI_IDLE_MS);
-  let wrote = false;
   try {
     // Tool rounds. Prose streams straight through as it arrives; a round that
     // ends in tool calls runs them and goes round again. Tools are withheld on
@@ -1419,19 +1445,12 @@ app.post('/api/ai', requireUser, async (req, res) => {
       for (const c of calls.values()) {
         const out = await tools.run(c.name, c.args);
         watchdog.alive(); // a slow search is progress, not silence
-        if (!out?.error && (c.name === 'write_doc' || c.name === 'create_doc')) wrote = true;
         chatMessages.push({
           role: 'tool',
           tool_call_id: c.id,
           content: JSON.stringify(out).slice(0, 20000),
         });
       }
-    }
-    // A write goes to the persisted Yjs state, which an editor already open on
-    // the page never re-reads. Without this the user asks for an edit, is told
-    // "Done.", and watches an unchanged document.
-    if (wrote) {
-      res.write(`data: ${JSON.stringify({ text: '\n\n(Reload the page to see the change in the editor.)' })}\n\n`);
     }
     res.write('data: [DONE]\n\n');
     res.end();

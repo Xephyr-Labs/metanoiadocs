@@ -668,23 +668,31 @@ export function appendPageReference(doc, pageId) {
   return true;
 }
 
-/** Append markdown blocks to an existing doc_states buffer. Returns new state. */
-export function appendToDocState(existing, markdown) {
-  const doc = new Y.Doc();
-  Y.applyUpdate(doc, new Uint8Array(existing));
+/**
+ * Append markdown blocks to a doc, in place.
+ *
+ * Takes the live Y.Doc rather than a state buffer so the same call works on a
+ * document somebody has open right now: the blocks land as an ordinary
+ * incremental edit that Yjs carries to every connected editor, instead of a
+ * replacement state row written behind those editors' backs.
+ *
+ * False means the doc has no note block to append into — nobody has ever opened
+ * it — which only the caller can resolve, by building a body from scratch.
+ */
+export function appendMarkdownToDoc(doc, markdown) {
   const blocks = doc.getMap('blocks');
-  // find the note (first affine:note); fall back to rebuilding if malformed.
+  // find the note (first affine:note); a doc without one has no body yet.
   let note = null;
   for (const [, b] of blocks) {
     if (b instanceof Y.Map && b.get('sys:flavour') === 'affine:note') { note = b; break; }
   }
-  if (!note) return buildDocState('', markdown);
+  if (!note) return false;
   const descs = parseMarkdown(markdown);
   const pending = [];
   const children = note.get('sys:children');
   children.push(makeBlocks(blocks, descs, null, pending));
   applyMarks(pending);
-  return Y.encodeStateAsUpdate(doc);
+  return true;
 }
 
 // A content block re-serialized to markdown-ish source, so both already-typed
