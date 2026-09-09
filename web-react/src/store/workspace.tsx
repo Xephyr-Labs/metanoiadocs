@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { docsApi, type DocRow, type FolderRow } from '../lib/docsApi';
+import { docsApi, type DocPropRow, type DocRow, type FolderRow } from '../lib/docsApi';
 import { tasksApi, type ProjectRow } from '../lib/tasksApi';
 import { setPendingSeed } from '../editor/pendingSeed';
 import { MAX_IMPORT_BYTES } from '../lib/docFiles';
@@ -53,6 +53,15 @@ interface WorkspaceState {
   unreadCount: number;
   refreshUnread: () => void;
   markInboxRead: () => void;
+  /** Page property definitions, workspace-wide. */
+  docProps: DocPropRow[];
+  /** Write one page's value for one property; null is stored, not dropped. */
+  setPageProp: (id: PageId, propId: string, value: unknown) => Promise<void>;
+  /** Take a property off one page, leaving the definition alone. */
+  clearPageProp: (id: PageId, propId: string) => Promise<void>;
+  createDocProp: (label: string, type: string) => Promise<DocPropRow>;
+  patchDocProp: (propId: string, body: Record<string, unknown>) => Promise<void>;
+  deleteDocProp: (propId: string) => Promise<void>;
   currentId: PageId | null;
   currentPage: Page | null;
   /** The document whose version history is open, or null. Full-screen, so it is
@@ -145,6 +154,7 @@ function buildPages(rows: DocRow[]): Record<PageId, Page> {
       updatedAt: r.updated_at,
       linkCount: r.link_count ?? 0,
       tags: r.tags ?? [],
+      props: r.props ?? {},
       children: [],
   };
   }
@@ -221,6 +231,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [allTags, setAllTags] = useState<Tag[]>([]);
   const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
+  // Page property definitions are workspace-wide, so they load once with the
+  // rest of the boot payload rather than per page.
+  const [docProps, setDocProps] = useState<DocPropRow[]>([]);
   const [recentIds, setRecentIds] = useState<PageId[]>(() => {
     try { return JSON.parse(localStorage.getItem('mn-recents') || '[]'); } catch { return []; }
   });
@@ -317,6 +330,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         refreshTags();
         refreshUnread();
         refreshProjects();
+        refreshDocProps();
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Failed to load documents.');
       } finally {
@@ -666,6 +680,66 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setView('doc');
   }, [refresh]);
 
+  const refreshDocProps = useCallback(async () => {
+    setDocProps(await docsApi.docProps().catch(() => []));
+  }, []);
+
+  /**
+   * Write one property's value on one page. A null value is stored, not
+   * dropped: an empty date is still a date the page carries. Use clearPageProp
+   * to take the property off the page entirely.
+   */
+  const setPageProp = useCallback(async (id: PageId, propId: string, value: unknown) => {
+    // Optimistic: a property editor is a form control, and waiting a round trip
+    // to redraw the value someone just typed reads as a dropped keystroke.
+    setPages((prev) => {
+      const page = prev[id];
+      if (!page) return prev;
+      return { ...prev, [id]: { ...page, props: { ...page.props, [propId]: value } } };
+    });
+    await docsApi.setDocProps(id, { [propId]: value }).catch(() => {});
+  }, []);
+
+  /** Take a property off one page, leaving the definition alone. */
+  const clearPageProp = useCallback(async (id: PageId, propId: string) => {
+    setPages((prev) => {
+      const page = prev[id];
+      if (!page) return prev;
+      const props = { ...page.props };
+      delete props[propId];
+      return { ...prev, [id]: { ...page, props } };
+    });
+    await docsApi.clearDocProp(id, propId).catch(() => {});
+  }, []);
+
+  const createDocProp = useCallback(async (label: string, type: string) => {
+    const row = await docsApi.createDocProp({ label, type });
+    setDocProps((prev) => [...prev, row]);
+    return row;
+  }, []);
+
+  const patchDocProp = useCallback(async (propId: string, body: Record<string, unknown>) => {
+    const row = await docsApi.patchDocProp(propId, body);
+    setDocProps((prev) => prev.map((p) => (p.id === row.id ? row : p)));
+  }, []);
+
+  const deleteDocProp = useCallback(async (propId: string) => {
+    await docsApi.deleteDocProp(propId);
+    setDocProps((prev) => prev.filter((p) => p.id !== propId));
+    // The value went with it server-side; drop it here so the page stops
+    // drawing a row for a property that no longer exists.
+    setPages((prev) => {
+      const next: typeof prev = {};
+      for (const [id, page] of Object.entries(prev)) {
+        if (!(propId in page.props)) { next[id] = page; continue; }
+        const props = { ...page.props };
+        delete props[propId];
+        next[id] = { ...page, props };
+      }
+      return next;
+    });
+  }, []);
+
   const refreshUnread = useCallback(async () => {
     const { count } = await docsApi.unreadCount().catch(() => ({ count: 0 }));
     setUnreadCount(count);
@@ -802,6 +876,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     () => ({
       pages, folders, folderRootIds, unfiledIds, rootIds, workspaceRootIds, privateRootIds, sharedRootIds, libraryRootIds, favoriteIds, favoriteFolderIds, designIds, recentIds: liveRecentIds,
       allTags, tagFilter, unreadCount, refreshUnread, markInboxRead,
+      docProps, setPageProp, clearPageProp, createDocProp, patchDocProp, deleteDocProp,
       currentId, currentPage, loading, error, workspaceId,
       historyDocId, openHistory, closeHistory,
       view, activeProjectId, activeFolderId, openHome, openProject, openFolder, projects, refreshProjects,
@@ -816,6 +891,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     [
       pages, folders, folderRootIds, unfiledIds, rootIds, workspaceRootIds, privateRootIds, sharedRootIds, libraryRootIds, favoriteIds, favoriteFolderIds, designIds, liveRecentIds,
       allTags, tagFilter, unreadCount, refreshUnread, markInboxRead,
+      docProps, setPageProp, clearPageProp, createDocProp, patchDocProp, deleteDocProp,
       currentId, currentPage, loading, error, workspaceId,
       historyDocId, openHistory, closeHistory,
       view, activeProjectId, activeFolderId, openHome, openProject, openFolder, projects, refreshProjects,

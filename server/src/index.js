@@ -39,6 +39,7 @@ import { topTerms, extractSignals, findMentions, simhash, hamming, keyphrases, s
 import { docKind } from './props.js';
 import { registerTaskRoutes } from './tasks.js';
 import { registerPropRoutes } from './props-routes.js';
+import { registerDocPropRoutes } from './doc-props.js';
 import { registerHomeRoutes } from './home.js';
 import { registerFolderRoutes, visibleFolder } from './folders-routes.js';
 import { TRASH_RETENTION_DAYS, startTrashSweeper } from './retention.js';
@@ -453,7 +454,7 @@ app.get('/api/docs/mine', requireUser, async (req, res) => {
 app.get('/api/docs', requireUser, async (req, res) => {
   const { rows } = await pool.query(
     `SELECT d.id, d.title, d.icon, d.folder_id, d.parent_id, d.position, d.updated_at,
-            coalesce(a.role, 'editor') AS role, d.visibility, d.kind,
+            coalesce(a.role, 'editor') AS role, d.visibility, d.kind, d.props,
             ub.name AS updated_by_name,
             (d.share_token IS NOT NULL) AS shared,
             (f.doc_id IS NOT NULL) AS favorite,
@@ -1992,6 +1993,7 @@ app.use(express.static(WEB_DIST));
 // is long enough. Must register before the SPA catch-all below.
 registerTaskRoutes(app, { requireUser, wrap, createDocRow });
 registerPropRoutes(app, { requireUser, wrap });
+registerDocPropRoutes(app, { requireUser, wrap, grantOn });
 registerHomeRoutes(app, { requireUser, wrap });
 registerFolderRoutes(app, { requireUser, wrap });
 

@@ -94,6 +94,25 @@ export async function initSchema() {
     ALTER TABLE docs ADD COLUMN IF NOT EXISTS position INT NOT NULL DEFAULT 0;
     CREATE INDEX IF NOT EXISTS folders_parent_idx ON folders(parent_id, position);
     CREATE INDEX IF NOT EXISTS docs_folder_idx ON docs(folder_id, position);
+    -- Properties a page can carry, Notion-style. Workspace-wide definitions so
+    -- "Status" means one thing everywhere and its type and options are declared
+    -- once; the values are per page. Deliberately not db_props: those are scoped
+    -- to a project and carry relations into its rows, neither of which a
+    -- standalone page has.
+    CREATE TABLE IF NOT EXISTS doc_props (
+      id         TEXT PRIMARY KEY,
+      key        TEXT NOT NULL,
+      label      TEXT NOT NULL,
+      type       TEXT NOT NULL DEFAULT 'text',
+      options    JSONB NOT NULL DEFAULT '[]',
+      position   INT NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS doc_props_key_idx ON doc_props(key);
+    -- Values keyed by doc_props.id, same shape as tasks.props: a page sets only
+    -- the properties it actually uses, so the column is sparse by design.
+    ALTER TABLE docs ADD COLUMN IF NOT EXISTS props JSONB NOT NULL DEFAULT '{}';
+
     CREATE TABLE IF NOT EXISTS schema_migrations (
       key        TEXT PRIMARY KEY,
       applied_at TIMESTAMPTZ NOT NULL DEFAULT now()

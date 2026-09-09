@@ -26,6 +26,8 @@ export interface Page {
   /** Pages this one @-references. Drives the sidebar disclosure arrow. */
   linkCount: number;
   tags: Tag[];
+  /** Page property values, keyed by DocPropRow.id. Sparse: only what is set. */
+  props: Record<string, unknown>;
   children: PageId[];
   expanded?: boolean;
 }

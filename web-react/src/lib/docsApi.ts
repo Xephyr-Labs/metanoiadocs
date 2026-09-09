@@ -48,6 +48,21 @@ export interface DocRow {
   /** How many pages this one @-references. 0 = no disclosure arrow in the sidebar. */
   link_count: number;
   tags: TagRow[];
+  props: Record<string, unknown>;
+}
+
+/**
+ * A page property, defined once for the whole workspace. Same shape as a
+ * database's PropRow minus the two things a page has no use for — the project
+ * it belongs to and a relation target.
+ */
+export interface DocPropRow {
+  id: string;
+  key: string;
+  label: string;
+  type: 'text' | 'number' | 'select' | 'multi_select' | 'date' | 'checkbox' | 'person' | 'url';
+  options: { id: string; label: string; color: string }[];
+  position: number;
 }
 
 export interface FolderRow {
@@ -226,6 +241,17 @@ export const docsApi = {
   restore: (id: string) => req(`/docs/${id}/restore`, { method: 'POST' }),
   /** Destroy a trashed page. Owner or admin only; there is no undo. */
   destroy: (id: string) => req(`/docs/${id}/permanent`, { method: 'DELETE' }),
+  docProps: (): Promise<DocPropRow[]> => req('/doc-props'),
+  createDocProp: (body: { label: string; type: string }): Promise<DocPropRow> =>
+    req('/doc-props', { method: 'POST', body: JSON.stringify(body) }),
+  patchDocProp: (id: string, body: Record<string, unknown>): Promise<DocPropRow> =>
+    req(`/doc-props/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  deleteDocProp: (id: string) => req(`/doc-props/${id}`, { method: 'DELETE' }),
+  setDocProps: (id: string, props: Record<string, unknown>) =>
+    req(`/docs/${id}/props`, { method: 'PATCH', body: JSON.stringify({ props }) }),
+  clearDocProp: (id: string, propId: string) =>
+    req(`/docs/${id}/props/${propId}`, { method: 'DELETE' }),
+
   inbox: (): Promise<InboxRow[]> => req('/inbox'),
   unreadCount: (): Promise<{ count: number }> => req('/notifications/unread-count'),
   markNotificationsRead: () => req('/notifications/read', { method: 'POST' }),
