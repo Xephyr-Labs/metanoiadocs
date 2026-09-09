@@ -367,13 +367,16 @@ export async function aiStream(
       if (!t.startsWith('data:')) continue;
       const data = t.slice(5).trim();
       if (data === '[DONE]') return;
+      // Parse inside the try, act outside it: an in-band error must reach the
+      // caller, and it cannot do that from a block whose catch ignores throws.
+      let p: { text?: string; error?: string };
       try {
-        const p = JSON.parse(data);
-        if (p.text) onDelta(p.text);
-        if (p.error) throw new Error(p.error);
+        p = JSON.parse(data);
       } catch {
-        /* ignore partial */
+        continue; // partial frame
       }
+      if (p.text) onDelta(p.text);
+      if (p.error) throw new Error(p.error);
     }
   }
 }
