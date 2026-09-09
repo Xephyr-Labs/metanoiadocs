@@ -21,6 +21,7 @@ import {
 import { useEffect, useState, type ReactNode } from 'react';
 import { workspaces } from '../../data/mock';
 import { useWorkspace } from '../../store/workspace';
+import { notifyEnabled, setNotifyEnabled } from '../../lib/desktopNotify';
 import { useAuth } from '../../store/auth';
 import { sendInvite } from '../../lib/api';
 import { docsApi, type UserRow } from '../../lib/docsApi';
@@ -286,6 +287,29 @@ function Preferences() {
     localStorage.setItem('mn-text-size', v ? 'small' : '');
     document.documentElement.dataset.textSize = v ? 'small' : '';
   };
+
+  // The browser's own permission is the real switch; ours only records that
+  // this person wants them, so revoking permission in site settings turns them
+  // off here too without any syncing.
+  const canNotify = typeof Notification !== 'undefined';
+  const [notify, setNotify] = useState(
+    () => canNotify && notifyEnabled() && Notification.permission === 'granted',
+  );
+  const [denied, setDenied] = useState(() => canNotify && Notification.permission === 'denied');
+  const toggleNotify = async (v: boolean) => {
+    if (!v) {
+      setNotifyEnabled(false);
+      setNotify(false);
+      return;
+    }
+    const permission = Notification.permission === 'granted'
+      ? 'granted'
+      : await Notification.requestPermission();
+    setDenied(permission === 'denied');
+    const on = permission === 'granted';
+    setNotifyEnabled(on);
+    setNotify(on);
+  };
   return (
     <div>
       <SectionTitle>Preferences</SectionTitle>
@@ -307,6 +331,15 @@ function Preferences() {
           }
         />
         <Row title="Smaller text" desc="Reduce the editor font size." control={<Switch on={small} onChange={toggleSmall} />} />
+        {canNotify && (
+          <Row
+            title="Desktop notifications"
+            desc={denied
+              ? 'Blocked for this site — allow notifications in your browser settings first.'
+              : 'Get a browser notification when you are mentioned or a task is assigned to you. Works while Metanoia is open in a tab.'}
+            control={<Switch on={notify} onChange={toggleNotify} />}
+          />
+        )}
       </div>
     </div>
   );
