@@ -355,6 +355,14 @@ export async function initSchema() {
     );
     CREATE INDEX IF NOT EXISTS task_deps_rev_idx ON task_deps(depends_on_id);
 
+    -- kind='assigned' notifications point at a task, not a document: a task's
+    -- page is only created when someone first opens it, so doc_id is usually
+    -- still null at the moment the assignment happens. Declared here rather
+    -- than beside the notifications table because tasks does not exist yet up
+    -- there.
+    ALTER TABLE notifications ADD COLUMN IF NOT EXISTS task_id TEXT
+      REFERENCES tasks(id) ON DELETE CASCADE;
+
     -- Task types, per project and editable by anyone who can see the project.
     -- Epic/Story/Task/Bug are seeded defaults, not built-ins.
     --

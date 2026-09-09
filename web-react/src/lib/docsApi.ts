@@ -128,16 +128,21 @@ export interface BacklinkRow {
 
 export interface InboxRow {
   id: string;
-  kind: 'mention' | 'comment';
+  kind: 'mention' | 'comment' | 'assigned';
   /** The comment that triggered it — null for notifications with no thread. */
   comment_id: string | null;
   actor_name: string;
   body: string;
   read_at: string | null;
   created_at: string;
-  doc_id: string;
+  doc_id: string | null;
   doc_title: string;
   doc_icon: string;
+  /** Set on kind='assigned'. The task may have no page yet, so these open the
+   *  project rather than a document. */
+  task_id: string | null;
+  task_title: string | null;
+  project_id: string | null;
 }
 
 export interface Intelligence {
