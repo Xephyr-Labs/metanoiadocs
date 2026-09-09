@@ -348,6 +348,7 @@ function DetailsTab() {
 }
 
 function AITab() {
+  const ws = useWorkspace();
   const [messages, setMessages] = useState<{ role: 'user' | 'assistant'; content: string }[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
@@ -365,7 +366,9 @@ function AITab() {
     setMessages([...history, { role: 'assistant', content: '' }]);
     setBusy(true);
     try {
-      await aiStream({ messages: history }, (delta) => {
+      // Send which doc is open, not its text: the server already has the doc
+      // and reads it under the user's own access.
+      await aiStream({ messages: history, docId: ws.currentId ?? undefined }, (delta) => {
         setMessages((m) => {
           const next = [...m];
           next[next.length - 1] = { role: 'assistant', content: next[next.length - 1].content + delta };

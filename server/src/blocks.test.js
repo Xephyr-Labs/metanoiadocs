@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as Y from 'yjs';
-import { buildDocState, collectMarkdownLinks, docToMarkdown, extractText } from './blocks.js';
+import { appendMarkdownToDoc, buildDocState, collectMarkdownLinks, docToMarkdown, extractText } from './blocks.js';
 
 /** Every `reference` attribute in a built doc state, in no particular order. */
 function referencesIn(state) {
@@ -180,4 +180,19 @@ test('an image whose source is not a stored blob stays literal text', () => {
   Y.applyUpdate(doc, new Uint8Array(state));
   const flavours = [...doc.getMap('blocks')].map(([, b]) => b.get('sys:flavour'));
   assert.ok(!flavours.includes('affine:image'));
+});
+
+test('appendMarkdownToDoc edits the doc in place, so a live editor sees the blocks', () => {
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, buildDocState('Notes', 'first line'));
+  assert.equal(appendMarkdownToDoc(doc, '## Added\n\nsecond line'), true);
+  const text = extractText(Y.encodeStateAsUpdate(doc)).text;
+  assert.match(text, /first line/);
+  assert.match(text, /second line/);
+});
+
+test('appendMarkdownToDoc reports a doc with no body instead of inventing one', () => {
+  // Nobody has ever opened this page, so there is no note block to append into.
+  // Only the caller can decide to write a whole body, so this must not guess.
+  assert.equal(appendMarkdownToDoc(new Y.Doc(), 'orphan'), false);
 });

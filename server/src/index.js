@@ -27,10 +27,11 @@ import {
 import { requestMagicLink, consumeMagicLink, sendInviteEmail, sendNotificationEmail } from './auth.js';
 import { lockedFor, noteFailure, clearFailures, lockoutError } from './throttle.js';
 import { idleAbort } from './idle-abort.js';
+import { aiTools } from './ai-tools.js';
 import { getSetting, setSetting } from './db.js';
 import * as Y from 'yjs';
 import { mentionHandles } from './mentions.js';
-import { buildDocState, appendToDocState, appendPageReference, extractText, extractBlocks, docToMarkdown } from './blocks.js';
+import { buildDocState, appendMarkdownToDoc, appendPageReference, extractText, extractBlocks, docToMarkdown } from './blocks.js';
 import { rewriteDoc } from './restore.js';
 import { wouldFolderCycle } from './folders.js';
 import { printHtml } from './print.js';
@@ -822,33 +823,60 @@ app.get('/api/docs/:id/print', requireUser, async (req, res) => {
   }));
 });
 
-// Write markdown content to a doc: mode 'append' (default) or 'replace'. Editors
-// see the change on their next open/reload (this writes the persisted state).
-app.post('/api/docs/:id/content', requireUser, async (req, res) => {
-  if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
+// Write markdown content to a doc: mode 'append' (default) or 'replace'.
+//
+// Goes through a Hocuspocus direct connection rather than into doc_states, for
+// the same reason referenceChild does: a state row written behind a live
+// session's back is overwritten by that session's next save, and until then
+// nobody with the page open sees anything. Through the connection the blocks
+// are an ordinary edit — they appear in every open editor as they land, and are
+// persisted by the path a typed edit already takes.
+app.post('/api/docs/:id/content', requireUser, wrap(async (req, res) => {
+  const docId = req.params.id;
+  if (!(await grantOn(docId, req.user.id))) return res.status(403).json({ error: 'forbidden' });
   const markdown = String(req.body?.markdown || '');
   const mode = req.body?.mode === 'replace' ? 'replace' : 'append';
-  const d = await pool.query('SELECT title FROM docs WHERE id = $1 AND deleted_at IS NULL', [req.params.id]);
+  const d = await pool.query('SELECT title FROM docs WHERE id = $1 AND deleted_at IS NULL', [docId]);
   if (!d.rows[0]) return res.status(404).json({ error: 'not found' });
-  const cur = await pool.query('SELECT state FROM doc_states WHERE doc_id = $1', [req.params.id]);
+
+  // A replace swaps the whole body, which is what restoring a version does —
+  // same primitive, so the same one is used. An append on a doc with no body
+  // yet has nothing to append to, and becomes the same wholesale write.
   let state;
-  if (mode === 'replace' || !cur.rows[0]) {
-    state = Buffer.from(buildDocState(d.rows[0].title, markdown));
-  } else {
-    state = Buffer.from(appendToDocState(cur.rows[0].state, markdown));
+  let rewrote = mode === 'replace';
+  const conn = await hocuspocus.openDirectConnection(docId, { docId, user: req.user });
+  try {
+    await conn.transact((doc) => {
+      if (mode === 'append' && appendMarkdownToDoc(doc, markdown)) {
+        // appended in place
+      } else {
+        rewriteDoc(doc, buildDocState(d.rows[0].title, markdown));
+        rewrote = true;
+      }
+      state = Buffer.from(Y.encodeStateAsUpdate(doc));
+    });
+  } finally {
+    await conn.disconnect();
   }
-  await pool.query(
-    `INSERT INTO doc_states (doc_id, state, updated_at) VALUES ($1, $2, now())
-     ON CONFLICT (doc_id) DO UPDATE SET state = EXCLUDED.state, updated_at = now()`,
-    [req.params.id, state]
-  );
-  // Keep search current from the freshly-decoded text.
+
+  // Yjs converges on its own, but BlockSuite builds its block models when the
+  // editor mounts: a wholesale swap leaves those models pointing at entries
+  // that no longer exist, so the data is right and the screen is stale. Tell
+  // open editors to rebuild. An append needs none of this.
+  if (rewrote) {
+    try { hocuspocus.documents.get(docId)?.broadcastStateless(JSON.stringify({ type: 'doc-restored' })); }
+    catch { /* nobody connected; the next open reads the written state anyway */ }
+  }
+
+  // The search text is normally pushed up by whichever editor is open. A
+  // headless write refreshes it here, so a doc written by the copilot or an
+  // integration is searchable on what it now says.
   try {
     const { text } = extractText(state);
-    await pool.query('UPDATE docs SET search_text = $1, updated_at = now() WHERE id = $2', [text.slice(0, 100000), req.params.id]);
-  } catch { /* noop */ }
+    await pool.query('UPDATE docs SET search_text = $1, updated_at = now() WHERE id = $2', [text.slice(0, 100000), docId]);
+  } catch { /* an odd state still saves; only the search text goes stale */ }
   res.json({ ok: true });
-});
+}));
 
 // Toggle a doc between team-visible and private (owner only). Private keeps only
 // the owner + anyone explicitly shared via doc_access; team is visible to all.
@@ -1244,6 +1272,11 @@ app.post('/api/invites', requireUser, requireAdmin, async (req, res) => {
 // provider is not actually serving.
 const AI_IDLE_MS = 60_000;
 
+// How many times the copilot may call tools before it has to answer with what
+// it has. A model that searches, reads two docs and replies fits comfortably;
+// one that has lost the plot stops searching forever.
+const AI_MAX_TOOL_ROUNDS = 4;
+
 // Each action is a fixed system prompt kept server-side so the client can't
 // smuggle an arbitrary one through the copilot.
 const AI_ACTIONS = {
@@ -1292,6 +1325,14 @@ app.post('/api/ai', requireUser, async (req, res) => {
   //  - chat: caller sends a `messages` array (the collapsible copilot sidebar).
   //  - action: caller sends {action, selection, prompt} (the inline popup).
   let chatMessages;
+  // Tools are for the chat sidebar only. The inline popup rewrites a selection
+  // and nothing else; handing it search and write tools would let "fix the
+  // grammar here" wander off into the rest of the workspace.
+  let toolSpecs = null;
+  const tools = aiTools({
+    base: `http://127.0.0.1:${PORT}`,
+    headers: req.headers.cookie ? { Cookie: req.headers.cookie } : {},
+  });
   if (Array.isArray(req.body?.messages) && req.body.messages.length) {
     // Trust only role+content; cap history so a runaway client can't blow up the prompt.
     const history = req.body.messages.slice(-20).map((m) => ({
@@ -1299,11 +1340,28 @@ app.post('/api/ai', requireUser, async (req, res) => {
       content: String(m.content || '').slice(0, 20000),
     }));
     const docContext = String(req.body?.selection || '').slice(0, 20000);
+    // The pane sends which doc is open, not its contents: the text is already
+    // here in Postgres, and loading it through the same access-checked route as
+    // everything else means the copilot can never see a doc the user can't.
+    let openDoc = '';
+    const docId = String(req.body?.docId || '');
+    if (docId) {
+      const d = await tools.run('read_doc', JSON.stringify({ id: docId }));
+      if (d && !d.error) {
+        openDoc =
+          `\n\nThe user currently has this document open — id "${docId}", titled "${d.title}". ` +
+          `Assume any question about "this doc"/"the document"/"this page" is about it.\n<document>\n${d.text}\n</document>`;
+      }
+    }
+    toolSpecs = tools.specs;
     chatMessages = [
       {
         role: 'system',
         content:
-          'You are a helpful assistant embedded in a document editor. Answer questions and help with writing. Be concise.' +
+          'You are a helpful assistant embedded in a document editor. Answer questions and help with writing. Be concise.\n' +
+          'For anything about the rest of the workspace, call search_docs and then read_doc — never answer from memory about a document you have not read. ' +
+          'You can change documents with write_doc and create new ones with create_doc, but only when the user actually asks you to; never write to a doc to "show" an edit.' +
+          openDoc +
           (docContext ? `\n\nThe user has this text selected in their document:\n${docContext}` : ''),
       },
       ...history,
@@ -1341,16 +1399,58 @@ app.post('/api/ai', requireUser, async (req, res) => {
   // anywhere.
   const watchdog = idleAbort(AI_IDLE_MS);
   try {
-    const stream = await client.chat.completions.create({
-      model: cfg.model,
-      max_tokens: 4096,
-      stream: true,
-      messages: chatMessages,
-    }, { signal: watchdog.signal });
-    for await (const chunk of stream) {
-      watchdog.alive();
-      const delta = chunk.choices?.[0]?.delta?.content;
-      if (delta) res.write(`data: ${JSON.stringify({ text: delta })}\n\n`);
+    // Tool rounds. Prose streams straight through as it arrives; a round that
+    // ends in tool calls runs them and goes round again. Tools are withheld on
+    // the last round, which is what guarantees this terminates — with nothing
+    // to call, the model has to answer.
+    for (let round = 0; ; round++) {
+      const stream = await client.chat.completions.create({
+        model: cfg.model,
+        max_tokens: 4096,
+        stream: true,
+        messages: chatMessages,
+        ...(toolSpecs && round < AI_MAX_TOOL_ROUNDS ? { tools: toolSpecs } : {}),
+      }, { signal: watchdog.signal });
+
+      // Tool calls arrive split across deltas — name in one chunk, arguments a
+      // character at a time after it — and are keyed by index, not id.
+      let content = '';
+      const calls = new Map();
+      for await (const chunk of stream) {
+        watchdog.alive();
+        const delta = chunk.choices?.[0]?.delta;
+        if (delta?.content) {
+          content += delta.content;
+          res.write(`data: ${JSON.stringify({ text: delta.content })}\n\n`);
+        }
+        for (const tc of delta?.tool_calls || []) {
+          const slot = calls.get(tc.index) || { id: `call_${tc.index}`, name: '', args: '' };
+          if (tc.id) slot.id = tc.id;
+          if (tc.function?.name) slot.name = tc.function.name;
+          if (tc.function?.arguments) slot.args += tc.function.arguments;
+          calls.set(tc.index, slot);
+        }
+      }
+      if (!calls.size) break;
+
+      chatMessages.push({
+        role: 'assistant',
+        content,
+        tool_calls: [...calls.values()].map((c) => ({
+          id: c.id,
+          type: 'function',
+          function: { name: c.name, arguments: c.args || '{}' },
+        })),
+      });
+      for (const c of calls.values()) {
+        const out = await tools.run(c.name, c.args);
+        watchdog.alive(); // a slow search is progress, not silence
+        chatMessages.push({
+          role: 'tool',
+          tool_call_id: c.id,
+          content: JSON.stringify(out).slice(0, 20000),
+        });
+      }
     }
     res.write('data: [DONE]\n\n');
     res.end();

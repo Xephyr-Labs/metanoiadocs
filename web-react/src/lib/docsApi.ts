@@ -332,7 +332,7 @@ export const docsApi = {
 
 /** Stream an AI response (SSE over POST). Calls onDelta per token. */
 export async function aiStream(
-  body: { messages?: { role: string; content: string }[]; action?: string; prompt?: string; selection?: string },
+  body: { messages?: { role: string; content: string }[]; action?: string; prompt?: string; selection?: string; docId?: string },
   onDelta: (t: string) => void,
   signal?: AbortSignal,
 ): Promise<void> {
