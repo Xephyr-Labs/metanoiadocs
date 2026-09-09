@@ -99,6 +99,7 @@ export function PageProperties({ editor, page }: { editor: Element | null; page:
   const ws = useWorkspace();
   const [host, setHost] = useState<HTMLElement | null>(null);
   const [users, setUsers] = useState<UserRow[]>([]);
+  const [usersLoaded, setUsersLoaded] = useState(false);
   const [adding, setAdding] = useState(false);
 
   useEffect(() => {
@@ -117,10 +118,16 @@ export function PageProperties({ editor, page }: { editor: Element | null; page:
   // Only fetched when a person property actually exists, so an ordinary page
   // costs no extra request.
   const needsUsers = ws.docProps.some((p) => p.type === 'person');
+  // Guarded on a tried-once flag, not on users.length: a workspace where nobody
+  // has a username, or a /users that fails, leaves the list empty, and guarding
+  // on emptiness would re-fetch on every render.
   useEffect(() => {
-    if (!needsUsers || users.length) return;
-    docsApi.users().then(setUsers).catch(() => {});
-  }, [needsUsers, users.length]);
+    if (!needsUsers || usersLoaded) return;
+    docsApi.users()
+      .then(setUsers)
+      .catch(() => {})
+      .finally(() => setUsersLoaded(true));
+  }, [needsUsers, usersLoaded]);
 
   const shown = useMemo(
     () => ws.docProps.filter((p) => p.id in (page.props ?? {})),

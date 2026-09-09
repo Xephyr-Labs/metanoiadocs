@@ -83,6 +83,11 @@ export function PropertyValue({ prop, users, value, onChange }: Props) {
     case 'url':
       return (
         <input
+          // Uncontrolled so typing is not a write per keystroke, but keyed on
+          // the value so an external change still lands: a save that failed and
+          // rolled back must not leave the box showing what never persisted.
+          // Same idiom as the task table's title cell.
+          key={typeof value === 'string' ? value : ''}
           type="url"
           placeholder="https://"
           className={field}
@@ -93,6 +98,7 @@ export function PropertyValue({ prop, users, value, onChange }: Props) {
     default:
       return (
         <input
+          key={typeof value === 'string' ? value : ''}
           className={field}
           defaultValue={typeof value === 'string' ? value : ''}
           onBlur={(e) => e.target.value !== value && onChange(e.target.value || null)}

@@ -243,7 +243,14 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   // rest of the boot payload rather than per page.
   const [docProps, setDocProps] = useState<DocPropRow[]>([]);
   const [recentIds, setRecentIds] = useState<PageId[]>(() => {
-    try { return JSON.parse(localStorage.getItem('mn-recents') || '[]'); } catch { return []; }
+    // Same trap as the project filters: parsing succeeding does not make the
+    // value a list of ids, and everything downstream calls .map on it.
+    try {
+      const parsed = JSON.parse(localStorage.getItem('mn-recents') || '[]');
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
   });
   const [mode, setMode] = useState<EditorMode>('page');
   const [fullWidth, setFullWidth] = useState(false);
@@ -737,8 +744,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       if (!page) return prev;
       return { ...prev, [id]: { ...page, props: { ...page.props, [propId]: value } } };
     });
-    await docsApi.setDocProps(id, { [propId]: value }).catch(() => {});
-  }, []);
+    // Re-read on failure rather than leaving the optimistic value on screen: a
+    // property that looks saved but never reached the server is worse than a
+    // value that snaps back.
+    await docsApi.setDocProps(id, { [propId]: value }).catch(() => refresh());
+  }, [refresh]);
 
   /** Take a property off one page, leaving the definition alone. */
   const clearPageProp = useCallback(async (id: PageId, propId: string) => {
@@ -749,8 +759,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       delete props[propId];
       return { ...prev, [id]: { ...page, props } };
     });
-    await docsApi.clearDocProp(id, propId).catch(() => {});
-  }, []);
+    await docsApi.clearDocProp(id, propId).catch(() => refresh());
+  }, [refresh]);
 
   const createDocProp = useCallback(async (label: string, type: string) => {
     const row = await docsApi.createDocProp({ label, type });

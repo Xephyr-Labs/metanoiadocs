@@ -81,7 +81,10 @@ export function ProjectView() {
     setScope('all');
     try {
       const saved = filterKey ? localStorage.getItem(filterKey) : null;
-      setFilters(saved ? JSON.parse(saved) : []);
+      const parsed = saved ? JSON.parse(saved) : [];
+      // Anything can be in localStorage — a half-written value, a key someone
+      // else's code wrote. JSON.parse succeeding does not make it a filter list.
+      setFilters(Array.isArray(parsed) ? parsed : []);
     } catch {
       setFilters([]);
     }
