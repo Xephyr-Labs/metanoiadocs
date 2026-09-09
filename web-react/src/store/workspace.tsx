@@ -326,6 +326,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   // bootstrap already does.
   const saveTick = useDocSaveTick();
   useEffect(() => {
+    // Swallowed on purpose, unlike the mutations below: this is the refresh
+    // itself failing, there is no optimistic state to reconcile, and a save
+    // fires this on a debounce — reporting it would toast on every hiccup.
     if (saveTick) refresh().catch(() => {});
   }, [saveTick, refresh]);
 
@@ -541,7 +544,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   const movePage = useCallback(async (id: PageId, folderId: string | null) => {
-    await docsApi.patch(id, { folderId }).catch(() => {});
+    await docsApi.patch(id, { folderId }).catch(() => toast('Could not move that page.'));
+    // The refresh runs either way: it is what puts the row back if the move failed.
     await refresh();
   }, [refresh]);
 
@@ -590,7 +594,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       });
       return next;
     });
-    await docsApi.reorder(folderId, ids).catch(() => {});
+    await docsApi.reorder(folderId, ids).catch(() => toast('Could not save the new order.'));
     await refresh();
   }, [refresh]);
 
@@ -626,7 +630,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       .map((f) => f.id);
     const ids = placeAt(siblings, dragId, targetId, place);
     if (!ids) return;
-    await docsApi.reorderFolders(parentId, ids).catch(() => {});
+    await docsApi.reorderFolders(parentId, ids).catch(() => toast('Could not save the new order.'));
     await refresh();
   }, [refresh]);
 
@@ -666,7 +670,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const deleteFolder = useCallback(async (id: string) => {
-    await docsApi.removeFolder(id).catch(() => {});
+    await docsApi.removeFolder(id).catch(() => toast('Could not delete that folder.'));
     await refresh();
   }, [refresh]);
 
@@ -721,7 +725,14 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   const restorePage = useCallback(async (id: PageId) => {
-    await docsApi.restore(id).catch(() => {});
+    try {
+      await docsApi.restore(id);
+    } catch {
+      // Opening a page the server still has in the trash shows an empty editor
+      // and looks like the restore worked, so bail before navigating.
+      toast('Could not restore that page.');
+      return;
+    }
     await refresh();
     setCurrentId(id);
     setView('doc');
@@ -797,8 +808,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const markInboxRead = useCallback(async () => {
     setUnreadCount(0);
-    await docsApi.markNotificationsRead().catch(() => {});
-  }, []);
+    // Otherwise the badge claims zero until the next boot or notification poll,
+    // while the server still has them unread.
+    await docsApi.markNotificationsRead().catch(() => refreshUnread());
+  }, [refreshUnread]);
 
   const refreshTags = useCallback(async () => {
     const t = await docsApi.tags().catch(() => []);
