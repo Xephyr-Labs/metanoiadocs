@@ -26,6 +26,7 @@ import {
 } from './db.js';
 import { requestMagicLink, consumeMagicLink, sendInviteEmail, sendNotificationEmail } from './auth.js';
 import { lockedFor, noteFailure, clearFailures, lockoutError } from './throttle.js';
+import { idleAbort } from './idle-abort.js';
 import { getSetting, setSetting } from './db.js';
 import * as Y from 'yjs';
 import { mentionHandles } from './mentions.js';
@@ -1237,6 +1238,12 @@ app.post('/api/invites', requireUser, requireAdmin, async (req, res) => {
 // stored in app_settings — no env var, no code change to point at a different
 // OpenAI-compatible endpoint (OpenAI, OpenRouter, DeepInfra, a local vLLM, ...).
 
+// How long the provider may stay silent — between chunks, or before the first
+// one — before we call the stream dead. Generous enough for a reasoning model
+// that thinks before it speaks, short enough that nobody waits on a model the
+// provider is not actually serving.
+const AI_IDLE_MS = 60_000;
+
 // Each action is a fixed system prompt kept server-side so the client can't
 // smuggle an arbitrary one through the copilot.
 const AI_ACTIONS = {
@@ -1322,23 +1329,40 @@ app.post('/api/ai', requireUser, async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
+  // Send the headers now instead of on the first token. A reasoning model can
+  // think for a long time before it writes anything, and a provider with no
+  // capacity for the configured model never answers at all — in both cases the
+  // browser would otherwise hold an open socket with no response at all.
+  res.flushHeaders();
+
+  // Give up if the provider goes quiet. This covers "never sent a byte" and
+  // "stalled halfway", which from here look the same as a slow answer: without
+  // it a model the provider is not serving is an eternal spinner with no error
+  // anywhere.
+  const watchdog = idleAbort(AI_IDLE_MS);
   try {
     const stream = await client.chat.completions.create({
       model: cfg.model,
       max_tokens: 4096,
       stream: true,
       messages: chatMessages,
-    });
+    }, { signal: watchdog.signal });
     for await (const chunk of stream) {
+      watchdog.alive();
       const delta = chunk.choices?.[0]?.delta?.content;
       if (delta) res.write(`data: ${JSON.stringify({ text: delta })}\n\n`);
     }
     res.write('data: [DONE]\n\n');
     res.end();
   } catch (err) {
-    console.error('[ai] stream error', err.message);
-    if (!res.headersSent) res.status(502).json({ error: 'ai provider error: ' + err.message });
-    else { res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`); res.end(); }
+    const msg = watchdog.signal.aborted
+      ? `the provider sent nothing for ${AI_IDLE_MS / 1000}s — check the model name in Settings`
+      : err.message;
+    console.error('[ai] stream error', msg);
+    if (!res.headersSent) res.status(502).json({ error: 'ai provider error: ' + msg });
+    else { res.write(`data: ${JSON.stringify({ error: msg })}\n\n`); res.end(); }
+  } finally {
+    watchdog.done();
   }
 });
 
