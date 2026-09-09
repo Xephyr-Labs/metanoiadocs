@@ -28,6 +28,7 @@ import { requestMagicLink, consumeMagicLink, sendInviteEmail, sendNotificationEm
 import { lockedFor, noteFailure, clearFailures, lockoutError } from './throttle.js';
 import { getSetting, setSetting } from './db.js';
 import * as Y from 'yjs';
+import { mentionHandles } from './mentions.js';
 import { buildDocState, appendToDocState, appendPageReference, extractText, extractBlocks, docToMarkdown } from './blocks.js';
 import { rewriteDoc } from './restore.js';
 import { wouldFolderCycle } from './folders.js';
@@ -1927,8 +1928,7 @@ async function createCommentNotifications({ commentId, docId, body, actor }) {
   const docTitle = doc.rows[0].title || 'Untitled';
 
   // Resolve @usernames in the body against members who have access to this doc.
-  const handles = [...body.matchAll(/@([a-z0-9][a-z0-9._-]*)/gi)]
-    .map((m) => m[1].replace(/[.]+$/, '').toLowerCase());
+  const handles = mentionHandles(body);
   const recipients = new Map(); // user_id -> { kind, email }
   if (handles.length) {
     // A member can be @-mentioned if they can access the doc: an explicit grant,
@@ -1938,7 +1938,7 @@ async function createCommentNotifications({ commentId, docId, body, actor }) {
         WHERE lower(u.username) = ANY($2)
           AND (EXISTS (SELECT 1 FROM doc_access a WHERE a.user_id = u.id AND a.doc_id = $1)
                OR EXISTS (SELECT 1 FROM docs d WHERE d.id = $1 AND d.visibility = 'team'))`,
-      [docId, [...new Set(handles)]]
+      [docId, handles]
     );
     for (const r of rows) recipients.set(r.id, { kind: 'mention', email: r.email });
   }
@@ -1966,6 +1966,71 @@ async function createCommentNotifications({ commentId, docId, body, actor }) {
       email,
       `${actorName} ${verb} "${docTitle}"`,
       `${actorName} ${verb} "${docTitle}":\n\n${snippet}\n\nOpen MetanoiaDocs: ${BASE_URL}/`
+    );
+  }
+}
+
+/**
+ * Notify people @-mentioned in the body of a page, once each.
+ *
+ * The comment notifier next to this one reads a body it was handed; here the
+ * body is a Yjs update, so it is decoded first. A page is saved on a debounce
+ * and every save re-reads the whole text, so the dedupe is the point: someone
+ * mentioned in a paragraph is told the first time that paragraph is saved and
+ * never again, however many times the page is edited afterwards.
+ *
+ * Best-effort throughout — a page must still save when the mail server is down.
+ */
+async function notifyDocMentions(docId, state, actorId) {
+  let text = '';
+  try {
+    // extractText returns { title, text } — the title is scanned too, since a
+    // handle typed into a page title is still a mention.
+    const decoded = extractText(state);
+    text = `${decoded?.title ?? ''}\n${decoded?.text ?? ''}`;
+  } catch {
+    return; // unreadable state is the sync layer's problem, not the notifier's
+  }
+  const handles = mentionHandles(text);
+  if (!handles.length) return;
+
+  const doc = await pool.query('SELECT title FROM docs WHERE id = $1', [docId]);
+  if (!doc.rows[0]) return;
+  const docTitle = doc.rows[0].title || 'Untitled';
+
+  // Same reach as a comment mention: an explicit grant, or a team-visible doc.
+  const { rows: people } = await pool.query(
+    `SELECT u.id, u.email, u.name, u.username FROM users u
+      WHERE lower(u.username) = ANY($2)
+        AND (EXISTS (SELECT 1 FROM doc_access a WHERE a.user_id = u.id AND a.doc_id = $1)
+             OR EXISTS (SELECT 1 FROM docs d WHERE d.id = $1 AND d.visibility = 'team'))`,
+    [docId, handles]
+  );
+  if (!people.length) return;
+
+  const { rows: already } = await pool.query(
+    `SELECT user_id FROM notifications
+      WHERE doc_id = $1 AND kind = 'mention' AND comment_id IS NULL`,
+    [docId]
+  );
+  const told = new Set(already.map((r) => r.user_id));
+
+  const actor = actorId
+    ? (await pool.query('SELECT name, email FROM users WHERE id = $1', [actorId])).rows[0]
+    : null;
+  const actorName = actor?.name || actor?.email || 'Someone';
+
+  for (const person of people) {
+    if (told.has(person.id) || person.id === actorId) continue;
+    await pool.query(
+      `INSERT INTO notifications (id, user_id, actor_id, actor_name, doc_id, kind, body)
+       VALUES ($1, $2, $3, $4, $5, 'mention', $6)`,
+      [crypto.randomUUID(), person.id, actorId, actorName, docId, `Mentioned you in ${docTitle}`]
+    );
+    sendNotificationEmail(
+      person.email,
+      `${actorName} mentioned you in "${docTitle}"`,
+      `${actorName} mentioned you in "${docTitle}".\n\nOpen MetanoiaDocs: ${BASE_URL}/`
     );
   }
 }
@@ -2052,6 +2117,8 @@ const hocuspocus = new Hocuspocus({
           'UPDATE docs SET updated_at = now(), updated_by = coalesce($2, updated_by) WHERE id = $1',
           [documentName, actor]
         );
+        notifyDocMentions(documentName, buf, actor).catch((err) =>
+          console.error('[notify] doc mention:', err.message));
         // Auto-snapshot a version at most once per ~8 min of active editing, so
         // history accrues without a row per keystroke.
         const last = await pool.query(
