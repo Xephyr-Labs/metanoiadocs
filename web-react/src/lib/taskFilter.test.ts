@@ -4,7 +4,7 @@ import type { PropRow, TaskRow } from './tasksApi';
 
 const task = (over: Partial<TaskRow>): TaskRow => ({
   id: 't1', project_id: 'A', title: 'Task', status: 'todo',
-  assignee_id: null, assignee_name: null, start_at: null, due_at: null,
+  assignee_id: null, assignee_name: null, assignees: [], start_at: null, due_at: null,
   priority: 0, progress: 0, points: null, milestone: false, doc_id: null,
   parent_id: null, kind: 'task', sprint_id: null, position: 0, done_at: null,
   deps: [], props: {}, preview: null, ...over,
@@ -73,6 +73,18 @@ describe('applyFilters', () => {
       filter({ id: 'f1', field: 'status', op: 'is', value: 'todo' }),
       filter({ id: 'f2', field: 'assignee_id', op: 'is', value: 'u1' }),
     ])).toEqual(['a']);
+  });
+
+  it('matches anyone on a task with several assignees', () => {
+    const many = task({
+      id: 'c', assignee_id: 'u1',
+      assignees: [{ id: 'u1', name: 'Shafin' }, { id: 'u2', name: 'Lamisa' }],
+    });
+    expect(run([many], [filter({ field: 'assignee_id', op: 'is', value: 'u2' })])).toEqual(['c']);
+    expect(run([many], [filter({ field: 'assignee_id', op: 'is', value: 'u3' })])).toEqual([]);
+    // "is not" is the exact complement: someone on the task fails it.
+    expect(run([many], [filter({ field: 'assignee_id', op: 'is_not', value: 'u1' })])).toEqual([]);
+    expect(run([many], [filter({ field: 'assignee_id', op: 'is_empty', value: '' })])).toEqual([]);
   });
 
   it('counts an unset cell as "is not"', () => {

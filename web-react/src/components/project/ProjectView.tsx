@@ -54,6 +54,18 @@ export function ProjectView() {
   const [filters, setFilters] = useState<Filter[]>([]);
   const p = useProject(ws.activeProjectId);
   const isData = project?.mode === 'data';
+
+  // Arriving from a page that belongs to a task: open that task's panel as soon
+  // as the list it lives in has loaded, then forget the request so a later
+  // visit to the same board opens on the board itself.
+  const { pendingTaskId, clearPendingTask } = ws;
+  useEffect(() => {
+    if (!pendingTaskId) return;
+    const wanted = p.tasks.find((t) => t.id === pendingTaskId);
+    if (!wanted) return;
+    setOpen(wanted);
+    clearPendingTask();
+  }, [pendingTaskId, p.tasks, clearPendingTask]);
   const dateProps = useMemo(() => p.props.filter((prop) => prop.type === 'date'), [p.props]);
   const tabs = useMemo(
     () => (isData ? DATA_TABS.filter((t) => t.value !== 'calendar' || dateProps.length > 0) : TABS),
@@ -151,9 +163,10 @@ export function ProjectView() {
   return (
     <KindsProvider kinds={p.kinds}>
     <div className="flex h-full flex-col bg-canvas">
-      <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-line px-4 py-2.5">
-        <span className="text-lg leading-none">{project.icon}</span>
-        <h1 className="min-w-0 flex-1 truncate text-md font-medium text-ink">{project.name}</h1>
+      {/* No project name here: the top bar's path already says which database
+          this is, and repeating it made two headings, one of them redundant.
+          This row is the controls only. */}
+      <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-4 py-2">
         {tab !== 'backlog' && p.sprints.length > 0 && (
           <select
             aria-label="Sprint scope"
@@ -168,6 +181,17 @@ export function ProjectView() {
             ))}
           </select>
         )}
+        {/* Scope and filters are the same question — what am I looking at —
+            so they share a row with the view switcher instead of stacking a
+            second full-width bar under it for one word. */}
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <FilterBar fields={fields} filters={filters} onChange={changeFilters} />
+          {filters.length > 0 && (
+            <span className="shrink-0 text-2xs tabular-nums text-faint">
+              {visible.length} of {scoped.length}
+            </span>
+          )}
+        </div>
         <SegmentedControl aria-label="Project view" segments={tabs} value={tab} onChange={setTab} />
         <Button variant="primary" size="sm" leftIcon={<Plus size={14} />} onClick={() => add()}>
           {isData ? 'Row' : 'Task'}
@@ -181,15 +205,6 @@ export function ProjectView() {
           ]}
         />
       </header>
-
-      <div className="flex shrink-0 items-center gap-2 border-b border-line px-4 py-1.5">
-        <FilterBar fields={fields} filters={filters} onChange={changeFilters} />
-        {filters.length > 0 && (
-          <span className="ml-auto shrink-0 text-2xs text-faint">
-            {visible.length} of {scoped.length}
-          </span>
-        )}
-      </div>
 
       {p.error && (
         <div className="border-b border-line bg-surface px-4 py-2 text-sm text-danger">{p.error}</div>
@@ -266,6 +281,7 @@ export function ProjectView() {
         onAddDep={p.addDep}
         onRemoveDep={p.removeDep}
         onManageKinds={() => setKindsOpen(true)}
+        onManageProps={() => setPropsOpen(true)}
       />
 
       <TaskKindsDialog
@@ -285,6 +301,7 @@ export function ProjectView() {
         projects={ws.projects}
         onCreate={p.createProp}
         onPatch={p.patchProp}
+        onReorder={p.reorderProp}
         onDelete={p.deleteProp}
       />
     </div>

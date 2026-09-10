@@ -50,7 +50,7 @@ function Row({ id, depth }: { id: PageId; depth: number }) {
           if (e.key === 'ArrowLeft' && hasChildren && page.expanded) ws.toggleExpand(id);
         }}
         className={cn(
-          'group/row relative flex h-8 cursor-pointer items-center rounded-md pr-1 text-base leading-5 transition-colors duration-120',
+          'group/row relative flex h-7 cursor-pointer items-center rounded-md pr-1 text-sm leading-5 transition-colors duration-120',
           selected ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-hover',
           drop.zone === 'inside' && 'bg-accent-soft text-accent',
         )}

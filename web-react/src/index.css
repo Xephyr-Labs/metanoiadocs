@@ -1,3 +1,9 @@
+/* Hallmark · redesign: app chrome · genre: modern-minimal · theme: project tokens (preserved)
+ * type: Onest single-face system (display/ui/body are one family, split by weight + tracking)
+ * DNA source: latitude.so product UI (path bar: workspace / section / entity, ⌘K in the bar,
+ *   one hairline-separated action cluster, 44px bar, 11–12px chrome type)
+ * pre-emit critique: P5 H5 E4 S4 R5 V4
+ */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -72,14 +78,16 @@
   --topbar-h: 45px;
   --reading-w: 760px;
 
-  /* Three faces, three jobs. Fraunces titles a document, Inter sets its prose,
-   * and Geist wears the chrome around both — drawn for small sizes and dense
-   * lists, so the sidebar recedes and the page leads. Keeping prose on Inter is
-   * the point: chrome and content should not read as the same layer.
-   * Fraunces at opsz high, soft/wonk 0 = a crisp high-contrast editorial serif. */
-  --font-display: 'Fraunces Variable', 'Fraunces', Georgia, ui-serif, serif;
-  --font-ui: 'Geist Variable', 'Geist', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --font-body: 'Inter Variable', 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  /* One face, three jobs. Onest carries the chrome, the prose and the titles;
+   * the layers are separated by weight, size and tracking instead of by a
+   * second and third family. Three families made a document title read like a
+   * different product from the board it was filed in.
+   *
+   * The three token names stay — everything downstream references them, and a
+   * future brief can re-point one without touching call sites. */
+  --font-display: 'Onest Variable', 'Onest', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-ui: var(--font-display);
+  --font-body: var(--font-display);
   /* Code face — system mono, no webfont to download. */
   --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
 
@@ -591,12 +599,12 @@ html.dark .mn-toc .outline-viewer-indicator {
 }
 
 /* Hallmark · component: sidebar-type · genre: modern-minimal · theme: project tokens (preserved)
- * faces: Fraunces (titles) · Inter (prose) · Geist (chrome) — three jobs, no fourth
+ * face: Onest throughout — layers separated by weight and tracking, not family
  * colour: every value a token; no new palette entries
  *
  * ------------------------------------------------------------------ *
  * Sidebar typography. The tree is the one surface read at a glance all
- * day, so it is set like a list, not like prose: Inter wants a touch of
+ * day, so it is set like a list, not like prose: the UI face wants a touch of
  * negative tracking at 14px, uppercase labels want the opposite, and
  * counts in a right-hand column have to line up as digits rather than
  * drift with the widths of 1 and 7.
@@ -607,6 +615,90 @@ html.dark .mn-toc .outline-viewer-indicator {
 }
 .mn-side-label {
   letter-spacing: 0.07em;
+}
+
+/* A control that only shows on hover must also show when a keyboard lands on
+ * it — otherwise Tab walks through buttons nobody can see. Class + pseudo-class
+ * outranks the bare `.opacity-0` utility, so no !important is needed. */
+.opacity-0:focus-within,
+.opacity-0:focus-visible {
+  opacity: 1;
+}
+
+/* A row's page inside the task panel: the panel owns the title, so the
+ * document's title block is hidden and the body starts where the properties
+ * end. Headings step down too — display sizes drawn for a 760px measure are
+ * shouting in a 560px panel. */
+.mn-peek-editor affine-editor-container .doc-title-container {
+  display: none !important;
+}
+.mn-peek-editor affine-editor-container .affine-paragraph-rich-text-wrapper.h1 { font-size: 1.45rem !important; }
+.mn-peek-editor affine-editor-container .affine-paragraph-rich-text-wrapper.h2 { font-size: 1.24rem !important; }
+.mn-peek-editor affine-editor-container .affine-paragraph-rich-text-wrapper.h3 { font-size: 1.1rem !important; }
+
+/* BlockSuite injects a bare `input { flex: 1 1 0 }` for its own toolbars, and
+ * the selector is global — so every checkbox and radio in OUR chrome stretched
+ * to fill its row (the Milestone box was 185px wide, with its label shoved to
+ * the far edge). The attribute selector outranks the bare element rule, which
+ * is the whole trick; the size and accent colour come along because a native
+ * 13px box in a 13px UI is the other half of why it looked unfinished. */
+input[type='checkbox'],
+input[type='radio'] {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* One select look, everywhere. The OS widget is dropped and the chevron drawn
+ * here, so light and dark agree and the control keeps the field's own metrics
+ * instead of whatever the platform decides a <select> is this year. */
+select.mn-select {
+  appearance: none;
+  padding-right: 26px;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23787774' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 12px;
+}
+html.dark select.mn-select {
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23a5a5a3' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+}
+/* A native date field: keep the platform picker (it is the accessible one) but
+ * make it sit like every other field — same digits, a calendar button that
+ * recedes until it is wanted. */
+input[type='date'],
+input[type='number'] {
+  font-variant-numeric: tabular-nums;
+}
+input[type='date']::-webkit-calendar-picker-indicator {
+  opacity: 0.45;
+  cursor: pointer;
+  transition: opacity 120ms var(--ease-out);
+}
+input[type='date']:hover::-webkit-calendar-picker-indicator,
+input[type='date']:focus::-webkit-calendar-picker-indicator {
+  opacity: 0.9;
+}
+/* The platform draws that glyph near-black; on the dark canvas it disappears. */
+html.dark input[type='date']::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+}
+/* Firefox/Chrome disagree on the spinner; nobody needs it on a points field. */
+input[type='number']::-webkit-outer-spin-button,
+input[type='number']::-webkit-inner-spin-button {
+  appearance: none;
+  margin: 0;
+}
+input[type='number'] {
+  -moz-appearance: textfield;
+}
+
+/* The path in the top bar. Every step draws the separator that precedes it, so
+ * the first one has to drop it rather than each call site remembering to. */
+.mn-crumbs > span:first-child > span[aria-hidden] {
+  display: none;
 }
 
 /* Landing on a block link (/d/<doc>#<block>) — a brief tint says which block
@@ -626,17 +718,20 @@ html.dark .mn-toc .outline-viewer-indicator {
 }
 
 /* ------------------------------------------------------------------ *
- * Document typography — make the document the hero. Title + headings
- * use the display serif; body stays Inter. Clear H1/H2/H3 steps and a
- * generous body measure/line-height distinguish content from chrome.
+ * Document typography — make the document the hero. One face throughout, so
+ * the title earns its place with size, weight and tight tracking rather than
+ * with a serif; a generous measure and line-height keep content clear of
+ * chrome.
  * ------------------------------------------------------------------ */
 affine-editor-container .doc-title-container,
 affine-editor-container .doc-title-container * {
   font-family: var(--font-display) !important;
   font-optical-sizing: auto;
-  font-weight: 600 !important;
-  letter-spacing: -0.015em;
-  line-height: 1.12 !important;
+  /* 700, not 600: a grotesque at display size reads lighter than the serif it
+     replaced, and the title has to out-weigh the h1 under it. */
+  font-weight: 700 !important;
+  letter-spacing: -0.028em;
+  line-height: 1.1 !important;
 }
 affine-editor-container .doc-title-container {
   font-size: clamp(30px, 4.6vw, 46px) !important;
@@ -655,8 +750,8 @@ affine-editor-container .affine-paragraph-rich-text-wrapper.h4,
 affine-editor-container .affine-paragraph-rich-text-wrapper.h5,
 affine-editor-container .affine-paragraph-rich-text-wrapper.h6 {
   font-family: var(--font-display);
-  letter-spacing: -0.012em;
-  font-weight: 600;
+  letter-spacing: -0.02em;
+  font-weight: 650;
   line-height: 1.25;
 }
 /* Explicit, visibly-stepped heading scale (BlockSuite 0.22 sizes the level via
@@ -787,6 +882,65 @@ affine-editor-container metanoia-column {
   position: relative;
 }
 affine-editor-container .mn-col-body { min-width: 0; }
+
+/* The column's own menu — add, delete, even out. It is the only way to change
+ * a row after it exists, so it appears on hover over the column rather than
+ * waiting for the block to be selected. */
+affine-editor-container .mn-col-more {
+  position: absolute;
+  top: -6px;
+  right: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms;
+  /* It sits inside the editable column, so without this it joins a text
+     selection dragged over the column and rides along into a copy. */
+  user-select: none;
+}
+affine-editor-container metanoia-column:hover > .mn-col-more,
+affine-editor-container .mn-col-more:focus-visible,
+affine-editor-container .mn-col-more[aria-expanded='true'] { opacity: 1; }
+affine-editor-container .mn-col-more:hover { color: var(--ink); background: var(--hover); }
+affine-editor-container .mn-col-menu {
+  position: absolute;
+  top: 16px;
+  right: 0;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  min-width: 168px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--canvas);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+  user-select: none;
+}
+affine-editor-container .mn-col-menu-item {
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--ink);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+affine-editor-container .mn-col-menu-item:hover:not(:disabled) { background: var(--hover); }
+affine-editor-container .mn-col-menu-item:disabled { color: var(--faint); cursor: default; }
 /* An image keeps its intrinsic width outside a column; inside one it has to
  * give way, or two photos side by side overflow the measure. */
 affine-editor-container metanoia-column affine-image img,

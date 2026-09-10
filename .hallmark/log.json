@@ -1,0 +1,9 @@
+[
+  {
+    "date": "2026-09-10",
+    "macrostructure": "Workbench (app chrome \u2014 path bar + rail + canvas)",
+    "theme": "project tokens (preserved) \u00b7 Onest single-face type system",
+    "enrichment": "none \u2014 typography only",
+    "brief": "metanoiadocs \u00b7 redesign the chrome: one type family, Latitude-style path bar, de-duplicated headers"
+  }
+]

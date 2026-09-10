@@ -10,6 +10,15 @@ export const field =
   'placeholder:text-faint transition-shadow duration-120 focus:ring-2 focus:ring-accent ' +
   'disabled:opacity-50';
 
+/**
+ * The same field, for a `select`. `mn-select` (index.css) drops the OS widget
+ * and draws one chevron, so a form does not show three different arrows on
+ * three different platforms — and so the control looks the same in dark.
+ *
+ *   <select className={selectField} />
+ */
+export const selectField = `${field} mn-select cursor-pointer`;
+
 /** The 20px affordance that appears on hover inside a tree/list row (⋯, +, ×).
  * Too small for IconButton's 28px hit box, so it gets its own one-liner rather
  * than eight near-copies that drift apart. */

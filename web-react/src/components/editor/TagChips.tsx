@@ -89,7 +89,7 @@ export function TagChips({ page, trailing, compact }: { page: Page; trailing?: R
                 </div>
               )}
 
-              <div className="max-h-[200px] overflow-y-auto">
+              <div className="scrollarea max-h-[200px] overflow-y-auto">
                 {query && !exact && (
                   <button
                     type="button"

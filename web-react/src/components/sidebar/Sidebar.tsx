@@ -10,7 +10,6 @@ import {
   LogOut,
   MoreHorizontal,
   Plus,
-  Search,
   Settings,
   Star,
   Table2,
@@ -44,7 +43,7 @@ function NavItem({ icon, label, onClick, trailing, active }: { icon: ReactNode; 
     <button
       type="button"
       onClick={onClick}
-      className={cn('group flex h-8 w-full items-center gap-2 rounded-md px-2 text-base leading-5 transition-colors duration-120', active ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-hover')}
+      className={cn('group flex h-7 w-full items-center gap-2 rounded-md px-2 text-sm leading-5 transition-colors duration-120', active ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-hover')}
     >
       <span className={cn('flex h-5 w-5 shrink-0 items-center justify-center', active ? 'text-accent' : 'text-faint group-hover:text-muted')}>{icon}</span>
       <span className="block h-5 min-w-0 flex-1 !self-center truncate leading-5 text-left">{label}</span>
@@ -55,8 +54,8 @@ function NavItem({ icon, label, onClick, trailing, active }: { icon: ReactNode; 
 
 function SectionLabel({ children, action }: { children: ReactNode; action?: ReactNode }) {
   return (
-    <div className="flex h-7 items-center justify-between px-2">
-      <span className="mn-side-label text-2xs font-semibold uppercase text-muted">{children}</span>
+    <div className="mt-3 flex h-6 items-center justify-between px-2 first:mt-0">
+      <span className="mn-side-label text-3xs font-semibold uppercase text-muted">{children}</span>
       {action}
     </div>
   );
@@ -71,7 +70,7 @@ function CollapsibleSection({ label, defaultOpen, children }: { label: string; d
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="mn-side-label group flex h-7 w-full items-center gap-1 px-2 text-2xs font-semibold uppercase text-muted hover:text-ink"
+        className="mn-side-label group mt-3 flex h-6 w-full items-center gap-1 px-2 text-3xs font-semibold uppercase text-muted hover:text-ink"
       >
         <ChevronRight size={12} className={cn('transition-transform duration-180', open && 'rotate-90')} />
         {label}
@@ -134,7 +133,7 @@ function ProjectRows({
                 onClick={() => ws.openProject(p.id)}
                 style={{ paddingLeft: 8 + depth * 16 }}
                 className={cn(
-                  'flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-md pr-2 text-base leading-5 transition-colors duration-120',
+                  'flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md pr-2 text-sm leading-5 transition-colors duration-120',
                   ws.view === 'project' && ws.activeProjectId === p.id ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-hover',
                 )}
               >
@@ -226,7 +225,7 @@ function DocRow({ id }: { id: string }) {
         type="button"
         onClick={() => ws.select(id)}
         {...dragSource(DOC_MIME, id)}
-        className={cn('flex h-8 w-full items-center gap-1.5 rounded-md px-2 pr-7 text-base leading-5 transition-colors duration-120', ws.currentId === id ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-hover')}
+        className={cn('flex h-7 w-full items-center gap-1.5 rounded-md px-2 pr-7 text-sm leading-5 transition-colors duration-120', ws.currentId === id ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-hover')}
       >
         <PageIcon icon={p.icon} size={16} />
         <span className="block h-5 min-w-0 flex-1 !self-center truncate leading-5 text-left">{p.title}</span>
@@ -254,7 +253,7 @@ function FavoriteFolderRow({ id }: { id: string }) {
       type="button"
       onClick={() => ws.openFolder(id)}
       className={cn(
-        'flex h-8 w-full items-center gap-1.5 rounded-md px-2 text-base leading-5 transition-colors duration-120',
+        'flex h-7 w-full items-center gap-1.5 rounded-md px-2 text-sm leading-5 transition-colors duration-120',
         ws.view === 'folder' && ws.activeFolderId === id ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-hover',
       )}
     >
@@ -377,20 +376,20 @@ export function Sidebar() {
             { icon: LogOut, label: 'Log out', danger: true, onSelect: () => auth.logout() },
           ]}
           trigger={
-            <button className="group flex h-8 w-full items-center gap-2 rounded-md px-2 text-left leading-5 transition-colors duration-120 hover:bg-hover">
+            <button className="group flex h-7 w-full items-center gap-2 rounded-md px-2 text-left leading-5 transition-colors duration-120 hover:bg-hover">
               <span className="flex h-5 w-5 shrink-0 items-center justify-center">
                 <LogoMark size={16} />
               </span>
-              <span className="block h-5 min-w-0 flex-1 !self-center truncate leading-5 text-base font-semibold text-ink">{activeWs.name}</span>
+              <span className="block h-5 min-w-0 flex-1 !self-center truncate text-sm font-semibold leading-5 text-ink">{activeWs.name}</span>
               <ChevronDown size={16} className="shrink-0 text-faint opacity-0 transition-opacity group-hover:opacity-100" />
             </button>
           }
         />
       </div>
 
-      {/* primary nav */}
+      {/* primary nav — Search lives on the top bar now, where it acts on the
+          whole workspace; this tree is a list of places to go. */}
       <div className="px-2 pt-2">
-        <NavItem icon={<Search size={16} />} label="Search" onClick={() => ws.setPaletteOpen(true)} trailing={<span className="text-2xs text-faint">⌘K</span>} />
         <NavItem icon={<Home size={16} />} label="Home" active={ws.view === 'home'} onClick={ws.openHome} />
         <NavItem
           icon={<Inbox size={16} />}
@@ -547,7 +546,7 @@ export function Sidebar() {
                   key={t.id}
                   type="button"
                   onClick={() => ws.setTagFilter(t.id)}
-                  className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-base leading-5 text-ink transition-colors duration-120 hover:bg-hover"
+                  className="flex h-7 w-full items-center gap-2 rounded-md px-2 text-sm leading-5 text-ink transition-colors duration-120 hover:bg-hover"
                 >
                   <span className={cn('h-2.5 w-2.5 shrink-0 rounded-full', swatch(t.color).dot)} />
                   <span className="block h-5 min-w-0 flex-1 !self-center truncate leading-5 text-left">{t.name}</span>
@@ -566,7 +565,7 @@ export function Sidebar() {
                 key={t.id}
                 type="button"
                 onClick={() => ws.createFromTemplate(t)}
-                className="flex h-8 w-full items-center gap-1.5 rounded-md px-2 text-base leading-5 text-ink transition-colors duration-120 hover:bg-hover"
+                className="flex h-7 w-full items-center gap-1.5 rounded-md px-2 text-sm leading-5 text-ink transition-colors duration-120 hover:bg-hover"
               >
                 <span className="text-md leading-none">{t.icon}</span>
                 <span className="block h-5 min-w-0 flex-1 !self-center truncate leading-5 text-left">{t.name}</span>

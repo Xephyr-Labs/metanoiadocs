@@ -143,6 +143,15 @@ export function fieldsFor({
 
 function valueOf(task: TaskRow, field: FilterField): unknown {
   if (field.key.startsWith('prop:')) return task.props?.[field.key.slice(5)] ?? null;
+  // A task can be on several people. The field keeps its old key so filters
+  // already saved in localStorage keep working; what it reads is the list.
+  if (field.key === 'assignee_id') {
+    const ids = task.assignees?.map((a) => a.id) ?? [];
+    // A row that predates the assignees table — an old import, a cached
+    // response — carries only the single column. Read that rather than
+    // reporting it as unassigned.
+    return ids.length ? ids : (task.assignee_id ? [task.assignee_id] : []);
+  }
   return (task as unknown as Record<string, unknown>)[field.key];
 }
 
@@ -159,6 +168,9 @@ function equals(v: unknown, kind: FieldKind, want: string): boolean {
   if (kind === 'multi_select') {
     return Array.isArray(v) && v.some((x) => String(x) === want);
   }
+  // A single-valued field whose cell now holds several values — the assignees.
+  // "is X" means X is one of them.
+  if (Array.isArray(v)) return v.some((x) => equals(x, kind, want));
   if (kind === 'checkbox') return Boolean(v) === (want === 'true');
   if (kind === 'number') return Number(v) === Number(want);
   if (isEmpty(v)) return false;

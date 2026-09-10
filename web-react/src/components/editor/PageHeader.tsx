@@ -2,6 +2,7 @@ import { Users } from 'lucide-react';
 import type { Page } from '../../lib/types';
 import { useWorkspace } from '../../store/workspace';
 import { IconPicker } from './IconPicker';
+import { TaskLink } from './TaskLink';
 
 /** Icon + metadata band above the BlockSuite content. Title is BlockSuite's own. */
 export function PageHeader({ page, fullWidth }: { page: Page; fullWidth: boolean }) {
@@ -18,6 +19,9 @@ export function PageHeader({ page, fullWidth }: { page: Page; fullWidth: boolean
           a page has to be its name, not the controls for editing its tags. */}
       <div className="flex items-center gap-2 pt-6 text-2xs text-faint md:pt-8">
         <IconPicker icon={page.icon} onPick={(icon) => ws.setIcon(page.id, icon)} />
+        {/* Above the title, where a breadcrumb goes: a page that belongs to a
+            task should say so before it says anything else. */}
+        <TaskLink docId={page.id} />
         {page.shared && (
           <span className="flex items-center gap-1 text-accent">
             <Users size={12} /> Shared

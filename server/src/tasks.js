@@ -10,31 +10,84 @@ import { wouldProjectCycle } from './project-tree.js';
 export const STATUSES = ['todo', 'doing', 'review', 'done'];
 
 /**
- * Tell someone a task landed on them — inbox row plus an email, the same pair
- * a comment mention sends. Best-effort: a task must still save when the mail
- * server is down, so every caller fires this without awaiting it.
+ * Tell people a task landed on them — inbox row plus an email each, the same
+ * pair a comment mention sends. Best-effort: a task must still save when the
+ * mail server is down, so every caller fires this without awaiting it.
  *
  * The notification points at the task rather than its page, because a task's
  * page does not exist until someone opens the task.
  */
-async function notifyAssignee(task, actor) {
-  if (!task?.assignee_id || task.assignee_id === actor.id) return;
-  const { rows } = await pool.query('SELECT email FROM users WHERE id = $1', [task.assignee_id]);
+async function notifyAssignees(task, actor, userIds) {
+  // Nobody is told they assigned themselves something.
+  const targets = [...new Set(userIds ?? [])].filter((id) => id && id !== actor.id);
+  if (!task || !targets.length) return;
+  const { rows } = await pool.query('SELECT id, email FROM users WHERE id = ANY($1)', [targets]);
   const actorName = actor.name || actor.email;
   const title = task.title || 'Untitled task';
-  await pool.query(
-    `INSERT INTO notifications (id, user_id, actor_id, actor_name, doc_id, task_id, kind, body)
-     VALUES ($1, $2, $3, $4, $5, $6, 'assigned', $7)`,
-    [crypto.randomUUID(), task.assignee_id, actor.id, actorName, task.doc_id, task.id, title.slice(0, 280)]
-  );
-  const email = rows[0]?.email;
-  if (!email) return;
   const base = process.env.BASE_URL || '';
-  await sendNotificationEmail(
-    email,
-    `${actorName} assigned you "${title}"`,
-    `${actorName} assigned you "${title}".\n\nOpen MetanoiaDocs: ${base}/`
+  for (const user of rows) {
+    await pool.query(
+      `INSERT INTO notifications (id, user_id, actor_id, actor_name, doc_id, task_id, kind, body)
+       VALUES ($1, $2, $3, $4, $5, $6, 'assigned', $7)`,
+      [crypto.randomUUID(), user.id, actor.id, actorName, task.doc_id, task.id, title.slice(0, 280)]
+    );
+    if (!user.email) continue;
+    await sendNotificationEmail(
+      user.email,
+      `${actorName} assigned you "${title}"`,
+      `${actorName} assigned you "${title}".\n\nOpen MetanoiaDocs: ${base}/`
+    );
+  }
+}
+
+/** As many people as a task can carry before the cell stops being readable —
+ *  and a bound on what one request can write. */
+const MAX_ASSIGNEES = 20;
+
+/**
+ * The assignee list a request is asking for, or undefined when it asks for no
+ * change at all. `assigneeIds` is the list; `assigneeId` is the older
+ * single-value field, still sent by the table's cell editor and by the MCP
+ * tools, and read here as a list of one (or none).
+ */
+export function wantedAssignees(body) {
+  if (Array.isArray(body?.assigneeIds)) {
+    return [...new Set(body.assigneeIds.filter((id) => typeof id === 'string' && id))].slice(0, MAX_ASSIGNEES);
+  }
+  if (body?.assigneeId !== undefined) return body.assigneeId ? [String(body.assigneeId)] : [];
+  return undefined;
+}
+
+/**
+ * Make task_assignees match `ids`, and keep `tasks.assignee_id` pointing at the
+ * first of them — every older query, filter and importer still reads that
+ * column, and a narrow cell still has one name to show.
+ *
+ * Returns the ids that were not on the task before, which is who gets told.
+ */
+async function setAssignees(taskId, ids) {
+  const { rows: real } = await pool.query('SELECT id FROM users WHERE id = ANY($1)', [ids]);
+  // Order is the caller's, not the database's: the first name is the one a
+  // narrow cell shows, so it must be the one they put first.
+  const known = new Set(real.map((r) => r.id));
+  const wanted = ids.filter((id) => known.has(id));
+  const { rows: before } = await pool.query(
+    'SELECT user_id FROM task_assignees WHERE task_id = $1', [taskId]
   );
+  await pool.query(
+    'DELETE FROM task_assignees WHERE task_id = $1 AND NOT (user_id = ANY($2))', [taskId, wanted]
+  );
+  if (wanted.length) {
+    await pool.query(
+      `INSERT INTO task_assignees (task_id, user_id, position)
+       SELECT $1, u, ord - 1 FROM unnest($2::text[]) WITH ORDINALITY AS x(u, ord)
+       ON CONFLICT (task_id, user_id) DO UPDATE SET position = EXCLUDED.position`,
+      [taskId, wanted]
+    );
+  }
+  await pool.query('UPDATE tasks SET assignee_id = $2 WHERE id = $1', [taskId, wanted[0] ?? null]);
+  const had = new Set(before.map((r) => r.user_id));
+  return wanted.filter((id) => !had.has(id));
 }
 
 
@@ -168,6 +221,7 @@ async function depEdges(projectId) {
 const TASK_SELECT = `
   SELECT t.*, u.name AS assignee_name,
          coalesce(dp.deps, '[]'::json) AS deps,
+         coalesce(asg.assignees, '[]'::json) AS assignees,
          left(pg.search_text, 240) AS preview
     FROM tasks t
     LEFT JOIN users u ON u.id = t.assignee_id
@@ -175,7 +229,15 @@ const TASK_SELECT = `
     LEFT JOIN LATERAL (
       SELECT coalesce(json_agg(d.depends_on_id), '[]') AS deps
         FROM task_deps d WHERE d.task_id = t.id
-    ) dp ON true`;
+    ) dp ON true
+    LEFT JOIN LATERAL (
+      -- Ordered by position, so the first name a narrow cell shows is the same
+      -- one tasks.assignee_id holds.
+      SELECT json_agg(json_build_object('id', au.id, 'name', coalesce(au.name, au.username))
+                      ORDER BY ta.position, au.name) AS assignees
+        FROM task_assignees ta JOIN users au ON au.id = ta.user_id
+       WHERE ta.task_id = t.id
+    ) asg ON true`;
 
 export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
   // ── projects ────────────────────────────────────────────────────────────
@@ -402,7 +464,9 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
     const vals = [];
     if (req.query.assignee) {
       vals.push(req.query.assignee === 'me' ? req.user.id : String(req.query.assignee));
-      where.push(`t.assignee_id = $${vals.length}`);
+      // Anyone on the task, not just whoever happens to be first.
+      where.push(`EXISTS (SELECT 1 FROM task_assignees ta
+                           WHERE ta.task_id = t.id AND ta.user_id = $${vals.length})`);
     }
     if (req.query.project) {
       vals.push(String(req.query.project));
@@ -464,7 +528,10 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
         id, projectId,
         String(req.body?.title || '').slice(0, 500),
         status,
-        req.body?.assigneeId || null,
+        // The row's own column is filled from the list a moment later, by
+        // setAssignees; this keeps a single-assignee create working unchanged
+        // even if that write fails.
+        wantedAssignees(req.body)?.[0] ?? null,
         startAt.value, dueAt.value,
         Number(req.body?.priority) || 0,
         clampPct(req.body?.progress),
@@ -476,9 +543,17 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
         pos[0].n, JSON.stringify(checked.value), req.user.id,
       ]
     );
-    notifyAssignee(rows[0], req.user).catch((err) => console.error('[notify] assign:', err.message));
-    // A task is created before it has a page, so there is nothing to preview yet.
-    res.json({ ...rows[0], deps: [], assignee_name: null, preview: null });
+    const assignees = wantedAssignees(req.body) ?? [];
+    if (!assignees.length) {
+      // A task is created before it has a page, so there is nothing to preview yet.
+      return res.json({ ...rows[0], deps: [], assignee_name: null, assignees: [], preview: null });
+    }
+    const added = await setAssignees(id, assignees);
+    notifyAssignees(rows[0], req.user, added)
+      .catch((err) => console.error('[notify] assign:', err.message));
+    // Read back rather than guessing the shape: the names come from users.
+    const { rows: full } = await pool.query(`${TASK_SELECT} WHERE t.id = $1`, [id]);
+    res.json(full[0] ?? { ...rows[0], deps: [], assignee_name: null, assignees: [], preview: null });
   }));
 
   app.patch('/api/tasks/:id', requireUser, wrap(async (req, res) => {
@@ -495,14 +570,11 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
       // "recently completed" stay honest when a task is reopened.
       sets.push(b.status === 'done' ? 'done_at = coalesce(done_at, now())' : 'done_at = NULL');
     }
-    // Read the assignee this task had before the write, so that a patch that
-    // merely repeats it — dragging a card, ticking a checkbox — sends nothing.
-    let priorAssignee;
-    if (b.assigneeId !== undefined) {
-      const { rows: cur } = await pool.query('SELECT assignee_id FROM tasks WHERE id = $1', [req.params.id]);
-      priorAssignee = cur[0]?.assignee_id ?? null;
-      set('assignee_id', b.assigneeId || null);
-    }
+    // Assignees are rows in their own table now, so they are written after the
+    // UPDATE rather than as one of its columns — setAssignees keeps the older
+    // tasks.assignee_id column in step and reports who is new, so a patch that
+    // merely repeats the same people tells nobody anything.
+    const assignees = wantedAssignees(b);
     for (const [key, col] of [['startAt', 'start_at'], ['dueAt', 'due_at']]) {
       if (b[key] === undefined) continue;
       const d = readDate(b[key]);
@@ -513,7 +585,30 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
     if (b.progress !== undefined) set('progress', clampPct(b.progress));
     if (b.points !== undefined) set('points', b.points == null ? null : Number(b.points) || 0);
     if (b.milestone !== undefined) set('milestone', !!b.milestone);
-    if (b.docId !== undefined) set('doc_id', b.docId || null);
+    // The page this task is written on. Read first, because relinking has to
+    // know which page is being left behind.
+    let leaving = null;
+    if (b.docId !== undefined) {
+      set('doc_id', b.docId || null);
+      const { rows: had } = await pool.query(
+        `SELECT d.id, d.kind, coalesce(d.search_text, '') AS text
+           FROM tasks t JOIN docs d ON d.id = t.doc_id
+          WHERE t.id = $1 AND d.deleted_at IS NULL`,
+        [req.params.id]
+      );
+      if (had[0] && had[0].id !== b.docId) leaving = had[0];
+      // A task and its page carry the same name. When an existing page is
+      // linked, the page's name is the one that wins: renaming a page someone
+      // else wrote, from a field on a task, is the more surprising direction —
+      // and the title still travels task → page on every later rename.
+      if (b.docId && b.title === undefined) {
+        const { rows: page } = await pool.query(
+          'SELECT title FROM docs WHERE id = $1 AND deleted_at IS NULL', [b.docId]
+        );
+        if (!page[0]) return res.status(400).json({ error: 'no such page' });
+        set('title', String(page[0].title || '').slice(0, 500));
+      }
+    }
     if (b.position !== undefined) set('position', Number(b.position) || 0);
     if (b.kind !== undefined) {
       // Types are per project, so the task has to be located before its new
@@ -568,7 +663,9 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
       vals.push(JSON.stringify(checked.value));
       sets.push(`props = props || $${vals.length}::jsonb`);
     }
-    if (!sets.length) return res.json({ ok: true });
+    // An assignee-only patch still has to touch the row, so its updated_at and
+    // updated_by move with the change like any other edit.
+    if (!sets.length && !assignees) return res.json({ ok: true });
 
     sets.push('updated_at = now()');
     set('updated_by', req.user.id);
@@ -579,16 +676,52 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
       vals
     );
     if (!rows[0]) return res.status(404).json({ error: 'not found' });
+    // The page a relink left behind. A row page belongs to its row and is
+    // listed nowhere else, so an empty one would survive as something nobody
+    // can reach; one that was written in is a real document and stays, now
+    // reachable from the sidebar like any other page.
+    if (leaving && leaving.kind === 'task') {
+      // An untouched page is not "" — BlockSuite's empty paragraph saves a
+      // zero-width space, which trim() alone leaves standing.
+      const written = leaving.text.replace(/[​-‍﻿]/g, '').trim();
+      await pool.query(
+        written
+          // Written in, so it is a real page: make it an ordinary one, or it
+          // stays hidden from every list that skips row pages.
+          ? `UPDATE docs SET kind = 'doc', updated_at = now() WHERE id = $1`
+          : 'UPDATE docs SET deleted_at = now() WHERE id = $1',
+        [leaving.id]
+      );
+    }
     if (b.title !== undefined && rows[0].doc_id) {
       await pool.query(
         'UPDATE docs SET title = $1, updated_at = now() WHERE id = $2 AND title <> $1',
         [String(b.title).slice(0, 200), rows[0].doc_id]
       );
     }
-    if (b.assigneeId !== undefined && rows[0].assignee_id !== priorAssignee) {
-      notifyAssignee(rows[0], req.user).catch((err) => console.error('[notify] assign:', err.message));
-    }
-    res.json(rows[0]);
+    if (!assignees) return res.json(rows[0]);
+    const added = await setAssignees(req.params.id, assignees);
+    notifyAssignees(rows[0], req.user, added)
+      .catch((err) => console.error('[notify] assign:', err.message));
+    // Read back: assignee_id has just been rewritten by setAssignees, and the
+    // names belong to the users table.
+    const { rows: full } = await pool.query(`${TASK_SELECT} WHERE t.id = $1`, [req.params.id]);
+    res.json(full[0] ?? rows[0]);
+  }));
+
+  // The other half of the link: a page knows which task it belongs to, so the
+  // page can offer a way back to the board it came from. Null for the great
+  // majority of pages, which belong to no task at all.
+  app.get('/api/docs/:id/task', requireUser, wrap(async (req, res) => {
+    const { rows } = await pool.query(
+      `SELECT t.id, t.title, t.status, t.project_id,
+              p.name AS project_name, p.icon AS project_icon, p.mode AS project_mode
+         FROM tasks t JOIN projects p ON p.id = t.project_id
+        WHERE t.doc_id = $1 AND t.deleted_at IS NULL
+        LIMIT 1`,
+      [req.params.id]
+    );
+    res.json({ task: rows[0] ?? null });
   }));
 
   app.post('/api/tasks/:id/page', requireUser, wrap(async (req, res) => {

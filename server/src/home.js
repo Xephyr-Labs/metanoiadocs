@@ -45,7 +45,8 @@ const ACTIVITY_SQL = `
    ORDER BY e.at DESC NULLS LAST
    LIMIT 30`;
 
-// Assigned to me, not done, bucketed by how late it is.
+// Assigned to me — one of possibly several people on it — not done, bucketed
+// by how late it is.
 const MY_TASKS_SQL = `
   SELECT t.id, t.title, t.status, t.due_at, t.priority, t.progress, t.project_id,
          p.name AS project_name, p.icon AS project_icon,
@@ -55,7 +56,7 @@ const MY_TASKS_SQL = `
               WHEN t.due_at <= current_date + 7    THEN 'week'
               ELSE 'later' END AS bucket
     FROM tasks t JOIN projects p ON p.id = t.project_id
-   WHERE t.assignee_id = $1 AND t.status <> 'done'
+   WHERE EXISTS (SELECT 1 FROM task_assignees ta WHERE ta.task_id = t.id AND ta.user_id = $1) AND t.status <> 'done'
      AND t.deleted_at IS NULL AND p.archived_at IS NULL AND p.mode <> 'data'
    ORDER BY t.due_at ASC NULLS LAST, t.priority DESC
    LIMIT 60`;
@@ -87,13 +88,13 @@ export function registerHomeRoutes(app, { requireUser, wrap }) {
       pool.query(
         `SELECT
            (SELECT count(*) FROM tasks t JOIN projects p ON p.id = t.project_id
-             WHERE t.assignee_id = $1 AND t.status <> 'done'
+             WHERE EXISTS (SELECT 1 FROM task_assignees ta WHERE ta.task_id = t.id AND ta.user_id = $1) AND t.status <> 'done'
                AND t.deleted_at IS NULL AND p.archived_at IS NULL AND p.mode <> 'data') AS my_open,
            (SELECT count(*) FROM tasks t JOIN projects p ON p.id = t.project_id
-             WHERE t.assignee_id = $1 AND t.status <> 'done' AND t.due_at < current_date
+             WHERE EXISTS (SELECT 1 FROM task_assignees ta WHERE ta.task_id = t.id AND ta.user_id = $1) AND t.status <> 'done' AND t.due_at < current_date
                AND t.deleted_at IS NULL AND p.archived_at IS NULL AND p.mode <> 'data') AS my_overdue,
            (SELECT count(*) FROM tasks t JOIN projects p ON p.id = t.project_id
-             WHERE t.assignee_id = $1 AND t.status <> 'done'
+             WHERE EXISTS (SELECT 1 FROM task_assignees ta WHERE ta.task_id = t.id AND ta.user_id = $1) AND t.status <> 'done'
                AND t.due_at BETWEEN current_date AND current_date + 7
                AND t.deleted_at IS NULL AND p.archived_at IS NULL AND p.mode <> 'data') AS my_week,
            (SELECT count(*) FROM docs d ${VISIBLE_JOIN}

@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { CheckCircle2, ChevronDown, MoreHorizontal, Play, Plus, Trash2 } from 'lucide-react';
-import { avatarFor } from '../../lib/avatar';
 import { cn } from '../../lib/cn';
 import {
   STATUS_LABEL,
@@ -12,7 +11,7 @@ import {
 import { field } from '../ui/styles';
 import { Menu } from '../ui/Menu';
 import { useKind } from './kinds';
-import { KindBadge } from './TaskChip';
+import { AssigneeStack, KindBadge } from './TaskChip';
 
 interface Props {
   tasks: TaskRow[];
@@ -35,7 +34,6 @@ const STATE_BADGE: Record<SprintState, string> = {
 };
 
 function TaskLine({ task, tasks, onOpen }: { task: TaskRow; tasks: TaskRow[]; onOpen: () => void }) {
-  const av = task.assignee_name ? avatarFor(task.assignee_name) : null;
   // Any grouping type rolls its children up here, not just the seeded Epic.
   const children = useKind(task.kind)?.is_group ? tasks.filter((t) => t.parent_id === task.id) : [];
   const childDone = children.filter((t) => t.status === 'done').length;
@@ -64,13 +62,9 @@ function TaskLine({ task, tasks, onOpen }: { task: TaskRow; tasks: TaskRow[]; on
         </span>
       )}
       <span className="hidden w-20 shrink-0 text-right text-2xs text-faint sm:block">{STATUS_LABEL[task.status as TaskStatus]}</span>
-      {av ? (
-        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-3xs font-semibold text-white" style={{ background: av.color }} title={task.assignee_name ?? ''}>
-          {av.initials}
-        </span>
-      ) : (
-        <span className="h-5 w-5 shrink-0" />
-      )}
+      {/* The empty span keeps the column of faces aligned down the list when a
+          task has nobody on it. */}
+      {task.assignees?.length ? <AssigneeStack people={task.assignees} max={2} /> : <span className="h-5 w-5 shrink-0" />}
     </div>
   );
 }

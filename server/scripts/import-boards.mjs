@@ -126,16 +126,27 @@ async function main() {
       for (const t of board.tasks) {
         const id = crypto.randomUUID();
         idFor.set(t.sourceId, id);
+        const assignee = assignees.resolve(t.assigneeRefs);
         await client.query(
           `INSERT INTO tasks (id, project_id, title, status, assignee_id, start_at, due_at,
                               progress, milestone, position, created_by, updated_by, done_at)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11,$12)`,
           [
-            id, projectId, t.title, t.status, assignees.resolve(t.assigneeRefs),
+            id, projectId, t.title, t.status, assignee,
             t.startAt, t.dueAt, t.progress, t.milestone, position++, actor,
             t.status === 'done' ? new Date() : null,
           ]
         );
+        // The edge, as well as the column: "my tasks" and the assignee filter
+        // read task_assignees, so a row with only assignee_id set belongs to
+        // nobody as far as those are concerned.
+        if (assignee) {
+          await client.query(
+            `INSERT INTO task_assignees (task_id, user_id, position) VALUES ($1, $2, 0)
+             ON CONFLICT DO NOTHING`,
+            [id, assignee]
+          );
+        }
       }
       for (const t of board.tasks) {
         for (const dep of t.deps) {

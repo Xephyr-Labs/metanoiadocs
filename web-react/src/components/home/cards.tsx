@@ -36,7 +36,7 @@ export function StatTile({ label, value, tone }: { label: string; value: number;
     <div className="px-1">
       <p
         className={cn(
-          'font-display text-3xl leading-8',
+          'font-display text-3xl font-semibold leading-8 tracking-[-0.03em] tabular-nums',
           tone === 'danger' && value > 0 ? 'text-danger' : tone === 'accent' ? 'text-accent' : 'text-ink',
         )}
       >
@@ -108,18 +108,20 @@ export function DocCard({ doc, onOpen }: {
       <button
         type="button"
         onClick={onOpen}
-        className="flex h-full min-h-[132px] w-full flex-col justify-between gap-3 rounded-lg border border-line bg-canvas p-4 text-left transition-colors duration-120 hover:border-accent/50 hover:bg-accent-soft/50"
+        className="flex h-full w-full items-center gap-2.5 rounded-lg border border-line bg-canvas p-3 pr-8 text-left transition-colors duration-120 hover:border-line-strong hover:bg-hover"
       >
-        <span className="text-xl leading-none">{doc.icon || '📄'}</span>
-        <span className="min-w-0">
+        {/* Icon inline with the name, not floating above it: a 132px-tall box
+            holding one line of text and an emoji was mostly empty space. */}
+        <span className="shrink-0 text-base leading-none">{doc.icon || '📄'}</span>
+        <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium text-ink">{doc.title || 'Untitled'}</span>
-          <span className="mt-0.5 block truncate text-xs text-faint">
+          <span className="mt-0.5 block truncate text-2xs text-faint">
             {doc.updated_by_name ? `${doc.updated_by_name} · ` : ''}{relativeTime(doc.updated_at)}
           </span>
         </span>
       </button>
       {moveTo && (
-        <span className="absolute right-1.5 top-1.5 opacity-0 transition-opacity duration-120 focus-within:opacity-100 group-hover:opacity-100">
+        <span className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 transition-opacity duration-120 focus-within:opacity-100 group-hover:opacity-100">
           <Menu
             align="end"
             items={[moveTo]}

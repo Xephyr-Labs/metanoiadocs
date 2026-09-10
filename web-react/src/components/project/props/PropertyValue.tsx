@@ -2,7 +2,7 @@ import type { UserRow } from '../../../lib/docsApi';
 import { cn } from '../../../lib/cn';
 import { selectedOptions } from '../../../lib/props';
 import type { PropRow } from '../../../lib/tasksApi';
-import { field } from '../../ui/styles';
+import { field, selectField } from '../../ui/styles';
 
 interface Props {
   prop: PropRow;
@@ -43,14 +43,14 @@ export function PropertyValue({ prop, users, value, onChange }: Props) {
       );
     case 'person':
       return (
-        <select className={field} value={typeof value === 'string' ? value : ''} onChange={(e) => onChange(e.target.value || null)}>
+        <select className={selectField} value={typeof value === 'string' ? value : ''} onChange={(e) => onChange(e.target.value || null)}>
           <option value="">Nobody</option>
           {users.map((u) => <option key={u.id} value={u.id}>{u.name || u.username}</option>)}
         </select>
       );
     case 'select':
       return (
-        <select className={field} value={typeof value === 'string' ? value : ''} onChange={(e) => onChange(e.target.value || null)}>
+        <select className={selectField} value={typeof value === 'string' ? value : ''} onChange={(e) => onChange(e.target.value || null)}>
           <option value="">Empty</option>
           {prop.options.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
         </select>
