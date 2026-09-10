@@ -3,8 +3,27 @@ import crypto from 'node:crypto';
 /** The property types a database column can have. `relation` is the only one
  *  whose value lives outside `tasks.props` — see task_relations. */
 export const PROP_TYPES = [
-  'text', 'number', 'select', 'multi_select', 'date', 'checkbox', 'person', 'url', 'relation',
+  'text', 'number', 'select', 'multi_select', 'date', 'checkbox', 'person', 'url', 'file', 'relation',
 ];
+
+/** How many files one property may hold, and how long a name may be. Both are
+ *  bounds on what a single row can carry, not on the blob store. */
+const MAX_FILES = 20;
+
+/** One uploaded file, as it is stored inside `tasks.props`. The bytes live in
+ *  the blobs table under `key`; this is the reference plus what a chip needs to
+ *  render without fetching them. */
+function coerceFile(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  // The key is the sha256 the uploader computed — hex, fixed length. Anything
+  // else would be a path into someone else's blob or a bad request.
+  const key = String(raw.key ?? '');
+  if (!/^[a-f0-9]{64}$/i.test(key)) return null;
+  const name = String(raw.name ?? '').trim().slice(0, 200) || 'file';
+  const mime = String(raw.mime ?? '').slice(0, 100);
+  const size = Number(raw.size);
+  return { key: key.toLowerCase(), name, mime, size: Number.isFinite(size) && size >= 0 ? size : 0 };
+}
 
 /** A stable key for a user-typed label, unique within `taken`. Mirrors
  *  kindKey in tasks.js: derived once at creation, never recomputed, so a
@@ -72,6 +91,13 @@ export function coercePropValue(type, value) {
       const s = String(value).trim().slice(0, 2000);
       // Only http(s): a stored javascript: URL becomes a click target later.
       return /^https?:\/\//i.test(s) ? s : undefined;
+    }
+    case 'file': {
+      if (!Array.isArray(value)) return undefined;
+      const files = value.slice(0, MAX_FILES).map(coerceFile);
+      // One bad entry fails the whole patch rather than silently dropping a
+      // file the person just uploaded.
+      return files.some((f) => f === null) ? undefined : files;
     }
     case 'relation':
       // Relations are edges, never values in props.

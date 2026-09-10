@@ -87,6 +87,26 @@ describe('applyFilters', () => {
     expect(run([many], [filter({ field: 'assignee_id', op: 'is_empty', value: '' })])).toEqual([]);
   });
 
+  it('matches a checked list with "is any of"', () => {
+    expect(run(all, [filter({ field: 'status', op: 'is_any_of', value: 'todo,review' })])).toEqual(['a']);
+    expect(run(all, [filter({ field: 'status', op: 'is_any_of', value: 'todo,done' })])).toEqual(['a', 'b']);
+    // An empty list is an unset filter, not a filter that matches nothing.
+    expect(run(all, [filter({ field: 'status', op: 'is_any_of', value: '' })])).toEqual(['a', 'b']);
+    // Whitespace and stray commas come from hand-edited localStorage.
+    expect(run(all, [filter({ field: 'status', op: 'is_any_of', value: ' todo , ,' })])).toEqual(['a']);
+  });
+
+  it('"is none of" is the exact complement', () => {
+    expect(run(all, [filter({ field: 'status', op: 'is_none_of', value: 'todo,review' })])).toEqual(['b']);
+    const many = task({
+      id: 'c', assignee_id: 'u1',
+      assignees: [{ id: 'u1', name: 'Shafin' }, { id: 'u2', name: 'Lamisa' }],
+    });
+    // Anyone on the task counts, the same way "is" does.
+    expect(run([many], [filter({ field: 'assignee_id', op: 'is_any_of', value: 'u9,u2' })])).toEqual(['c']);
+    expect(run([many], [filter({ field: 'assignee_id', op: 'is_none_of', value: 'u9,u2' })])).toEqual([]);
+  });
+
   it('counts an unset cell as "is not"', () => {
     expect(run(all, [filter({ field: 'assignee_id', op: 'is_not', value: 'u1' })])).toEqual(['b']);
   });

@@ -114,6 +114,27 @@ export function Gantt({ tasks, onOpen }: { tasks: TaskRow[]; onOpen: (t: TaskRow
               {rows.map((t, i) => {
                 const bar = bars.get(t.id)!;
                 const late = isOverdue(t);
+                // A task with a due date and no start date is a point in time,
+                // not a span. Drawn as a bar it came out as a one-day box —
+                // eleven identical little boxes reading as a broken chart.
+                const point = !t.milestone && (!t.start_at || !t.due_at
+                  || t.start_at.slice(0, 10) === t.due_at.slice(0, 10));
+                if (point) {
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => onOpen(t)}
+                      title={`${t.title} · due ${shortDate(t.due_at ?? t.start_at)} · add a start date for a bar`}
+                      style={{ left: bar.x + dayWidth / 2 - 5, top: i * ROW_H + ROW_H / 2 - 5 }}
+                      className={cn(
+                        'absolute h-2.5 w-2.5 rounded-full ring-4',
+                        late ? 'bg-danger ring-danger-soft' : 'bg-accent ring-accent-soft',
+                        t.status === 'done' && 'opacity-60',
+                      )}
+                    />
+                  );
+                }
                 return t.milestone ? (
                   <span
                     key={t.id}
@@ -128,18 +149,24 @@ export function Gantt({ tasks, onOpen }: { tasks: TaskRow[]; onOpen: (t: TaskRow
                     type="button"
                     onClick={() => onOpen(t)}
                     title={`${t.title} · ${shortDate(t.start_at)} → ${shortDate(t.due_at)} · ${t.progress}%`}
-                    style={{ left: bar.x, width: Math.max(bar.width, 4), top: i * ROW_H + 6 }}
+                    style={{ left: bar.x, width: Math.max(bar.width, 12), top: i * ROW_H + 6 }}
                     // No `/opacity` modifiers here: the colour tokens are
                     // var()-based, and Tailwind silently drops the alpha on
                     // those, which renders an invisible bar.
                     className={cn(
                       'absolute h-5 overflow-hidden rounded text-left ring-1 ring-inset',
-                      late ? 'bg-surface-2 ring-danger' : 'bg-accent-soft ring-accent',
+                      // A late bar used to sit on the page background, which read
+                      // as an empty outline rather than as a bar.
+                      late ? 'bg-danger-soft ring-danger' : 'bg-accent-soft ring-accent',
+                      t.status === 'done' && 'opacity-70',
                     )}
                   >
+                    {/* The progress fill, with a floor: at 0 % a bar with no fill
+                        at all is indistinguishable from an empty box, so it keeps
+                        a 3px cap in the status colour. */}
                     <span
                       className={cn('block h-full', late ? 'bg-danger' : 'bg-accent')}
-                      style={{ width: `${t.progress}%` }}
+                      style={{ width: t.progress > 0 ? `${t.progress}%` : '3px' }}
                     />
                   </button>
                 );

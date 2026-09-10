@@ -89,3 +89,21 @@ test('relationError guards the property and both ends of the edge', () => {
   assert.equal(relationError(prop, 'C', 'B'), 'that property belongs to another database');
   assert.equal(relationError(prop, 'A', 'C'), 'that row is not in the linked database');
 });
+
+test('coercePropValue accepts a file list and refuses a bad key', () => {
+  const one = { key: 'a'.repeat(64), name: 'spec.pdf', mime: 'application/pdf', size: 1200 };
+  assert.deepEqual(coercePropValue('file', [one]), [one]);
+  // Trimmed, defaulted, and lower-cased — but the key must be a real sha256.
+  assert.deepEqual(
+    coercePropValue('file', [{ key: 'B'.repeat(64) }]),
+    [{ key: 'b'.repeat(64), name: 'file', mime: '', size: 0 }],
+  );
+  assert.equal(coercePropValue('file', [{ key: '../etc/passwd', name: 'x' }]), undefined);
+  assert.equal(coercePropValue('file', 'not-a-list'), undefined);
+  assert.equal(coercePropValue('file', null), null);
+});
+
+test('file is a property type, relation still is not a value', () => {
+  assert.ok(PROP_TYPES.includes('file'));
+  assert.equal(coercePropValue('relation', ['anything']), undefined);
+});
