@@ -25,6 +25,9 @@
   --line-strong: #dcdbd8;
   --accent: #2383e2;
   --accent-soft: #eaf3fc;
+  /* The danger twin of accent-soft — a late gantt bar had no tint to sit in,
+     so it rendered as a hollow outline and read as a rendering fault. */
+  --danger-soft: #fbeceb;
   --danger: #d44c47;
   --overlay: rgba(15, 15, 15, 0.32);
 
@@ -124,6 +127,7 @@ html.dark {
   --line-strong: #424240;
   --accent: #4a9eea;
   --accent-soft: #1d3a57;
+  --danger-soft: #4a2523;
   --danger: #e06c66;
   --overlay: rgba(0, 0, 0, 0.5);
 

@@ -10,8 +10,14 @@ export type FieldKind =
   | 'text' | 'url' | 'select' | 'multi_select' | 'person' | 'date' | 'number' | 'checkbox';
 
 export type FilterOp =
-  | 'is' | 'is_not' | 'contains' | 'is_empty' | 'is_not_empty'
+  | 'is' | 'is_not' | 'is_any_of' | 'is_none_of' | 'contains' | 'is_empty' | 'is_not_empty'
   | 'on' | 'before' | 'after' | 'gt' | 'lt';
+
+/** `is_any_of` / `is_none_of` carry a list; every other op carries one value.
+ *  The list is stored comma-separated so a saved filter is still a string. */
+export const MULTI_OPS: FilterOp[] = ['is_any_of', 'is_none_of'];
+export const isMultiOp = (op: FilterOp) => MULTI_OPS.includes(op);
+export const splitValues = (value: string) => value.split(',').map((v) => v.trim()).filter(Boolean);
 
 export interface FilterField {
   /** A TaskRow column, or `prop:<id>` for a custom property. */
@@ -32,9 +38,11 @@ export interface Filter {
 export const OPS: Record<FieldKind, FilterOp[]> = {
   text: ['contains', 'is', 'is_not', 'is_empty', 'is_not_empty'],
   url: ['contains', 'is', 'is_empty', 'is_not_empty'],
-  select: ['is', 'is_not', 'is_empty', 'is_not_empty'],
-  multi_select: ['is', 'is_not', 'is_empty', 'is_not_empty'],
-  person: ['is', 'is_not', 'is_empty', 'is_not_empty'],
+  // "is any of" leads for the tag-shaped fields: picking three labels is the
+  // common question, and asking it as three separate filters is not an answer.
+  select: ['is_any_of', 'is', 'is_not', 'is_none_of', 'is_empty', 'is_not_empty'],
+  multi_select: ['is_any_of', 'is', 'is_not', 'is_none_of', 'is_empty', 'is_not_empty'],
+  person: ['is_any_of', 'is', 'is_not', 'is_none_of', 'is_empty', 'is_not_empty'],
   date: ['on', 'before', 'after', 'is_empty', 'is_not_empty'],
   number: ['is', 'gt', 'lt', 'is_empty', 'is_not_empty'],
   checkbox: ['is'],
@@ -43,6 +51,8 @@ export const OPS: Record<FieldKind, FilterOp[]> = {
 export const OP_LABEL: Record<FilterOp, string> = {
   is: 'is',
   is_not: 'is not',
+  is_any_of: 'is any of',
+  is_none_of: 'is none of',
   contains: 'contains',
   is_empty: 'is empty',
   is_not_empty: 'is not empty',
@@ -67,8 +77,9 @@ const PROP_KIND: Record<PropRow['type'], FieldKind | null> = {
   checkbox: 'checkbox',
   person: 'person',
   url: 'url',
-  // Relations live in their own table, not in tasks.props, so there is nothing
-  // on the row to match against.
+  // Files and relations have nothing a filter can compare: one is a list of
+  // blobs, the other lives in its own table.
+  file: null,
   relation: null,
 };
 
@@ -181,6 +192,13 @@ export function matches(task: TaskRow, filter: Filter, field: FilterField): bool
   const v = valueOf(task, field);
   const want = filter.value;
   switch (filter.op) {
+    // A checked list: any one of them matching is a match. `is_none_of` is its
+    // exact complement, so an unset cell passes it — the same rule `is_not`
+    // already follows.
+    case 'is_any_of':
+      return splitValues(want).some((one) => equals(v, field.kind, one));
+    case 'is_none_of':
+      return !splitValues(want).some((one) => equals(v, field.kind, one));
     case 'is_empty':
       return isEmpty(v);
     case 'is_not_empty':

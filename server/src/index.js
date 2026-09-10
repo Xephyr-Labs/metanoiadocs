@@ -1868,7 +1868,13 @@ app.get('/api/blob/:key', async (req, res) => {
   // Neutralize scripts if the blob is ever loaded as a top-level document (e.g. an
   // SVG opened directly): sandbox blocks script execution. Harmless to <img> use.
   res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox");
-  if (!isImage) res.setHeader('Content-Disposition', 'attachment');
+  if (!isImage) {
+    // `?name=` is the file's own name, so a download is not called by its
+    // sha256. Quotes and control characters are stripped rather than escaped —
+    // a header is not the place to be clever about a filename.
+    const wanted = String(req.query.name || '').replace(/[^\w.\-() ]+/g, '').slice(0, 120);
+    res.setHeader('Content-Disposition', wanted ? `attachment; filename="${wanted}"` : 'attachment');
+  }
   res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
   res.end(rows[0].data);
 });

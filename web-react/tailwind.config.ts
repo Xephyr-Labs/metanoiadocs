@@ -27,6 +27,7 @@ export default {
         'line-strong': 'var(--line-strong)',
         accent: 'var(--accent)',
         'accent-soft': 'var(--accent-soft)',
+        'danger-soft': 'var(--danger-soft)',
         danger: 'var(--danger)',
         overlay: 'var(--overlay)',
         comment: 'var(--comment)',

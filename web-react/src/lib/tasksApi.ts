@@ -85,15 +85,16 @@ export interface ProjectRow {
 
 export type PropType =
   | 'text' | 'number' | 'select' | 'multi_select'
-  | 'date' | 'checkbox' | 'person' | 'url' | 'relation';
+  | 'date' | 'checkbox' | 'person' | 'url' | 'file' | 'relation';
 
 export const PROP_TYPES: PropType[] = [
-  'text', 'number', 'select', 'multi_select', 'date', 'checkbox', 'person', 'url', 'relation',
+  'text', 'number', 'select', 'multi_select', 'date', 'checkbox', 'person', 'url', 'file', 'relation',
 ];
 
 export const PROP_TYPE_LABEL: Record<PropType, string> = {
   text: 'Text', number: 'Number', select: 'Select', multi_select: 'Multi-select',
-  date: 'Date', checkbox: 'Checkbox', person: 'Person', url: 'URL', relation: 'Relation',
+  date: 'Date', checkbox: 'Checkbox', person: 'Person', url: 'URL',
+  file: 'Files & media', relation: 'Relation',
 };
 
 export interface PropOption {
