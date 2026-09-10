@@ -160,7 +160,7 @@ export function useProject(projectId: string | null) {
     }
   }, [projectId]);
 
-  const patchProp = useCallback(async (id: string, b: Partial<{ label: string; options: PropOption[] }>) => {
+  const patchProp = useCallback(async (id: string, b: Partial<{ label: string; type: PropType; options: PropOption[] }>) => {
     const before = props;
     setProps((prev) => prev.map((p) => (p.id === id ? { ...p, ...b } as PropRow : p)));
     try {
@@ -168,6 +168,23 @@ export function useProject(projectId: string | null) {
       setProps((prev) => prev.map((p) => (p.id === id ? row : p)));
     } catch {
       setProps(before);
+    }
+  }, [props]);
+
+  /** Swap a property with its neighbour. Positions are rewritten for the whole
+   *  list rather than the pair, so a set of rows that all arrived with position
+   *  0 — the default — ends up in a defined order instead of shuffling. */
+  const reorderProp = useCallback(async (id: string, by: -1 | 1) => {
+    const from = props.findIndex((p) => p.id === id);
+    const to = from + by;
+    if (from < 0 || to < 0 || to >= props.length) return;
+    const next = [...props];
+    [next[from], next[to]] = [next[to], next[from]];
+    setProps(next.map((p, i) => ({ ...p, position: i })));
+    try {
+      await Promise.all(next.map((p, i) => tasksApi.patchProp(p.id, { position: i })));
+    } catch {
+      setProps(props);
     }
   }, [props]);
 
@@ -210,7 +227,7 @@ export function useProject(projectId: string | null) {
     tasks, sprints, kinds, props, users, loading, error, setError, refresh,
     patch, create, remove, addDep, removeDep,
     createKind, patchKind, deleteKind,
-    setProp, createProp, patchProp, deleteProp,
+    setProp, createProp, patchProp, reorderProp, deleteProp,
     createSprint, patchSprint, deleteSprint,
   };
 }
@@ -230,9 +247,19 @@ function localShape(body: TaskPatch, users: UserRow[]): Partial<TaskRow> {
   if (body.kind !== undefined) out.kind = body.kind;
   if (body.sprintId !== undefined) out.sprint_id = body.sprintId;
   if (body.parentId !== undefined) out.parent_id = body.parentId;
-  if (body.assigneeId !== undefined) {
-    out.assignee_id = body.assigneeId;
-    out.assignee_name = users.find((u) => u.id === body.assigneeId)?.name ?? null;
+  // Both assignee fields move together, the way the server writes them: the
+  // list, and the first of it in the single-name column.
+  const ids = body.assigneeIds ?? (body.assigneeId !== undefined
+    ? (body.assigneeId ? [body.assigneeId] : [])
+    : undefined);
+  if (ids) {
+    const named = (id: string) => {
+      const user = users.find((u) => u.id === id);
+      return { id, name: user ? (user.name || user.username) : '…' };
+    };
+    out.assignees = ids.map(named);
+    out.assignee_id = ids[0] ?? null;
+    out.assignee_name = out.assignees[0]?.name ?? null;
   }
   return out;
 }

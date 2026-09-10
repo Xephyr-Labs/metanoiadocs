@@ -54,6 +54,18 @@ export function ProjectView() {
   const [filters, setFilters] = useState<Filter[]>([]);
   const p = useProject(ws.activeProjectId);
   const isData = project?.mode === 'data';
+
+  // Arriving from a page that belongs to a task: open that task's panel as soon
+  // as the list it lives in has loaded, then forget the request so a later
+  // visit to the same board opens on the board itself.
+  const { pendingTaskId, clearPendingTask } = ws;
+  useEffect(() => {
+    if (!pendingTaskId) return;
+    const wanted = p.tasks.find((t) => t.id === pendingTaskId);
+    if (!wanted) return;
+    setOpen(wanted);
+    clearPendingTask();
+  }, [pendingTaskId, p.tasks, clearPendingTask]);
   const dateProps = useMemo(() => p.props.filter((prop) => prop.type === 'date'), [p.props]);
   const tabs = useMemo(
     () => (isData ? DATA_TABS.filter((t) => t.value !== 'calendar' || dateProps.length > 0) : TABS),
@@ -266,6 +278,7 @@ export function ProjectView() {
         onAddDep={p.addDep}
         onRemoveDep={p.removeDep}
         onManageKinds={() => setKindsOpen(true)}
+        onManageProps={() => setPropsOpen(true)}
       />
 
       <TaskKindsDialog
@@ -285,6 +298,7 @@ export function ProjectView() {
         projects={ws.projects}
         onCreate={p.createProp}
         onPatch={p.patchProp}
+        onReorder={p.reorderProp}
         onDelete={p.deleteProp}
       />
     </div>

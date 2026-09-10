@@ -122,13 +122,22 @@ export interface RelatedRow {
   doc_id: string | null;
 }
 
+/** One of the people a task is on, in the order they were put there. */
+export interface Assignee {
+  id: string;
+  name: string;
+}
+
 export interface TaskRow {
   id: string;
   project_id: string;
   title: string;
   status: TaskStatus;
+  /** The first assignee. Kept for the narrow cells that show a single name —
+   *  `assignees` is the whole list. */
   assignee_id: string | null;
   assignee_name: string | null;
+  assignees: Assignee[];
   start_at: string | null;
   due_at: string | null;
   priority: number;
@@ -148,6 +157,17 @@ export interface TaskRow {
   preview: string | null;
 }
 
+/** What a page knows about the task it belongs to. */
+export interface DocTask {
+  id: string;
+  title: string;
+  status: TaskStatus;
+  project_id: string;
+  project_name: string;
+  project_icon: string;
+  project_mode: ProjectMode;
+}
+
 export interface TaskDetail extends TaskRow {
   relations: Record<string, RelatedRow[]>;
   backlinks: RelatedRow[];
@@ -156,6 +176,9 @@ export interface TaskDetail extends TaskRow {
 export interface TaskPatch {
   title?: string;
   status?: TaskStatus;
+  /** Everyone on the task. Sending it replaces the list. */
+  assigneeIds?: string[];
+  /** The single-assignee form, still used by the table's one-name cell. */
   assigneeId?: string | null;
   startAt?: string | null;
   dueAt?: string | null;
@@ -251,6 +274,9 @@ export const tasksApi = {
     req(`/tasks/${id}/relations`, { method: 'DELETE', ...body({ propId, toId }) }),
   /** Creates the row's page on first call, returns the same id after that. */
   taskPage: (id: string): Promise<{ docId: string }> => req(`/tasks/${id}/page`, { method: 'POST' }),
+  /** The task a page belongs to, for the link back to its board. Null for the
+   *  great majority of pages, which belong to no task. */
+  docTask: (docId: string): Promise<{ task: DocTask | null }> => req(`/docs/${docId}/task`),
 
   sprints: (projectId: string): Promise<SprintRow[]> => req(`/projects/${projectId}/sprints`),
   createSprint: (projectId: string, b: { name: string; startAt?: string | null; endAt?: string | null }): Promise<SprintRow> =>

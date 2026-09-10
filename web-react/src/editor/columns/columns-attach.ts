@@ -2,10 +2,13 @@
 // the vertical drop line, and the tidy-up pass that keeps a row from stranding
 // an empty half-page. See the header of columns-dnd.ts for why the built-in
 // drag handle needs the one small patch this file applies.
+import { focusBlockEnd } from '@blocksuite/affine/shared/commands';
+import { BlockSelection } from '@blocksuite/std';
 import {
   applyColumnDrop, planColumnDrop, sideForDrop, tidyColumns,
   type ColumnDropPlan, type ModelLike, type StoreLike,
 } from './columns-dnd';
+import { crossColumnRow, exitColumn, type OpsStore, type TextModelLike } from './columns-ops';
 
 interface DropTargetLike {
   element?: (Element & { model?: ModelLike; std?: unknown }) | null;
@@ -38,6 +41,22 @@ type DropResultFn = (a: unknown, b: unknown, c: unknown) => unknown;
 interface DragWatcher { _getDropResult: DropResultFn }
 interface DragHandleWidget { _dragEventWatcher?: DragWatcher }
 
+interface SelectionLike {
+  value: { type: string; from?: { blockId: string; length: number } }[];
+  create(type: typeof BlockSelection, args: { blockId: string }): BlockSelection;
+  setGroup(group: string, selections: BlockSelection[]): void;
+}
+
+/** The slice of `std` this file uses, spelled out rather than imported: the
+ *  editor arrives here as a plain element, the way mountEditor hands it over. */
+interface StdLike {
+  dnd?: DndLike;
+  selection?: SelectionLike;
+  view?: { getBlock(id: string): Element | null };
+  host?: { updateComplete: Promise<unknown> };
+  command?: { exec(command: unknown, args: Record<string, unknown>): unknown };
+}
+
 const INDICATOR_CLASS = 'mn-col-drop-line';
 
 function draggedFrom(source: DragSourceLike) {
@@ -55,7 +74,7 @@ function draggedFrom(source: DragSourceLike) {
 export function attachColumns({
   editor, store, onChange,
 }: {
-  editor: Element & { std?: { dnd?: DndLike } };
+  editor: Element & { std?: StdLike };
   store: StoreLike & { id?: string; doc?: { id?: string }; root?: ModelLike | null };
   onChange: (cb: () => void) => () => void;
 }): () => void {
@@ -156,6 +175,64 @@ export function attachColumns({
     },
   });
 
+  // ── a selection dragged across the gutter ─────────────────────────────────
+  // No text range can span two columns as far as the editor is concerned: the
+  // browser paints the selection, but BlockSuite keeps a text selection on the
+  // first block alone, so copy, delete and the format bar all act on a fraction
+  // of what looks selected. Once the gesture ends, that becomes a block
+  // selection of the whole row instead — which is what the reader was reaching
+  // for, and what every command already knows how to act on.
+  const blockIdAt = (node: Node | null): string | null => {
+    const element = node instanceof Element ? node : node?.parentElement ?? null;
+    return element?.closest('[data-block-id]')?.getAttribute('data-block-id') ?? null;
+  };
+  const modelAt = (node: Node | null): ModelLike | null => {
+    const id = blockIdAt(node);
+    return id ? store.getModelById(id) : null;
+  };
+  const claimCrossColumn = () => {
+    const selection = document.getSelection();
+    if (!selection || selection.isCollapsed || !selection.rangeCount) return;
+    const range = selection.getRangeAt(0);
+    const row = crossColumnRow(store, modelAt(range.startContainer), modelAt(range.endContainer));
+    const api = editor.std?.selection;
+    if (!row || !api) return;
+    selection.removeAllRanges();
+    api.setGroup('note', [api.create(BlockSelection, { blockId: row.id })]);
+  };
+  // Capture on document: the drag ends wherever the pointer happens to be, and
+  // a release outside the editor still has to settle the selection it left.
+  const onPointerUp = () => { requestAnimationFrame(claimCrossColumn); };
+  const onKeyUp = (event: KeyboardEvent) => { if (event.key === 'Shift') claimCrossColumn(); };
+  document.addEventListener('pointerup', onPointerUp, true);
+  document.addEventListener('keyup', onKeyUp, true);
+
+  // ── Enter on the empty last line of a column ──────────────────────────────
+  // It steps out below the row, instead of making the column one line taller
+  // forever. Bound here rather than on the column block: the editor keeps DOM
+  // focus on `affine-page-root`, so a keydown never travels through the column
+  // element at all. Capture on document, so this runs before BlockSuite's own
+  // Enter binding and can take the keystroke off it.
+  const onKeyDown = (event: KeyboardEvent) => {
+    if (event.key !== 'Enter' || event.shiftKey || event.isComposing || store.readonly) return;
+    if (event.target instanceof Node && !editor.contains(event.target)) return;
+    const std = editor.std;
+    const from = std?.selection?.value.find((s) => s.type === 'text')?.from;
+    // A selection with a length is text about to be replaced, not a caret.
+    if (!from || from.length) return;
+    const moved = exitColumn(store as OpsStore, store.getModelById(from.blockId) as TextModelLike | null);
+    if (!moved) return;
+    event.preventDefault();
+    event.stopPropagation();
+    std?.host?.updateComplete
+      .then(() => {
+        const block = std.view?.getBlock(moved);
+        if (block) std.command?.exec(focusBlockEnd, { focusBlock: block });
+      })
+      .catch(() => { /* the paragraph moved either way */ });
+  };
+  document.addEventListener('keydown', onKeyDown, true);
+
   // Empty columns can also appear without us — a backspace, or the built-in
   // handler moving a column's last block away — so the sweep runs on document
   // change, one frame later so it sees the finished state.
@@ -170,6 +247,9 @@ export function attachColumns({
   return () => {
     if (frame) cancelAnimationFrame(frame);
     document.removeEventListener('dragover', trackPointer, true);
+    document.removeEventListener('pointerup', onPointerUp, true);
+    document.removeEventListener('keyup', onKeyUp, true);
+    document.removeEventListener('keydown', onKeyDown, true);
     hideLine();
     try { stop?.(); } catch { /* noop */ }
     try { off(); } catch { /* noop */ }

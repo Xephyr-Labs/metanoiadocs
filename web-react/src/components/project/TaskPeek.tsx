@@ -1,4 +1,4 @@
-import { ExternalLink, Link2, MoreHorizontal, Settings2, Trash2, X } from 'lucide-react';
+import { ExternalLink, Link2, MoreHorizontal, Plus, Settings2, Trash2, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { UserRow } from '../../lib/docsApi';
 import { cn } from '../../lib/cn';
@@ -13,6 +13,7 @@ import { field } from '../ui/styles';
 import { IconButton } from '../ui/IconButton';
 import { Menu } from '../ui/Menu';
 import { useMoveToFolder } from '../../hooks/useMoveToFolder';
+import { AssigneePicker } from './AssigneePicker';
 import { useKinds } from './kinds';
 import { KindBadge } from './TaskChip';
 import { PropertyValue } from './props/PropertyValue';
@@ -33,6 +34,8 @@ interface Props {
   onRemoveDep: (id: string, dependsOn: string) => void;
   /** Opens the type editor from beside the Type field, the way Notion does. */
   onManageKinds: () => void;
+  /** Opens the property editor, for adding one without leaving the task. */
+  onManageProps: () => void;
 }
 
 const label = 'mb-1 block text-2xs font-medium text-muted';
@@ -52,7 +55,8 @@ function Row({ name, children }: { name: string; children: React.ReactNode }) {
  * it's a page you can write in, reachable at /d/<id> like any other document.
  */
 export function TaskPeek({
-  task, mode, tasks, props, sprints, users, onClose, onPatch, onSetProp, onDelete, onAddDep, onRemoveDep, onManageKinds,
+  task, mode, tasks, props, sprints, users, onClose, onPatch, onSetProp, onDelete, onAddDep, onRemoveDep,
+  onManageKinds, onManageProps,
 }: Props) {
   const ws = useWorkspace();
   const auth = useAuth();
@@ -96,6 +100,12 @@ export function TaskPeek({
 
   const candidates = tasks.filter((t) => t.id !== task.id && !task.deps.includes(t.id));
   const byId = new Map(tasks.map((t) => [t.id, t]));
+  // Pages a task can be moved onto: ordinary documents, not other tasks' pages
+  // (which belong to a row already) and not designs.
+  const linkable = Object.values(ws.pages)
+    .filter((p) => p.kind === 'doc' && p.id !== docId)
+    .sort((a, b) => a.title.localeCompare(b.title))
+    .slice(0, 200);
   const groupKeys = new Set(kinds.filter((k) => k.is_group).map((k) => k.key));
   const parents = tasks.filter((t) => groupKeys.has(t.kind) && t.id !== task.id);
   const isGroup = groupKeys.has(task.kind);
@@ -150,11 +160,12 @@ export function TaskPeek({
                 {STATUSES.map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
               </select>
             </Row>
-            <Row name="Assignee">
-              <select className={field} value={task.assignee_id ?? ''} onChange={(e) => onPatch(task.id, { assigneeId: e.target.value || null })}>
-                <option value="">Unassigned</option>
-                {users.map((u) => <option key={u.id} value={u.id}>{u.name || u.username}</option>)}
-              </select>
+            <Row name="Assignees">
+              <AssigneePicker
+                assignees={task.assignees ?? []}
+                users={users}
+                onChange={(assigneeIds) => onPatch(task.id, { assigneeIds })}
+              />
             </Row>
             <Row name="Progress %">
               <input type="number" min={0} max={100} className={field} value={task.progress} onChange={(e) => onPatch(task.id, { progress: Number(e.target.value) })} />
@@ -220,18 +231,54 @@ export function TaskPeek({
           </>
         )}
 
-        {props.length > 0 && (
-          <section className="space-y-3 p-4">
-            {props.map((p) => (
-              <div key={p.id} className="grid grid-cols-[120px_1fr] items-center gap-3">
-                <span className="text-2xs font-medium text-muted">{p.label}</span>
-                {p.type === 'relation'
-                  ? <RelationField task={task} prop={p} detail={detail} onChanged={setDetail} />
-                  : <PropertyValue prop={p} users={users} value={task.props?.[p.id] ?? null} onChange={(v) => onSetProp(task.id, p.id, v)} />}
-              </div>
-            ))}
-          </section>
-        )}
+        <section className="space-y-3 p-4">
+          {props.map((p) => (
+            <div key={p.id} className="grid grid-cols-[120px_1fr] items-center gap-3">
+              <span className="text-2xs font-medium text-muted">{p.label}</span>
+              {p.type === 'relation'
+                ? <RelationField task={task} prop={p} detail={detail} onChanged={setDetail} />
+                : <PropertyValue prop={p} users={users} value={task.props?.[p.id] ?? null} onChange={(v) => onSetProp(task.id, p.id, v)} />}
+            </div>
+          ))}
+          {/* Properties belong to the whole database, but this is where people
+              notice one is missing — so the editor opens from here too, the way
+              the type editor does from beside the Type field. */}
+          <button
+            type="button"
+            onClick={onManageProps}
+            className="flex items-center gap-1.5 rounded-md px-1 py-1 text-2xs font-medium text-faint transition-colors hover:bg-hover hover:text-ink"
+          >
+            <Plus size={13} /> Add a property
+          </button>
+        </section>
+
+        {/* The page this task is written on. Every task gets one of its own;
+            linking an existing page instead is how a task and a document that
+            were made separately are brought together. */}
+        <section className="p-4">
+          <span className={label}>Page</span>
+          <div className="flex items-center gap-2">
+            <select
+              className={cn(field, 'cursor-pointer')}
+              value={docId ?? ''}
+              onChange={(e) => {
+                const next = e.target.value || null;
+                if (!next || next === docId) return;
+                setDocId(next);
+                onPatch(task.id, { docId: next });
+              }}
+            >
+              {docId && <option value={docId}>{ws.pages[docId]?.title || task.title || 'This task’s page'}</option>}
+              {linkable.map((p) => <option key={p.id} value={p.id}>{p.title || 'Untitled'}</option>)}
+            </select>
+            <IconButton
+              icon={<ExternalLink size={15} />}
+              label="Open this page"
+              disabled={!docId}
+              onClick={() => { if (docId) { ws.select(docId); onClose(); } }}
+            />
+          </div>
+        </section>
 
         {!!detail?.backlinks.length && (
           <section className="p-4">

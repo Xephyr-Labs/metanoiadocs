@@ -143,6 +143,7 @@ export function applyColumnDrop(
     );
     if (!dropped) return null;
     store.moveBlocks(moved, dropped);
+    ensureTrailingParagraph(store, row);
     return row;
   }
 
@@ -155,6 +156,7 @@ export function applyColumnDrop(
   const dropped = store.getModelById(store.addBlock(COLUMN_FLAVOUR, { width: 1 }, row, at));
   if (!dropped) return null;
   store.moveBlocks(moved, dropped);
+  ensureTrailingParagraph(store, row);
   return row;
 }
 
@@ -192,6 +194,20 @@ export function tidyColumns(store: StoreLike, root: ModelLike | null | undefined
   return changed;
 }
 
+/**
+ * Keep a paragraph under a row that would otherwise be the last block in the
+ * note. Without it a reader who fills the columns has nowhere left to click:
+ * the page ends at the bottom of the row, and Enter inside a column only ever
+ * makes the column taller.
+ */
+export function ensureTrailingParagraph(store: StoreLike, row: ModelLike): void {
+  const note = store.getParent(row);
+  if (!note || store.readonly) return;
+  const siblings = note.children ?? [];
+  if (siblings[siblings.length - 1]?.id !== row.id) return;
+  store.addBlock('affine:paragraph', {}, note);
+}
+
 /** Seed a row of `count` empty columns after `sibling` (slash menu). */
 export function insertColumnRow(store: StoreLike, sibling: ModelLike, count: number): string | null {
   const parent = store.getParent(sibling);
@@ -207,5 +223,6 @@ export function insertColumnRow(store: StoreLike, sibling: ModelLike, count: num
     // placeholder paragraph is also where the caret lands when it is clicked.
     store.addBlock('affine:paragraph', {}, columnId);
   }
+  ensureTrailingParagraph(store, row);
   return rowId;
 }

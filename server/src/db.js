@@ -382,6 +382,21 @@ export async function initSchema() {
     CREATE INDEX IF NOT EXISTS tasks_assignee_idx
       ON tasks(assignee_id, due_at) WHERE deleted_at IS NULL;
 
+    -- More than one person can carry a task. The edges live here; the older
+    -- tasks.assignee_id column stays, always holding the FIRST assignee, so
+    -- every query, filter and import that predates this table keeps working
+    -- and a task still has one obvious owner in a narrow cell.
+    -- ponytail: the API is what keeps the two in step (assigneesOf/setAssignees
+    -- in tasks.js) — if a second writer ever appears, move it into a trigger.
+    CREATE TABLE IF NOT EXISTS task_assignees (
+      task_id  TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      user_id  TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      position INT NOT NULL DEFAULT 0,
+      PRIMARY KEY (task_id, user_id)
+    );
+    -- "what is on my plate" reads by user, across every project.
+    CREATE INDEX IF NOT EXISTS task_assignees_user_idx ON task_assignees(user_id);
+
     -- task depends on depends_on_id: the edge points backwards in time.
     CREATE TABLE IF NOT EXISTS task_deps (
       task_id       TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
@@ -473,6 +488,37 @@ export async function initSchema() {
 
   await normalizeLegacyFolderImport();
   await relaxFavoritesKey();
+  await seedTaskAssignees();
+}
+
+/** Give every task that already had an assignee its first row in
+ *  task_assignees. Once, behind a marker: re-running it would resurrect an
+ *  edge someone deliberately removed. */
+async function seedTaskAssignees() {
+  const marker = 'task-assignees-from-assignee-id-v1';
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const claimed = await client.query(
+      'INSERT INTO schema_migrations (key) VALUES ($1) ON CONFLICT (key) DO NOTHING',
+      [marker]
+    );
+    if (!claimed.rowCount) {
+      await client.query('ROLLBACK');
+      return;
+    }
+    await client.query(
+      `INSERT INTO task_assignees (task_id, user_id, position)
+       SELECT id, assignee_id, 0 FROM tasks WHERE assignee_id IS NOT NULL
+       ON CONFLICT DO NOTHING`
+    );
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
 }
 
 /** Drop the (user_id, doc_id) primary key and add the one-target check.

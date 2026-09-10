@@ -31,7 +31,12 @@ interface WorkspaceState {
   activeProjectId: string | null;
   activeFolderId: string | null;
   openHome: () => void;
-  openProject: (id: string) => void;
+  /** `taskId` opens that task's panel once the board is up — how a page gets
+   *  back to the task it belongs to. */
+  openProject: (id: string, taskId?: string) => void;
+  /** The task openProject was asked to open, read and cleared by ProjectView. */
+  pendingTaskId: string | null;
+  clearPendingTask: () => void;
   /** Show a folder's contents in the main column — where a /f/<id> link lands. */
   openFolder: (id: string) => void;
   projects: ProjectRow[];
@@ -224,6 +229,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   // restored below so Home can offer "continue where you left off".
   const [view, setView] = useState<View>('home');
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+  const [pendingTaskId, setPendingTaskId] = useState<string | null>(null);
   const [projects, setProjects] = useState<ProjectRow[]>([]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(260);
@@ -367,14 +373,17 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     showHome();
   }, []);
 
-  const openProject = useCallback((id: string) => {
+  const openProject = useCallback((id: string, taskId?: string) => {
     setActiveProjectId(id);
+    setPendingTaskId(taskId ?? null);
     setView('project');
     setMobileDrawer(false);
     // Projects have no address of their own yet; what matters is that the
     // /d/<id> in the bar stops claiming a document is open.
     showHome();
   }, []);
+
+  const clearPendingTask = useCallback(() => setPendingTaskId(null), []);
 
   /** Open a folder, and show in the sidebar where it lives — a link that only
    *  changed the main column leaves the reader unable to see the folder's
@@ -951,7 +960,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       pinnedIds, pinnedFolderIds, togglePin, toggleFolderPin,
       currentId, currentPage, loading, error, workspaceId,
       historyDocId, openHistory, closeHistory,
-      view, activeProjectId, activeFolderId, openHome, openProject, openFolder, projects, refreshProjects,
+      view, activeProjectId, activeFolderId, openHome, openProject, pendingTaskId, clearPendingTask, openFolder, projects, refreshProjects,
       sidebarCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
       settingsOpen, trashOpen, inboxOpen, mode, fullWidth, theme,
       refresh, select, toggleExpand, toggleFavorite, toggleFolderFavorite, setVisibility, rename, applyTitleFromEditor,
@@ -967,7 +976,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       pinnedIds, pinnedFolderIds, togglePin, toggleFolderPin,
       currentId, currentPage, loading, error, workspaceId,
       historyDocId, openHistory, closeHistory,
-      view, activeProjectId, activeFolderId, openHome, openProject, openFolder, projects, refreshProjects,
+      view, activeProjectId, activeFolderId, openHome, openProject, pendingTaskId, clearPendingTask, openFolder, projects, refreshProjects,
       sidebarCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
       settingsOpen, trashOpen, inboxOpen, mode, fullWidth, theme,
       refresh, select, toggleExpand, toggleFavorite, toggleFolderFavorite, setVisibility, rename, applyTitleFromEditor,

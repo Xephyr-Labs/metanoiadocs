@@ -2,6 +2,7 @@ import { Trash2 } from 'lucide-react';
 import type { UserRow } from '../../lib/docsApi';
 import { cn } from '../../lib/cn';
 import { STATUSES, STATUS_LABEL, type ProjectMode, type PropRow, type TaskPatch, type TaskRow, type TaskStatus } from '../../lib/tasksApi';
+import { AssigneePicker } from './AssigneePicker';
 import { PropertyValue } from './props/PropertyValue';
 import { isOverdue } from './TaskChip';
 
@@ -70,14 +71,12 @@ export function TaskTable({ tasks, mode, users, props, onPatch, onOpen, onDelete
                   </select>
                 </td>
                 <td className={cell}>
-                  <select
-                    className={cn(input, 'cursor-pointer')}
-                    value={t.assignee_id ?? ''}
-                    onChange={(e) => onPatch(t.id, { assigneeId: e.target.value || null })}
-                  >
-                    <option value="">Unassigned</option>
-                    {users.map((u) => <option key={u.id} value={u.id}>{u.name || u.username}</option>)}
-                  </select>
+                  <AssigneePicker
+                    compact
+                    assignees={t.assignees ?? []}
+                    users={users}
+                    onChange={(assigneeIds) => onPatch(t.id, { assigneeIds })}
+                  />
                 </td>
                 <td className={cell}>
                   <input

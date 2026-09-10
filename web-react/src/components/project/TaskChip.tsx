@@ -36,6 +36,39 @@ export function KindBadge({ kind }: { kind: TaskKind }) {
   );
 }
 
+/**
+ * The faces of everyone on a task, overlapped. `max` keeps a task with eight
+ * people on it from pushing the rest of a card's metadata off the end; the
+ * remainder shows as a count, and the full list is in the tooltip.
+ */
+export function AssigneeStack({ people, max = 3 }: { people: TaskRow['assignees']; max?: number }) {
+  const list = people ?? [];
+  if (!list.length) return null;
+  const shown = list.slice(0, max);
+  return (
+    <span className="flex shrink-0 items-center" title={list.map((p) => p.name).join(', ')}>
+      {shown.map((person, i) => {
+        const av = avatarFor(person.name);
+        return (
+          <span
+            key={person.id}
+            className={cn(
+              'flex h-5 w-5 items-center justify-center rounded-full text-3xs font-semibold text-white ring-1 ring-canvas',
+              i > 0 && '-ml-1.5',
+            )}
+            style={{ background: av.color }}
+          >
+            {av.initials}
+          </span>
+        );
+      })}
+      {list.length > shown.length && (
+        <span className="ml-1 text-2xs text-faint">+{list.length - shown.length}</span>
+      )}
+    </span>
+  );
+}
+
 export const shortDate = (iso: string | null) =>
   iso
     ? new Date(`${iso.slice(0, 10)}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
@@ -52,7 +85,6 @@ export const isOverdue = (t: TaskRow) =>
  * the metadata row stays identical to the board's rather than being copied.
  */
 export function TaskChip({ task, onOpen, compact, flush }: { task: TaskRow; onOpen: () => void; compact?: boolean; flush?: boolean }) {
-  const av = task.assignee_name ? avatarFor(task.assignee_name) : null;
   const overdue = isOverdue(task);
 
   if (compact) {
@@ -109,15 +141,7 @@ export function TaskChip({ task, onOpen, compact, flush }: { task: TaskRow; onOp
           </span>
         )}
         <span className="flex-1" />
-        {av && (
-          <span
-            className="flex h-5 w-5 items-center justify-center rounded-full text-3xs font-semibold text-white"
-            style={{ background: av.color }}
-            title={task.assignee_name ?? ''}
-          >
-            {av.initials}
-          </span>
-        )}
+        <AssigneeStack people={task.assignees} />
       </div>
     </button>
   );

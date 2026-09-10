@@ -160,7 +160,10 @@ describe('applyColumnDrop', () => {
     const { store, note, p1, p2 } = noteWithTwo();
     const row = applyColumnDrop(store, { kind: 'wrap', targetId: p1.id, side: 'left' }, [p2]);
     expect(row?.flavour).toBe(COLUMNS_FLAVOUR);
-    expect(note.children).toEqual([row]);
+    // Plus the line the row leaves behind it, so the page can carry on under
+    // the columns — see ensureTrailingParagraph.
+    expect(note.children!.map(c => c.flavour)).toEqual([COLUMNS_FLAVOUR, 'affine:paragraph']);
+    expect(note.children![0]).toBe(row);
     const [left, right] = row!.children!;
     expect(left.children!.map(c => c.id)).toEqual([p2.id]);
     expect(right.children!.map(c => c.id)).toEqual([p1.id]);
