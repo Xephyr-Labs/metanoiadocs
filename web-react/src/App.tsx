@@ -18,11 +18,15 @@ import { TopBar } from './components/topbar/TopBar';
 import { TooltipProvider } from './components/ui/Tooltip';
 import { useGlobalHotkeys } from './hooks/useGlobalHotkeys';
 import { useMediaQuery } from './hooks/useMediaQuery';
+import { usePrefetchEditor } from './editor/LazyEditor';
 import { useWorkspace } from './store/workspace';
 
 export default function App() {
   useDesktopNotifications();
   useGlobalHotkeys();
+  // Pull the editor chunk down while the shell is idle: the first page open
+  // should be a mount, not a download.
+  usePrefetchEditor();
   const ws = useWorkspace();
   const isMobile = useMediaQuery('(max-width: 767px)');
 

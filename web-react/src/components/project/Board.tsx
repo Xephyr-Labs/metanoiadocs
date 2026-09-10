@@ -28,7 +28,7 @@ export function Board({ tasks, onMove, onOpen, onAdd }: Props) {
   const [over, setOver] = useState<TaskStatus | null>(null);
 
   return (
-    <div className="flex h-full gap-3 overflow-x-auto p-4">
+    <div className="scrollarea flex h-full gap-3 overflow-x-auto p-4">
       {STATUSES.map((status) => {
         const column = tasks
           .filter((t) => t.status === status)

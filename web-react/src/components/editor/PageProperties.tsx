@@ -10,7 +10,7 @@ import type { Page } from '../../lib/types';
 import { useWorkspace } from '../../store/workspace';
 import { Menu } from '../ui/Menu';
 import { PropertyValue } from '../project/props/PropertyValue';
-import { field, rowAction } from '../ui/styles';
+import { field, rowAction, selectField } from '../ui/styles';
 
 /** The types a page property can have — a relation needs a database to point at. */
 const TYPES: DocPropRow['type'][] = [
@@ -64,7 +64,7 @@ function NewProperty({ pageId, onDone }: { pageId: string; onDone: () => void })
       />
       <select
         aria-label="Property type"
-        className={cn(field, 'h-7 w-auto text-xs')}
+        className={cn(selectField, 'h-7 w-auto text-xs')}
         value={type}
         onChange={(e) => setType(e.target.value as DocPropRow['type'])}
       >

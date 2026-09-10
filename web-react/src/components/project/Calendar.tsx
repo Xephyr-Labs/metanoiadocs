@@ -5,7 +5,7 @@ import { addDays, todayISO, toUTC } from '../../lib/gantt';
 import type { PropRow, TaskRow } from '../../lib/tasksApi';
 import { IconButton } from '../ui/IconButton';
 import { Button } from '../ui/Button';
-import { field } from '../ui/styles';
+import { selectField } from '../ui/styles';
 import { TaskChip } from './TaskChip';
 
 /** Monday-first grid of whole weeks covering the given month. */
@@ -96,7 +96,7 @@ export function Calendar({ tasks, dateProps, onOpen, onAdd, onMove }: Props) {
         {dateProps.length > 1 && (
           <select
             aria-label="Date shown"
-            className={cn(field, 'ml-auto h-7 w-auto px-2 text-xs')}
+            className={cn(selectField, 'ml-auto h-7 w-auto px-2 text-xs')}
             value={propId ?? ''}
             onChange={(e) => setPropId(e.target.value || null)}
           >

@@ -617,6 +617,84 @@ html.dark .mn-toc .outline-viewer-indicator {
   letter-spacing: 0.07em;
 }
 
+/* A control that only shows on hover must also show when a keyboard lands on
+ * it — otherwise Tab walks through buttons nobody can see. Class + pseudo-class
+ * outranks the bare `.opacity-0` utility, so no !important is needed. */
+.opacity-0:focus-within,
+.opacity-0:focus-visible {
+  opacity: 1;
+}
+
+/* A row's page inside the task panel: the panel owns the title, so the
+ * document's title block is hidden and the body starts where the properties
+ * end. Headings step down too — display sizes drawn for a 760px measure are
+ * shouting in a 560px panel. */
+.mn-peek-editor affine-editor-container .doc-title-container {
+  display: none !important;
+}
+.mn-peek-editor affine-editor-container .affine-paragraph-rich-text-wrapper.h1 { font-size: 1.45rem !important; }
+.mn-peek-editor affine-editor-container .affine-paragraph-rich-text-wrapper.h2 { font-size: 1.24rem !important; }
+.mn-peek-editor affine-editor-container .affine-paragraph-rich-text-wrapper.h3 { font-size: 1.1rem !important; }
+
+/* BlockSuite injects a bare `input { flex: 1 1 0 }` for its own toolbars, and
+ * the selector is global — so every checkbox and radio in OUR chrome stretched
+ * to fill its row (the Milestone box was 185px wide, with its label shoved to
+ * the far edge). The attribute selector outranks the bare element rule, which
+ * is the whole trick; the size and accent colour come along because a native
+ * 13px box in a 13px UI is the other half of why it looked unfinished. */
+input[type='checkbox'],
+input[type='radio'] {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* One select look, everywhere. The OS widget is dropped and the chevron drawn
+ * here, so light and dark agree and the control keeps the field's own metrics
+ * instead of whatever the platform decides a <select> is this year. */
+select.mn-select {
+  appearance: none;
+  padding-right: 26px;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23787774' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 12px;
+}
+html.dark select.mn-select {
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23a5a5a3' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+}
+/* A native date field: keep the platform picker (it is the accessible one) but
+ * make it sit like every other field — same digits, a calendar button that
+ * recedes until it is wanted. */
+input[type='date'],
+input[type='number'] {
+  font-variant-numeric: tabular-nums;
+}
+input[type='date']::-webkit-calendar-picker-indicator {
+  opacity: 0.45;
+  cursor: pointer;
+  transition: opacity 120ms var(--ease-out);
+}
+input[type='date']:hover::-webkit-calendar-picker-indicator,
+input[type='date']:focus::-webkit-calendar-picker-indicator {
+  opacity: 0.9;
+}
+/* The platform draws that glyph near-black; on the dark canvas it disappears. */
+html.dark input[type='date']::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+}
+/* Firefox/Chrome disagree on the spinner; nobody needs it on a points field. */
+input[type='number']::-webkit-outer-spin-button,
+input[type='number']::-webkit-inner-spin-button {
+  appearance: none;
+  margin: 0;
+}
+input[type='number'] {
+  -moz-appearance: textfield;
+}
+
 /* The path in the top bar. Every step draws the separator that precedes it, so
  * the first one has to drop it rather than each call site remembering to. */
 .mn-crumbs > span:first-child > span[aria-hidden] {

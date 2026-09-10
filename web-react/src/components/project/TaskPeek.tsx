@@ -9,7 +9,7 @@ import {
   type ProjectMode, type PropRow, type RelatedRow, type SprintRow, type TaskDetail, type TaskPatch, type TaskRow, type TaskStatus,
 } from '../../lib/tasksApi';
 import { LazyEditor } from '../../editor/LazyEditor';
-import { field } from '../ui/styles';
+import { field, selectField } from '../ui/styles';
 import { IconButton } from '../ui/IconButton';
 import { Menu } from '../ui/Menu';
 import { useMoveToFolder } from '../../hooks/useMoveToFolder';
@@ -148,7 +148,7 @@ export function TaskPeek({
           <section className="grid grid-cols-2 gap-3 p-4">
             <Row name="Type">
               <div className="flex items-center gap-1">
-                <select className={field} value={task.kind} onChange={(e) => onPatch(task.id, { kind: e.target.value })}>
+                <select className={selectField} value={task.kind} onChange={(e) => onPatch(task.id, { kind: e.target.value })}>
                   {!kinds.some((k) => k.key === task.kind) && <option value={task.kind}>{task.kind}</option>}
                   {kinds.map((k) => <option key={k.id} value={k.key}>{k.label}</option>)}
                 </select>
@@ -156,7 +156,7 @@ export function TaskPeek({
               </div>
             </Row>
             <Row name="Status">
-              <select className={field} value={task.status} onChange={(e) => onPatch(task.id, { status: e.target.value as TaskStatus })}>
+              <select className={selectField} value={task.status} onChange={(e) => onPatch(task.id, { status: e.target.value as TaskStatus })}>
                 {STATUSES.map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
               </select>
             </Row>
@@ -180,7 +180,7 @@ export function TaskPeek({
 
           <section className="grid grid-cols-2 gap-3 p-4">
             <Row name="Sprint">
-              <select className={field} value={task.sprint_id ?? ''} onChange={(e) => onPatch(task.id, { sprintId: e.target.value || null })}>
+              <select className={selectField} value={task.sprint_id ?? ''} onChange={(e) => onPatch(task.id, { sprintId: e.target.value || null })}>
                 <option value="">Backlog</option>
                 {sprints.map((s) => <option key={s.id} value={s.id}>{s.name}{s.state === 'active' ? ' (active)' : ''}</option>)}
               </select>
@@ -190,16 +190,26 @@ export function TaskPeek({
             </Row>
             {!isGroup && parents.length > 0 && (
               <Row name="Parent">
-                <select className={field} value={task.parent_id ?? ''} onChange={(e) => onPatch(task.id, { parentId: e.target.value || null })}>
+                <select className={selectField} value={task.parent_id ?? ''} onChange={(e) => onPatch(task.id, { parentId: e.target.value || null })}>
                   <option value="">None</option>
                   {parents.map((t) => <option key={t.id} value={t.id}>{t.title || 'Untitled'}</option>)}
                 </select>
               </Row>
             )}
-            <label className={cn('flex items-center gap-2 self-end pb-1.5 text-sm text-ink', (isGroup || !parents.length) && 'col-span-2')}>
-              <input type="checkbox" checked={task.milestone} onChange={(e) => onPatch(task.id, { milestone: e.target.checked })} />
-              Milestone
-            </label>
+            {/* A field like the others, not a checkbox floating in the gap
+                between two columns. */}
+            <Row name="Milestone">
+              <label className="flex h-8 items-center gap-2 text-sm text-ink">
+                <input
+                  type="checkbox"
+                  checked={task.milestone}
+                  onChange={(e) => onPatch(task.id, { milestone: e.target.checked })}
+                />
+                <span className={task.milestone ? 'text-ink' : 'text-muted'}>
+                  {task.milestone ? 'On the timeline' : 'Not a milestone'}
+                </span>
+              </label>
+            </Row>
           </section>
 
           <section className="p-4">
@@ -215,7 +225,7 @@ export function TaskPeek({
                 </div>
               ))}
               <select
-                className={cn(field, 'cursor-pointer text-muted')}
+                className={cn(selectField, 'cursor-pointer text-muted')}
                 value={depPick}
                 onChange={(e) => {
                   if (!e.target.value) return;
@@ -259,7 +269,7 @@ export function TaskPeek({
           <span className={label}>Page</span>
           <div className="flex items-center gap-2">
             <select
-              className={cn(field, 'cursor-pointer')}
+              className={cn(selectField, 'cursor-pointer')}
               value={docId ?? ''}
               onChange={(e) => {
                 const next = e.target.value || null;
@@ -293,7 +303,14 @@ export function TaskPeek({
           </section>
         )}
 
-        <section>
+        {/* The panel header is already the title field, so the document's own
+            title block is hidden here (mn-peek-editor in index.css) — two
+            titles, one of them a 36px display line inside a 560px panel, was
+            the loudest thing in the panel and said nothing new. */}
+        <section className="mn-peek-editor">
+          {/* Without the document's own title the body starts on blank canvas,
+              which reads as a rendering fault rather than an empty page. */}
+          <p className={cn(label, 'px-4 pt-4')}>Notes</p>
           {docId && (
             <LazyEditor
               docId={docId}

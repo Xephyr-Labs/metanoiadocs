@@ -3,7 +3,7 @@ import { avatarFor } from '../../lib/avatar';
 import { cn } from '../../lib/cn';
 import type { UserRow } from '../../lib/docsApi';
 import type { Assignee } from '../../lib/tasksApi';
-import { field } from '../ui/styles';
+import { selectField } from '../ui/styles';
 
 interface Props {
   assignees: Assignee[];
@@ -58,7 +58,7 @@ export function AssigneePicker({ assignees, users, onChange, compact }: Props) {
         </div>
       )}
       <select
-        className={cn(field, 'cursor-pointer text-muted', compact && 'h-6 py-0 text-2xs')}
+        className={cn(selectField, 'cursor-pointer text-muted', compact && 'h-6 py-0 text-2xs')}
         aria-label="Add an assignee"
         value=""
         disabled={!free.length}

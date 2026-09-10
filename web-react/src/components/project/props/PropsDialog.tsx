@@ -5,7 +5,7 @@ import { PROP_TYPES, PROP_TYPE_LABEL, type PropRow, type PropType, type ProjectR
 import { Button } from '../../ui/Button';
 import { IconButton } from '../../ui/IconButton';
 import { Modal } from '../../ui/Modal';
-import { field } from '../../ui/styles';
+import { field, selectField } from '../../ui/styles';
 
 interface Props {
   open: boolean;
@@ -127,7 +127,7 @@ export function PropsDialog({ open, onOpenChange, props, projects, onCreate, onP
                   offered — the server refuses the rest, and a menu that offers
                   what will be refused is worse than one that doesn't. */}
               <select
-                className={cn(field, 'w-32 shrink-0')}
+                className={cn(selectField, 'w-32 shrink-0')}
                 aria-label={`Type of ${p.label}`}
                 value={p.type}
                 disabled={changeableTo(p.type).length < 2}
@@ -151,11 +151,11 @@ export function PropsDialog({ open, onOpenChange, props, projects, onCreate, onP
             value={label}
             onChange={(e) => setLabel(e.target.value)}
           />
-          <select className={field} value={type} onChange={(e) => setType(e.target.value as PropType)}>
+          <select className={selectField} value={type} onChange={(e) => setType(e.target.value as PropType)}>
             {PROP_TYPES.map((t) => <option key={t} value={t}>{PROP_TYPE_LABEL[t]}</option>)}
           </select>
           {type === 'relation' && (
-            <select className={field} value={target} onChange={(e) => setTarget(e.target.value)}>
+            <select className={selectField} value={target} onChange={(e) => setTarget(e.target.value)}>
               <option value="">Link to…</option>
               {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
