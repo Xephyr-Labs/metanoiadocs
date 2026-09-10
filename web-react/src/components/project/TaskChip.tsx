@@ -108,8 +108,8 @@ export function TaskChip({ task, onOpen, compact, flush }: { task: TaskRow; onOp
       type="button"
       onClick={onOpen}
       className={cn(
-        'w-full p-2.5 text-left transition-colors duration-120 hover:bg-hover',
-        flush ? 'bg-transparent' : 'rounded-lg bg-canvas shadow-subtle',
+        'w-full p-2.5 text-left transition-all duration-120 hover:bg-hover',
+        flush ? 'bg-transparent' : 'rounded-lg border border-line bg-canvas hover:border-line-strong hover:shadow-subtle',
       )}
     >
       <div className="flex items-start gap-1.5">

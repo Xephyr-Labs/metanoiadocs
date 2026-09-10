@@ -34,8 +34,10 @@ export default {
         tooltip: 'var(--tooltip)',
       },
       fontFamily: {
-        sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],
-        display: ['Fraunces Variable', 'Fraunces', 'Georgia', 'ui-serif', 'serif'],
+        sans: ['Onest Variable', 'Onest', 'ui-sans-serif', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'sans-serif'],
+        // Display is the same face, carried by weight and tracking rather than
+        // by a second family — see --font-display in index.css.
+        display: ['Onest Variable', 'Onest', 'ui-sans-serif', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'sans-serif'],
         serif: ['Lyon-Text', 'Georgia', 'ui-serif', 'serif'],
         mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
       },

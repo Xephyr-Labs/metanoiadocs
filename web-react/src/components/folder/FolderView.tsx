@@ -116,7 +116,7 @@ export function FolderView() {
         <div className="flex items-start gap-3">
           <FolderOpen size={28} className={cn('mt-1 shrink-0', folderTint(folder.color))} />
           <div className="min-w-0 flex-1">
-            <h1 className="truncate font-display text-4xl font-semibold text-ink">{folder.name}</h1>
+            <h1 className="truncate font-display text-4xl font-semibold tracking-[-0.03em] text-ink">{folder.name}</h1>
             <p className="mt-0.5 text-sm text-muted">{countLine(subfolders.length, pages.length)}</p>
           </div>
           <IconButton

@@ -11,6 +11,14 @@ interface Props {
   onAdd: (status: TaskStatus) => void;
 }
 
+/** One dot per column, so the four headers are told apart before they are read. */
+const DOT: Record<TaskStatus, string> = {
+  todo: 'bg-line-strong',
+  doing: 'bg-accent',
+  review: 'bg-amber-400',
+  done: 'bg-emerald-500',
+};
+
 /**
  * Kanban. Uses the native HTML drag-and-drop API rather than a drag library —
  * columns are drop targets and a card carries its own id, which is all this
@@ -44,9 +52,14 @@ export function Board({ tasks, onMove, onOpen, onAdd }: Props) {
             )}
           >
             <header className="flex h-8 items-center justify-between px-1.5">
-              <span className="flex items-center gap-1.5 text-sm font-semibold text-ink">
+              {/* Set like a section label, not like a heading: four of these sit
+                  side by side all day, and the cards under them are the content. */}
+              <span className="flex items-center gap-2 text-3xs font-semibold uppercase tracking-[0.08em] text-muted">
+                <span aria-hidden className={cn('h-1.5 w-1.5 rounded-full', DOT[status])} />
                 {STATUS_LABEL[status]}
-                <span className="text-2xs font-normal text-faint">{column.length}</span>
+                <span className="rounded-full bg-canvas px-1.5 text-3xs font-medium tabular-nums text-faint ring-1 ring-line">
+                  {column.length}
+                </span>
               </span>
               <button
                 type="button"

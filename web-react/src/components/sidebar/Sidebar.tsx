@@ -10,7 +10,6 @@ import {
   LogOut,
   MoreHorizontal,
   Plus,
-  Search,
   Settings,
   Star,
   Table2,
@@ -388,9 +387,9 @@ export function Sidebar() {
         />
       </div>
 
-      {/* primary nav */}
+      {/* primary nav — Search lives on the top bar now, where it acts on the
+          whole workspace; this tree is a list of places to go. */}
       <div className="px-2 pt-2">
-        <NavItem icon={<Search size={16} />} label="Search" onClick={() => ws.setPaletteOpen(true)} trailing={<span className="text-2xs text-faint">⌘K</span>} />
         <NavItem icon={<Home size={16} />} label="Home" active={ws.view === 'home'} onClick={ws.openHome} />
         <NavItem
           icon={<Inbox size={16} />}

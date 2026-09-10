@@ -1,7 +1,6 @@
 import {
   ArrowUpRight,
   ChevronDown,
-  ChevronRight,
   Cloud,
   Download,
   FileText,
@@ -18,6 +17,7 @@ import {
   PanelRight,
   Pin,
   Printer,
+  Search,
   Share2,
   Sparkles,
   Star,
@@ -72,6 +72,55 @@ function PresenceStack() {
   );
 }
 
+
+/**
+ * One step of the path in the bar, with the separator that precedes it.
+ *
+ * A slash rather than a chevron, and the same 12px for every step: the bar
+ * says *where you are*, and the page under it is already saying *what this
+ * is* in display type. The bar used to repeat that title — two headings, one
+ * of them redundant.
+ */
+function Crumb({
+  children, icon, current, onClick,
+}: {
+  children: React.ReactNode;
+  icon?: React.ReactNode;
+  current?: boolean;
+  onClick?: () => void;
+}) {
+  const body = (
+    <>
+      {icon}
+      <span className="truncate">{children}</span>
+    </>
+  );
+  return (
+    <span className="flex min-w-0 items-center">
+      <span aria-hidden className="mx-0.5 shrink-0 select-none text-faint">/</span>
+      {onClick && !current ? (
+        <button
+          type="button"
+          onClick={onClick}
+          className="flex min-w-0 items-center gap-1.5 rounded px-1.5 py-1 text-muted transition-colors duration-120 hover:bg-hover hover:text-ink"
+        >
+          {body}
+        </button>
+      ) : (
+        <span
+          aria-current={current ? 'page' : undefined}
+          className={cn(
+            'flex min-w-0 items-center gap-1.5 px-1.5 py-1',
+            current ? 'font-medium text-ink' : 'text-muted',
+          )}
+        >
+          {body}
+        </span>
+      )}
+    </span>
+  );
+}
+
 function ancestry(pages: Record<string, Page>, id: string): Page[] {
   const chain: Page[] = [];
   const seen = new Set<string>();
@@ -97,10 +146,10 @@ export function TopBar() {
   const moveTo = useMoveToFolder(page?.id);
 
   return (
-    <header className="sticky top-0 z-30 flex h-[45px] shrink-0 items-center gap-1 border-b border-line bg-canvas/80 px-2.5 backdrop-blur-md">
+    <header className="sticky top-0 z-30 flex h-11 shrink-0 items-center gap-1 border-b border-line bg-canvas px-2.5">
       {(isMobile || ws.sidebarCollapsed) && (
         <IconButton
-          icon={<PanelLeft size={18} />}
+          icon={<PanelLeft size={16} />}
           label="Open sidebar"
           keys={['⌘', '\\']}
           onClick={() => {
@@ -112,56 +161,65 @@ export function TopBar() {
         />
       )}
 
-      <nav aria-label="Breadcrumb" className="flex min-w-0 flex-1 items-center gap-0.5 text-base">
+      <nav aria-label="Breadcrumb" className="mn-crumbs flex min-w-0 flex-1 items-center text-xs">
+        {/* The workspace is the root of every path, and the way home. */}
+        <Crumb onClick={ws.openHome}>Metanoia</Crumb>
         {page ? (
-          ancestry(ws.pages, page.id).map((p, i, arr) => {
-            const last = i === arr.length - 1;
-            return (
-              <div key={p.id} className="flex min-w-0 items-center">
-                <button
-                  type="button"
-                  onClick={() => ws.select(p.id)}
-                  className={cn(
-                    'flex min-w-0 items-center gap-1.5 rounded px-1.5 py-1 transition-colors duration-120 hover:bg-hover',
-                    last ? 'text-ink' : 'text-muted',
-                  )}
-                >
-                  <PageIcon icon={p.icon} size={16} />
-                  <span className={cn('truncate', last && 'font-medium')}>{p.title}</span>
-                </button>
-                {!last && <ChevronRight size={14} className="mx-0.5 shrink-0 text-faint" />}
-              </div>
-            );
-          })
+          ancestry(ws.pages, page.id).map((p, i, arr) => (
+            <Crumb
+              key={p.id}
+              icon={<PageIcon icon={p.icon} size={14} />}
+              current={i === arr.length - 1}
+              onClick={() => ws.select(p.id)}
+            >
+              {p.title || 'Untitled'}
+            </Crumb>
+          ))
         ) : project ? (
-          <span className="flex items-center gap-1.5 px-1.5 font-medium text-ink">
-            <span className="text-md leading-none">{project.icon}</span>
+          <Crumb icon={<span className="text-sm leading-none">{project.icon}</span>} current>
             {project.name}
-          </span>
+          </Crumb>
         ) : folder ? (
           // The folder's own page carries its full path; the bar just says
           // which folder you are in, the way it says which page.
-          <span className="flex min-w-0 items-center gap-1.5 px-1.5 font-medium text-ink">
-            <FolderOpen size={16} className="shrink-0 text-faint" />
-            <span className="truncate">{folder.name}</span>
-          </span>
-        ) : (
-          <span className="px-1.5 text-muted">{ws.view === 'home' ? 'Home' : 'Metanoia'}</span>
-        )}
+          <Crumb icon={<FolderOpen size={14} className="text-faint" />} current>
+            {folder.name}
+          </Crumb>
+        ) : ws.view === 'home' ? (
+          <Crumb current>Home</Crumb>
+        ) : null}
       </nav>
+
+      {/* Search belongs on the bar, not in the sidebar tree: it is an action on
+          the whole workspace, and the tree is a list of places. */}
+      <button
+        type="button"
+        onClick={() => ws.setPaletteOpen(true)}
+        aria-label="Search"
+        aria-keyshortcuts="Meta+K"
+        className={cn(
+          'group mr-1 flex h-7 shrink-0 items-center gap-1.5 rounded-lg border border-line bg-surface text-2xs text-muted',
+          'transition-colors duration-120 ease-out hover:border-line-strong hover:text-ink',
+          'w-7 justify-center px-0 sm:w-[188px] sm:justify-start sm:px-2',
+        )}
+      >
+        <Search size={14} className="shrink-0 text-faint" />
+        <span className="hidden flex-1 text-left sm:inline">Search</span>
+        <kbd className="hidden shrink-0 font-sans text-3xs tracking-wide text-faint sm:inline">⌘K</kbd>
+      </button>
 
       {/* Non-doc views keep a small global cluster: Ask AI + theme. Without it
           the top-right is empty on Home (the sign-in landing view). */}
       {!page && (
-        <div className="flex shrink-0 items-center gap-0.5">
+        <div className="flex shrink-0 items-center gap-0.5 border-l border-line pl-1.5">
           <IconButton
-            icon={<Sparkles size={18} />}
+            icon={<Sparkles size={16} />}
             label="Ask AI"
             active={ws.rightPanel === 'ai'}
             onClick={() => ws.setRightPanel(ws.rightPanel === 'ai' ? null : 'ai')}
           />
           <IconButton
-            icon={ws.theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+            icon={ws.theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
             label={ws.theme === 'dark' ? 'Light mode' : 'Dark mode'}
             keys={['⌘', 'J']}
             onClick={ws.toggleTheme}
@@ -170,7 +228,7 @@ export function TopBar() {
       )}
 
       {page && (
-        <div className="flex shrink-0 items-center gap-0.5">
+        <div className="flex shrink-0 items-center gap-0.5 border-l border-line pl-1.5">
           <span className="mr-1 hidden items-center gap-1 text-2xs text-faint md:flex">
             <Cloud size={14} /> Edited {relativeTime(page.updatedAt)}
           </span>
@@ -201,7 +259,7 @@ export function TopBar() {
             Share
           </Button>
           <IconButton
-            icon={<Sparkles size={18} />}
+            icon={<Sparkles size={16} />}
             label="Ask AI"
             active={ws.rightPanel === 'ai'}
             onClick={() => ws.setRightPanel(ws.rightPanel === 'ai' ? null : 'ai')}
@@ -210,7 +268,7 @@ export function TopBar() {
               invisible until someone thinks to look in the panel. */}
           <span className="relative inline-flex">
             <IconButton
-              icon={<MessageSquareText size={18} />}
+              icon={<MessageSquareText size={16} />}
               label={openComments ? `Comments (${openComments} open)` : 'Comments'}
               active={ws.rightPanel === 'comments'}
               onClick={() => ws.setRightPanel(ws.rightPanel === 'comments' ? null : 'comments')}
@@ -223,20 +281,20 @@ export function TopBar() {
           </span>
           <IconButton
             className="hidden sm:inline-flex"
-            icon={<Star size={18} className={cn(page.favorite && 'fill-amber-400 text-amber-400')} />}
+            icon={<Star size={16} className={cn(page.favorite && 'fill-amber-400 text-amber-400')} />}
             label={page.favorite ? 'Remove from Favorites' : 'Add to Favorites'}
             onClick={() => ws.toggleFavorite(page.id)}
           />
           <IconButton
             className="hidden sm:inline-flex"
-            icon={ws.theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+            icon={ws.theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
             label={ws.theme === 'dark' ? 'Light mode' : 'Dark mode'}
             keys={['⌘', 'J']}
             onClick={ws.toggleTheme}
           />
           <IconButton
             className="hidden sm:inline-flex"
-            icon={<PanelRight size={18} />}
+            icon={<PanelRight size={16} />}
             label="Side panel"
             active={!!ws.rightPanel}
             onClick={() => ws.setRightPanel(ws.rightPanel ? null : 'outline')}
@@ -274,7 +332,7 @@ export function TopBar() {
               ...(moveTo ? [{ ...moveTo, separatorBefore: true }] : []),
               { icon: Trash2, label: 'Move to Trash', danger: true, separatorBefore: true, onSelect: () => ws.deletePage(page.id) },
             ]}
-            trigger={<span><IconButton icon={<MoreHorizontal size={18} />} label="More" /></span>}
+            trigger={<span><IconButton icon={<MoreHorizontal size={16} />} label="More" /></span>}
           />
         </div>
       )}

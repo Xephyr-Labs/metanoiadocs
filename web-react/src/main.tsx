@@ -1,6 +1,4 @@
-import '@fontsource-variable/inter'; // self-hosted Inter — no Google Fonts CDN
-import '@fontsource-variable/fraunces'; // display serif for document titles/headings
-import '@fontsource-variable/geist'; // UI face for the chrome (sidebar, bars, menus)
+import '@fontsource-variable/onest'; // the whole product, one face — self-hosted, no CDN
 import { createRoot } from 'react-dom/client';
 import App from './App';
 import { AuthScreen } from './components/auth/AuthScreen';
