@@ -3,7 +3,8 @@ import { useEffect, useState } from 'react';
 import { docsApi, type InboxRow } from '../../lib/docsApi';
 import { avatarFor } from '../../lib/avatar';
 import { relativeTime } from '../../lib/time';
-import { notifyEnabled, setNotifyEnabled } from '../../lib/desktopNotify';
+import { notifyEnabled } from '../../lib/desktopNotify';
+import { enableAlerts, pushSupported } from '../../lib/push';
 import { useAuth } from '../../store/auth';
 import { useWorkspace } from '../../store/workspace';
 import { EmptyState } from '../ui/EmptyState';
@@ -40,10 +41,7 @@ function NotifyNudge() {
 
   const turnOn = async () => {
     setBusy(true);
-    const permission = Notification.permission === 'granted'
-      ? 'granted'
-      : await Notification.requestPermission();
-    setNotifyEnabled(permission === 'granted');
+    await enableAlerts().catch(() => 'denied' as NotificationPermission);
     setBusy(false);
     // A refusal closes the offer too — asking again is the browser's job now.
     setShow(false);
@@ -62,7 +60,9 @@ function NotifyNudge() {
     <div className="mb-1.5 flex flex-wrap items-center gap-2 rounded-md bg-accent-soft px-2.5 py-2">
       <Bell size={14} className="shrink-0 text-accent" />
       <p className="min-w-0 flex-1 text-xs text-ink">
-        Get told the moment something lands here, without watching the tab.
+        {pushSupported()
+          ? 'Get told the moment something lands here, even with Metanoia closed.'
+          : 'Get told the moment something lands here, without watching the tab.'}
       </p>
       <button
         type="button"

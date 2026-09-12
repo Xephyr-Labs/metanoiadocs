@@ -263,6 +263,21 @@ export async function initSchema() {
     CREATE INDEX IF NOT EXISTS notifications_user_idx
       ON notifications(user_id, created_at DESC);
 
+    -- Web Push endpoints, one row per browser a person has switched alerts on
+    -- in. The endpoint is the identity: the push service issues it, and the
+    -- same browser re-subscribing hands back the same one, so it is the key
+    -- rather than a generated id. A shared machine can move to another user,
+    -- which the upsert on it handles.
+    CREATE TABLE IF NOT EXISTS push_subscriptions (
+      endpoint   TEXT PRIMARY KEY,
+      user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      p256dh     TEXT NOT NULL,
+      auth       TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS push_subscriptions_user_idx
+      ON push_subscriptions(user_id);
+
     -- Personal access tokens for programmatic access (e.g. the MCP server).
     -- Only the sha256 hash is stored; the plaintext is shown once at creation.
     CREATE TABLE IF NOT EXISTS api_tokens (

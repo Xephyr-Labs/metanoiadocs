@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { docsApi, type InboxRow } from '../lib/docsApi';
 import { nextSeen, notifyEnabled, notifyText, readSeen, unseen, writeSeen } from '../lib/desktopNotify';
+import { subscribePush } from '../lib/push';
 import { useAuth } from '../store/auth';
 import { useWorkspace } from '../store/workspace';
 
@@ -82,6 +83,14 @@ export function useDesktopNotifications(): void {
       }
       writeSeen(nextSeen(rows, seen));
     };
+
+    // Anyone who already had alerts on predates push, and a device the server
+    // has no subscription for is a device that stays silent while the app is
+    // closed. Re-offering the switch would be the wrong way to fix that — they
+    // already said yes. This also heals a subscription the server lost.
+    if (notifyEnabled() && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+      subscribePush().catch(() => {});
+    }
 
     tick();
     const timer = setInterval(tick, POLL_MS);

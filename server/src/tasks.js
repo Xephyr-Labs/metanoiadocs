@@ -3,6 +3,7 @@
 import crypto from 'node:crypto';
 import { pool } from './db.js';
 import { sendNotificationEmail } from './auth.js';
+import { sendPush } from './push.js';
 import { propsPatch } from './props.js';
 import { propsFor } from './props-routes.js';
 import { wouldProjectCycle } from './project-tree.js';
@@ -10,9 +11,10 @@ import { wouldProjectCycle } from './project-tree.js';
 export const STATUSES = ['todo', 'doing', 'review', 'done'];
 
 /**
- * Tell people a task landed on them — inbox row plus an email each, the same
- * pair a comment mention sends. Best-effort: a task must still save when the
- * mail server is down, so every caller fires this without awaiting it.
+ * Tell people a task landed on them — an inbox row, a push to their devices and
+ * an email each, the same three a comment mention sends. Best-effort: a task
+ * must still save when the mail server or a push service is down, so every
+ * caller fires this without awaiting it.
  *
  * The notification points at the task rather than its page, because a task's
  * page does not exist until someone opens the task.
@@ -26,11 +28,20 @@ async function notifyAssignees(task, actor, userIds) {
   const title = task.title || 'Untitled task';
   const base = process.env.BASE_URL || '';
   for (const user of rows) {
+    const rowId = crypto.randomUUID();
     await pool.query(
       `INSERT INTO notifications (id, user_id, actor_id, actor_name, doc_id, task_id, kind, body)
        VALUES ($1, $2, $3, $4, $5, $6, 'assigned', $7)`,
-      [crypto.randomUUID(), user.id, actor.id, actorName, task.doc_id, task.id, title.slice(0, 280)]
+      [rowId, user.id, actor.id, actorName, task.doc_id, task.id, title.slice(0, 280)]
     );
+    sendPush(user.id, {
+      title: `${actorName} assigned you a task`,
+      body: title,
+      tag: rowId,
+      // Null until someone opens the task, which is when its page is made —
+      // linkFor sends those to the dashboard rather than to /d/null.
+      docId: task.doc_id,
+    }).catch((e) => console.error('[push] assign:', e.message));
     if (!user.email) continue;
     await sendNotificationEmail(
       user.email,

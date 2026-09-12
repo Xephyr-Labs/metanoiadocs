@@ -44,6 +44,7 @@ import { registerTaskRoutes } from './tasks.js';
 import { registerPropRoutes } from './props-routes.js';
 import { registerDocPropRoutes } from './doc-props.js';
 import { registerHomeRoutes } from './home.js';
+import { registerPushRoutes, sendPush } from './push.js';
 import { registerFolderRoutes, visibleFolder } from './folders-routes.js';
 import { TRASH_RETENTION_DAYS, startTrashSweeper } from './retention.js';
 import OpenAI from 'openai';
@@ -2114,15 +2115,25 @@ async function createCommentNotifications({ commentId, docId, body, actor }) {
   const actorName = actor.name || actor.email;
   const snippet = body.slice(0, 280);
   for (const [userId, { kind, email }] of recipients) {
+    const rowId = crypto.randomUUID();
     await pool.query(
       `INSERT INTO notifications (id, user_id, actor_id, actor_name, doc_id, comment_id, kind, body)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [crypto.randomUUID(), userId, actor.id, actorName, docId, commentId, kind, snippet]
+      [rowId, userId, actor.id, actorName, docId, commentId, kind, snippet]
     );
+    // Tagged in the id of the row it came from, so a push and the open tab's
+    // own poll raise one notification between them rather than two.
+    const self = userId === actor.id;
+    const verb = kind === 'mention' ? 'mentioned you in' : 'commented on';
+    sendPush(userId, {
+      title: self ? `You tagged yourself in ${docTitle}` : `${actorName} ${verb} "${docTitle}"`,
+      body: snippet,
+      tag: rowId,
+      docId,
+    }).catch((e) => console.error('[push] comment:', e.message));
     // The inbox row is the point of a self-tag; an email about your own comment
     // arriving in your own mailbox is not.
-    if (userId === actor.id) continue;
-    const verb = kind === 'mention' ? 'mentioned you in' : 'commented on';
+    if (self) continue;
     sendNotificationEmail(
       email,
       `${actorName} ${verb} "${docTitle}"`,
@@ -2184,12 +2195,20 @@ async function notifyDocMentions(docId, state, actorId) {
   for (const person of people) {
     // Self-mentions count here too — see the comment notifier next door.
     if (told.has(person.id)) continue;
+    const rowId = crypto.randomUUID();
     await pool.query(
       `INSERT INTO notifications (id, user_id, actor_id, actor_name, doc_id, kind, body)
        VALUES ($1, $2, $3, $4, $5, 'mention', $6)`,
-      [crypto.randomUUID(), person.id, actorId, actorName, docId, `Mentioned you in ${docTitle}`]
+      [rowId, person.id, actorId, actorName, docId, `Mentioned you in ${docTitle}`]
     );
-    if (person.id === actorId) continue;
+    const self = person.id === actorId;
+    sendPush(person.id, {
+      title: self ? `You tagged yourself in ${docTitle}` : `${actorName} mentioned you in "${docTitle}"`,
+      body: `Mentioned you in ${docTitle}`,
+      tag: rowId,
+      docId,
+    }).catch((e) => console.error('[push] mention:', e.message));
+    if (self) continue;
     sendNotificationEmail(
       person.email,
       `${actorName} mentioned you in "${docTitle}"`,
@@ -2223,6 +2242,7 @@ registerTaskRoutes(app, { requireUser, wrap, createDocRow });
 registerPropRoutes(app, { requireUser, wrap });
 registerDocPropRoutes(app, { requireUser, wrap, grantOn });
 registerHomeRoutes(app, { requireUser, wrap });
+registerPushRoutes(app, { requireUser, wrap });
 registerFolderRoutes(app, { requireUser, wrap });
 
 // A build's files are content-hashed and the previous build's are gone, so a tab
