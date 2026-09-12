@@ -3,7 +3,7 @@ import { nextSeen, notifyText, unseen } from './desktopNotify';
 import type { InboxRow } from './docsApi';
 
 const row = (over: Partial<InboxRow>): InboxRow => ({
-  id: 'n1', kind: 'mention', comment_id: null, actor_name: 'Shafin', body: 'have a look',
+  id: 'n1', kind: 'mention', comment_id: null, actor_id: 'u2', actor_name: 'Shafin', body: 'have a look',
   read_at: null, created_at: '2026-09-09T10:00:00.000Z', doc_id: 'd1', doc_title: 'Spec',
   doc_icon: '📄', task_id: null, task_title: null, project_id: null, ...over,
 });
@@ -68,5 +68,20 @@ describe('notifyText', () => {
   it('falls back when the actor or document is missing', () => {
     const t = notifyText(row({ kind: 'comment', actor_name: '', doc_title: '' }));
     expect(t.title).toBe('Someone commented on Untitled');
+  });
+});
+
+describe('notifyText and the reader', () => {
+  it('names the actor when it was somebody else', () => {
+    expect(notifyText(row({}), 'u1').title).toBe('Shafin mentioned you in Spec');
+  });
+
+  it('speaks in the first person when the actor is the reader', () => {
+    expect(notifyText(row({ actor_id: 'u1' }), 'u1').title).toBe('You tagged yourself in Spec');
+    expect(notifyText(row({ actor_id: 'u1', kind: 'assigned' }), 'u1').title).toBe('You took on a task');
+  });
+
+  it('names the actor when the reader is unknown', () => {
+    expect(notifyText(row({ actor_id: 'u1' })).title).toBe('Shafin mentioned you in Spec');
   });
 });

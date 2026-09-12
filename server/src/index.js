@@ -325,7 +325,9 @@ app.get('/api/inbox', requireUser, async (req, res) => {
     // thread it landed in, and re-deriving that by matching bodies is guesswork.
     // The task join carries kind='assigned' rows: those name a task, which may
     // not have a page yet, so the client opens the project instead of a doc.
-    `SELECT n.id, n.kind, n.actor_name, n.body, n.read_at, n.created_at,
+    // actor_id rides along so the client can tell a self-tag from someone
+    // else's: "Sajjad mentioned you" reads wrong when Sajjad is the reader.
+    `SELECT n.id, n.kind, n.actor_id, n.actor_name, n.body, n.read_at, n.created_at,
             n.doc_id, n.comment_id, d.title AS doc_title, d.icon AS doc_icon,
             n.task_id, t.title AS task_title, t.project_id
        FROM notifications n
@@ -2104,7 +2106,10 @@ async function createCommentNotifications({ commentId, docId, body, actor }) {
   if (owner.rows[0] && !recipients.has(owner.rows[0].id)) {
     recipients.set(owner.rows[0].id, { kind: 'comment', email: owner.rows[0].email });
   }
-  recipients.delete(actor.id); // never notify yourself
+  // @-tagging yourself is deliberate — people do it to leave themselves a
+  // reminder — so it still lands in your inbox. What never does is the owner
+  // rule firing on a comment you just wrote on your own page.
+  if (recipients.get(actor.id)?.kind === 'comment') recipients.delete(actor.id);
 
   const actorName = actor.name || actor.email;
   const snippet = body.slice(0, 280);
@@ -2114,6 +2119,9 @@ async function createCommentNotifications({ commentId, docId, body, actor }) {
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
       [crypto.randomUUID(), userId, actor.id, actorName, docId, commentId, kind, snippet]
     );
+    // The inbox row is the point of a self-tag; an email about your own comment
+    // arriving in your own mailbox is not.
+    if (userId === actor.id) continue;
     const verb = kind === 'mention' ? 'mentioned you in' : 'commented on';
     sendNotificationEmail(
       email,
@@ -2174,12 +2182,14 @@ async function notifyDocMentions(docId, state, actorId) {
   const actorName = actor?.name || actor?.email || 'Someone';
 
   for (const person of people) {
-    if (told.has(person.id) || person.id === actorId) continue;
+    // Self-mentions count here too — see the comment notifier next door.
+    if (told.has(person.id)) continue;
     await pool.query(
       `INSERT INTO notifications (id, user_id, actor_id, actor_name, doc_id, kind, body)
        VALUES ($1, $2, $3, $4, $5, 'mention', $6)`,
       [crypto.randomUUID(), person.id, actorId, actorName, docId, `Mentioned you in ${docTitle}`]
     );
+    if (person.id === actorId) continue;
     sendNotificationEmail(
       person.email,
       `${actorName} mentioned you in "${docTitle}"`,

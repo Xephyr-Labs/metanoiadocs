@@ -2,7 +2,7 @@
 // reused by every tab — the board, table, gantt, calendar and gallery all draw
 // the same already-filtered list.
 
-import type { PropRow, SprintRow, TaskKindRow, TaskRow, ProjectMode } from './tasksApi';
+import type { PropRow, SprintRow, TaskRow, ProjectMode } from './tasksApi';
 import { STATUSES, STATUS_LABEL } from './tasksApi';
 
 /** How a field behaves when filtered, which is coarser than its display type. */
@@ -94,17 +94,33 @@ export function fieldsFor({
   users,
   kinds,
   sprints,
+  tags = [],
+  projects = [],
 }: {
   mode: ProjectMode;
   props: PropRow[];
   users: { id: string; name: string; username: string }[];
-  kinds: TaskKindRow[];
+  /** Only `key` and `label` are read, so the cross-project union of types —
+   *  which has no id or colour of its own — is as good a list as a project's. */
+  kinds: { key: string; label: string }[];
   sprints: SprintRow[];
+  /** Focus areas. Absent on a board that was opened before tags loaded. */
+  tags?: string[];
+  /** Set only by the cross-project view; one project's board is already scoped. */
+  projects?: { id: string; name: string }[];
 }): FilterField[] {
   const work = mode !== 'data';
   const fields: FilterField[] = [
     { key: 'title', label: work ? 'Task' : 'Name', kind: 'text' },
   ];
+  if (projects.length) {
+    fields.push({
+      key: 'project_id',
+      label: 'Project',
+      kind: 'select',
+      options: projects.map((p) => ({ value: p.id, label: p.name })),
+    });
+  }
   if (work) {
     fields.push(
       {
@@ -138,6 +154,17 @@ export function fieldsFor({
       { key: 'points', label: 'Points', kind: 'number' },
       { key: 'milestone', label: 'Milestone', kind: 'checkbox' },
     );
+  }
+  // A task carries the tags of its page, several at a time, so it filters like
+  // a multi-select — by name, because that is what a tag is identified by
+  // everywhere else in the app.
+  if (tags.length) {
+    fields.push({
+      key: 'tags',
+      label: 'Focus area',
+      kind: 'multi_select',
+      options: tags.map((t) => ({ value: t, label: t })),
+    });
   }
   for (const p of props) {
     const kind = PROP_KIND[p.type];
@@ -231,11 +258,11 @@ export function matches(task: TaskRow, filter: Filter, field: FilterField): bool
  * property someone deleted while the view was open — is skipped rather than
  * emptying the table.
  */
-export function applyFilters(
-  tasks: TaskRow[],
+export function applyFilters<T extends TaskRow>(
+  tasks: T[],
   filters: Filter[],
   fields: FilterField[],
-): TaskRow[] {
+): T[] {
   const active = filters
     .map((f) => [f, fields.find((x) => x.key === f.field)] as const)
     .filter((pair): pair is readonly [Filter, FilterField] => !!pair[1])

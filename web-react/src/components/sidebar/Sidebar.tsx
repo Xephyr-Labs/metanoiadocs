@@ -1,5 +1,6 @@
 import {
   Archive,
+  CheckSquare,
   ChevronDown,
   ChevronRight,
   ChevronsLeftRight,
@@ -38,14 +39,25 @@ import { FolderTree } from './FolderTree';
 import { DOC_MIME, dragSource } from './rowDrag';
 import { useMoveToFolder } from '../../hooks/useMoveToFolder';
 
-function NavItem({ icon, label, onClick, trailing, active }: { icon: ReactNode; label: string; onClick?: () => void; trailing?: ReactNode; active?: boolean }) {
+/**
+ * `active` and `alert` both spend the accent, and they must not look the same:
+ * active is the filled row — "you are here" — while alert is the unfilled one,
+ * accent lettering plus its badge, saying "something happened here". Filling
+ * both would put two lit rows in the rail with nothing but a small pill to say
+ * which is which.
+ */
+function NavItem({ icon, label, onClick, trailing, active, alert }: { icon: ReactNode; label: string; onClick?: () => void; trailing?: ReactNode; active?: boolean; alert?: boolean }) {
+  const lit = active || alert;
   return (
     <button
       type="button"
       onClick={onClick}
-      className={cn('group flex h-7 w-full items-center gap-2 rounded-md px-2 text-sm leading-5 transition-colors duration-120', active ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-hover')}
+      className={cn(
+        'group flex h-7 w-full items-center gap-2 rounded-md px-2 text-sm leading-5 transition-colors duration-120',
+        active ? 'bg-accent-soft text-accent' : alert ? 'font-medium text-accent hover:bg-accent-soft' : 'text-ink hover:bg-hover',
+      )}
     >
-      <span className={cn('flex h-5 w-5 shrink-0 items-center justify-center', active ? 'text-accent' : 'text-faint group-hover:text-muted')}>{icon}</span>
+      <span className={cn('flex h-5 w-5 shrink-0 items-center justify-center', lit ? 'text-accent' : 'text-faint group-hover:text-muted')}>{icon}</span>
       <span className="block h-5 min-w-0 flex-1 !self-center truncate leading-5 text-left">{label}</span>
       {trailing}
     </button>
@@ -394,6 +406,7 @@ export function Sidebar() {
         <NavItem
           icon={<Inbox size={16} />}
           label="Inbox"
+          alert={ws.unreadCount > 0}
           onClick={() => ws.setInboxOpen(true)}
           trailing={ws.unreadCount > 0 ? (
             <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-3xs font-semibold text-white">
@@ -401,6 +414,7 @@ export function Sidebar() {
             </span>
           ) : undefined}
         />
+        <NavItem icon={<CheckSquare size={16} />} label="Tasks" active={ws.view === 'tasks'} onClick={ws.openTasks} />
         <NavItem icon={<Settings size={16} />} label="Settings" onClick={() => ws.setSettingsOpen(true)} />
       </div>
 

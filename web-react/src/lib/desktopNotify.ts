@@ -83,14 +83,27 @@ export function nextSeen(rows: InboxRow[], seen: string[] | null): string[] {
   return [...new Set([...rows.map((r) => r.id), ...(seen ?? [])])].slice(0, SEEN_CAP);
 }
 
-export function notifyText(row: InboxRow): { title: string; body: string } {
+/**
+ * `selfId` is the reader, so a reminder someone left themselves does not arrive
+ * announcing them by name in the third person — the inbox already words those
+ * that way, and an alert that says "Sajjad mentioned you" to Sajjad reads like
+ * it came from someone else.
+ */
+export function notifyText(row: InboxRow, selfId?: string | null): { title: string; body: string } {
+  const self = !!row.actor_id && row.actor_id === selfId;
   const who = row.actor_name || 'Someone';
   const doc = row.doc_title || 'Untitled';
   if (row.kind === 'assigned') {
-    return { title: `${who} assigned you a task`, body: row.task_title || row.body || 'a task' };
+    return {
+      title: self ? 'You took on a task' : `${who} assigned you a task`,
+      body: row.task_title || row.body || 'a task',
+    };
   }
   if (row.kind === 'mention') {
-    return { title: `${who} mentioned you in ${doc}`, body: row.body || '' };
+    return {
+      title: self ? `You tagged yourself in ${doc}` : `${who} mentioned you in ${doc}`,
+      body: row.body || '',
+    };
   }
   return { title: `${who} commented on ${doc}`, body: row.body || '' };
 }

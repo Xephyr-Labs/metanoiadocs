@@ -2,6 +2,7 @@ import { ExternalLink, Link2, MoreHorizontal, Plus, Settings2, Trash2, X } from 
 import { useEffect, useState } from 'react';
 import type { UserRow } from '../../lib/docsApi';
 import { cn } from '../../lib/cn';
+import { TagChips } from '../editor/TagChips';
 import { useAuth } from '../../store/auth';
 import { useWorkspace } from '../../store/workspace';
 import {
@@ -67,6 +68,8 @@ export function TaskPeek({
   // A task's page is a page like any other, so it can be filed in a folder
   // straight from here rather than being hunted down in the sidebar first.
   const moveTo = useMoveToFolder(docId);
+  // Null for the moment between opening a row and its page existing.
+  const page = docId ? ws.pages[docId] ?? null : null;
 
   // Opening the row is what creates its page — importing a thousand rows must
   // not create a thousand empty documents.
@@ -211,6 +214,19 @@ export function TaskPeek({
               </label>
             </Row>
           </section>
+
+          {/* Focus area is not a task column — it is the tags on the task's own
+              page, the same vocabulary the documents use. Putting the editor
+              here is what makes it reachable: until now a task's page could
+              only be tagged by opening it full-screen, so in practice no task
+              ever was, and the cross-project Focus area filter had nothing to
+              match. */}
+          {page && (
+            <section className="border-b border-line p-4">
+              <span className={label}>Focus area</span>
+              <TagChips compact page={page} />
+            </section>
+          )}
 
           <section className="p-4">
             <span className={label}>Depends on</span>

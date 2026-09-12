@@ -78,8 +78,9 @@ export function ProjectView() {
       users: p.users,
       kinds: p.kinds,
       sprints: p.sprints,
+      tags: ws.allTags.map((t) => t.name),
     }),
-    [project?.mode, p.props, p.users, p.kinds, p.sprints],
+    [project?.mode, p.props, p.users, p.kinds, p.sprints, ws.allTags],
   );
 
   // Filters are per project and survive a reload, so a view someone set up is
