@@ -11,8 +11,10 @@ interface Props {
   onAdd: (status: TaskStatus) => void;
 }
 
-/** One dot per column, so the four headers are told apart before they are read. */
-const DOT: Record<TaskStatus, string> = {
+/** One dot per column, so the four headers are told apart before they are read.
+ *  Exported because the cross-project list draws the same four states, and two
+ *  private copies would be two palettes within a week. */
+export const DOT: Record<TaskStatus, string> = {
   todo: 'bg-line-strong',
   doing: 'bg-accent',
   review: 'bg-amber-400',

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyFilters, fieldsFor, newFilter, needsValue, type Filter } from './taskFilter';
-import type { PropRow, TaskRow } from './tasksApi';
+import type { PropRow, TaskKindRow, TaskRow } from './tasksApi';
 
 const task = (over: Partial<TaskRow>): TaskRow => ({
   id: 't1', project_id: 'A', title: 'Task', status: 'todo',
@@ -15,12 +15,18 @@ const prop = (over: Partial<PropRow>): PropRow => ({
   options: [], target_project_id: null, position: 0, ...over,
 });
 
+// A whole row, though fieldsFor reads only key and label — the cross-project
+// view hands it a union of types that has neither an id nor a colour.
+const kinds: TaskKindRow[] = [
+  { id: 'k1', project_id: 'A', key: 'bug', label: 'Bug', color: 'red', is_group: false, position: 0 },
+];
+
 const fields = (props: PropRow[] = []) =>
   fieldsFor({
     mode: 'tasks',
     props,
     users: [{ id: 'u1', name: 'Shafin', username: 'shafin' }],
-    kinds: [{ id: 'k1', project_id: 'A', key: 'bug', label: 'Bug', color: 'red', is_group: false, position: 0 }],
+    kinds,
     sprints: [],
   });
 
@@ -31,6 +37,21 @@ const run = (tasks: TaskRow[], f: Filter[], props: PropRow[] = []) =>
   applyFilters(tasks, f, fields(props)).map((t) => t.id);
 
 describe('fieldsFor', () => {
+  it('offers Project and Focus area only when given them', () => {
+    const bare = fields().map((f) => f.key);
+    expect(bare).not.toContain('project_id');
+    expect(bare).not.toContain('tags');
+
+    const cross = fieldsFor({
+      mode: 'tasks', props: [], users: [], kinds, sprints: [],
+      tags: ['Marketing', 'Product'],
+      projects: [{ id: 'A', name: 'Lattu' }],
+    }).map((f) => f.key);
+    expect(cross).toContain('project_id');
+    expect(cross).toContain('tags');
+  });
+
+
   it('drops the work fields for a data database', () => {
     const keys = fieldsFor({ mode: 'data', props: [], users: [], kinds: [], sprints: [] }).map((f) => f.key);
     expect(keys).toEqual(['title']);
@@ -163,5 +184,43 @@ describe('needsValue', () => {
     expect(needsValue('is_empty')).toBe(false);
     expect(needsValue('is_not_empty')).toBe(false);
     expect(needsValue('is')).toBe(true);
+  });
+});
+
+describe('cross-project fields', () => {
+  const cross = fieldsFor({
+    mode: 'tasks', props: [], users: [], kinds, sprints: [],
+    tags: ['Marketing', 'Product'],
+    projects: [{ id: 'A', name: 'Lattu' }, { id: 'B', name: 'Deergho e' }],
+  });
+  const ids = (tasks: TaskRow[], f: Filter[]) => applyFilters(tasks, f, cross).map((t) => t.id);
+
+  const rows = [
+    task({ id: 'a', project_id: 'A', tags: ['Marketing'] }),
+    task({ id: 'b', project_id: 'B', tags: ['Marketing', 'Product'] }),
+    task({ id: 'c', project_id: 'B', tags: [] }),
+    // A task whose page was made before tags shipped carries no list at all.
+    task({ id: 'd', project_id: 'B', tags: undefined }),
+  ];
+
+  it('narrows to one project', () => {
+    expect(ids(rows, [filter({ field: 'project_id', op: 'is', value: 'B' })])).toEqual(['b', 'c', 'd']);
+  });
+
+  it('matches a task carrying any of the chosen focus areas', () => {
+    expect(ids(rows, [filter({ field: 'tags', op: 'is_any_of', value: 'Product' })])).toEqual(['b']);
+    expect(ids(rows, [filter({ field: 'tags', op: 'is_any_of', value: 'Marketing,Product' })]))
+      .toEqual(['a', 'b']);
+  });
+
+  it('counts an untagged task as empty, list or no list', () => {
+    expect(ids(rows, [filter({ field: 'tags', op: 'is_empty', value: '' })])).toEqual(['c', 'd']);
+  });
+
+  it('combines project and focus area', () => {
+    expect(ids(rows, [
+      filter({ field: 'project_id', op: 'is', value: 'B' }),
+      filter({ field: 'tags', op: 'is_any_of', value: 'Marketing' }),
+    ])).toEqual(['b']);
   });
 });

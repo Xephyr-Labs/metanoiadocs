@@ -21,7 +21,8 @@ import {
 import { useEffect, useState, type ReactNode } from 'react';
 import { workspaces } from '../../data/mock';
 import { useWorkspace } from '../../store/workspace';
-import { notifyEnabled, setNotifyEnabled } from '../../lib/desktopNotify';
+import { notifyEnabled } from '../../lib/desktopNotify';
+import { disableAlerts, enableAlerts, pushSupported } from '../../lib/push';
 import { useAuth } from '../../store/auth';
 import { sendInvite } from '../../lib/api';
 import { docsApi, type UserRow } from '../../lib/docsApi';
@@ -70,14 +71,15 @@ const NAV: { group: string; items: { id: SectionId; label: string; icon: typeof 
 
 /* ---- small controls -------------------------------------------------- */
 
-function Switch({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }) {
+function Switch({ on, onChange, disabled }: { on: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={on}
+      disabled={disabled}
       onClick={() => onChange(!on)}
-      className={cn('relative h-[22px] w-[38px] shrink-0 rounded-full transition-colors duration-180', on ? 'bg-accent' : 'bg-line-strong')}
+      className={cn('relative h-[22px] w-[38px] shrink-0 rounded-full transition-colors duration-180 disabled:opacity-60', on ? 'bg-accent' : 'bg-line-strong')}
     >
       <motion.span
         layout
@@ -296,19 +298,21 @@ function Preferences() {
     () => canNotify && notifyEnabled() && Notification.permission === 'granted',
   );
   const [denied, setDenied] = useState(() => canNotify && Notification.permission === 'denied');
+  const [busy, setBusy] = useState(false);
   const toggleNotify = async (v: boolean) => {
-    if (!v) {
-      setNotifyEnabled(false);
-      setNotify(false);
-      return;
+    setBusy(true);
+    try {
+      if (!v) {
+        await disableAlerts();
+        setNotify(false);
+        return;
+      }
+      const permission = await enableAlerts();
+      setDenied(permission === 'denied');
+      setNotify(permission === 'granted');
+    } finally {
+      setBusy(false);
     }
-    const permission = Notification.permission === 'granted'
-      ? 'granted'
-      : await Notification.requestPermission();
-    setDenied(permission === 'denied');
-    const on = permission === 'granted';
-    setNotifyEnabled(on);
-    setNotify(on);
   };
   return (
     <div>
@@ -336,8 +340,10 @@ function Preferences() {
             title="Desktop notifications"
             desc={denied
               ? 'Blocked for this site — allow notifications in your browser settings first.'
-              : 'Get a browser notification when you are mentioned or a task is assigned to you. Works while Metanoia is open in a tab.'}
-            control={<Switch on={notify} onChange={toggleNotify} />}
+              : pushSupported()
+                ? 'Get a browser notification when you are mentioned or a task is assigned to you, whether or not Metanoia is open.'
+                : 'Get a browser notification when you are mentioned or a task is assigned to you. This browser can only show them while Metanoia is open in a tab.'}
+            control={<Switch on={notify} onChange={toggleNotify} disabled={busy} />}
           />
         )}
       </div>

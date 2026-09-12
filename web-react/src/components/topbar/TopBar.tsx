@@ -185,6 +185,8 @@ export function TopBar() {
           <Crumb icon={<FolderOpen size={14} className="text-faint" />} current>
             {folder.name}
           </Crumb>
+        ) : ws.view === 'tasks' ? (
+          <Crumb current>Tasks</Crumb>
         ) : ws.view === 'home' ? (
           <Crumb current>Home</Crumb>
         ) : null}

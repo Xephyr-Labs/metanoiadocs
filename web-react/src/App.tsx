@@ -12,6 +12,7 @@ import { ShareDialog } from './components/share/ShareDialog';
 import { TrashDialog } from './components/trash/TrashDialog';
 import { useDesktopNotifications } from './hooks/useDesktopNotifications';
 import { InboxDialog } from './components/inbox/InboxDialog';
+import { TasksView } from './components/tasks/TasksView';
 import { TagView } from './components/tags/TagView';
 import { Sidebar } from './components/sidebar/Sidebar';
 import { TopBar } from './components/topbar/TopBar';
@@ -60,6 +61,7 @@ export default function App() {
           <TopBar />
           <main className="min-h-0 flex-1">
             {ws.view === 'home' ? <Home />
+              : ws.view === 'tasks' ? <TasksView />
               : ws.view === 'project' ? <ProjectView />
               : ws.view === 'folder' ? <FolderView />
               : <EditorArea />}

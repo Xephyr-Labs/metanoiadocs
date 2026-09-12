@@ -106,6 +106,9 @@ export default defineConfig({
         ],
       },
       workbox: {
+        // Push and notification-click handling. generateSW owns sw.js, so the
+        // handlers are imported into it rather than replacing it wholesale.
+        importScripts: ['push-sw.js'],
         // The editor chunk is large; allow it in the precache so the app loads offline.
         maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
         // The fallback answers for the app's own addresses only. Everything else on

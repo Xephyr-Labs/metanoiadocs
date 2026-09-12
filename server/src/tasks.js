@@ -3,6 +3,7 @@
 import crypto from 'node:crypto';
 import { pool } from './db.js';
 import { sendNotificationEmail } from './auth.js';
+import { sendPush } from './push.js';
 import { propsPatch } from './props.js';
 import { propsFor } from './props-routes.js';
 import { wouldProjectCycle } from './project-tree.js';
@@ -10,9 +11,10 @@ import { wouldProjectCycle } from './project-tree.js';
 export const STATUSES = ['todo', 'doing', 'review', 'done'];
 
 /**
- * Tell people a task landed on them — inbox row plus an email each, the same
- * pair a comment mention sends. Best-effort: a task must still save when the
- * mail server is down, so every caller fires this without awaiting it.
+ * Tell people a task landed on them — an inbox row, a push to their devices and
+ * an email each, the same three a comment mention sends. Best-effort: a task
+ * must still save when the mail server or a push service is down, so every
+ * caller fires this without awaiting it.
  *
  * The notification points at the task rather than its page, because a task's
  * page does not exist until someone opens the task.
@@ -26,11 +28,20 @@ async function notifyAssignees(task, actor, userIds) {
   const title = task.title || 'Untitled task';
   const base = process.env.BASE_URL || '';
   for (const user of rows) {
+    const rowId = crypto.randomUUID();
     await pool.query(
       `INSERT INTO notifications (id, user_id, actor_id, actor_name, doc_id, task_id, kind, body)
        VALUES ($1, $2, $3, $4, $5, $6, 'assigned', $7)`,
-      [crypto.randomUUID(), user.id, actor.id, actorName, task.doc_id, task.id, title.slice(0, 280)]
+      [rowId, user.id, actor.id, actorName, task.doc_id, task.id, title.slice(0, 280)]
     );
+    sendPush(user.id, {
+      title: `${actorName} assigned you a task`,
+      body: title,
+      tag: rowId,
+      // Null until someone opens the task, which is when its page is made —
+      // linkFor sends those to the dashboard rather than to /d/null.
+      docId: task.doc_id,
+    }).catch((e) => console.error('[push] assign:', e.message));
     if (!user.email) continue;
     await sendNotificationEmail(
       user.email,
@@ -222,6 +233,7 @@ const TASK_SELECT = `
   SELECT t.*, u.name AS assignee_name,
          coalesce(dp.deps, '[]'::json) AS deps,
          coalesce(asg.assignees, '[]'::json) AS assignees,
+         coalesce(tg.tags, '[]'::json) AS tags,
          left(pg.search_text, 240) AS preview
     FROM tasks t
     LEFT JOIN users u ON u.id = t.assignee_id
@@ -237,7 +249,26 @@ const TASK_SELECT = `
                       ORDER BY ta.position, au.name) AS assignees
         FROM task_assignees ta JOIN users au ON au.id = ta.user_id
        WHERE ta.task_id = t.id
-    ) asg ON true`;
+    ) asg ON true
+    LEFT JOIN LATERAL (
+      -- A task's focus areas are the tags on its own page. Tasks carry no tags
+      -- of their own, and giving them a second, parallel vocabulary would mean
+      -- the same work filed under "Marketing" twice in two places.
+      SELECT json_agg(tag.name ORDER BY tag.name) AS tags
+        FROM doc_tags dt JOIN tags tag ON tag.id = dt.tag_id
+       WHERE dt.doc_id = t.doc_id
+    ) tg ON true`;
+
+// Every live task in the workspace, for the cross-project Tasks view. Narrowing
+// happens in the client against the same filter engine a board uses, so this
+// hands back the rows plus the names they are filtered by.
+const ALL_TASKS_SQL = `
+  SELECT x.*, p.name AS project_name, p.icon AS project_icon
+    FROM (${TASK_SELECT} WHERE t.deleted_at IS NULL) x
+    JOIN projects p ON p.id = x.project_id
+   WHERE p.archived_at IS NULL AND p.mode <> 'data'
+   ORDER BY x.due_at ASC NULLS LAST, x.priority DESC, x.created_at DESC
+   LIMIT 1000`;
 
 export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
   // ── projects ────────────────────────────────────────────────────────────
@@ -351,6 +382,21 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
   app.delete('/api/projects/:id', requireUser, wrap(async (req, res) => {
     await pool.query('UPDATE projects SET archived_at = now() WHERE id = $1', [req.params.id]);
     res.json({ ok: true });
+  }));
+
+  // The whole workspace's work in one list. The task types come along because
+  // they are per project and a cross-project filter needs the union: every
+  // board here calls its own the same four things, and a Type filter that only
+  // knew one project's would silently drop the rest.
+  app.get('/api/tasks', requireUser, wrap(async (_req, res) => {
+    const [tasks, kinds] = await Promise.all([
+      pool.query(ALL_TASKS_SQL),
+      pool.query(
+        `SELECT key, min(label) AS label, min(position) AS position
+           FROM task_kinds GROUP BY key ORDER BY position, key`
+      ),
+    ]);
+    res.json({ tasks: tasks.rows, kinds: kinds.rows });
   }));
 
   app.get('/api/projects/:id/tasks', requireUser, wrap(async (req, res) => {

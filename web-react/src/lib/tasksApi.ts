@@ -152,10 +152,20 @@ export interface TaskRow {
   position: number;
   done_at: string | null;
   deps: string[];
+  /** Focus areas, read from the tags on the task's own page. Empty when the
+   *  task has no page yet, or its page is untagged; absent on a row that came
+   *  from a cached response predating them. */
+  tags?: string[];
   props: Record<string, unknown>;
   /** Opening text of the row's own page; null when it has no page or an empty
    *  one. Shown by the gallery view — run it through previewLine() first. */
   preview: string | null;
+}
+
+/** A task seen from outside its own board, so it has to say where it lives. */
+export interface AnyTaskRow extends TaskRow {
+  project_name: string;
+  project_icon: string;
 }
 
 /** What a page knows about the task it belongs to. */
@@ -262,6 +272,10 @@ export const tasksApi = {
     req(`/kinds/${id}`, { method: 'DELETE' }),
 
   projectTasks: (id: string): Promise<TaskRow[]> => req(`/projects/${id}/tasks`),
+  /** Every live task in the workspace, plus the union of the task types the
+   *  projects define — what the cross-project Tasks view filters over. */
+  allTasks: (): Promise<{ tasks: AnyTaskRow[]; kinds: { key: string; label: string }[] }> =>
+    req('/tasks'),
   createTask: (b: { projectId: string; title: string } & TaskPatch): Promise<TaskRow> =>
     req('/tasks', { method: 'POST', ...body(b) }),
   patchTask: (id: string, b: TaskPatch): Promise<TaskRow> =>

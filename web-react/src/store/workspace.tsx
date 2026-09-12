@@ -23,14 +23,16 @@ import type { EditorMode, Folder, Page, PageId, Tag } from '../lib/types';
 
 export type RightTab = 'intel' | 'comments' | 'outline' | 'details' | 'ai';
 
-/** Which surface fills the main column. Cheaper than a router for four screens. */
-export type View = 'home' | 'doc' | 'project' | 'folder';
+/** Which surface fills the main column. Cheaper than a router for five screens. */
+export type View = 'home' | 'doc' | 'project' | 'folder' | 'tasks';
 
 interface WorkspaceState {
   view: View;
   activeProjectId: string | null;
   activeFolderId: string | null;
   openHome: () => void;
+  /** Every project's work in one filterable list. */
+  openTasks: () => void;
   /** `taskId` opens that task's panel once the board is up — how a page gets
    *  back to the task it belongs to. */
   openProject: (id: string, taskId?: string) => void;
@@ -370,6 +372,14 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const openHome = useCallback(() => {
     setView('home');
     setMobileDrawer(false);
+    showHome();
+  }, []);
+
+  const openTasks = useCallback(() => {
+    setView('tasks');
+    setMobileDrawer(false);
+    // No address of its own, like a project — what matters is that the bar
+    // stops claiming a document is open.
     showHome();
   }, []);
 
@@ -960,7 +970,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       pinnedIds, pinnedFolderIds, togglePin, toggleFolderPin,
       currentId, currentPage, loading, error, workspaceId,
       historyDocId, openHistory, closeHistory,
-      view, activeProjectId, activeFolderId, openHome, openProject, pendingTaskId, clearPendingTask, openFolder, projects, refreshProjects,
+      view, activeProjectId, activeFolderId, openHome, openTasks, openProject, pendingTaskId, clearPendingTask, openFolder, projects, refreshProjects,
       sidebarCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
       settingsOpen, trashOpen, inboxOpen, mode, fullWidth, theme,
       refresh, select, toggleExpand, toggleFavorite, toggleFolderFavorite, setVisibility, rename, applyTitleFromEditor,
@@ -976,7 +986,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       pinnedIds, pinnedFolderIds, togglePin, toggleFolderPin,
       currentId, currentPage, loading, error, workspaceId,
       historyDocId, openHistory, closeHistory,
-      view, activeProjectId, activeFolderId, openHome, openProject, pendingTaskId, clearPendingTask, openFolder, projects, refreshProjects,
+      view, activeProjectId, activeFolderId, openHome, openTasks, openProject, pendingTaskId, clearPendingTask, openFolder, projects, refreshProjects,
       sidebarCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
       settingsOpen, trashOpen, inboxOpen, mode, fullWidth, theme,
       refresh, select, toggleExpand, toggleFavorite, toggleFolderFavorite, setVisibility, rename, applyTitleFromEditor,

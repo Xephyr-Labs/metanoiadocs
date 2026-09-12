@@ -149,6 +149,8 @@ export interface InboxRow {
   kind: 'mention' | 'comment' | 'assigned';
   /** The comment that triggered it — null for notifications with no thread. */
   comment_id: string | null;
+  /** Null for anything the system raised rather than a person. */
+  actor_id: string | null;
   actor_name: string;
   body: string;
   read_at: string | null;
