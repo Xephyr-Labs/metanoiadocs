@@ -730,19 +730,18 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
       // An untouched page is not "" — BlockSuite's empty paragraph saves a
       // zero-width space, which trim() alone leaves standing.
       const written = leaving.text.replace(/[​-‍﻿]/g, '').trim();
-      await pool.query(
-        written
-          // Written in, so it is a real page: make it an ordinary one, or it
-          // stays hidden from every list that skips row pages.
-          ? `UPDATE docs SET kind = 'doc', updated_at = now() WHERE id = $1`
-          : 'UPDATE docs SET deleted_at = now() WHERE id = $1',
-        [leaving.id]
-      );
+      if (written) {
+        // Written in, so it is a real page: make it an ordinary one, or it
+        // stays hidden from every list that skips row pages.
+        await pool.query(`UPDATE docs SET kind = 'doc', updated_at = now(), updated_by = $2 WHERE id = $1`, [leaving.id, req.user.id]);
+      } else {
+        await pool.query('UPDATE docs SET deleted_at = now() WHERE id = $1', [leaving.id]);
+      }
     }
     if (b.title !== undefined && rows[0].doc_id) {
       await pool.query(
-        'UPDATE docs SET title = $1, updated_at = now() WHERE id = $2 AND title <> $1',
-        [String(b.title).slice(0, 200), rows[0].doc_id]
+        'UPDATE docs SET title = $1, updated_at = now(), updated_by = $3 WHERE id = $2 AND title <> $1',
+        [String(b.title).slice(0, 200), rows[0].doc_id, req.user.id]
       );
     }
     if (!assignees) return res.json(rows[0]);
