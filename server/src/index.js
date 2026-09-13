@@ -731,7 +731,7 @@ app.post('/api/docs/:id/links', requireUser, wrap(async (req, res) => {
   const already = existing.rowCount > 0;
   if (!already && !(await referenceChild(parentId, childId))) return res.status(409).json({ error: NO_BODY_TO_NEST_IN });
   await pool.query('INSERT INTO doc_links (from_id, to_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [parentId, childId]);
-  await pool.query('UPDATE docs SET parent_id = $1, updated_at = now() WHERE id = $2', [parentId, childId]);
+  await pool.query('UPDATE docs SET parent_id = $1, updated_at = now(), updated_by = $3 WHERE id = $2', [parentId, childId, req.user.id]);
   res.json({ ok: true, already });
 }));
 
@@ -876,7 +876,7 @@ app.post('/api/docs/:id/content', requireUser, wrap(async (req, res) => {
   // integration is searchable on what it now says.
   try {
     const { text } = extractText(state);
-    await pool.query('UPDATE docs SET search_text = $1, updated_at = now() WHERE id = $2', [text.slice(0, 100000), docId]);
+    await pool.query('UPDATE docs SET search_text = $1, updated_at = now(), updated_by = $3 WHERE id = $2', [text.slice(0, 100000), docId, req.user.id]);
   } catch { /* an odd state still saves; only the search text goes stale */ }
   res.json({ ok: true });
 }));
@@ -890,7 +890,7 @@ app.put('/api/docs/:id/visibility', requireUser, async (req, res) => {
   );
   if (grant.rows[0]?.role !== 'owner') return res.status(403).json({ error: 'forbidden' });
   const visibility = req.body?.visibility === 'private' ? 'private' : 'team';
-  await pool.query('UPDATE docs SET visibility = $1, updated_at = now() WHERE id = $2', [visibility, req.params.id]);
+  await pool.query('UPDATE docs SET visibility = $1 WHERE id = $2', [visibility, req.params.id]);
   // WS access is authorized once at the upgrade. Going private, drop live sockets
   // so every client reconnects and re-checks grantOn — otherwise an editor who had
   // the doc open keeps read+write until they happen to reconnect.
@@ -1061,8 +1061,8 @@ app.patch('/api/docs/:id', requireUser, async (req, res) => {
   if (!sets.length) return res.json({ ok: true });
   vals.push(req.params.id);
   await pool.query(
-    `UPDATE docs SET ${sets.join(', ')}, updated_at = now() WHERE id = $${vals.length}`,
-    vals
+    `UPDATE docs SET ${sets.join(', ')}, updated_at = now(), updated_by = $${vals.length + 1} WHERE id = $${vals.length}`,
+    [...vals, req.user.id]
   );
   if (typeof req.body?.title === 'string') {
     // The row and its page show the same title. Write only when it differs,
@@ -1145,7 +1145,7 @@ async function trashGrantOn(docId, userId) {
 // Restore a trashed doc (any grant on it).
 app.post('/api/docs/:id/restore', requireUser, async (req, res) => {
   if (!(await trashGrantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
-  await pool.query('UPDATE docs SET deleted_at = NULL, updated_at = now() WHERE id = $1', [req.params.id]);
+  await pool.query('UPDATE docs SET deleted_at = NULL, updated_at = now(), updated_by = $2 WHERE id = $1', [req.params.id, req.user.id]);
   res.json({ ok: true });
 });
 
