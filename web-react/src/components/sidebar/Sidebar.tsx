@@ -40,24 +40,23 @@ import { DOC_MIME, dragSource } from './rowDrag';
 import { useMoveToFolder } from '../../hooks/useMoveToFolder';
 
 /**
- * `active` and `alert` both spend the accent, and they must not look the same:
- * active is the filled row — "you are here" — while alert is the unfilled one,
- * accent lettering plus its badge, saying "something happened here". Filling
- * both would put two lit rows in the rail with nothing but a small pill to say
- * which is which.
+ * Only `alert` spends the accent. "You are here" is a neutral fill — where you
+ * are is already obvious from the page in front of you, and a rail that tints
+ * the current row leaves the accent competing with itself the moment something
+ * genuinely wants attention. `alert` is that something: accent lettering plus
+ * its badge, and in a neutral rail it is the only coloured thing in the column.
  */
 function NavItem({ icon, label, onClick, trailing, active, alert }: { icon: ReactNode; label: string; onClick?: () => void; trailing?: ReactNode; active?: boolean; alert?: boolean }) {
-  const lit = active || alert;
   return (
     <button
       type="button"
       onClick={onClick}
       className={cn(
         'group flex h-7 w-full items-center gap-2 rounded-md px-2 text-sm leading-5 transition-colors duration-120',
-        active ? 'bg-accent-soft text-accent' : alert ? 'font-medium text-accent hover:bg-accent-soft' : 'text-ink hover:bg-hover',
+        active ? 'bg-selected font-medium text-ink' : alert ? 'font-medium text-accent hover:bg-hover' : 'text-ink hover:bg-hover',
       )}
     >
-      <span className={cn('flex h-5 w-5 shrink-0 items-center justify-center', lit ? 'text-accent' : 'text-muted group-hover:text-ink')}>{icon}</span>
+      <span className={cn('flex h-5 w-5 shrink-0 items-center justify-center', alert ? 'text-accent' : active ? 'text-ink' : 'text-muted group-hover:text-ink')}>{icon}</span>
       <span className="block h-5 min-w-0 flex-1 !self-center truncate leading-5 text-left">{label}</span>
       {trailing}
     </button>
@@ -146,7 +145,7 @@ function ProjectRows({
                 style={{ paddingLeft: 8 + depth * 16 }}
                 className={cn(
                   'flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md pr-2 text-sm leading-5 transition-colors duration-120',
-                  ws.view === 'project' && ws.activeProjectId === p.id ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-hover',
+                  ws.view === 'project' && ws.activeProjectId === p.id ? 'bg-selected font-medium text-ink' : 'text-ink hover:bg-hover',
                 )}
               >
                 <span className="text-md leading-none">{p.icon}</span>
@@ -237,7 +236,7 @@ function DocRow({ id }: { id: string }) {
         type="button"
         onClick={() => ws.select(id)}
         {...dragSource(DOC_MIME, id)}
-        className={cn('flex h-7 w-full items-center gap-1.5 rounded-md px-2 pr-7 text-sm leading-5 transition-colors duration-120', ws.currentId === id ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-hover')}
+        className={cn('flex h-7 w-full items-center gap-1.5 rounded-md px-2 pr-7 text-sm leading-5 transition-colors duration-120', ws.currentId === id ? 'bg-selected font-medium text-ink' : 'text-ink hover:bg-hover')}
       >
         <PageIcon icon={p.icon} size={16} />
         <span className="block h-5 min-w-0 flex-1 !self-center truncate leading-5 text-left">{p.title}</span>
@@ -266,7 +265,7 @@ function FavoriteFolderRow({ id }: { id: string }) {
       onClick={() => ws.openFolder(id)}
       className={cn(
         'flex h-7 w-full items-center gap-1.5 rounded-md px-2 text-sm leading-5 transition-colors duration-120',
-        ws.view === 'folder' && ws.activeFolderId === id ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-hover',
+        ws.view === 'folder' && ws.activeFolderId === id ? 'bg-selected font-medium text-ink' : 'text-ink hover:bg-hover',
       )}
     >
       <Folder size={16} className="shrink-0" />
