@@ -19,10 +19,10 @@ export function Card({ title, action, children, className }: {
     // min-w-0: a card is always a grid/flex item, and a grid item's automatic
     // minimum is its min-content — one long doc title would push the card wider
     // than its column and slide it under the neighbouring one.
-    <section className={cn('min-w-0 rounded-xl border border-line bg-canvas p-4', className)}>
+    <section className={cn('min-w-0 rounded-lg border border-line bg-canvas p-4', className)}>
       {(title || action) && (
         <header className="mb-3 flex items-center justify-between">
-          <h2 className="text-2xs font-semibold uppercase tracking-wide text-faint">{title}</h2>
+          <h2 className="text-sm font-semibold text-ink">{title}</h2>
           {action}
         </header>
       )}
@@ -37,7 +37,7 @@ export function StatTile({ label, value, tone }: { label: string; value: number;
       <p
         className={cn(
           'font-display text-3xl font-semibold leading-8 tracking-[-0.03em] tabular-nums',
-          tone === 'danger' && value > 0 ? 'text-danger' : tone === 'accent' ? 'text-accent' : 'text-ink',
+          tone === 'danger' && value > 0 ? 'text-danger' : tone === 'accent' ? 'text-accent-strong' : 'text-ink',
         )}
       >
         {value}
@@ -81,7 +81,7 @@ export function ProjectCard({ project, onOpen }: { project: ProjectRow; onOpen: 
     <button
       type="button"
       onClick={onOpen}
-      className="flex items-center gap-3 rounded-xl border border-line bg-canvas p-4 text-left transition-colors duration-120 hover:border-accent/50 hover:bg-accent-soft/50"
+      className="flex items-center gap-3 rounded-lg border border-line bg-canvas p-4 text-left transition-colors duration-120 hover:border-line-strong hover:bg-hover"
     >
       <span className="text-xl leading-none">{project.icon}</span>
       <span className="min-w-0 flex-1">
@@ -114,7 +114,7 @@ export function DocCard({ doc, onOpen }: {
             holding one line of text and an emoji was mostly empty space. */}
         <span className="shrink-0 text-base leading-none">{doc.icon || '📄'}</span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-medium text-ink">{doc.title || 'Untitled'}</span>
+          <span className="line-clamp-2 text-sm font-medium leading-5 text-ink">{doc.title || 'Untitled'}</span>
           <span className="mt-0.5 block truncate text-2xs text-faint">
             {doc.updated_by_name ? `${doc.updated_by_name} · ` : ''}{relativeTime(doc.updated_at)}
           </span>
@@ -172,7 +172,7 @@ export function TaskBucket({ bucket, tasks, onOpen }: {
   if (!tasks.length) return null;
   return (
     <div className="mb-3 last:mb-0">
-      <p className={cn('mb-1 px-2 text-2xs font-semibold uppercase tracking-wide', bucket === 'overdue' ? 'text-danger' : 'text-faint')}>
+      <p className={cn('mb-1 px-2 text-2xs font-semibold', bucket === 'overdue' ? 'text-danger' : 'text-muted')}>
         {BUCKET_LABEL[bucket]}
       </p>
       <div className="space-y-px">

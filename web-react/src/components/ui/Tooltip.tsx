@@ -9,10 +9,11 @@ interface Props {
   children: ReactNode;
 }
 
-/** Compact, low-latency tooltip used across chrome controls. */
+/** Compact tooltip used across chrome controls. Delay is the Provider's (App):
+ *  700ms on hover so scanning a toolbar doesn't fire one per icon, 0 on focus. */
 export function Tooltip({ label, keys, side = 'bottom', children }: Props) {
   return (
-    <RT.Root delayDuration={280}>
+    <RT.Root>
       <RT.Trigger asChild>{children}</RT.Trigger>
       <RT.Portal>
         <RT.Content

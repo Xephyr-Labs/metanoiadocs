@@ -153,7 +153,7 @@ export function Calendar({ tasks, dateProps, onOpen, onAdd, onMove }: Props) {
                 <button
                   type="button"
                   onClick={(e) => { e.stopPropagation(); onAdd(iso, propId); }}
-                  className="rounded text-2xs text-faint opacity-0 transition-opacity hover:text-accent focus-visible:opacity-100 group-hover:opacity-100"
+                  className="rounded text-2xs text-faint opacity-0 transition-opacity hover:text-accent-strong focus-visible:opacity-100 group-hover:opacity-100"
                   aria-label={`Add a row on ${iso}`}
                 >
                   ＋

@@ -60,8 +60,8 @@ function DocumentRow({ id, depth }: { id: PageId; depth: number }) {
       onClick={() => ws.select(id)}
       className={cn(
         'group/row relative flex h-7 cursor-pointer items-center rounded-md pr-1 text-sm leading-5 transition-colors duration-120',
-        selected ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-hover',
-        drop.zone === 'inside' && 'bg-accent-soft text-accent',
+        selected ? 'bg-selected font-medium text-ink' : 'text-ink hover:bg-hover',
+        drop.zone === 'inside' && 'bg-accent-soft text-accent-strong',
       )}
       style={{ paddingLeft: 8 + depth * 16 }}
       role="treeitem"
@@ -81,21 +81,21 @@ function DocumentRow({ id, depth }: { id: PageId; depth: number }) {
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); ws.toggleExpand(id); }}
-          className={cn('mr-1.5 flex h-5 w-5 shrink-0 items-center justify-center rounded hover:bg-hover', selected ? 'text-accent' : 'text-faint')}
+          className={cn('mr-1.5 flex h-5 w-5 shrink-0 items-center justify-center rounded hover:bg-hover', selected ? 'text-ink' : 'text-muted')}
           aria-label={page.expanded ? `Collapse ${page.title}` : `Expand ${page.title}`}
         >
           <ChevronRight size={14} className={cn('text-muted transition-transform duration-180', page.expanded && 'rotate-90')} />
         </button>
       ) : (
-        <span className={cn('mr-1.5 flex h-5 w-5 shrink-0 items-center justify-center', selected ? 'text-accent' : 'text-faint')}>
-          <PageIcon icon={page.icon} size={16} className={selected ? 'shrink-0 text-accent' : 'shrink-0 text-faint'} />
+        <span className={cn('mr-1.5 flex h-5 w-5 shrink-0 items-center justify-center', selected ? 'text-ink' : 'text-muted')}>
+          <PageIcon icon={page.icon} size={16} className={selected ? 'shrink-0 text-ink' : 'shrink-0 text-muted'} />
         </span>
       )}
       {/* Rename lives on the name, not the whole row: the chevron and the ⋯
           button are double-click targets too, and neither means "rename". */}
       <span
         onDoubleClick={() => { requestTitleFocus(id); ws.select(id); }}
-        className={cn('block h-5 min-w-0 flex-1 truncate leading-5', selected && 'font-medium text-accent')}
+        className={cn('block h-5 min-w-0 flex-1 truncate leading-5', selected && 'font-medium')}
       >
         {page.title}
       </span>
@@ -197,7 +197,7 @@ function FolderRow({ id, depth }: { id: string; depth: number }) {
         className={cn(
           'group/row relative flex h-7 items-center rounded-md pr-1 text-sm leading-5 text-ink hover:bg-hover',
           active && 'bg-selected font-medium',
-          drop.zone === 'inside' && 'bg-accent-soft text-accent',
+          drop.zone === 'inside' && 'bg-accent-soft text-accent-strong',
         )}
         style={{ paddingLeft: 8 + depth * 16 }}
         role="treeitem"
@@ -228,7 +228,7 @@ function FolderRow({ id, depth }: { id: string; depth: number }) {
           onDoubleClick={() => setRenaming(true)}
           className="flex min-w-0 flex-1 items-center text-left"
         >
-          <span className={cn('truncate', active && 'text-accent')}>{folder.name}</span>
+          <span className={cn('truncate', active && 'font-medium')}>{folder.name}</span>
         </button>
         <span className={cn('flex shrink-0 items-center gap-0.5 transition-opacity', hover ? 'opacity-100' : 'opacity-0')}>
           <Menu

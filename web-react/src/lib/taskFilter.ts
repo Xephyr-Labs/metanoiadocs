@@ -258,6 +258,23 @@ export function matches(task: TaskRow, filter: Filter, field: FilterField): bool
  * property someone deleted while the view was open — is skipped rather than
  * emptying the table.
  */
+/**
+ * Drop saved filters that can no longer resolve — an assignee id from another
+ * account or database, a sprint the project deleted, a tag that was renamed.
+ * Left in, such a chip renders as "Choose…" and matches nothing, and the view
+ * opens on "Nothing matches these filters" with no way to see why. A filter on
+ * a field that has no option list (dates, numbers, text) is kept as is.
+ */
+export function pruneUnresolvable(filters: Filter[], fields: FilterField[]): Filter[] {
+  return filters.filter((f) => {
+    const field = fields.find((x) => x.key === f.field);
+    if (!field) return false;
+    if (!field.options || f.value === '' || f.value === undefined || f.value === null) return true;
+    const ok = new Set(field.options.map((o) => o.value));
+    return String(f.value).split(',').every((v) => ok.has(v));
+  });
+}
+
 export function applyFilters<T extends TaskRow>(
   tasks: T[],
   filters: Filter[],

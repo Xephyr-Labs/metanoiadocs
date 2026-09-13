@@ -30,7 +30,7 @@ function UrlValue({ value, onChange }: { value: string; onChange: (v: unknown) =
           type="button"
           onClick={() => setEditing(true)}
           title="Edit this address"
-          className="min-w-0 flex-1 truncate rounded px-1 py-0.5 text-left text-sm text-accent underline decoration-accent/40 underline-offset-2 hover:bg-hover"
+          className="min-w-0 flex-1 truncate rounded px-1 py-0.5 text-left text-sm text-accent-strong underline decoration-line-strong underline-offset-2 hover:bg-hover"
         >
           {safe.replace(/^https?:\/\//i, '')}
         </button>
@@ -109,7 +109,7 @@ function FileValue({ files, onChange }: { files: StoredFile[]; onChange: (v: unk
                 href={fileUrl(f)}
                 target="_blank"
                 rel="noreferrer noopener"
-                className="min-w-0 flex-1 truncate text-ink hover:text-accent hover:underline"
+                className="min-w-0 flex-1 truncate text-ink hover:text-accent-strong hover:underline"
                 title={`${f.name}${f.size ? ` · ${formatBytes(f.size)}` : ''}`}
               >
                 {f.name}
@@ -198,7 +198,7 @@ export function PropertyValue({ prop, users, value, onChange }: Props) {
               }}
               className={cn(
                 'rounded-full border border-line px-2 py-0.5 text-2xs',
-                chosen.has(o.id) ? 'bg-accent-soft text-accent' : 'text-muted hover:bg-hover',
+                chosen.has(o.id) ? 'bg-accent-soft text-accent-strong' : 'text-muted hover:bg-hover',
               )}
             >
               {o.label}

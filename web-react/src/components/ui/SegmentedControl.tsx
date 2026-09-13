@@ -41,7 +41,7 @@ export function SegmentedControl({ segments, value, onChange, ...aria }: Props) 
               <motion.span
                 layoutId="segmented-pill"
                 className="absolute inset-0 rounded bg-canvas shadow-subtle"
-                transition={{ type: 'spring', stiffness: 500, damping: 40 }}
+                transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
               />
             )}
             <span className="relative flex items-center gap-1">

@@ -34,7 +34,7 @@ const dotIcon = (color: string, selected: boolean) =>
           // The selected colour is marked on the swatch itself. Putting a tick
           // in Menu's shortcut slot said "keyboard shortcut" in the faintest
           // ink on the surface — the wrong slot and the wrong weight for state.
-          selected && 'ring-2 ring-ink/40 ring-offset-1 ring-offset-canvas',
+          selected && 'ring-2 ring-ink ring-offset-1 ring-offset-canvas',
           className,
         )}
       />
@@ -152,7 +152,7 @@ function KindRow({ kind, count, fallback, busy, onPatch, onDelete }: {
           <button
             type="button"
             onClick={() => { setConfirming(false); onDelete(); }}
-            className="h-6 shrink-0 rounded-md px-2 text-2xs font-medium text-danger transition-colors duration-120 hover:bg-danger/10 active:bg-danger/20"
+            className="h-6 shrink-0 rounded-md px-2 text-2xs font-medium text-danger transition-colors duration-120 hover:bg-danger-soft active:bg-danger-soft"
           >
             Delete
           </button>
@@ -235,7 +235,7 @@ export function TaskKindsDialog({ open, onOpenChange, kinds, tasks, onCreate, on
             role="status"
             className={cn(
               'mb-2 rounded-md px-2.5 py-1.5 text-2xs',
-              notice.bad ? 'bg-danger/10 text-danger' : 'bg-surface text-muted',
+              notice.bad ? 'bg-danger-soft text-danger' : 'bg-surface text-muted',
             )}
           >
             {notice.text}

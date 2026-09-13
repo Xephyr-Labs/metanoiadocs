@@ -132,7 +132,7 @@ export function Home() {
   return (
     <div className="scrollarea h-full overflow-y-auto bg-canvas">
       <div className="mx-auto max-w-[1100px] px-6 py-8 md:px-10">
-        <header className="mb-6 flex items-end justify-between gap-4">
+        <header className="mb-6 flex flex-col items-start gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
           <div>
             <h1 className="font-display text-2xl font-semibold leading-7 tracking-[-0.03em] text-ink md:text-4xl md:leading-9">
               {greeting(new Date().getHours())}, {(auth.user?.name || auth.user?.username || 'there').split(' ')[0]}
@@ -167,7 +167,7 @@ export function Home() {
                   <h2 className="text-sm font-semibold text-ink">Jump back in</h2>
                   <span className="text-2xs text-faint">Recently opened</span>
                 </div>
-                <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4">
+                <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
                   {recents.map((d) => <DocCard key={d.id} doc={d} onOpen={() => ws.select(d.id)} />)}
                 </div>
               </section>
@@ -177,7 +177,7 @@ export function Home() {
               <StatTile label="My open tasks" value={Number(data.stats.my_open)} />
               <StatTile label="Overdue" value={Number(data.stats.my_overdue)} tone="danger" />
               <StatTile label="Due this week" value={Number(data.stats.my_week)} tone="accent" />
-              <StatTile label="Docs touched this week" value={Number(data.stats.docs_week)} />
+              <StatTile label="Docs this week" value={Number(data.stats.docs_week)} />
             </div>
 
             {/* Two independent stacks, not grid rows: cards pack downward in

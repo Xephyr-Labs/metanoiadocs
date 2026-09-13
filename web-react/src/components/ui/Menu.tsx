@@ -1,5 +1,5 @@
 import * as DM from '@radix-ui/react-dropdown-menu';
-import { ChevronRight } from 'lucide-react';
+import { Check, ChevronRight } from 'lucide-react';
 import type { ComponentType, ReactNode } from 'react';
 import { cn } from '../../lib/cn';
 
@@ -11,6 +11,14 @@ export interface MenuItem {
   danger?: boolean;
   onSelect?: () => void;
   separatorBefore?: boolean;
+  /** Marks a row that is currently on (a toggle, or the chosen one of a set).
+   *  Drawn as a trailing tick, and announced as a checkbox row rather than a
+   *  plain command — a tick nobody can hear is not a state. */
+  checked?: boolean;
+  /** Keeps the menu open after this row fires. For a toggle: the tick is the
+   *  feedback, and a menu that closes on the click takes it away before anyone
+   *  sees it. A row that picks one of a set still closes — the choice is made. */
+  keepOpen?: boolean;
   /** Nested items. Present ⇒ this row opens a submenu instead of firing onSelect. */
   items?: MenuItem[];
 }
@@ -27,7 +35,7 @@ const itemCls = (danger?: boolean) =>
   cn(
     'flex cursor-pointer select-none items-center gap-2.5 rounded px-2 py-[6px] text-sm outline-none',
     'data-[highlighted]:bg-hover data-[state=open]:bg-hover',
-    danger ? 'text-danger data-[highlighted]:bg-danger/10' : 'text-ink',
+    danger ? 'text-danger data-[highlighted]:bg-danger-soft' : 'text-ink',
   );
 
 /* A menu is placed against the trigger, so a long one used to run past the
@@ -65,10 +73,20 @@ function Rows({ items }: { items: MenuItem[] }) {
               </DM.Portal>
             </DM.Sub>
           ) : (
-            <DM.Item className={itemCls(it.danger)} onSelect={it.onSelect}>
+            <DM.Item
+              className={itemCls(it.danger)}
+              role={it.checked === undefined ? undefined : 'menuitemcheckbox'}
+              aria-checked={it.checked}
+              onSelect={(e) => {
+                // Radix closes the menu unless the select event is defaulted.
+                if (it.keepOpen) e.preventDefault();
+                it.onSelect?.();
+              }}
+            >
               {it.icon && <it.icon size={16} strokeWidth={1.75} className="shrink-0 opacity-80" />}
               <span className="flex-1 truncate">{it.label}</span>
               {it.shortcut && <span className="text-2xs text-faint">{it.shortcut}</span>}
+              {it.checked && <Check size={14} className="shrink-0 text-accent-strong" />}
             </DM.Item>
           )}
         </div>

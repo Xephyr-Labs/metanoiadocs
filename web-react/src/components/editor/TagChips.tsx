@@ -82,7 +82,7 @@ export function TagChips({ page, trailing, compact }: { page: Page; trailing?: R
                       key={c}
                       type="button"
                       onClick={() => setColor(c)}
-                      className={`h-4 w-4 rounded-full ${swatch(c).dot} ${color === c ? 'ring-2 ring-offset-1 ring-offset-canvas ring-ink/40' : ''}`}
+                      className={`h-4 w-4 rounded-full ${swatch(c).dot} ${color === c ? 'ring-2 ring-offset-1 ring-offset-canvas ring-ink' : ''}`}
                       aria-label={c}
                     />
                   ))}

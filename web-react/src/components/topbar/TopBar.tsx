@@ -1,7 +1,10 @@
 import {
+  ALargeSmall,
   ArrowUpRight,
+  BookOpen,
   ChevronDown,
   Cloud,
+  Code2,
   Download,
   FileText,
   FileType,
@@ -10,7 +13,9 @@ import {
   History,
   Link2,
   Lock,
+  Maximize2,
   MessageSquareText,
+  Minimize2,
   Moon,
   MoreHorizontal,
   PanelLeft,
@@ -23,6 +28,8 @@ import {
   Star,
   Sun,
   Trash2,
+  Type,
+  Upload,
 } from 'lucide-react';
 import type { Page } from '../../lib/types';
 import { avatarFor } from '../../lib/avatar';
@@ -31,7 +38,7 @@ import { relativeTime } from '../../lib/time';
 import { useWorkspace } from '../../store/workspace';
 import { cn } from '../../lib/cn';
 import { useOpenCommentCount } from '../../editor/comments';
-import { downloadDocx, downloadMarkdown, printDoc } from '../../lib/docFiles';
+import { downloadDocx, downloadMarkdown, pickImportFiles, printDoc } from '../../lib/docFiles';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { Button } from '../ui/Button';
 import { PageIcon } from '../ui/PageIcon';
@@ -39,6 +46,8 @@ import { IconButton } from '../ui/IconButton';
 import { Menu } from '../ui/Menu';
 import { useMoveToFolder } from '../../hooks/useMoveToFolder';
 import { copyLink } from '../../lib/clipboard';
+import { useReducer } from 'react';
+import * as prefs from '../../lib/docPrefs';
 
 /** Google-Docs-style stack of everyone else currently in the open doc. */
 function PresenceStack() {
@@ -82,12 +91,15 @@ function PresenceStack() {
  * of them redundant.
  */
 function Crumb({
-  children, icon, current, onClick,
+  children, icon, current, onClick, keep,
 }: {
   children: React.ReactNode;
   icon?: React.ReactNode;
   current?: boolean;
   onClick?: () => void;
+  /** Never shrinks. The root is one short word, and a path that has lost its
+   *  root reads as "/ 📄" — which is what happened at 1280 with the panel open. */
+  keep?: boolean;
 }) {
   const body = (
     <>
@@ -96,7 +108,7 @@ function Crumb({
     </>
   );
   return (
-    <span className="flex min-w-0 items-center">
+    <span className={cn('flex items-center', keep ? 'shrink-0' : 'min-w-0')}>
       <span aria-hidden className="mx-0.5 shrink-0 select-none text-faint">/</span>
       {onClick && !current ? (
         <button
@@ -144,6 +156,15 @@ export function TopBar() {
   const folder = ws.view === 'folder' && ws.activeFolderId ? ws.folders[ws.activeFolderId] : null;
   const isMobile = useMediaQuery('(max-width: 767px)');
   const moveTo = useMoveToFolder(page?.id);
+  // Read on every render rather than mirrored into state: the settings dialog
+  // writes the same preference, and a mirror would leave this menu ticking the
+  // opposite of what the document is actually doing until the bar remounted.
+  // The bump is only to redraw after a write from here.
+  const [, bump] = useReducer((n: number) => n + 1, 0);
+  const font = prefs.docFont();
+  const small = prefs.smallText();
+  const chooseFont = (f: prefs.DocFont) => { prefs.setDocFont(f); bump(); };
+  const toggleSmall = () => { prefs.setSmallText(!small); bump(); };
 
   return (
     <header className="sticky top-0 z-30 flex h-11 shrink-0 items-center gap-1 border-b border-line bg-canvas px-2.5">
@@ -161,9 +182,9 @@ export function TopBar() {
         />
       )}
 
-      <nav aria-label="Breadcrumb" className="mn-crumbs flex min-w-0 flex-1 items-center text-xs">
+      <nav aria-label="Breadcrumb" className="mn-crumbs flex min-w-0 flex-1 items-center overflow-hidden text-xs">
         {/* The workspace is the root of every path, and the way home. */}
-        <Crumb onClick={ws.openHome}>Metanoia</Crumb>
+        <Crumb onClick={ws.openHome} keep>Metanoia</Crumb>
         {page ? (
           ancestry(ws.pages, page.id).map((p, i, arr) => (
             <Crumb
@@ -202,12 +223,14 @@ export function TopBar() {
         className={cn(
           'group mr-1 flex h-7 shrink-0 items-center gap-1.5 rounded-lg border border-line bg-surface text-2xs text-muted',
           'transition-colors duration-120 ease-out hover:border-line-strong hover:text-ink',
-          'w-7 justify-center px-0 sm:w-[188px] sm:justify-start sm:px-2',
+          // With the side panel open the bar has ~700px for path + search +
+          // actions; the search collapses to its icon so the path keeps its words.
+          ws.rightPanel ? 'w-7 justify-center px-0' : 'w-7 justify-center px-0 sm:w-[188px] sm:justify-start sm:px-2',
         )}
       >
         <Search size={14} className="shrink-0 text-faint" />
-        <span className="hidden flex-1 text-left sm:inline">Search</span>
-        <kbd className="hidden shrink-0 font-sans text-3xs tracking-wide text-faint sm:inline">⌘K</kbd>
+        <span className={cn('flex-1 text-left', ws.rightPanel ? 'hidden' : 'hidden sm:inline')}>Search</span>
+        <kbd className={cn('shrink-0 font-sans text-3xs tracking-wide text-faint', ws.rightPanel ? 'hidden' : 'hidden sm:inline')}>⌘K</kbd>
       </button>
 
       {/* Non-doc views keep a small global cluster: Ask AI + theme. Without it
@@ -316,6 +339,39 @@ export function TopBar() {
               { icon: Link2, label: 'Copy link', onSelect: () => { copyLink(location.href); } },
               { icon: History, label: 'Version history', onSelect: () => ws.openHistory(page.id) },
               { icon: ArrowUpRight, label: 'Open in new tab', onSelect: () => window.open(location.href, '_blank') },
+              // How the page reads. A canvas has no measure and no body text, so
+              // the three reading controls are page-mode only.
+              ...(page.kind === 'design' ? [] : [
+                {
+                  icon: Type,
+                  label: 'Font',
+                  separatorBefore: true,
+                  items: [
+                    { icon: Type, label: 'Default', checked: font === 'default', onSelect: () => chooseFont('default') },
+                    { icon: BookOpen, label: 'Serif', checked: font === 'serif', onSelect: () => chooseFont('serif') },
+                    { icon: Code2, label: 'Mono', checked: font === 'mono', onSelect: () => chooseFont('mono') },
+                  ],
+                },
+                { icon: ALargeSmall, label: 'Small text', checked: small, keepOpen: true, onSelect: toggleSmall },
+                {
+                  icon: ws.fullWidth ? Minimize2 : Maximize2,
+                  label: 'Full width',
+                  checked: ws.fullWidth,
+                  keepOpen: true,
+                  onSelect: () => ws.setFullWidth(!ws.fullWidth),
+                },
+              ]),
+              {
+                icon: Upload,
+                label: 'Import',
+                // Files land in the folder this page is filed under, which is
+                // the one thing the sidebar's own import can't know. Unlike the
+                // reading controls above, this has nothing to do with how the
+                // page renders — a canvas can be filed beside documents too.
+                // It opens the files group; Export closes it.
+                separatorBefore: true,
+                onSelect: () => { pickImportFiles().then((f) => { if (f.length) ws.importFiles(f, page.folderId); }); },
+              },
               // One row instead of three: the formats belong together and this
               // menu already carries everything else a page can do.
               // A design is a canvas: docx, markdown and the print stylesheet all
@@ -324,7 +380,6 @@ export function TopBar() {
               ...(page.kind === 'design' ? [] : [{
                 icon: Download,
                 label: 'Export',
-                separatorBefore: true,
                 items: [
                   { icon: FileType, label: 'Word (.docx)', onSelect: () => downloadDocx(page.id) },
                   { icon: FileText, label: 'Markdown (.md)', onSelect: () => downloadMarkdown(page.id) },

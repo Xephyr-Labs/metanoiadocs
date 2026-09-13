@@ -8,7 +8,7 @@ import { SegmentedControl } from '../ui/SegmentedControl';
 import { isOverdue, shortDate } from './TaskChip';
 
 const ROW_H = 32;
-const NAME_W = 220;
+const NAME_W = 280;
 const ZOOM: Record<string, { dayWidth: number; step: number }> = {
   days: { dayWidth: 26, step: 1 },
   weeks: { dayWidth: 9, step: 7 },

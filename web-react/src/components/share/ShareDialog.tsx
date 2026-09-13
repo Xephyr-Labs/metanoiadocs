@@ -96,7 +96,7 @@ export function ShareDialog() {
           <Button variant="primary" onClick={invite} disabled={inviting} leftIcon={inviting ? <Loader2 size={14} className="animate-spin" /> : undefined}>Invite</Button>
         </div>
         {msg && (
-          <p className={cn('mt-2 flex items-center gap-1.5 text-xs', msg.ok ? 'text-accent' : 'text-danger')}>
+          <p className={cn('mt-2 flex items-center gap-1.5 text-xs', msg.ok ? 'text-accent-strong' : 'text-danger')}>
             {msg.ok ? <Check size={14} /> : <AlertCircle size={14} />}{msg.text}
           </p>
         )}
@@ -119,9 +119,9 @@ export function ShareDialog() {
         </div>
       </div>
 
-      <div className="border-t border-line bg-surface/60 p-4">
+      <div className="border-t border-line bg-surface p-4">
         <div className="flex items-center gap-2.5">
-          <span className={cn('flex h-8 w-8 items-center justify-center rounded-md', token ? 'bg-accent-soft text-accent' : 'bg-hover text-muted')}>
+          <span className={cn('flex h-8 w-8 items-center justify-center rounded-md', token ? 'bg-accent-soft text-accent-strong' : 'bg-hover text-muted')}>
             {token ? <Globe size={16} /> : <Lock size={16} />}
           </span>
           <div className="flex-1">

@@ -94,7 +94,7 @@ export function CommandPalette() {
     if (!query) return title;
     const i = title.toLowerCase().indexOf(query);
     if (i < 0) return title;
-    return (<>{title.slice(0, i)}<mark className="bg-transparent font-semibold text-accent">{title.slice(i, i + query.length)}</mark>{title.slice(i + query.length)}</>);
+    return (<>{title.slice(0, i)}<mark className="bg-transparent font-semibold text-accent-strong">{title.slice(i, i + query.length)}</mark>{title.slice(i + query.length)}</>);
   };
 
   let idx = -1;
@@ -141,7 +141,7 @@ export function CommandPalette() {
                   data-idx={myIdx}
                   onMouseMove={() => setActive(myIdx)}
                   onClick={() => choose(it)}
-                  className={cn('flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-left text-base transition-colors', isActive ? 'bg-hover' : 'hover:bg-hover/60')}
+                  className={cn('flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-left text-base transition-colors', isActive ? 'bg-hover' : 'hover:bg-hover')}
                 >
                   {it.kind === 'page' ? (
                     <span className="flex h-6 w-6 shrink-0 items-center justify-center text-faint"><DocIcon hasChildren={(ws.pages[it.id]?.children.length ?? 0) > 0} size={16} className="" /></span>

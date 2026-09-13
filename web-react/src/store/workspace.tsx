@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 import { docsApi, type DocPropRow, type DocRow, type FolderRow } from '../lib/docsApi';
+import * as prefs from '../lib/docPrefs';
 import { tasksApi, type ProjectRow } from '../lib/tasksApi';
 import { setPendingSeed } from '../editor/pendingSeed';
 import { toast } from '../lib/toast';
@@ -261,7 +262,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     }
   });
   const [mode, setMode] = useState<EditorMode>('page');
-  const [fullWidth, setFullWidth] = useState(false);
+  // Remembered across sessions: someone who widens the measure means it for
+  // more than the page they happened to be on.
+  const [fullWidth, setFullWidthState] = useState(prefs.fullWidth);
+  const setFullWidth = useCallback((v: boolean) => {
+    setFullWidthState(v);
+    prefs.setFullWidthStored(v);
+  }, []);
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     const stored = localStorage.getItem('mn-theme');
     if (stored === 'dark' || stored === 'light') return stored;

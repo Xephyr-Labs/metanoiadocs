@@ -29,7 +29,7 @@ const shortDate = (iso: string | null) =>
 
 const STATE_BADGE: Record<SprintState, string> = {
   planned: 'bg-surface text-muted',
-  active: 'bg-accent-soft text-accent',
+  active: 'bg-accent-soft text-accent-strong',
   done: 'bg-surface text-faint',
 };
 
@@ -95,7 +95,7 @@ function Section({
         const id = e.dataTransfer.getData('text/task-id');
         if (id) onDropTask(id);
       }}
-      className={cn('rounded-xl border border-line transition-colors duration-120', over && 'border-accent bg-accent-soft/30')}
+      className={cn('rounded-lg border border-line transition-colors duration-120', over && 'border-accent bg-accent-soft')}
     >
       <header className="flex h-11 items-center gap-2 px-3">
         <button type="button" onClick={() => setOpen((o) => !o)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
@@ -169,12 +169,12 @@ export function Backlog({ tasks, sprints, onOpen, onMoveToSprint, onAdd, onCreat
               actions={
                 <span className="flex shrink-0 items-center gap-1">
                   {s.state === 'planned' && (
-                    <button type="button" onClick={() => onPatchSprint(s.id, { state: 'active' })} className="flex h-6 items-center gap-1 rounded-md px-2 text-2xs font-medium text-accent hover:bg-accent-soft">
+                    <button type="button" onClick={() => onPatchSprint(s.id, { state: 'active' })} className="flex h-6 items-center gap-1 rounded-md px-2 text-2xs font-medium text-accent-strong hover:bg-accent-soft">
                       <Play size={12} /> Start
                     </button>
                   )}
                   {s.state === 'active' && (
-                    <button type="button" onClick={() => onPatchSprint(s.id, { state: 'done' })} className="flex h-6 items-center gap-1 rounded-md px-2 text-2xs font-medium text-accent hover:bg-accent-soft">
+                    <button type="button" onClick={() => onPatchSprint(s.id, { state: 'done' })} className="flex h-6 items-center gap-1 rounded-md px-2 text-2xs font-medium text-accent-strong hover:bg-accent-soft">
                       <CheckCircle2 size={12} /> Complete
                     </button>
                   )}
@@ -212,7 +212,7 @@ export function Backlog({ tasks, sprints, onOpen, onMoveToSprint, onAdd, onCreat
                     aria-label="Sprint end"
                     className={cn(field, "h-7 w-auto px-2 text-xs")}
                   />
-                  <button type="button" onClick={() => setDatesFor(null)} className="ml-auto rounded-md px-2 py-1 text-2xs font-medium text-accent hover:bg-accent-soft">
+                  <button type="button" onClick={() => setDatesFor(null)} className="ml-auto rounded-md px-2 py-1 text-2xs font-medium text-accent-strong hover:bg-accent-soft">
                     Done
                   </button>
                 </div>
@@ -244,7 +244,7 @@ export function Backlog({ tasks, sprints, onOpen, onMoveToSprint, onAdd, onCreat
               if (name) onCreateSprint(name);
               setComposing(false);
             }}
-            className="flex items-center gap-2 rounded-xl border border-line p-2"
+            className="flex items-center gap-2 rounded-lg border border-line p-2"
           >
             <input
               autoFocus
@@ -265,7 +265,7 @@ export function Backlog({ tasks, sprints, onOpen, onMoveToSprint, onAdd, onCreat
           <button
             type="button"
             onClick={() => setComposing(true)}
-            className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-line py-2.5 text-sm text-faint transition-colors hover:border-line-strong hover:text-muted"
+            className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-line py-2.5 text-sm text-faint transition-colors hover:border-line-strong hover:text-muted"
           >
             <Plus size={14} /> New sprint
           </button>

@@ -3,8 +3,10 @@ import type { Config } from 'tailwindcss';
 /**
  * Semantic tokens live as CSS custom properties in index.css (light + .dark).
  * Tailwind maps names -> var() so `bg-surface`, `text-ink`, `border-line`
- * all follow the active theme. Opacity modifiers aren't used on these tokens,
- * so raw hex/rgb in the vars is fine.
+ * all follow the active theme. Opacity modifiers CANNOT be used on them:
+ * Tailwind can't split a var() into channels, so `bg-danger/10` emits no CSS
+ * at all — the class silently does nothing. Use a solid token (`bg-danger-soft`)
+ * or add a color-mix() token in index.css (`--tint`, `--glass`).
  */
 export default {
   // `html.dark`, not a bare `.dark`: BlockSuite writes its theme name as a class
@@ -26,10 +28,12 @@ export default {
         line: 'var(--line)',
         'line-strong': 'var(--line-strong)',
         accent: 'var(--accent)',
+        'accent-strong': 'var(--accent-strong)',
         'accent-soft': 'var(--accent-soft)',
         'danger-soft': 'var(--danger-soft)',
         danger: 'var(--danger)',
         overlay: 'var(--overlay)',
+        glass: 'var(--glass)',
         comment: 'var(--comment)',
         'comment-mark': 'var(--comment-mark)',
         tooltip: 'var(--tooltip)',
@@ -45,10 +49,16 @@ export default {
       // One scale, no arbitrary values. 10–15px carries the whole UI; 17px+ is
       // display type (greeting, auth title, settings section head).
       fontSize: {
-        '3xs': ['10px', { lineHeight: '14px' }],
-        '2xs': ['11px', { lineHeight: '16px' }],
-        xs: ['12px', { lineHeight: '17px' }],
-        sm: ['13px', { lineHeight: '19px' }],
+        // The bottom four rungs each moved up a step: the chrome was set a size
+        // below what it needed and read cramped and washed-out next to the
+        // document. Moving the rungs rather than rewriting ~40 call sites keeps
+        // one scale — `sm` and `base` now coincide at 14px, which is deliberate:
+        // 14 is the floor for a row a person reads all day, and nothing in the
+        // chrome should sit under it.
+        '3xs': ['11px', { lineHeight: '15px' }],
+        '2xs': ['12px', { lineHeight: '16px' }],
+        xs: ['13px', { lineHeight: '18px' }],
+        sm: ['14px', { lineHeight: '20px' }],
         base: ['14px', { lineHeight: '20px' }],
         md: ['15px', { lineHeight: '22px' }],
         lg: ['17px', { lineHeight: '24px' }],

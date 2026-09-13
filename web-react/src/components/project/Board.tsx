@@ -49,7 +49,7 @@ export function Board({ tasks, onMove, onOpen, onAdd }: Props) {
               onMove(id, status, (last ? last.position : 0) + 1);
             }}
             className={cn(
-              'flex w-[280px] shrink-0 flex-col rounded-xl bg-surface p-2 transition-colors duration-120',
+              'flex w-[280px] shrink-0 flex-col rounded-lg bg-surface p-2 transition-colors duration-120',
               over === status && 'ring-2 ring-inset ring-accent',
             )}
           >

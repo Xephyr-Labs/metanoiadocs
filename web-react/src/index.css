@@ -16,20 +16,40 @@
   --canvas: #ffffff;
   --surface: #f7f7f5;
   --surface-2: #fbfbfa;
-  --hover: #eff6fd;
-  --selected: #e2effb;
+  /* Row states are NEUTRAL, not tinted. A blue wash under every hovered row
+   * spends the accent on the most common event in the app, which leaves the
+   * accent with nothing to say when something actually wants attention — the
+   * unread inbox, a drop target. Greys here; accent stays for meaning. */
+  --hover: #f1f0ee;
+  --selected: #e9e8e5;
   --ink: #37352f;
-  --muted: #787774;
-  --faint: #9b9a97;
+  /* Notion's own secondary ink is #787774, which measures 4.48:1 — a hair under
+   * AA, and under 4:1 once the row it sits on is hovered. A few steps darker
+   * clears both (5.1 at rest, 4.5 hovered) and still reads clearly quieter than
+   * the ink it sits beside. */
+  --muted: #6f6e6a;
+  /* Was #9b9a97 — 2.9:1 on white, under the 3:1 floor even for icons, and the
+   * single biggest reason the chrome read hazy. 3.5:1 keeps it clearly the
+   * quietest ink in the palette while staying legible at 11px. */
+  --faint: #86857f;
   --line: #e9e9e7;
   --line-strong: #dcdbd8;
   --accent: #2383e2;
+  /* The accent, darkened until it can carry text. #2383e2 is 4.0:1 on white —
+   * fine as a fill or a 2px rule, under AA as 14px lettering, which is exactly
+   * what the unread-inbox row is. 5.1:1 here. Dark mode needs no twin: the
+   * lighter accent already reads 6.5:1 on the near-black canvas. */
+  --accent-strong: #1a6fc4;
   --accent-soft: #eaf3fc;
   /* The danger twin of accent-soft — a late gantt bar had no tint to sit in,
      so it rendered as a hollow outline and read as a rendering fault. */
   --danger-soft: #fbeceb;
   --danger: #d44c47;
   --overlay: rgba(15, 15, 15, 0.32);
+  /* A translucent canvas for bars that float over scrolling content and blur
+   * what passes under them. A token because Tailwind's `/80` cannot split a
+   * var() into channels — `bg-canvas/80` emitted nothing at all. */
+  --glass: color-mix(in srgb, var(--canvas) 82%, transparent);
 
   /* Inline comments: subtle warm-yellow card + text-mark tint. */
   --comment: #fdfaee;
@@ -78,7 +98,7 @@
   --tint-strong: color-mix(in srgb, var(--accent) 16%, transparent);
 
   --sidebar-w: 260px;
-  --topbar-h: 45px;
+  --topbar-h: 44px;
   --reading-w: 760px;
 
   /* One face, three jobs. Onest carries the chrome, the prose and the titles;
@@ -93,6 +113,10 @@
   --font-body: var(--font-display);
   /* Code face — system mono, no webfont to download. */
   --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+  /* Reading face, offered per document from the page menu. System serifs only
+   * — a webfont for a preference most pages never turn on is a download every
+   * reader pays for. */
+  --font-serif: 'Lyon-Text', Georgia, 'Times New Roman', ui-serif, serif;
 
   /* Code surface: a shade off the canvas so a block reads as a slab, not as
    * more prose. Warm gray in light, near-black in dark (shiki's dark-plus
@@ -118,14 +142,16 @@ html.dark {
   --canvas: #191919;
   --surface: #232323;
   --surface-2: #1e1e1e;
-  --hover: #22364d;
-  --selected: #274261;
+  --hover: #2a2a29;
+  --selected: #333331;
   --ink: #e9e9e7;
   --muted: #a5a5a3;
-  --faint: #757573;
+  /* Same correction as light: #757573 was 3.2:1 on the dark canvas. */
+  --faint: #8a8a87;
   --line: #333331;
   --line-strong: #424240;
   --accent: #4a9eea;
+  --accent-strong: var(--accent);
   --accent-soft: #1d3a57;
   --danger-soft: #4a2523;
   --danger: #e06c66;
@@ -175,7 +201,16 @@ body {
   color: var(--ink);
   font-family: var(--font-ui);
   font-feature-settings: 'ss01', 'ss03';
-  -webkit-font-smoothing: antialiased;
+  /* NO -webkit-font-smoothing: antialiased. It forces greyscale antialiasing,
+   * which drops about a third of a stroke's weight off small UI type — the
+   * chrome read washed-out and slightly hazy next to the document body, which
+   * BlockSuite renders at 16px and so survives it. Subpixel rendering (the
+   * browser default) puts that weight back everywhere the chrome is small.
+   *
+   * 450, not 400: Onest is a variable face and its regular is light for a UI at
+   * 13–14px. Half a step up is the difference between "thin" and "crisp", and
+   * costs nothing — no second file is downloaded for it. */
+  font-weight: 450;
   text-rendering: optimizeLegibility;
 }
 
@@ -546,7 +581,7 @@ html.dark .mn-toc .outline-viewer-indicator {
 .mn-toc .outline-viewer-item.outline-viewer-header {
   height: 28px;
   padding: 0 6px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.07em;
   text-transform: uppercase;
@@ -566,8 +601,8 @@ html.dark .mn-toc .outline-viewer-indicator {
  * tried and dropped: the preview's own `display` survives every override we can
  * reach, so the clamp would have been dead CSS pretending to be a feature.) */
 .mn-toc .outline-viewer-panel .outline-viewer-item [data-testid^='outline-block-preview'] {
-  font-size: 13px;
-  line-height: 18px;
+  font-size: 14px;
+  line-height: 20px;
   font-weight: inherit;
   color: inherit;
 }
@@ -769,6 +804,14 @@ affine-editor-container .affine-paragraph-rich-text-wrapper.h6 { font-size: 0.92
 /* Comfortable body rhythm. */
 affine-editor-container affine-note { --affine-line-height: 1.72; }
 
+/* The chrome runs at 450 (see `body`) because a 14px row needs the extra ink.
+ * Running text does not — it is 16px on a 760px measure, where 450 reads as a
+ * page set slightly too bold. Headings are unaffected: BlockSuite declares
+ * 600/700 on its own heading classes and the title rule above sets 700. */
+affine-editor-container {
+  font-weight: 400;
+}
+
 /* Space ABOVE a heading, tight below it — that asymmetry is what makes a
  * section read as a section. Without it the scale is stepped but the page is
  * an undifferentiated column. The margin sits on the block, not the rich-text
@@ -939,7 +982,7 @@ affine-editor-container .mn-col-menu-item {
   border-radius: 4px;
   background: none;
   color: var(--ink);
-  font-size: 13px;
+  font-size: 14px;
   text-align: left;
   cursor: pointer;
 }
@@ -1040,6 +1083,28 @@ affine-editor-container affine-table table td {
  * scale). Toggled via document.documentElement[data-text-size]. */
 :root[data-text-size="small"] affine-editor-container {
   --affine-font-base: 14px;
+}
+
+/* Reading font, per the page menu. Scoped to the editor container so the choice
+ * changes the document and not the chrome around it — a serif sidebar is not
+ * what anyone means when they ask a page to read like a book.
+ *
+ * Re-pointing `--font-display` INSIDE the container is what carries the title
+ * and the h5/h6 rules along: both declare `var(--font-display)`, the title with
+ * `!important` on a descendant selector that no plain declaration here could
+ * outrank. Redefining the variable in this scope means those rules resolve to
+ * the chosen face on their own, and the chrome's own --font-display is
+ * untouched. Inline code and code blocks read --affine-font-code-family, so
+ * they stay mono under every choice. */
+:root[data-doc-font="serif"] affine-editor-container {
+  --affine-font-family: var(--font-serif);
+  --font-display: var(--font-serif);
+  font-family: var(--font-serif);
+}
+:root[data-doc-font="mono"] affine-editor-container {
+  --affine-font-family: var(--font-mono);
+  --font-display: var(--font-mono);
+  font-family: var(--font-mono);
 }
 
 /* The metadata band we portal in under the title (DocMetaBand). It sits inside

@@ -16,8 +16,12 @@ import { useKind, useKinds } from './kinds';
  * ink, so the task doesn't look untyped.
  */
 export function KindBadge({ kind }: { kind: TaskKind }) {
-  const loaded = useKinds().length > 0;
+  const kinds = useKinds();
+  const loaded = kinds.length > 0;
   const row = useKind(kind);
+  // A card is a task unless it says otherwise. Badging the default kind wrote
+  // TASK on every card in the project; BUG and STORY are the ones worth a word.
+  if (row && (kinds.length < 2 || row.key === 'task')) return null;
   if (!row) {
     if (!loaded) return null;
     return (
@@ -108,12 +112,12 @@ export function TaskChip({ task, onOpen, compact, flush }: { task: TaskRow; onOp
       type="button"
       onClick={onOpen}
       className={cn(
-        'w-full p-2.5 text-left transition-all duration-120 hover:bg-hover',
+        'w-full p-2.5 text-left transition-[background-color,border-color,box-shadow] duration-120 hover:bg-hover',
         flush ? 'bg-transparent' : 'rounded-lg border border-line bg-canvas hover:border-line-strong hover:shadow-subtle',
       )}
     >
       <div className="flex items-start gap-1.5">
-        {task.milestone && <Diamond size={12} className="mt-1 shrink-0 fill-current text-accent" />}
+        {task.milestone && <Diamond size={12} className="mt-1 shrink-0 fill-current text-accent-strong" />}
         <span className={cn('flex-1 text-sm leading-5 text-ink', task.status === 'done' && 'line-through text-muted')}>
           {task.title || 'Untitled'}
         </span>

@@ -51,8 +51,8 @@ function Row({ id, depth }: { id: PageId; depth: number }) {
         }}
         className={cn(
           'group/row relative flex h-7 cursor-pointer items-center rounded-md pr-1 text-sm leading-5 transition-colors duration-120',
-          selected ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-hover',
-          drop.zone === 'inside' && 'bg-accent-soft text-accent',
+          selected ? 'bg-selected font-medium text-ink' : 'text-ink hover:bg-hover',
+          drop.zone === 'inside' && 'bg-accent-soft text-accent-strong',
         )}
         style={{ paddingLeft: 8 + depth * 16 }}
       >
@@ -69,7 +69,7 @@ function Row({ id, depth }: { id: PageId; depth: number }) {
           <span
             className={cn(
               'flex items-center justify-center transition-opacity',
-              selected ? 'text-accent' : 'text-faint',
+              selected ? 'text-ink' : 'text-muted',
               hasChildren && (hover || selected) && 'opacity-0',
             )}
           >
@@ -100,7 +100,7 @@ function Row({ id, depth }: { id: PageId; depth: number }) {
             button are double-click targets too, and neither means "rename". */}
         <span
           onDoubleClick={() => { requestTitleFocus(id); ws.select(id); }}
-          className={cn('block h-5 min-w-0 flex-1 !self-center truncate leading-5', selected && 'font-medium text-accent')}
+          className={cn('block h-5 min-w-0 flex-1 !self-center truncate leading-5', selected && 'font-medium')}
         >
           {page.title}
         </span>

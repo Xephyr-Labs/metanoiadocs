@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyFilters, fieldsFor, newFilter, needsValue, type Filter } from './taskFilter';
+import { applyFilters, fieldsFor, newFilter, needsValue, pruneUnresolvable, type Filter } from './taskFilter';
 import type { PropRow, TaskKindRow, TaskRow } from './tasksApi';
 
 const task = (over: Partial<TaskRow>): TaskRow => ({
@@ -222,5 +222,33 @@ describe('cross-project fields', () => {
       filter({ field: 'project_id', op: 'is', value: 'B' }),
       filter({ field: 'tags', op: 'is_any_of', value: 'Marketing' }),
     ])).toEqual(['b']);
+  });
+});
+
+describe('pruneUnresolvable', () => {
+  const fields = fieldsFor({
+    mode: 'tasks', props: [], sprints: [],
+    users: [{ id: 'u1', username: 'ana', name: 'Ana' }] as never,
+    kinds: [{ key: 'task', label: 'Task' }],
+    tags: ['Marketing'],
+  });
+  const f = (field: string, value: string, op = 'is'): Filter => ({ id: field + value, field, op: op as Filter['op'], value });
+
+  it('drops a saved value that no option list can resolve', () => {
+    const kept = pruneUnresolvable([f('assignee_id', 'u-from-another-db'), f('status', 'done', 'is_none_of')], fields);
+    expect(kept.map((x) => x.field)).toEqual(['status']);
+  });
+
+  it('keeps values that resolve, and fields with no option list', () => {
+    const kept = pruneUnresolvable([f('assignee_id', 'u1'), f('tags', 'Marketing', 'is_any_of'), f('due_at', '2026-09-10', 'before')], fields);
+    expect(kept).toHaveLength(3);
+  });
+
+  it('drops a multi-value chip if any of its values is gone', () => {
+    expect(pruneUnresolvable([f('tags', 'Marketing,Gone', 'is_any_of')], fields)).toEqual([]);
+  });
+
+  it('drops a filter on a field that no longer exists', () => {
+    expect(pruneUnresolvable([f('sprint_id', 's1')], fields)).toEqual([]);
   });
 });

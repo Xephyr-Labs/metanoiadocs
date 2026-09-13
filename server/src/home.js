@@ -14,7 +14,8 @@ const VISIBLE_JOIN = `LEFT JOIN doc_access a ON a.doc_id = d.id AND a.user_id = 
  */
 const ACTIVITY_SQL = `
   WITH visible AS (
-    SELECT d.id, d.title, d.icon, d.created_at, d.created_by, d.updated_at, d.updated_by
+    SELECT d.id, d.title, d.icon, d.kind, d.created_at, d.created_by, d.updated_at, d.updated_by,
+           coalesce(d.search_text, '') <> '' AS has_text
       FROM docs d ${VISIBLE_JOIN}
      WHERE d.deleted_at IS NULL AND ${VISIBLE}
   ),
@@ -22,11 +23,15 @@ const ACTIVITY_SQL = `
     SELECT 'doc_created' AS kind, v.created_by AS actor_id, v.created_at AS at,
            v.id AS doc_id, NULL::text AS project_id, v.title, v.icon,
            NULL::text AS task_id, NULL::text AS body
-      FROM visible v WHERE v.created_by IS NOT NULL
+      -- A task's page is created with the task, and the task already has its
+      -- own row below; counting the page too said everything twice.
+      FROM visible v WHERE v.created_by IS NOT NULL AND v.kind <> 'task'
     UNION ALL
     SELECT 'doc_edited', v.updated_by, v.updated_at, v.id, NULL, v.title, v.icon, NULL, NULL
       FROM visible v
-     WHERE v.updated_by IS NOT NULL AND v.updated_at > v.created_at + interval '1 minute'
+     -- Opening a page for the first time seeds its skeleton, which is a real
+     -- save with nothing in it. An edit is worth reporting once there is text.
+     WHERE v.updated_by IS NOT NULL AND v.updated_at > v.created_at + interval '1 minute' AND v.has_text
     UNION ALL
     SELECT 'comment', c.author_id, c.created_at, c.doc_id, NULL, v.title, v.icon, NULL,
            left(c.body, 140)

@@ -27,8 +27,10 @@ export const IconButton = forwardRef<HTMLButtonElement, Props>(function IconButt
           'inline-flex shrink-0 items-center justify-center rounded-md text-muted transition-colors duration-120 ease-out',
           'hover:bg-hover hover:text-ink active:bg-selected disabled:pointer-events-none disabled:opacity-40',
           size === 'sm' ? 'h-6 w-6' : 'h-7 w-7',
-          active && 'bg-accent-soft text-accent hover:bg-accent-soft hover:text-accent',
-          tone === 'danger' && 'hover:bg-danger/10 hover:text-danger',
+          // Pressed is a neutral fill, like a nav row: a toolbar toggle says
+          // "this panel is open", which is not news worth the accent.
+          active && 'bg-selected text-ink hover:bg-selected hover:text-ink',
+          tone === 'danger' && 'hover:bg-danger-soft hover:text-danger',
           className,
         )}
         {...rest}
