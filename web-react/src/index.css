@@ -656,6 +656,13 @@ html.dark .mn-toc .outline-viewer-indicator {
   letter-spacing: 0.07em;
 }
 
+/* Hover-revealed controls have no hover to wait for on a touch screen. */
+@media (hover: none) {
+  .mn-hover-reveal {
+    opacity: 1;
+  }
+}
+
 /* A control that only shows on hover must also show when a keyboard lands on
  * it — otherwise Tab walks through buttons nobody can see. Class + pseudo-class
  * outranks the bare `.opacity-0` utility, so no !important is needed. */

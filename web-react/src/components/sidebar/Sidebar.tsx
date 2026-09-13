@@ -3,13 +3,13 @@ import {
   CheckSquare,
   ChevronDown,
   ChevronRight,
-  ChevronsLeftRight,
   Folder,
   Home,
   Inbox,
   KanbanSquare,
   LogOut,
   MoreHorizontal,
+  PanelLeftClose,
   Plus,
   Settings,
   Star,
@@ -31,6 +31,7 @@ import { workspaces } from '../../data/mock';
 import { templates } from '../../data/templates';
 import { useAuth } from '../../store/auth';
 import { useWorkspace } from '../../store/workspace';
+import { IconButton } from '../ui/IconButton';
 import { Menu } from '../ui/Menu';
 import { RowInput } from '../ui/RowInput';
 import { rowAction } from '../ui/styles';
@@ -371,8 +372,11 @@ export function Sidebar() {
 
   return (
     <aside className="mn-side relative flex h-full shrink-0 flex-col bg-canvas" style={{ width: ws.sidebarWidth }}>
-      {/* workspace switcher */}
-      <div className="flex h-[45px] shrink-0 items-center px-2">
+      {/* workspace switcher, and the way to put the rail away. The « shows on
+          hover like Notion's — the row is the first thing the eye lands on, so
+          a control that lived here permanently would be the loudest thing in
+          the rail. Always visible where there is no hover (touch). */}
+      <div className="group/head flex h-[45px] shrink-0 items-center gap-1 px-2">
         <Menu
           width={248}
           items={[
@@ -389,7 +393,7 @@ export function Sidebar() {
             { icon: LogOut, label: 'Log out', danger: true, onSelect: () => auth.logout() },
           ]}
           trigger={
-            <button className="group flex h-7 w-full items-center gap-2 rounded-md px-2 text-left leading-5 transition-colors duration-120 hover:bg-hover">
+            <button className="group flex h-7 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left leading-5 transition-colors duration-120 hover:bg-hover">
               <span className="flex h-5 w-5 shrink-0 items-center justify-center">
                 <LogoMark size={16} />
               </span>
@@ -397,6 +401,13 @@ export function Sidebar() {
               <ChevronDown size={16} className="shrink-0 text-faint opacity-0 transition-opacity group-hover:opacity-100" />
             </button>
           }
+        />
+        <IconButton
+          icon={<PanelLeftClose size={16} />}
+          label="Close sidebar"
+          keys={['⌘', '\\']}
+          onClick={() => ws.setSidebarCollapsed(true)}
+          className="mn-hover-reveal opacity-0 transition-opacity duration-120 group-hover/head:opacity-100"
         />
       </div>
 
@@ -607,9 +618,6 @@ export function Sidebar() {
           </div>
           <button type="button" onClick={() => auth.logout()} className="flex h-6 w-6 items-center justify-center rounded text-faint hover:bg-hover hover:text-danger" aria-label="Log out">
             <LogOut size={16} />
-          </button>
-          <button type="button" onClick={() => ws.setSidebarCollapsed(true)} className="flex h-6 w-6 items-center justify-center rounded text-faint hover:bg-hover hover:text-muted" aria-label="Collapse sidebar">
-            <ChevronsLeftRight size={16} />
           </button>
         </div>
       </div>
