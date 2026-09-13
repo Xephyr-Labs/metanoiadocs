@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { daysUntil } from './time';
+import { daysUntil, relativeTime } from './time';
 
 const inHours = (h: number) => new Date(Date.now() + h * 3_600_000).toISOString();
 
@@ -16,5 +16,12 @@ describe('daysUntil', () => {
   it('returns null for a missing or unparseable date', () => {
     expect(daysUntil(null)).toBeNull();
     expect(daysUntil('not a date')).toBeNull();
+  });
+});
+
+describe('relativeTime — sub-minute', () => {
+  it('never says 0m ago', () => {
+    expect(relativeTime(new Date(Date.now() - 50_000).toISOString())).toBe('just now');
+    expect(relativeTime(new Date(Date.now() - 61_000).toISOString())).toBe('1m ago');
   });
 });

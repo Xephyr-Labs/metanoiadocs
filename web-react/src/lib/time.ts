@@ -16,7 +16,9 @@ export function relativeTime(iso: string | null | undefined): string {
   const then = new Date(iso).getTime();
   if (Number.isNaN(then)) return '';
   const s = Math.max(0, Math.floor((Date.now() - then) / 1000));
-  if (s < 45) return 'just now';
+  // Under a minute is "just now" — the old 45s cut-off left a 15s window
+  // where m rounded to 0 and the label read "0m ago".
+  if (s < 60) return 'just now';
   const m = Math.floor(s / 60);
   if (m < 60) return `${m}m ago`;
   const h = Math.floor(m / 60);

@@ -108,6 +108,11 @@ export function ticksFor(range: Range, dayWidth: number, step: number): Tick[] {
 
     const x = i * dayWidth;
     if (!major && x < lastRight) continue; // would overlap the previous label
+    // A month boundary always wins — but not by painting over its neighbour.
+    // A window that opens on 30 Aug used to label the first column "Aug 30"
+    // and then draw "Sep" two columns later on top of it, so the header read
+    // "AugSep". The month name says everything the first label was saying.
+    if (major && x < lastRight && ticks.length && !ticks[ticks.length - 1].major) ticks.pop();
 
     const d = new Date(toUTC(iso));
     // The month name alone, never "Aug 26" — beside a row of day numbers that

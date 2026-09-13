@@ -93,9 +93,10 @@ describe('dayX and ticks', () => {
   });
 
   it('names the month on the first column so a mid-month window is readable', () => {
-    const ticks = ticksFor(range, 10, 7);
-    expect(ticks[0].iso).toBe('2026-06-29');
-    expect(ticks[0].label).toBe('Jun 29');
+    // Opens 12 June: the next month start is 18 columns away, so "Jun 12" has room.
+    const ticks = ticksFor({ start: '2026-06-12', end: '2026-07-20', days: 39 }, 10, 7);
+    expect(ticks[0].iso).toBe('2026-06-12');
+    expect(ticks[0].label).toBe('Jun 12');
   });
 
   it('labels every day at step 1, minus the one the wide first label covers', () => {
@@ -109,8 +110,26 @@ describe('dayX and ticks', () => {
     expect(ticks.map((t) => t.label)).toEqual(['Jul 4', '6', '7', '8']);
   });
 
-  it('never drops a month start, even when it would collide', () => {
+  it('never drops a month start — the first-column label gives way to it instead', () => {
+    // "Jul 31" at x=0 is 42px wide; "Aug" lands at x=26, inside it. Painting both
+    // read as "Jul 31Aug", so the month name (which already says where we are)
+    // is the one that stays.
     const ticks = ticksFor({ start: '2026-07-31', end: '2026-08-02', days: 3 }, 26, 1);
-    expect(ticks.map((t) => t.label)).toEqual(['Jul 31', 'Aug', '2']);
+    expect(ticks.map((t) => t.label)).toEqual(['Aug', '2']);
+  });
+});
+
+describe('ticksFor — month boundary beside the first column', () => {
+  it('drops the first-column label rather than drawing the month over it', () => {
+    // Window opens 30 Aug at 10px/day: "Aug 30" at x=0, "Sep" at x=20 — inside the 42px label.
+    const ticks = ticksFor({ start: '2026-08-30', end: '2026-09-20', days: 22 }, 10, 7);
+    const labels = ticks.map((t) => t.label);
+    expect(labels[0]).toBe('Sep');
+    expect(labels).not.toContain('Aug 30');
+  });
+  it('keeps the first-column label when the month starts far enough away', () => {
+    const ticks = ticksFor({ start: '2026-08-20', end: '2026-09-20', days: 32 }, 10, 7);
+    expect(ticks[0].label).toBe('Aug 20');
+    expect(ticks.some((t) => t.label === 'Sep')).toBe(true);
   });
 });
