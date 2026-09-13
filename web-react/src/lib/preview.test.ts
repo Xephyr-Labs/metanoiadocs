@@ -39,3 +39,13 @@ describe('previewLine', () => {
     expect(previewLine('Short enough.')).toBe('Short enough.');
   });
 });
+
+describe('previewLine — zero-width characters', () => {
+  it('treats a page holding only BlockSuite\'s empty-paragraph marker as empty', () => {
+    expect(previewLine('Pick a analytics vendor\n\u200b', 'Pick a analytics vendor')).toBeNull();
+    expect(previewLine('\u200b\u200b', 'x')).toBeNull();
+  });
+  it('still keeps real text that happens to contain one', () => {
+    expect(previewLine('Title\nA\u200bB', 'Title')).toBe('AB');
+  });
+});

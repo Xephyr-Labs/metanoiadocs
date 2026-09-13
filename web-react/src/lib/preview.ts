@@ -21,7 +21,11 @@ export function previewLine(text: string | null | undefined, title?: string): st
     if (firstLine === title.trim()) body = firstBreak === -1 ? '' : body.slice(firstBreak + 1);
   }
 
-  const flat = body.replace(/\s+/g, ' ').trim();
+  // BlockSuite writes a zero-width space into an empty paragraph, and the
+  // text that reaches here carries it. Neither \s nor trim() sees it, so a
+  // page with nothing on it came back as a one-character preview — a blank
+  // grey cover in the gallery.
+  const flat = body.replace(/[\u200B-\u200D\uFEFF]/g, '').replace(/\s+/g, ' ').trim();
   if (!flat) return null;
   if (flat.length <= MAX) return flat;
 
