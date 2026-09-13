@@ -347,11 +347,12 @@ export function TopBar() {
                     { icon: Code2, label: 'Mono', checked: font === 'mono', onSelect: () => chooseFont('mono') },
                   ],
                 },
-                { icon: ALargeSmall, label: 'Small text', checked: small, onSelect: toggleSmall },
+                { icon: ALargeSmall, label: 'Small text', checked: small, keepOpen: true, onSelect: toggleSmall },
                 {
                   icon: ws.fullWidth ? Minimize2 : Maximize2,
                   label: 'Full width',
                   checked: ws.fullWidth,
+                  keepOpen: true,
                   onSelect: () => ws.setFullWidth(!ws.fullWidth),
                 },
               ]),
@@ -362,7 +363,8 @@ export function TopBar() {
                 // the one thing the sidebar's own import can't know. Unlike the
                 // reading controls above, this has nothing to do with how the
                 // page renders — a canvas can be filed beside documents too.
-                separatorBefore: page.kind === 'design',
+                // It opens the files group; Export closes it.
+                separatorBefore: true,
                 onSelect: () => { pickImportFiles().then((f) => { if (f.length) ws.importFiles(f, page.folderId); }); },
               },
               // One row instead of three: the formats belong together and this
@@ -373,7 +375,6 @@ export function TopBar() {
               ...(page.kind === 'design' ? [] : [{
                 icon: Download,
                 label: 'Export',
-                separatorBefore: true,
                 items: [
                   { icon: FileType, label: 'Word (.docx)', onSelect: () => downloadDocx(page.id) },
                   { icon: FileText, label: 'Markdown (.md)', onSelect: () => downloadMarkdown(page.id) },

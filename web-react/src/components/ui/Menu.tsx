@@ -12,9 +12,13 @@ export interface MenuItem {
   onSelect?: () => void;
   separatorBefore?: boolean;
   /** Marks a row that is currently on (a toggle, or the chosen one of a set).
-   *  Drawn as a trailing tick rather than a switch: the menu closes on select,
-   *  so a switch would animate for a frame and then vanish. */
+   *  Drawn as a trailing tick, and announced as a checkbox row rather than a
+   *  plain command — a tick nobody can hear is not a state. */
   checked?: boolean;
+  /** Keeps the menu open after this row fires. For a toggle: the tick is the
+   *  feedback, and a menu that closes on the click takes it away before anyone
+   *  sees it. A row that picks one of a set still closes — the choice is made. */
+  keepOpen?: boolean;
   /** Nested items. Present ⇒ this row opens a submenu instead of firing onSelect. */
   items?: MenuItem[];
 }
@@ -69,7 +73,16 @@ function Rows({ items }: { items: MenuItem[] }) {
               </DM.Portal>
             </DM.Sub>
           ) : (
-            <DM.Item className={itemCls(it.danger)} onSelect={it.onSelect}>
+            <DM.Item
+              className={itemCls(it.danger)}
+              role={it.checked === undefined ? undefined : 'menuitemcheckbox'}
+              aria-checked={it.checked}
+              onSelect={(e) => {
+                // Radix closes the menu unless the select event is defaulted.
+                if (it.keepOpen) e.preventDefault();
+                it.onSelect?.();
+              }}
+            >
               {it.icon && <it.icon size={16} strokeWidth={1.75} className="shrink-0 opacity-80" />}
               <span className="flex-1 truncate">{it.label}</span>
               {it.shortcut && <span className="text-2xs text-faint">{it.shortcut}</span>}

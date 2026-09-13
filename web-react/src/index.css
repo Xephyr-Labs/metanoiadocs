@@ -577,7 +577,7 @@ html.dark .mn-toc .outline-viewer-indicator {
 .mn-toc .outline-viewer-item.outline-viewer-header {
   height: 28px;
   padding: 0 6px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.07em;
   text-transform: uppercase;
@@ -597,8 +597,8 @@ html.dark .mn-toc .outline-viewer-indicator {
  * tried and dropped: the preview's own `display` survives every override we can
  * reach, so the clamp would have been dead CSS pretending to be a feature.) */
 .mn-toc .outline-viewer-panel .outline-viewer-item [data-testid^='outline-block-preview'] {
-  font-size: 13px;
-  line-height: 18px;
+  font-size: 14px;
+  line-height: 20px;
   font-weight: inherit;
   color: inherit;
 }
@@ -978,7 +978,7 @@ affine-editor-container .mn-col-menu-item {
   border-radius: 4px;
   background: none;
   color: var(--ink);
-  font-size: 13px;
+  font-size: 14px;
   text-align: left;
   cursor: pointer;
 }
