@@ -26,6 +26,7 @@ import { disableAlerts, enableAlerts, pushSupported } from '../../lib/push';
 import { useAuth } from '../../store/auth';
 import { sendInvite } from '../../lib/api';
 import { docsApi, type UserRow } from '../../lib/docsApi';
+import { setSmallText, smallText } from '../../lib/docPrefs';
 import { avatarFor } from '../../lib/avatar';
 import { relativeTime } from '../../lib/time';
 import { cn } from '../../lib/cn';
@@ -283,11 +284,12 @@ function PasswordRow() {
 
 function Preferences() {
   const ws = useWorkspace();
-  const [small, setSmall] = useState(() => localStorage.getItem('mn-text-size') === 'small');
+  // Same switch as the page menu's "Small text" — one owner of the key and the
+  // attribute (lib/docPrefs), so the two can't disagree about what is on.
+  const [small, setSmall] = useState(smallText);
   const toggleSmall = (v: boolean) => {
     setSmall(v);
-    localStorage.setItem('mn-text-size', v ? 'small' : '');
-    document.documentElement.dataset.textSize = v ? 'small' : '';
+    setSmallText(v);
   };
 
   // The browser's own permission is the real switch; ours only records that

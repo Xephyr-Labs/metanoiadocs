@@ -69,7 +69,7 @@ function Row({ id, depth }: { id: PageId; depth: number }) {
           <span
             className={cn(
               'flex items-center justify-center transition-opacity',
-              selected ? 'text-accent' : 'text-faint',
+              selected ? 'text-accent' : 'text-muted',
               hasChildren && (hover || selected) && 'opacity-0',
             )}
           >

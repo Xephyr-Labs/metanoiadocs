@@ -7,6 +7,7 @@ import { AuthProvider, useAuth } from './store/auth';
 import { WorkspaceProvider } from './store/workspace';
 import './index.css';
 import { installFilePickerFallback } from './editor/filePicker';
+import { applyDocFont, applySmallText } from './lib/docPrefs';
 
 // Before anything renders: Brave (and Firefox, and Safari, and a locked-down
 // Chrome) has no showOpenFilePicker, and every upload path in the editor calls
@@ -30,10 +31,10 @@ window.addEventListener('vite:preloadError', (event) => {
   location.reload();
 });
 
-// Apply the saved "smaller text" preference before first paint (no flash).
-if (localStorage.getItem('mn-text-size') === 'small') {
-  document.documentElement.dataset.textSize = 'small';
-}
+// Apply the saved reading preferences before first paint (no flash of the
+// default face or size).
+applySmallText();
+applyDocFont();
 
 // Auth gate: no session -> login/signup; otherwise the workspace. WorkspaceProvider
 // mounts only when authenticated so per-user state starts fresh on login.

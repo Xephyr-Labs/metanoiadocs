@@ -1,7 +1,10 @@
 import {
+  ALargeSmall,
   ArrowUpRight,
+  BookOpen,
   ChevronDown,
   Cloud,
+  Code2,
   Download,
   FileText,
   FileType,
@@ -10,7 +13,9 @@ import {
   History,
   Link2,
   Lock,
+  Maximize2,
   MessageSquareText,
+  Minimize2,
   Moon,
   MoreHorizontal,
   PanelLeft,
@@ -23,6 +28,8 @@ import {
   Star,
   Sun,
   Trash2,
+  Type,
+  Upload,
 } from 'lucide-react';
 import type { Page } from '../../lib/types';
 import { avatarFor } from '../../lib/avatar';
@@ -31,7 +38,7 @@ import { relativeTime } from '../../lib/time';
 import { useWorkspace } from '../../store/workspace';
 import { cn } from '../../lib/cn';
 import { useOpenCommentCount } from '../../editor/comments';
-import { downloadDocx, downloadMarkdown, printDoc } from '../../lib/docFiles';
+import { downloadDocx, downloadMarkdown, pickImportFiles, printDoc } from '../../lib/docFiles';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { Button } from '../ui/Button';
 import { PageIcon } from '../ui/PageIcon';
@@ -39,6 +46,8 @@ import { IconButton } from '../ui/IconButton';
 import { Menu } from '../ui/Menu';
 import { useMoveToFolder } from '../../hooks/useMoveToFolder';
 import { copyLink } from '../../lib/clipboard';
+import { useState } from 'react';
+import * as prefs from '../../lib/docPrefs';
 
 /** Google-Docs-style stack of everyone else currently in the open doc. */
 function PresenceStack() {
@@ -144,6 +153,13 @@ export function TopBar() {
   const folder = ws.view === 'folder' && ws.activeFolderId ? ws.folders[ws.activeFolderId] : null;
   const isMobile = useMediaQuery('(max-width: 767px)');
   const moveTo = useMoveToFolder(page?.id);
+  // Mirrors of the two preferences that live on <html> rather than in React, so
+  // the menu's ticks redraw when they change. The document element stays the
+  // source of truth — the settings dialog writes it too.
+  const [font, setFont] = useState<prefs.DocFont>(prefs.docFont);
+  const [small, setSmall] = useState(prefs.smallText);
+  const chooseFont = (f: prefs.DocFont) => { prefs.setDocFont(f); setFont(f); };
+  const toggleSmall = () => { const v = !small; prefs.setSmallText(v); setSmall(v); };
 
   return (
     <header className="sticky top-0 z-30 flex h-11 shrink-0 items-center gap-1 border-b border-line bg-canvas px-2.5">
@@ -316,6 +332,34 @@ export function TopBar() {
               { icon: Link2, label: 'Copy link', onSelect: () => { copyLink(location.href); } },
               { icon: History, label: 'Version history', onSelect: () => ws.openHistory(page.id) },
               { icon: ArrowUpRight, label: 'Open in new tab', onSelect: () => window.open(location.href, '_blank') },
+              // How the page reads. A canvas has no measure and no body text, so
+              // the three reading controls are page-mode only.
+              ...(page.kind === 'design' ? [] : [
+                {
+                  icon: Type,
+                  label: 'Font',
+                  separatorBefore: true,
+                  items: [
+                    { icon: Type, label: 'Default', checked: font === 'default', onSelect: () => chooseFont('default') },
+                    { icon: BookOpen, label: 'Serif', checked: font === 'serif', onSelect: () => chooseFont('serif') },
+                    { icon: Code2, label: 'Mono', checked: font === 'mono', onSelect: () => chooseFont('mono') },
+                  ],
+                },
+                { icon: ALargeSmall, label: 'Small text', checked: small, onSelect: toggleSmall },
+                {
+                  icon: ws.fullWidth ? Minimize2 : Maximize2,
+                  label: 'Full width',
+                  checked: ws.fullWidth,
+                  onSelect: () => ws.setFullWidth(!ws.fullWidth),
+                },
+                {
+                  icon: Upload,
+                  label: 'Import',
+                  // Lands in the folder this page is filed under, which is the
+                  // one thing the sidebar's own import can't know.
+                  onSelect: () => { pickImportFiles().then((f) => { if (f.length) ws.importFiles(f, page.folderId); }); },
+                },
+              ]),
               // One row instead of three: the formats belong together and this
               // menu already carries everything else a page can do.
               // A design is a canvas: docx, markdown and the print stylesheet all

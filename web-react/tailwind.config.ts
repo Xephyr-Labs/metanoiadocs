@@ -45,10 +45,16 @@ export default {
       // One scale, no arbitrary values. 10–15px carries the whole UI; 17px+ is
       // display type (greeting, auth title, settings section head).
       fontSize: {
-        '3xs': ['10px', { lineHeight: '14px' }],
-        '2xs': ['11px', { lineHeight: '16px' }],
-        xs: ['12px', { lineHeight: '17px' }],
-        sm: ['13px', { lineHeight: '19px' }],
+        // The bottom four rungs each moved up a step: the chrome was set a size
+        // below what it needed and read cramped and washed-out next to the
+        // document. Moving the rungs rather than rewriting ~40 call sites keeps
+        // one scale — `sm` and `base` now coincide at 14px, which is deliberate:
+        // 14 is the floor for a row a person reads all day, and nothing in the
+        // chrome should sit under it.
+        '3xs': ['11px', { lineHeight: '15px' }],
+        '2xs': ['12px', { lineHeight: '16px' }],
+        xs: ['13px', { lineHeight: '18px' }],
+        sm: ['14px', { lineHeight: '20px' }],
         base: ['14px', { lineHeight: '20px' }],
         md: ['15px', { lineHeight: '22px' }],
         lg: ['17px', { lineHeight: '24px' }],

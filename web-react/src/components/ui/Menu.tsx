@@ -1,5 +1,5 @@
 import * as DM from '@radix-ui/react-dropdown-menu';
-import { ChevronRight } from 'lucide-react';
+import { Check, ChevronRight } from 'lucide-react';
 import type { ComponentType, ReactNode } from 'react';
 import { cn } from '../../lib/cn';
 
@@ -11,6 +11,10 @@ export interface MenuItem {
   danger?: boolean;
   onSelect?: () => void;
   separatorBefore?: boolean;
+  /** Marks a row that is currently on (a toggle, or the chosen one of a set).
+   *  Drawn as a trailing tick rather than a switch: the menu closes on select,
+   *  so a switch would animate for a frame and then vanish. */
+  checked?: boolean;
   /** Nested items. Present ⇒ this row opens a submenu instead of firing onSelect. */
   items?: MenuItem[];
 }
@@ -69,6 +73,7 @@ function Rows({ items }: { items: MenuItem[] }) {
               {it.icon && <it.icon size={16} strokeWidth={1.75} className="shrink-0 opacity-80" />}
               <span className="flex-1 truncate">{it.label}</span>
               {it.shortcut && <span className="text-2xs text-faint">{it.shortcut}</span>}
+              {it.checked && <Check size={14} className="shrink-0 text-accent" />}
             </DM.Item>
           )}
         </div>

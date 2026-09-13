@@ -81,14 +81,14 @@ function DocumentRow({ id, depth }: { id: PageId; depth: number }) {
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); ws.toggleExpand(id); }}
-          className={cn('mr-1.5 flex h-5 w-5 shrink-0 items-center justify-center rounded hover:bg-hover', selected ? 'text-accent' : 'text-faint')}
+          className={cn('mr-1.5 flex h-5 w-5 shrink-0 items-center justify-center rounded hover:bg-hover', selected ? 'text-accent' : 'text-muted')}
           aria-label={page.expanded ? `Collapse ${page.title}` : `Expand ${page.title}`}
         >
           <ChevronRight size={14} className={cn('text-muted transition-transform duration-180', page.expanded && 'rotate-90')} />
         </button>
       ) : (
-        <span className={cn('mr-1.5 flex h-5 w-5 shrink-0 items-center justify-center', selected ? 'text-accent' : 'text-faint')}>
-          <PageIcon icon={page.icon} size={16} className={selected ? 'shrink-0 text-accent' : 'shrink-0 text-faint'} />
+        <span className={cn('mr-1.5 flex h-5 w-5 shrink-0 items-center justify-center', selected ? 'text-accent' : 'text-muted')}>
+          <PageIcon icon={page.icon} size={16} className={selected ? 'shrink-0 text-accent' : 'shrink-0 text-muted'} />
         </span>
       )}
       {/* Rename lives on the name, not the whole row: the chevron and the ⋯

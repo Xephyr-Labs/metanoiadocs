@@ -57,7 +57,7 @@ function NavItem({ icon, label, onClick, trailing, active, alert }: { icon: Reac
         active ? 'bg-accent-soft text-accent' : alert ? 'font-medium text-accent hover:bg-accent-soft' : 'text-ink hover:bg-hover',
       )}
     >
-      <span className={cn('flex h-5 w-5 shrink-0 items-center justify-center', lit ? 'text-accent' : 'text-faint group-hover:text-muted')}>{icon}</span>
+      <span className={cn('flex h-5 w-5 shrink-0 items-center justify-center', lit ? 'text-accent' : 'text-muted group-hover:text-ink')}>{icon}</span>
       <span className="block h-5 min-w-0 flex-1 !self-center truncate leading-5 text-left">{label}</span>
       {trailing}
     </button>
@@ -67,7 +67,7 @@ function NavItem({ icon, label, onClick, trailing, active, alert }: { icon: Reac
 function SectionLabel({ children, action }: { children: ReactNode; action?: ReactNode }) {
   return (
     <div className="mt-3 flex h-6 items-center justify-between px-2 first:mt-0">
-      <span className="mn-side-label text-3xs font-semibold uppercase text-muted">{children}</span>
+      <span className="mn-side-label text-2xs font-semibold uppercase text-muted">{children}</span>
       {action}
     </div>
   );
@@ -82,7 +82,7 @@ function CollapsibleSection({ label, defaultOpen, children }: { label: string; d
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="mn-side-label group mt-3 flex h-6 w-full items-center gap-1 px-2 text-3xs font-semibold uppercase text-muted hover:text-ink"
+        className="mn-side-label group mt-3 flex h-6 w-full items-center gap-1 px-2 text-2xs font-semibold uppercase text-muted hover:text-ink"
       >
         <ChevronRight size={12} className={cn('transition-transform duration-180', open && 'rotate-90')} />
         {label}

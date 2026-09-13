@@ -20,7 +20,10 @@
   --selected: #e2effb;
   --ink: #37352f;
   --muted: #787774;
-  --faint: #9b9a97;
+  /* Was #9b9a97 — 2.9:1 on white, under the 3:1 floor even for icons, and the
+   * single biggest reason the chrome read hazy. 3.5:1 keeps it clearly the
+   * quietest ink in the palette while staying legible at 11px. */
+  --faint: #86857f;
   --line: #e9e9e7;
   --line-strong: #dcdbd8;
   --accent: #2383e2;
@@ -93,6 +96,10 @@
   --font-body: var(--font-display);
   /* Code face — system mono, no webfont to download. */
   --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+  /* Reading face, offered per document from the page menu. System serifs only
+   * — a webfont for a preference most pages never turn on is a download every
+   * reader pays for. */
+  --font-serif: 'Lyon-Text', Georgia, 'Times New Roman', ui-serif, serif;
 
   /* Code surface: a shade off the canvas so a block reads as a slab, not as
    * more prose. Warm gray in light, near-black in dark (shiki's dark-plus
@@ -122,7 +129,8 @@ html.dark {
   --selected: #274261;
   --ink: #e9e9e7;
   --muted: #a5a5a3;
-  --faint: #757573;
+  /* Same correction as light: #757573 was 3.2:1 on the dark canvas. */
+  --faint: #8a8a87;
   --line: #333331;
   --line-strong: #424240;
   --accent: #4a9eea;
@@ -175,7 +183,16 @@ body {
   color: var(--ink);
   font-family: var(--font-ui);
   font-feature-settings: 'ss01', 'ss03';
-  -webkit-font-smoothing: antialiased;
+  /* NO -webkit-font-smoothing: antialiased. It forces greyscale antialiasing,
+   * which drops about a third of a stroke's weight off small UI type — the
+   * chrome read washed-out and slightly hazy next to the document body, which
+   * BlockSuite renders at 16px and so survives it. Subpixel rendering (the
+   * browser default) puts that weight back everywhere the chrome is small.
+   *
+   * 450, not 400: Onest is a variable face and its regular is light for a UI at
+   * 13–14px. Half a step up is the difference between "thin" and "crisp", and
+   * costs nothing — no second file is downloaded for it. */
+  font-weight: 450;
   text-rendering: optimizeLegibility;
 }
 
@@ -1040,6 +1057,21 @@ affine-editor-container affine-table table td {
  * scale). Toggled via document.documentElement[data-text-size]. */
 :root[data-text-size="small"] affine-editor-container {
   --affine-font-base: 14px;
+}
+
+/* Reading font, per the page menu. Scoped to the editor container so the choice
+ * changes the document and not the chrome around it — a serif sidebar is not
+ * what anyone means when they ask a page to read like a book. The title is a
+ * BlockSuite widget outside the block tree, so it takes the same declaration. */
+:root[data-doc-font="serif"] affine-editor-container,
+:root[data-doc-font="serif"] affine-editor-container .doc-title-container {
+  --affine-font-family: var(--font-serif);
+  font-family: var(--font-serif);
+}
+:root[data-doc-font="mono"] affine-editor-container,
+:root[data-doc-font="mono"] affine-editor-container .doc-title-container {
+  --affine-font-family: var(--font-mono);
+  font-family: var(--font-mono);
 }
 
 /* The metadata band we portal in under the title (DocMetaBand). It sits inside
