@@ -23,7 +23,11 @@
   --hover: #f1f0ee;
   --selected: #e9e8e5;
   --ink: #37352f;
-  --muted: #787774;
+  /* Notion's own secondary ink is #787774, which measures 4.48:1 — a hair under
+   * AA, and under 4:1 once the row it sits on is hovered. A few steps darker
+   * clears both (5.1 at rest, 4.5 hovered) and still reads clearly quieter than
+   * the ink it sits beside. */
+  --muted: #6f6e6a;
   /* Was #9b9a97 — 2.9:1 on white, under the 3:1 floor even for icons, and the
    * single biggest reason the chrome read hazy. 3.5:1 keeps it clearly the
    * quietest ink in the palette while staying legible at 11px. */
@@ -31,6 +35,11 @@
   --line: #e9e9e7;
   --line-strong: #dcdbd8;
   --accent: #2383e2;
+  /* The accent, darkened until it can carry text. #2383e2 is 4.0:1 on white —
+   * fine as a fill or a 2px rule, under AA as 14px lettering, which is exactly
+   * what the unread-inbox row is. 5.1:1 here. Dark mode needs no twin: the
+   * lighter accent already reads 6.5:1 on the near-black canvas. */
+  --accent-strong: #1a6fc4;
   --accent-soft: #eaf3fc;
   /* The danger twin of accent-soft — a late gantt bar had no tint to sit in,
      so it rendered as a hollow outline and read as a rendering fault. */
@@ -138,6 +147,7 @@ html.dark {
   --line: #333331;
   --line-strong: #424240;
   --accent: #4a9eea;
+  --accent-strong: var(--accent);
   --accent-soft: #1d3a57;
   --danger-soft: #4a2523;
   --danger: #e06c66;
@@ -789,6 +799,14 @@ affine-editor-container .affine-paragraph-rich-text-wrapper.h5 { font-size: 1.02
 affine-editor-container .affine-paragraph-rich-text-wrapper.h6 { font-size: 0.92rem !important; letter-spacing: 0; }
 /* Comfortable body rhythm. */
 affine-editor-container affine-note { --affine-line-height: 1.72; }
+
+/* The chrome runs at 450 (see `body`) because a 14px row needs the extra ink.
+ * Running text does not — it is 16px on a 760px measure, where 450 reads as a
+ * page set slightly too bold. Headings are unaffected: BlockSuite declares
+ * 600/700 on its own heading classes and the title rule above sets 700. */
+affine-editor-container {
+  font-weight: 400;
+}
 
 /* Space ABOVE a heading, tight below it — that asymmetry is what makes a
  * section read as a section. Without it the scale is stepped but the page is

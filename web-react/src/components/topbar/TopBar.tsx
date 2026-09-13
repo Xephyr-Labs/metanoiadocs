@@ -46,7 +46,7 @@ import { IconButton } from '../ui/IconButton';
 import { Menu } from '../ui/Menu';
 import { useMoveToFolder } from '../../hooks/useMoveToFolder';
 import { copyLink } from '../../lib/clipboard';
-import { useState } from 'react';
+import { useReducer } from 'react';
 import * as prefs from '../../lib/docPrefs';
 
 /** Google-Docs-style stack of everyone else currently in the open doc. */
@@ -153,13 +153,15 @@ export function TopBar() {
   const folder = ws.view === 'folder' && ws.activeFolderId ? ws.folders[ws.activeFolderId] : null;
   const isMobile = useMediaQuery('(max-width: 767px)');
   const moveTo = useMoveToFolder(page?.id);
-  // Mirrors of the two preferences that live on <html> rather than in React, so
-  // the menu's ticks redraw when they change. The document element stays the
-  // source of truth — the settings dialog writes it too.
-  const [font, setFont] = useState<prefs.DocFont>(prefs.docFont);
-  const [small, setSmall] = useState(prefs.smallText);
-  const chooseFont = (f: prefs.DocFont) => { prefs.setDocFont(f); setFont(f); };
-  const toggleSmall = () => { const v = !small; prefs.setSmallText(v); setSmall(v); };
+  // Read on every render rather than mirrored into state: the settings dialog
+  // writes the same preference, and a mirror would leave this menu ticking the
+  // opposite of what the document is actually doing until the bar remounted.
+  // The bump is only to redraw after a write from here.
+  const [, bump] = useReducer((n: number) => n + 1, 0);
+  const font = prefs.docFont();
+  const small = prefs.smallText();
+  const chooseFont = (f: prefs.DocFont) => { prefs.setDocFont(f); bump(); };
+  const toggleSmall = () => { prefs.setSmallText(!small); bump(); };
 
   return (
     <header className="sticky top-0 z-30 flex h-11 shrink-0 items-center gap-1 border-b border-line bg-canvas px-2.5">

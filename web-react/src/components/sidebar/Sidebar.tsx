@@ -53,10 +53,10 @@ function NavItem({ icon, label, onClick, trailing, active, alert }: { icon: Reac
       onClick={onClick}
       className={cn(
         'group flex h-7 w-full items-center gap-2 rounded-md px-2 text-sm leading-5 transition-colors duration-120',
-        active ? 'bg-selected font-medium text-ink' : alert ? 'font-medium text-accent hover:bg-hover' : 'text-ink hover:bg-hover',
+        active ? 'bg-selected font-medium text-ink' : alert ? 'font-medium text-accent-strong hover:bg-hover' : 'text-ink hover:bg-hover',
       )}
     >
-      <span className={cn('flex h-5 w-5 shrink-0 items-center justify-center', alert ? 'text-accent' : active ? 'text-ink' : 'text-muted group-hover:text-ink')}>{icon}</span>
+      <span className={cn('flex h-5 w-5 shrink-0 items-center justify-center', alert ? 'text-accent-strong' : active ? 'text-ink' : 'text-muted group-hover:text-ink')}>{icon}</span>
       <span className="block h-5 min-w-0 flex-1 !self-center truncate leading-5 text-left">{label}</span>
       {trailing}
     </button>
@@ -153,7 +153,9 @@ function ProjectRows({
                 {Number(p.overdue) > 0 ? (
                   <span className="shrink-0 text-2xs font-semibold text-danger">{p.overdue}</span>
                 ) : open > 0 ? (
-                  <span className="shrink-0 text-2xs text-faint">{open}</span>
+                  // muted, not faint: this count is information. Faint is for
+                  // affordances — hover chevrons and the like.
+                  <span className="shrink-0 text-2xs text-muted">{open}</span>
                 ) : null}
               </button>
               <button
@@ -407,8 +409,10 @@ export function Sidebar() {
           label="Inbox"
           alert={ws.unreadCount > 0}
           onClick={() => ws.setInboxOpen(true)}
+          // accent-strong, not accent: white on #2383e2 is 4.0:1, and this is
+          // 11px lettering inside a 16px pill.
           trailing={ws.unreadCount > 0 ? (
-            <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-3xs font-semibold text-white">
+            <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-accent-strong px-1 text-3xs font-semibold text-white">
               {ws.unreadCount > 99 ? '99+' : ws.unreadCount}
             </span>
           ) : undefined}
