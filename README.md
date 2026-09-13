@@ -2,73 +2,140 @@
   <img src="assets/logo.svg" width="88" height="88" alt="MetanoiaDocs logo" />
   <h1>MetanoiaDocs</h1>
   <p>
-    <b>A self-hosted, real-time collaborative docs workspace.</b><br/>
-    Notion-style editing · team &amp; private pages · comments &amp; @-mentions ·
-    designs on a canvas · <b>free, unlimited members, forever</b>.
+    <b>The docs and project workspace you run yourself.</b><br/>
+    Real-time collaborative pages · boards, tables, gantt and calendars · comments, mentions and push alerts ·
+    <b>free, unlimited members, forever</b>.
   </p>
   <p>
+    <a href="https://github.com/Xephyr-Labs/metanoiadocs/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Xephyr-Labs/metanoiadocs/actions/workflows/ci.yml/badge.svg"></a>
+    <a href="https://hub.docker.com/r/hmsajjad/metanoiadocs"><img alt="Docker pulls" src="https://img.shields.io/docker/pulls/hmsajjad/metanoiadocs?logo=docker&label=docker%20pulls"></a>
     <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-blue.svg"></a>
-    <img alt="Self-hosted" src="https://img.shields.io/badge/self--hosted-yes-brightgreen.svg">
+    <img alt="Self-hosted" src="https://img.shields.io/badge/self--hosted-one%20container-brightgreen.svg">
     <img alt="No seat limits" src="https://img.shields.io/badge/seat%20limits-none-blueviolet.svg">
-    <img alt="PRs welcome" src="https://img.shields.io/badge/PRs-welcome-orange.svg">
   </p>
 </div>
 
 <p align="center">
-  <img src="assets/screenshot.png" alt="MetanoiaDocs screenshot" width="900" />
+  <img src="assets/screenshots/doc-comments.png" alt="A launch plan open in MetanoiaDocs, with a comment thread in the side panel" width="1000" />
 </p>
 
-<p align="center">
-  <img src="assets/screenshot-board.png" alt="MetanoiaDocs project board" width="900" />
-</p>
+MetanoiaDocs is an open-source alternative to Notion and AFFiNE that you host on
+your own machine. It pairs the [BlockSuite](https://github.com/toeverything/blocksuite)
+block editor with an original Node + Postgres backend: live multi-cursor editing,
+projects with real task views, comments that reach people, and an MCP server so
+your AI agents can read and write the workspace — with **no proprietary server
+code and no per-seat pricing, ever**.
 
-MetanoiaDocs is an open-source alternative to Notion / AFFiNE you run yourself. It
-pairs the [BlockSuite](https://github.com/toeverything/blocksuite) block editor with
-an original Node/Postgres backend — real-time sync, no proprietary server code, and
-**no per-seat pricing, ever**. See [NOTICE](NOTICE).
+One image, one Postgres, one port. `docker compose up -d` and invite the team.
 
 ---
 
-## ✨ Features
+## A look around
 
-- **Real-time collaboration** — live multi-cursor editing and presence over Yjs (Hocuspocus).
-- **Rich block editor** — headings, lists, to-dos, tables, databases/kanban, code, LaTeX, images, embeds, toggles.
-- **Team & private pages** — every doc is team-visible by default; flip any page to **Private** (owner-only) from the top bar.
-- **Comments & @-mentions** — threaded, block-anchored comments; @-mention teammates for an in-app + email notification.
-- **Organize** — nested page tree with drag-reorder, colored **tags**, favorites, and folders. Every folder has its own page listing what's inside it, and its own link to send someone.
-- **Projects** — per-project **kanban**, backlog, table, Gantt and calendar views, with sprints, epics/stories, dependencies, milestones and assignees. Any task can link to the page that specifies it.
-- **Databases** — a project is a database, and every row is a page: click it and a peek opens with its properties and its own document body, which opens full screen like any other page. Give a database whatever columns it needs — text, number, select, multi-select, date, checkbox, person, URL — plus relations, which link a row to a row in another database and show the reverse link on the other side. Databases nest under each other in the sidebar, and `/database` in any document embeds a live table or board view of one.
-- **Designs** — a canvas that lives beside the docs: shapes, connectors, frames, freehand and images, with a frames panel, align/distribute, and PNG export. A design *is* a document, so it inherits sharing, folders, search, comments and version history.
-- **Find anything** — hybrid full-text + fuzzy (typo-tolerant) search and a ⌘K command palette.
-- **Ambient intelligence** — a per-doc rail that surfaces related pages, auto tag & link suggestions, and extracted tasks / decisions / risks / deadlines, plus duplicate & stale detection. Computed locally in Postgres on save — **no LLM, no external calls**.
-- **Import & export** — drop in `.md` files (front matter, nested lists, tables and inline marks survive), and take any page back out as **Markdown**, **Word** or **PDF** — or any canvas as a **PNG**.
-- **Version history** — automatic snapshots as you write, plus ones you take by hand. Browse them on a dated timeline with the *rendered page* beside it, not a text dump, then restore in place — the state you replaced is saved first as "Before restore", so the restore is itself undoable. Or open any version as a separate copy and leave the page alone.
-- **Public share links** — publish any page read-only, server-enforced.
-- **AI assist** — optional OpenAI-compatible copilot, configured in Settings (bring your own key).
-- **MCP server** — let AI agents (Claude Desktop/Code, Cursor, …) search, read, and write your docs as you, over the [Model Context Protocol](https://modelcontextprotocol.io). See [`mcp/`](mcp/).
-- **Templates** — Daily Journal, Project Plan, OKRs, Retrospective, 1:1, Brainstorm, Roadmap, Reading Notes, and more.
-- **Invite-only auth** — username/password or magic-link sign-in; admins invite by email.
-- **Polished UX** — minimalist line-icon UI, dark mode, and fully mobile-responsive.
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="assets/screenshots/home.png" alt="Home dashboard with recent pages, task counts, my tasks and team activity" />
+      <p align="center"><sub><b>Home</b> — what you were doing, what's due, what the team just did.</sub></p>
+    </td>
+    <td width="50%" valign="top">
+      <img src="assets/screenshots/board.png" alt="Kanban board with epics, stories and bugs across four columns" />
+      <p align="center"><sub><b>Board</b> — epics, stories and bugs with points, progress and dependencies.</sub></p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="assets/screenshots/gantt.png" alt="Gantt view with dependency arrows and a milestone" />
+      <p align="center"><sub><b>Gantt</b> — hand-rolled, dependency arrows included, no third-party chart library.</sub></p>
+    </td>
+    <td width="50%" valign="top">
+      <img src="assets/screenshots/table.png" alt="Editable task table with status, assignees, dates and progress" />
+      <p align="center"><sub><b>Table</b> — every cell writes straight through. Multiple assignees per task.</sub></p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="assets/screenshots/calendar.png" alt="Month calendar with tasks on their due dates" />
+      <p align="center"><sub><b>Calendar</b> — the same tasks, by due date.</sub></p>
+    </td>
+    <td width="50%" valign="top">
+      <img src="assets/screenshots/inbox.png" alt="Inbox dialog listing an assignment and two comment mentions" />
+      <p align="center"><sub><b>Inbox</b> — mentions, assignments and replies, in-app, by email, and as Web Push when the tab is closed.</sub></p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="assets/screenshots/doc-dark.png" alt="The same launch plan in dark mode" />
+      <p align="center"><sub><b>Dark mode</b> — full parity, one toggle (⌘J).</sub></p>
+    </td>
+    <td width="50%" valign="top" align="center">
+      <img src="assets/screenshots/mobile-doc.png" alt="The launch plan on a phone" width="46%" />
+      <img src="assets/screenshots/mobile-home.png" alt="Home on a phone" width="46%" />
+      <p align="center"><sub><b>Phone</b> — the same app, responsive; installable as a PWA.</sub></p>
+    </td>
+  </tr>
+</table>
+
+<sub>Everything in these screenshots is a fictional demo workspace seeded for the README.</sub>
+
+## ✨ What's in the box
+
+**Write together**
+
+- **Real-time collaboration** — live multi-cursor editing and presence over Yjs (Hocuspocus). No save button.
+- **Rich block editor** — headings, lists, to-dos, tables, databases, code, LaTeX, images, embeds, toggles, columns, callouts, mermaid.
+- **Reading controls** — Serif or Mono, smaller text, full width — per person, from the page menu.
+- **Comments & @-mentions** — threaded, block-anchored; tag a teammate for an in-app, email, and push notification. Tag yourself to leave a reminder.
+- **Version history** — automatic snapshots as you write; browse them rendered, restore in place (the restore is itself undoable), or open any version as a copy.
+- **Designs** — a canvas beside the docs: shapes, connectors, frames, freehand, images, PNG export. A design *is* a document, so it shares, files, searches and versions like one.
+
+**Plan the work**
+
+- **Projects** — kanban, backlog, table, gantt, calendar and gallery over one set of tasks; sprints, epics/stories/bugs, points, dependencies, milestones, several assignees per task.
+- **Tasks across projects** — one view of everything assigned to you, or anyone, filtered by project, status, kind, or the focus areas tagged on a task's page. Filters are chips; saved per view.
+- **Databases** — a project is a database and every row is a page. Add columns (text, number, select, date, checkbox, person, URL, file, relation) and embed a live view of one in any document with `/database`.
+- **Task ↔ page linking** — a task can link to the page that specifies it, and a page shows the tasks that point at it.
+
+**Find and organise**
+
+- **Sidebar** — nested pages, folders (each with its own page and link), colored tags, favorites, and team-wide pins.
+- **Search** — hybrid full-text + fuzzy search, and a ⌘K palette for pages and commands.
+- **Ambient intelligence** — per-doc related pages, tag and link suggestions, extracted tasks / decisions / deadlines, duplicate and stale detection. Computed in Postgres on save. **No LLM, no external calls.**
+
+**Get things in and out**
+
+- **Import** — drop in `.md` or `.docx` (front matter, nested lists, tables, inline marks and images survive).
+- **Export** — any page as **Markdown**, **Word** or **PDF**; any canvas as **PNG**.
+- **Public share links** — publish any page read-only, enforced by the server.
+
+**Let the machines in**
+
+- **MCP server** — Claude Desktop/Code, Cursor and friends can search, read and write your docs *as you* over the [Model Context Protocol](https://modelcontextprotocol.io), stdio or remote HTTP. See [`mcp/`](mcp/).
+- **AI assist** — optional OpenAI-compatible copilot with page context and tools, configured in Settings. Bring your own key; it is off by default.
+
+**Run it yourself**
+
+- **Invite-only auth** — username/password or magic link; admins invite by email.
+- **One container** — serves the UI, the REST API and the `/sync` WebSocket from one origin. Postgres is the only dependency.
+- **Idempotent schema** — created and migrated on every boot; there are no migration steps.
+- **Web Push** — VAPID keys generate themselves on first use and live in the database.
 
 ## 🚀 Quick start
 
-Requires [Docker](https://docs.docker.com/get-docker/) (with Compose). Nothing to
-clone and nothing to build — pull the published image:
+Requires [Docker](https://docs.docker.com/get-docker/) with Compose. Nothing to
+clone, nothing to build — pull the published image:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Xephyr-Labs/metanoiadocs/main/docker-compose.deploy.yml -o docker-compose.yml
 docker compose up -d
 ```
 
-Then open **http://localhost:8092**. A fresh instance has no accounts, so the
-first visit shows a **setup screen** — the account you create there is the admin,
-and the instance is ready. Nobody can sign in before that, and the screen is gone
-the moment the admin exists.
+Open **http://localhost:8092**. A fresh instance has no accounts, so the first
+visit shows a **setup screen** — the account you create there is the admin.
+Nobody can sign in before that, and the screen is gone the moment the admin exists.
 
-### Plain `docker run`
-
-No Compose, no files — pull the image and run two containers on a shared network.
-MetanoiaDocs keeps everything in Postgres, so it needs one:
+<details>
+<summary><b>Plain <code>docker run</code>, no Compose</b></summary>
 
 ```bash
 docker pull hmsajjad/metanoiadocs:latest
@@ -88,96 +155,100 @@ docker run -d --name metanoiadocs --network metanoia -p 8092:3000 \
   hmsajjad/metanoiadocs:latest
 ```
 
-Open **http://localhost:8092** and create the admin account. The `metanoia-data`
-volume holds your documents — the containers are disposable, that isn't.
+The `metanoia-data` volume holds your documents — the containers are disposable,
+that isn't. Already have a Postgres? Point `DATABASE_URL` at it, drop `--network`,
+and give the database user rights to create tables.
+</details>
 
-Already have a Postgres? Then it is one container: point `DATABASE_URL` at your
-server, drop `--network`, and give the database user rights to create tables
-(the schema builds itself on first boot).
+<details>
+<summary><b>Build from source</b></summary>
 
-<sub>Prefer to build from source? `git clone`, `cp .env.example .env`, then
-`docker compose up -d --build` — the bundled `docker-compose.yaml` builds the
-image locally instead of pulling it.</sub>
+```bash
+git clone https://github.com/Xephyr-Labs/metanoiadocs.git && cd metanoiadocs
+cp .env.example .env
+docker compose up -d --build
+```
 
-<sub>Unattended installs (CI, provisioning scripts) can skip the setup screen by
-setting `ADMIN_EMAIL` and `ADMIN_PASSWORD` before the first boot.</sub>
+The bundled `docker-compose.yaml` builds the image locally instead of pulling it.
+Unattended installs can skip the setup screen by setting `ADMIN_EMAIL` and
+`ADMIN_PASSWORD` before the first boot.
+</details>
 
-> The single `server` container serves the React UI, the REST API, and the `/sync`
-> WebSocket — one origin, one port, no CORS to configure. The `db` volume persists
-> your data across restarts.
+To invite teammates: **Settings → Members → Invite** by email. With
+`AUTH_DEV_MODE=true` (the default) the sign-in and invite links are printed to
+`docker compose logs server`, so you can try the whole flow before wiring up SMTP.
 
-To invite teammates: **Settings → Members → Invite** by email. With `AUTH_DEV_MODE=true`
-the sign-in/invite links are printed to `docker compose logs server` so you can try
-the whole flow before wiring up SMTP.
+For production, put a TLS reverse proxy (Caddy, nginx, Traefik) in front of `:8092`
+and set `BASE_URL` to your `https://` domain. Push notifications need HTTPS.
 
 ## ⚙️ Configuration
 
-All configuration is environment variables (see [`.env.example`](.env.example)):
+Everything is an environment variable (see [`.env.example`](.env.example)):
 
-| Variable | Required | Default | Purpose |
-|---|---|---|---|
-| `DB_PASSWORD` | | `metanoia` | Password for the bundled Postgres (never published to the host — set it anyway for real deployments). |
-| `BASE_URL` | | `http://localhost:8092` | Public URL used in emailed links. |
-| `ADMIN_EMAIL` | | — | With `ADMIN_PASSWORD`, creates the admin at first boot instead of showing the setup screen. |
-| `ADMIN_PASSWORD` | | — | See above. No default: an unclaimed instance cannot be signed into. |
-| `AUTH_DEV_MODE` | | `true` | Log sign-in/invite links instead of emailing them. |
-| `ALLOWED_EMAIL_DOMAINS` | | `*` | Comma-separated allowlist for sign-in; `*` = any, empty = deny-all. |
-| `STALE_MONTHS` | | `6` | A doc untouched this many months shows a "stale" badge in the intelligence rail. |
-| `SMTP_HOST` … `SMTP_FROM` | | — | SMTP for real emails (needed once `AUTH_DEV_MODE=false`). |
-
-For production, put a TLS reverse proxy (Caddy, nginx, Traefik) in front of `:8092`
-and set `BASE_URL` to your `https://` domain.
+| Variable | Default | Purpose |
+|---|---|---|
+| `DB_PASSWORD` | `metanoia` | Password for the bundled Postgres. Set it for real deployments. |
+| `BASE_URL` | `http://localhost:8092` | Public URL used in emailed links and push notifications. |
+| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | — | Together, create the admin at first boot instead of showing the setup screen. |
+| `AUTH_DEV_MODE` | `true` | Log sign-in/invite links instead of emailing them. |
+| `ALLOWED_EMAIL_DOMAINS` | `*` | Comma-separated allowlist for sign-in; `*` = any, empty = deny-all. |
+| `TRASH_RETENTION_DAYS` | `30` | How long trashed pages are kept before they are purged. |
+| `STALE_MONTHS` | `6` | A doc untouched this long gets a "stale" badge in the intelligence rail. |
+| `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | generated | Bring your own Web Push keys; otherwise a pair is made on first use and stored in the database. |
+| `SMTP_HOST` … `SMTP_FROM` | — | SMTP for real emails, needed once `AUTH_DEV_MODE=false`. |
 
 ## 🧱 Architecture
 
 ```
                  ┌─────────────────────────── server (:8092) ───────────────────────────┐
 Browser ── HTTPS ─┤  Express — REST API  ·  Hocuspocus /sync (Yjs)  ·  static React SPA   │
+  AI agent ─ MCP ─┤  /mcp (streamable HTTP, personal API tokens)                          │
                  └───────────────────────────────┬──────────────────────────────────────┘
                                                  │
-                                          Postgres (docs, Yjs state, users, ...)
+                                   Postgres (docs, Yjs state, tasks, users, push subscriptions …)
 ```
 
 | Path | What it is |
 |---|---|
-| `web-react/` | React 18 + Vite + TypeScript + Tailwind + Radix, BlockSuite 0.22.4 editor. |
-| `server/` | Express + Postgres + Hocuspocus (Yjs) sync + magic-link/password auth. Owns the intelligence layer (`intelligence.js`) and search. |
-| `mcp/` | Stdio MCP server exposing the workspace to AI agents via personal API tokens. |
-| `docker-compose.yaml` | `db` + `server`, building the image from source (a multi-stage build compiles the UI, then serves API, `/sync`, and the built SPA from one container). |
+| `web-react/` | React 18 + Vite + TypeScript + Tailwind + Radix; BlockSuite 0.22.4 editor; PWA with a push-capable service worker. |
+| `server/` | Express + Postgres + Hocuspocus (Yjs) sync; magic-link/password auth; the intelligence layer (`intelligence.js`), search, exports, notifications and Web Push. |
+| `mcp/` | Stdio MCP server exposing the workspace to AI agents via personal API tokens. The same tools are served over HTTP at `/mcp`. |
+| `docker-compose.yaml` | `db` + `server`, building the image from source. |
 | `docker-compose.deploy.yml` | The same stack pulling the published [`hmsajjad/metanoiadocs`](https://hub.docker.com/r/hmsajjad/metanoiadocs) image — the one-command deploy above. |
 
-The schema is idempotent — it's created/migrated on every server boot, so there are
-no manual migration steps. Per-doc intelligence signals are computed synchronously on
-each save and backfilled for existing docs on the first boot after upgrading.
+Per-doc intelligence signals are computed synchronously on each save and
+backfilled for existing docs on the first boot after upgrading.
 
 ## 🛠️ Development
 
-Run the two halves directly (hot reload), without Docker:
+Run the two halves directly, with hot reload:
 
 ```bash
-# 1. Postgres (or use the compose db):  docker compose up -d db
+# 1. Postgres (or the compose one):  docker compose up -d db
 # 2. API + sync
 cd server && npm install && DATABASE_URL=postgres://… npm start   # :8092
-# 3. UI (Vite dev server proxies /api and /sync to :8092)
+# 3. UI — the Vite dev server proxies /api and /sync to :8092
 cd web-react && npm install && npm run dev                        # :5173
 ```
 
-`npm run build` in `web-react/` produces the static bundle the server serves in
-production.
+Tests: `npm test` in `web-react/` (vitest) and `node --test src/*.test.js` in
+`server/`. CI runs both and publishes the image on every merge to `main`.
+
+Design work in this repo follows a small written system — one type family, a
+neutral chrome with the accent reserved for meaning, every control designed for
+all its states. The tokens live in `web-react/src/index.css`.
 
 ## 📱 Mobile
 
-MetanoiaDocs is a mobile-responsive **web** app. For an installable app:
-
-- **PWA** — add to your home screen today; works offline for the shell.
-- **Capacitor** — wrap the same build for the App Store / Play Store without a rewrite.
-
-(The editor core, BlockSuite, is web-only, so a React Native port isn't practical.)
+MetanoiaDocs is a responsive web app. Add it to your home screen as a **PWA** —
+the shell works offline and push notifications arrive with the app closed. The
+same build can be wrapped with Capacitor for the app stores. (The editor core is
+web-only, so a React Native port isn't practical.)
 
 ## 🤝 Contributing
 
-Issues and PRs are welcome. Keep changes focused, run `npm run build` in `web-react/`
-before submitting, and describe the user-facing change in the PR.
+Issues and PRs are welcome. Keep changes focused, run the tests, and describe
+the user-facing change in the PR.
 
 ## 📄 License
 
