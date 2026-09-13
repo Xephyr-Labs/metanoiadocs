@@ -354,14 +354,17 @@ export function TopBar() {
                   checked: ws.fullWidth,
                   onSelect: () => ws.setFullWidth(!ws.fullWidth),
                 },
-                {
-                  icon: Upload,
-                  label: 'Import',
-                  // Lands in the folder this page is filed under, which is the
-                  // one thing the sidebar's own import can't know.
-                  onSelect: () => { pickImportFiles().then((f) => { if (f.length) ws.importFiles(f, page.folderId); }); },
-                },
               ]),
+              {
+                icon: Upload,
+                label: 'Import',
+                // Files land in the folder this page is filed under, which is
+                // the one thing the sidebar's own import can't know. Unlike the
+                // reading controls above, this has nothing to do with how the
+                // page renders — a canvas can be filed beside documents too.
+                separatorBefore: page.kind === 'design',
+                onSelect: () => { pickImportFiles().then((f) => { if (f.length) ws.importFiles(f, page.folderId); }); },
+              },
               // One row instead of three: the formats belong together and this
               // menu already carries everything else a page can do.
               // A design is a canvas: docx, markdown and the print stylesheet all

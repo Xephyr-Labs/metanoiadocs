@@ -1083,16 +1083,23 @@ affine-editor-container affine-table table td {
 
 /* Reading font, per the page menu. Scoped to the editor container so the choice
  * changes the document and not the chrome around it — a serif sidebar is not
- * what anyone means when they ask a page to read like a book. The title is a
- * BlockSuite widget outside the block tree, so it takes the same declaration. */
-:root[data-doc-font="serif"] affine-editor-container,
-:root[data-doc-font="serif"] affine-editor-container .doc-title-container {
+ * what anyone means when they ask a page to read like a book.
+ *
+ * Re-pointing `--font-display` INSIDE the container is what carries the title
+ * and the h5/h6 rules along: both declare `var(--font-display)`, the title with
+ * `!important` on a descendant selector that no plain declaration here could
+ * outrank. Redefining the variable in this scope means those rules resolve to
+ * the chosen face on their own, and the chrome's own --font-display is
+ * untouched. Inline code and code blocks read --affine-font-code-family, so
+ * they stay mono under every choice. */
+:root[data-doc-font="serif"] affine-editor-container {
   --affine-font-family: var(--font-serif);
+  --font-display: var(--font-serif);
   font-family: var(--font-serif);
 }
-:root[data-doc-font="mono"] affine-editor-container,
-:root[data-doc-font="mono"] affine-editor-container .doc-title-container {
+:root[data-doc-font="mono"] affine-editor-container {
   --affine-font-family: var(--font-mono);
+  --font-display: var(--font-mono);
   font-family: var(--font-mono);
 }
 

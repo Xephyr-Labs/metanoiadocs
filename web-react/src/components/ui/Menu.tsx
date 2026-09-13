@@ -73,7 +73,7 @@ function Rows({ items }: { items: MenuItem[] }) {
               {it.icon && <it.icon size={16} strokeWidth={1.75} className="shrink-0 opacity-80" />}
               <span className="flex-1 truncate">{it.label}</span>
               {it.shortcut && <span className="text-2xs text-faint">{it.shortcut}</span>}
-              {it.checked && <Check size={14} className="shrink-0 text-accent" />}
+              {it.checked && <Check size={14} className="shrink-0 text-accent-strong" />}
             </DM.Item>
           )}
         </div>
