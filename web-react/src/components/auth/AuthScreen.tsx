@@ -69,13 +69,6 @@ export function AuthScreen() {
 
   return (
     <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-canvas px-5">
-      {/* soft ambient wash — restrained, single-accent */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute -top-40 left-1/2 h-[420px] w-[720px] -translate-x-1/2 rounded-full opacity-[0.14] blur-3xl"
-        style={{ background: 'radial-gradient(closest-side, var(--accent), transparent)' }}
-      />
-
       <motion.div
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
@@ -155,7 +148,7 @@ export function AuthScreen() {
                 initial={{ opacity: 0, y: -4 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -4 }}
-                className="flex items-center gap-2 rounded-md bg-danger/10 px-3 py-2 text-sm text-danger"
+                className="flex items-center gap-2 rounded-md bg-danger-soft px-3 py-2 text-sm text-danger"
               >
                 <AlertCircle size={16} className="shrink-0" />
                 {error}
@@ -192,7 +185,7 @@ export function AuthScreen() {
             <button
               type="button"
               onClick={() => switchMode(mode === 'login' ? 'signup' : 'login')}
-              className="font-medium text-accent hover:underline"
+              className="font-medium text-accent-strong hover:underline"
             >
               {mode === 'login' ? 'Accept invite' : 'Sign in'}
             </button>
@@ -202,7 +195,7 @@ export function AuthScreen() {
         <p className="mt-8 text-center text-2xs leading-relaxed text-faint">
           {mode === 'setup'
             ? 'You can invite the rest of the team from Settings once you are in.'
-            : 'Access is invite-only. Passwords are hashed (bcrypt); sessions are server-side.'}
+            : 'Access is invite-only. Ask a workspace admin for an invitation.'}
         </p>
       </motion.div>
     </div>

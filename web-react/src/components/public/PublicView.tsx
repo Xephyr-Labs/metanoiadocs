@@ -47,14 +47,14 @@ export function PublicView({ token }: { token: string }) {
           <p className="text-md font-semibold text-ink">Page unavailable</p>
           <p className="mt-1 text-sm text-muted">{error}</p>
         </div>
-        <a href="/" className="text-sm font-medium text-accent hover:underline">Go to MetanoiaDocs</a>
+        <a href="/" className="text-sm font-medium text-accent-strong hover:underline">Go to MetanoiaDocs</a>
       </div>
     );
   }
 
   return (
     <div className="flex h-screen flex-col bg-canvas text-ink">
-      <header className="sticky top-0 z-30 flex h-[45px] shrink-0 items-center justify-between border-b border-line bg-canvas/80 px-4 backdrop-blur-md">
+      <header className="sticky top-0 z-30 flex h-[var(--topbar-h)] shrink-0 items-center justify-between border-b border-line bg-glass px-4 backdrop-blur-md">
         <a href="/" className="flex items-center gap-2"><Logo size={20} /></a>
         <span className="flex items-center gap-1.5 rounded-full bg-surface px-2.5 py-1 text-2xs font-medium text-muted ring-1 ring-inset ring-line">
           <Globe size={12} /> Public · read-only

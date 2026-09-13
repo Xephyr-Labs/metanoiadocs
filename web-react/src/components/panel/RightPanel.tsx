@@ -216,7 +216,7 @@ function CommentsTab({ docId }: { docId: string }) {
             className={cn(
               'rounded-lg border border-line bg-comment p-3 transition-shadow duration-220',
               c.resolved && 'bg-transparent opacity-55',
-              focusId === c.id && 'ring-2 ring-accent/60',
+              focusId === c.id && 'ring-2 ring-accent',
             )}
           >
             <div className="flex items-center gap-2">
@@ -388,16 +388,16 @@ function AITab() {
       <div className="flex-1 space-y-3 p-3">
         {messages.length === 0 && !err && (
           <div className="flex items-center gap-2 rounded-lg bg-accent-soft p-3 text-sm text-ink">
-            <Sparkles size={16} className="shrink-0 text-accent" />
+            <Sparkles size={16} className="shrink-0 text-accent-strong" />
             Ask AI to draft, summarize, or answer questions. Configure a provider in Settings.
           </div>
         )}
         {messages.map((m, i) => (
           <div key={i} className={cn('rounded-lg px-3 py-2 text-sm leading-relaxed', m.role === 'user' ? 'bg-surface text-ink' : 'bg-accent-soft text-ink')}>
-            {m.content || <Loader2 size={14} className="animate-spin text-accent" />}
+            {m.content || <Loader2 size={14} className="animate-spin text-accent-strong" />}
           </div>
         ))}
-        {err && <div className="rounded-md bg-danger/10 px-3 py-2 text-sm text-danger">{err}</div>}
+        {err && <div className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger">{err}</div>}
         <div ref={endRef} />
       </div>
       <div className="border-t border-line p-3">

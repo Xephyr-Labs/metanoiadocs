@@ -26,9 +26,9 @@ export function AssigneePicker({ assignees, users, onChange, compact }: Props) {
   const free = users.filter((u) => !ids.includes(u.id));
 
   return (
-    <div className="min-w-0">
+    <div className={cn('min-w-0', compact && 'flex flex-wrap items-center gap-1')}>
       {assignees.length > 0 && (
-        <div className={cn('flex flex-wrap gap-1', compact ? 'mb-0.5' : 'mb-1.5')}>
+        <div className={cn('flex flex-wrap gap-1', !compact && 'mb-1.5')}>
           {assignees.map((a) => {
             const avatar = avatarFor(a.name);
             return (
@@ -57,14 +57,17 @@ export function AssigneePicker({ assignees, users, onChange, compact }: Props) {
           })}
         </div>
       )}
+      {/* In a table cell the picker is a "+" beside the chips — a second full-width
+          row of "Add someone…" under every name doubled the row height of a grid
+          that is supposed to be dense. It stays a labelled select when empty. */}
       <select
-        className={cn(selectField, 'cursor-pointer text-muted', compact && 'h-6 py-0 text-2xs')}
+        className={cn(selectField, 'cursor-pointer text-muted', compact && 'h-6 py-0 text-2xs', compact && assignees.length > 0 && 'w-7 px-0 text-center')}
         aria-label="Add an assignee"
         value=""
         disabled={!free.length}
         onChange={(e) => e.target.value && onChange([...ids, e.target.value])}
       >
-        <option value="">{assignees.length ? 'Add someone…' : 'Unassigned'}</option>
+        <option value="">{assignees.length ? (compact ? '+' : 'Add someone…') : 'Unassigned'}</option>
         {free.map((u) => <option key={u.id} value={u.id}>{nameOf(u)}</option>)}
       </select>
     </div>

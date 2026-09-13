@@ -53,7 +53,7 @@ function RailRow({ version, selected, onSelect }: { version: VersionRow; selecte
         <span className="text-sm text-ink">{timeLabel(new Date(version.created_at))}</span>
         {/* AFFiNE tags the version you are LOOKING at, not the newest one —
             which is what makes "Restore current version" below read straight. */}
-        {selected && <span className="text-2xs text-accent">· Current</span>}
+        {selected && <span className="text-2xs text-accent-strong">· Current</span>}
       </span>
       <span className="flex min-w-0 items-center gap-1.5">
         {avatar ? (
@@ -246,8 +246,8 @@ function HistoryPanel({ docId }: { docId: string }) {
               canvas so the page reads as something held up to the light, not as
               the live document you were just editing. */}
           <div className={cn('relative min-w-0 flex-1 bg-surface-2 md:pt-8', showPreview ? 'flex' : 'hidden')}>
-            <span aria-hidden className="absolute left-1/2 top-1 hidden h-10 w-[calc(100%-10rem)] -translate-x-1/2 rounded-t-lg border border-line bg-canvas/50 md:block" />
-            <span aria-hidden className="absolute left-1/2 top-[18px] hidden h-10 w-[calc(100%-6.5rem)] -translate-x-1/2 rounded-t-lg border border-line bg-canvas/80 md:block" />
+            <span aria-hidden className="absolute left-1/2 top-1 hidden h-10 w-[calc(100%-10rem)] -translate-x-1/2 rounded-t-lg border border-line bg-surface md:block" />
+            <span aria-hidden className="absolute left-1/2 top-[18px] hidden h-10 w-[calc(100%-6.5rem)] -translate-x-1/2 rounded-t-lg border border-line bg-canvas md:block" />
 
             <div className="relative mx-auto flex h-full w-full flex-col overflow-hidden border-line bg-canvas md:w-[calc(100%-3rem)] md:rounded-t-lg md:border md:border-b-0">
               <div className="flex h-11 shrink-0 items-center gap-2 border-b border-line px-3">
@@ -385,7 +385,7 @@ function HistoryPanel({ docId }: { docId: string }) {
                   initial={{ opacity: 0, y: 4 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0 }}
-                  className="flex items-center gap-1 truncate text-2xs text-accent"
+                  className="flex items-center gap-1 truncate text-2xs text-accent-strong"
                 >
                   <Check size={13} /> {done}
                 </motion.span>

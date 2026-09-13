@@ -39,7 +39,7 @@ export default function App() {
   const showInlineSidebar = !isMobile && !ws.sidebarCollapsed;
 
   return (
-    <TooltipProvider delayDuration={280} skipDelayDuration={200}>
+    <TooltipProvider delayDuration={700} skipDelayDuration={300}>
       <div className="flex h-screen w-full overflow-hidden bg-canvas text-ink">
         {/* inline sidebar (desktop) */}
         <AnimatePresence initial={false}>
@@ -68,7 +68,10 @@ export default function App() {
           </main>
         </div>
 
-        <RightPanel />
+        {/* The panel's tabs are about the open document; only AI chat is not.
+            On Home, Tasks and a board a comments box has no subject, so the
+            column stays away and comes back with the next document. */}
+        {(ws.view === 'doc' || ws.rightPanel === 'ai') && <RightPanel />}
 
         {/* mobile drawer */}
         <AnimatePresence>
@@ -86,7 +89,13 @@ export default function App() {
                 animate={{ x: 0 }}
                 exit={{ x: '-100%' }}
                 transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
-                className="fixed left-0 top-0 z-50 h-full w-[280px] shadow-modal"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Navigation"
+                tabIndex={-1}
+                ref={(el) => el?.focus({ preventScroll: true })}
+                onKeyDown={(e) => { if (e.key === 'Escape') ws.setMobileDrawer(false); }}
+                className="fixed left-0 top-0 z-50 h-full w-[280px] shadow-modal outline-none"
               >
                 <Sidebar />
               </motion.div>

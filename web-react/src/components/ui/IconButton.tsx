@@ -30,7 +30,7 @@ export const IconButton = forwardRef<HTMLButtonElement, Props>(function IconButt
           // Pressed is a neutral fill, like a nav row: a toolbar toggle says
           // "this panel is open", which is not news worth the accent.
           active && 'bg-selected text-ink hover:bg-selected hover:text-ink',
-          tone === 'danger' && 'hover:bg-danger/10 hover:text-danger',
+          tone === 'danger' && 'hover:bg-danger-soft hover:text-danger',
           className,
         )}
         {...rest}

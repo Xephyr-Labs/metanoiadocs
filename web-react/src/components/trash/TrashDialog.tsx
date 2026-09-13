@@ -117,7 +117,7 @@ export function TrashDialog() {
                 key={d.id}
                 className={cn(
                   'flex items-center gap-2.5 rounded-md px-2 py-2 transition-colors duration-120',
-                  asking ? 'bg-danger/10' : 'hover:bg-hover',
+                  asking ? 'bg-danger-soft' : 'hover:bg-hover',
                 )}
               >
                 <DocIcon size={16} />
@@ -172,7 +172,7 @@ export function TrashDialog() {
                       <button
                         onClick={() => { setConfirming(d.id); setError(null); }}
                         aria-label={`Delete ${d.title || 'Untitled'} permanently`}
-                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-faint transition-colors duration-120 hover:bg-danger/10 hover:text-danger"
+                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-faint transition-colors duration-120 hover:bg-danger-soft hover:text-danger"
                       >
                         <X size={14} />
                       </button>
@@ -218,7 +218,7 @@ export function TrashDialog() {
           ) : (
             <button
               onClick={() => { setAskEmpty(true); setConfirming(null); setError(null); }}
-              className="ml-auto flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-muted transition-colors duration-120 hover:bg-danger/10 hover:text-danger"
+              className="ml-auto flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-muted transition-colors duration-120 hover:bg-danger-soft hover:text-danger"
             >
               <Trash2 size={14} /> Empty trash
             </button>

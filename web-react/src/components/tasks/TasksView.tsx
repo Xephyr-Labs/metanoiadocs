@@ -3,7 +3,7 @@ import { CheckSquare, RefreshCw } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { docsApi, type UserRow } from '../../lib/docsApi';
 import { swatch } from '../../lib/tagColors';
-import { applyFilters, fieldsFor, type Filter } from '../../lib/taskFilter';
+import { applyFilters, fieldsFor, pruneUnresolvable, type Filter } from '../../lib/taskFilter';
 import { STATUS_LABEL, tasksApi, type AnyTaskRow } from '../../lib/tasksApi';
 import { useAuth } from '../../store/auth';
 import { useWorkspace } from '../../store/workspace';
@@ -116,7 +116,17 @@ export function TasksView() {
   // Custom properties are per project, so they are deliberately not offered
   // here: "Client is Acme" would silently drop every task from a project that
   // never defined a Client. The fields above are the ones every task has.
-  const visible = data ? applyFilters(data.tasks, filters, fields) : [];
+  // A saved chip whose value no longer exists here (an assignee id from another
+  // account, a renamed tag) used to render as "Choose…" and match nothing, so
+  // the view opened on an empty list. Once the option lists are known, drop
+  // those and remember the cleaned set.
+  useEffect(() => {
+    if (!data || !users.length) return;
+    const kept = pruneUnresolvable(filters, fields);
+    if (kept.length !== filters.length) save(kept);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, users, fields]);
+  const visible = data ? applyFilters(data.tasks, pruneUnresolvable(filters, fields), fields) : [];
   const now = today();
 
   return (

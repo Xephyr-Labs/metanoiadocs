@@ -23,7 +23,7 @@ export function PageHeader({ page, fullWidth }: { page: Page; fullWidth: boolean
             task should say so before it says anything else. */}
         <TaskLink docId={page.id} />
         {page.shared && (
-          <span className="flex items-center gap-1 text-accent">
+          <span className="flex items-center gap-1 text-accent-strong">
             <Users size={12} /> Shared
           </span>
         )}

@@ -30,7 +30,7 @@ function Section({ icon: Icon, label, count, children }: {
 
 function Row({ id, title, onOpen }: { id: string; title: string; onOpen: (id: string) => void }) {
   return (
-    <button onClick={() => onOpen(id)} className="block w-full truncate text-left text-muted transition-colors hover:text-accent">
+    <button onClick={() => onOpen(id)} className="block w-full truncate text-left text-muted transition-colors hover:text-accent-strong">
       {title}
     </button>
   );

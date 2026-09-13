@@ -35,7 +35,7 @@ const itemCls = (danger?: boolean) =>
   cn(
     'flex cursor-pointer select-none items-center gap-2.5 rounded px-2 py-[6px] text-sm outline-none',
     'data-[highlighted]:bg-hover data-[state=open]:bg-hover',
-    danger ? 'text-danger data-[highlighted]:bg-danger/10' : 'text-ink',
+    danger ? 'text-danger data-[highlighted]:bg-danger-soft' : 'text-ink',
   );
 
 /* A menu is placed against the trigger, so a long one used to run past the

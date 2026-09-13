@@ -10,7 +10,7 @@ import { Menu } from '../ui/Menu';
 import { field } from '../ui/styles';
 import { SegmentedControl } from '../ui/SegmentedControl';
 import { Skeleton } from '../ui/Skeleton';
-import { applyFilters, fieldsFor, type Filter } from '../../lib/taskFilter';
+import { applyFilters, fieldsFor, pruneUnresolvable, type Filter } from '../../lib/taskFilter';
 import { Backlog } from './Backlog';
 import { Board } from './Board';
 import { Calendar } from './Calendar';
@@ -145,10 +145,13 @@ export function ProjectView() {
     : scope === 'backlog' ? p.tasks.filter((t) => !t.sprint_id)
     : p.tasks.filter((t) => t.sprint_id === scope);
 
-  const visible = applyFilters(scoped, filters, fields);
+  // Saved chips that can't resolve in this project (a sprint that was deleted,
+  // a member who left) are ignored rather than shown as "Choose…" matching nothing.
+  const live = pruneUnresolvable(filters, fields);
+  const visible = applyFilters(scoped, live, fields);
   // The backlog is the sprint-planning view, so the sprint scope means nothing
   // there — but the filters still do.
-  const backlogTasks = applyFilters(p.tasks, filters, fields);
+  const backlogTasks = applyFilters(p.tasks, live, fields);
 
   const changeFilters = (next: Filter[]) => {
     setFilters(next);

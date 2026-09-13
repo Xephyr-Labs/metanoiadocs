@@ -46,6 +46,10 @@
   --danger-soft: #fbeceb;
   --danger: #d44c47;
   --overlay: rgba(15, 15, 15, 0.32);
+  /* A translucent canvas for bars that float over scrolling content and blur
+   * what passes under them. A token because Tailwind's `/80` cannot split a
+   * var() into channels — `bg-canvas/80` emitted nothing at all. */
+  --glass: color-mix(in srgb, var(--canvas) 82%, transparent);
 
   /* Inline comments: subtle warm-yellow card + text-mark tint. */
   --comment: #fdfaee;
@@ -94,7 +98,7 @@
   --tint-strong: color-mix(in srgb, var(--accent) 16%, transparent);
 
   --sidebar-w: 260px;
-  --topbar-h: 45px;
+  --topbar-h: 44px;
   --reading-w: 760px;
 
   /* One face, three jobs. Onest carries the chrome, the prose and the titles;

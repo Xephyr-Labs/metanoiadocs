@@ -84,7 +84,7 @@ function Switch({ on, onChange, disabled }: { on: boolean; onChange: (v: boolean
     >
       <motion.span
         layout
-        transition={{ type: 'spring', stiffness: 500, damping: 34 }}
+        transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
         className={cn('absolute top-[3px] h-4 w-4 rounded-full bg-white shadow', on ? 'left-[19px]' : 'left-[3px]')}
       />
     </button>
@@ -153,7 +153,7 @@ function Account() {
                 <Button size="sm" variant="primary" onClick={save} disabled={busy}
                   leftIcon={busy ? <Loader2 size={14} className="animate-spin" /> : undefined}>Save</Button>
               ) : saved ? (
-                <span className="flex items-center gap-1 text-xs text-accent"><Check size={14} /> Saved</span>
+                <span className="flex items-center gap-1 text-xs text-accent-strong"><Check size={14} /> Saved</span>
               ) : null}
             </div>
           }
@@ -223,7 +223,7 @@ function PasswordRow() {
           </div>
         </div>
         {msg?.ok && (
-          <p className="mt-2 flex items-center gap-1.5 text-xs text-accent">
+          <p className="mt-2 flex items-center gap-1.5 text-xs text-accent-strong">
             <Check size={14} /> {msg.text}
           </p>
         )}
@@ -425,7 +425,7 @@ function Members() {
           </Button>
         </div>
         {msg && (
-          <p className={cn('mt-2 flex items-center gap-1.5 text-xs', msg.ok ? 'text-accent' : 'text-danger')}>
+          <p className={cn('mt-2 flex items-center gap-1.5 text-xs', msg.ok ? 'text-accent-strong' : 'text-danger')}>
             {msg.ok ? <Check size={14} /> : <AlertCircle size={14} />}
             {msg.text}
           </p>
@@ -476,7 +476,7 @@ function Members() {
                   ]}
                   trigger={
                     <button className="flex items-center gap-1.5 rounded-md px-1.5 py-1 hover:bg-hover">
-                      <span className={cn('rounded-full px-2 py-0.5 text-2xs font-medium', m.role === 'admin' ? 'bg-accent-soft text-accent' : 'text-muted')}>
+                      <span className={cn('rounded-full px-2 py-0.5 text-2xs font-medium', m.role === 'admin' ? 'bg-accent-soft text-accent-strong' : 'text-muted')}>
                         {m.role === 'admin' ? 'Admin' : 'Collaborator'}
                       </span>
                       <MoreHorizontal size={16} className="text-faint" />
@@ -484,7 +484,7 @@ function Members() {
                   }
                 />
               ) : m.role === 'admin' ? (
-                <span className="rounded-full bg-accent-soft px-2 py-0.5 text-2xs font-medium text-accent">Admin</span>
+                <span className="rounded-full bg-accent-soft px-2 py-0.5 text-2xs font-medium text-accent-strong">Admin</span>
               ) : (
                 <span className="text-sm text-muted">Collaborator</span>
               )}
@@ -641,7 +641,7 @@ function AiSettings() {
               <AlertCircle size={14} /> Add a provider URL, a model and a key before turning it on.
             </span>
           ) : msg ? (
-            <span className={cn('flex items-center gap-1.5 text-xs', msg.ok ? 'text-accent' : 'text-danger')}>
+            <span className={cn('flex items-center gap-1.5 text-xs', msg.ok ? 'text-accent-strong' : 'text-danger')}>
               {msg.ok ? <Check size={14} /> : <AlertCircle size={14} />} {msg.text}
             </span>
           ) : null}
@@ -726,12 +726,12 @@ function Tokens() {
             leftIcon={busy ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}>Create</Button>
         </div>
         {fresh && (
-          <div className="mt-3 rounded-lg border border-accent/40 bg-accent-soft/50 p-3">
+          <div className="mt-3 rounded-lg border border-line bg-accent-soft p-3">
             <p className="mb-1.5 text-xs font-medium text-ink">Copy your token now — it won't be shown again.</p>
             <div className="flex items-center gap-2">
               <code className="flex-1 truncate rounded bg-canvas px-2 py-1.5 text-xs text-ink ring-1 ring-inset ring-line">{fresh}</code>
               <IconButton
-                icon={copied ? <Check size={16} className="text-accent" /> : <Copy size={16} />}
+                icon={copied ? <Check size={16} className="text-accent-strong" /> : <Copy size={16} />}
                 label="Copy"
                 onClick={async () => {
                   // This token is shown once. Claiming it was copied when it
@@ -788,7 +788,7 @@ function Tokens() {
               ) : (
                 <button
                   onClick={() => setConfirming(t.id)}
-                  className="shrink-0 rounded-md px-2 py-1 text-xs text-danger transition-colors duration-120 hover:bg-danger/10"
+                  className="shrink-0 rounded-md px-2 py-1 text-xs text-danger transition-colors duration-120 hover:bg-danger-soft"
                 >
                   Revoke
                 </button>

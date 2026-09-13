@@ -58,7 +58,7 @@ function NotifyNudge() {
 
   return (
     <div className="mb-1.5 flex flex-wrap items-center gap-2 rounded-md bg-accent-soft px-2.5 py-2">
-      <Bell size={14} className="shrink-0 text-accent" />
+      <Bell size={14} className="shrink-0 text-accent-strong" />
       <p className="min-w-0 flex-1 text-xs text-ink">
         {pushSupported()
           ? 'Get told the moment something lands here, even with Metanoia closed.'
@@ -117,6 +117,7 @@ export function InboxDialog() {
       open={ws.inboxOpen}
       onOpenChange={ws.setInboxOpen}
       placement="top"
+      focusPanel
       className="max-h-[70vh]"
       title={<><Inbox size={16} className="text-muted" /> Inbox</>}
     >

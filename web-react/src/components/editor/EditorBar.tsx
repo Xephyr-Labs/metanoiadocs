@@ -193,7 +193,7 @@ export function EditorBar({ editor, mode, design, onMode, fullWidth, onFullWidth
                     className="flex cursor-pointer select-none items-center gap-2 rounded px-2 py-[6px] text-sm text-ink outline-none data-[highlighted]:bg-hover"
                   >
                     <span className="flex-1">{b.label}</span>
-                    {blockLabel === b.label && <Check size={14} className="text-accent" />}
+                    {blockLabel === b.label && <Check size={14} className="text-accent-strong" />}
                   </DM.Item>
                 ))}
               </DM.Content>

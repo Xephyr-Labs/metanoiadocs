@@ -3,8 +3,10 @@ import type { Config } from 'tailwindcss';
 /**
  * Semantic tokens live as CSS custom properties in index.css (light + .dark).
  * Tailwind maps names -> var() so `bg-surface`, `text-ink`, `border-line`
- * all follow the active theme. Opacity modifiers aren't used on these tokens,
- * so raw hex/rgb in the vars is fine.
+ * all follow the active theme. Opacity modifiers CANNOT be used on them:
+ * Tailwind can't split a var() into channels, so `bg-danger/10` emits no CSS
+ * at all — the class silently does nothing. Use a solid token (`bg-danger-soft`)
+ * or add a color-mix() token in index.css (`--tint`, `--glass`).
  */
 export default {
   // `html.dark`, not a bare `.dark`: BlockSuite writes its theme name as a class
@@ -31,6 +33,7 @@ export default {
         'danger-soft': 'var(--danger-soft)',
         danger: 'var(--danger)',
         overlay: 'var(--overlay)',
+        glass: 'var(--glass)',
         comment: 'var(--comment)',
         'comment-mark': 'var(--comment-mark)',
         tooltip: 'var(--tooltip)',

@@ -31,6 +31,10 @@ interface Props {
   /** Extra classes on the panel — max-height, flex direction, responsive shape. */
   className?: string;
   onKeyDown?: KeyboardEventHandler<HTMLDivElement>;
+  /** Focus the panel itself on open rather than its first control. For a list
+   *  dialog whose first control is the close button, Radix's default lands
+   *  focus there — and the focus tooltip ("Close", 0ms) opens over the content. */
+  focusPanel?: boolean;
   children: ReactNode;
 }
 
@@ -45,6 +49,7 @@ export function Modal({
   className,
   onKeyDown,
   children,
+  focusPanel,
 }: Props) {
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -58,7 +63,16 @@ export function Modal({
                 className="fixed inset-0 z-50 bg-overlay backdrop-blur-[2px]"
               />
             </Dialog.Overlay>
-            <Dialog.Content asChild aria-describedby={undefined} onKeyDown={onKeyDown}>
+            <Dialog.Content
+              asChild
+              aria-describedby={undefined}
+              onKeyDown={onKeyDown}
+              onOpenAutoFocus={(e) => {
+                if (!focusPanel) return;
+                e.preventDefault();
+                (e.currentTarget as HTMLElement | null)?.querySelector<HTMLElement>('[data-modal-panel]')?.focus({ preventScroll: true });
+              }}
+            >
               <div
                 onClick={(e) => e.target === e.currentTarget && onOpenChange(false)}
                 className={cn(
@@ -71,9 +85,11 @@ export function Modal({
                 <motion.div
                   {...panelMotion(placement)}
                   transition={{ duration: 0.16, ease: EASE }}
+                  data-modal-panel
+                  tabIndex={focusPanel ? -1 : undefined}
                   style={{ maxWidth: `min(92vw, ${width}px)` }}
                   className={cn(
-                    'pointer-events-auto flex w-full flex-col overflow-hidden border border-line bg-canvas shadow-modal',
+                    'pointer-events-auto flex w-full flex-col overflow-hidden border border-line bg-canvas shadow-modal outline-none',
                     sheet ? 'max-h-[88dvh] rounded-t-2xl sm:rounded-xl' : 'rounded-xl',
                     className,
                   )}

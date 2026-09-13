@@ -122,14 +122,14 @@ export function SlidesRail({ editor }: Props) {
                   className={cn(
                     'flex w-full items-center gap-2 rounded-md border px-2 py-2 text-left transition-colors duration-120 ease-out',
                     current === s.id
-                      ? 'border-accent bg-accent-soft text-accent'
+                      ? 'border-accent bg-accent-soft text-accent-strong'
                       : 'border-line bg-canvas text-ink hover:bg-hover',
                   )}
                 >
                   <span
                     className={cn(
                       'w-4 shrink-0 text-[11px] tabular-nums',
-                      current === s.id ? 'text-accent' : 'text-faint',
+                      current === s.id ? 'text-accent-strong' : 'text-faint',
                     )}
                   >
                     {i + 1}

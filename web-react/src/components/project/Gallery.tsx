@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { FileText, Plus } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { previewLine } from '../../lib/preview';
 import type { TaskRow } from '../../lib/tasksApi';
@@ -84,13 +84,18 @@ export function Gallery({
           style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${min}px, 1fr))` }}
         >
           {ordered.map((t) => {
-            const line = previewLine(t.preview, t.title);
+            // trim: a page whose only content is a blank paragraph has a preview
+            // of whitespace, which is not a reason to draw a cover.
+            const line = (previewLine(t.preview, t.title) ?? '').trim();
             return (
               <article
                 key={t.id}
                 className="overflow-hidden rounded-lg bg-canvas shadow-subtle transition-shadow duration-120 hover:shadow-pop"
               >
-                <button
+                {/* No preview, no cover: a grid of identical grey "Empty page"
+                    panels was the loudest thing on the screen, and it said
+                    nothing. A card without a page is just its chip. */}
+                {line && <button
                   type="button"
                   onClick={() => onOpen(t)}
                   aria-label={`Open ${t.title || 'Untitled'}`}
@@ -102,15 +107,8 @@ export function Gallery({
                     preview,
                   )}
                 >
-                  {line ? (
-                    <p className={cn('text-2xs leading-4 text-muted', clamp)}>{line}</p>
-                  ) : (
-                    <span className="flex flex-1 flex-col items-center justify-center gap-1 text-faint">
-                      <FileText size={16} />
-                      <span className="text-3xs">Empty page</span>
-                    </span>
-                  )}
-                </button>
+                  <p className={cn('text-2xs leading-4 text-muted', clamp)}>{line}</p>
+                </button>}
                 <TaskChip task={t} onOpen={() => onOpen(t)} flush />
               </article>
             );

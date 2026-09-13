@@ -52,7 +52,7 @@ function Row({ id, depth }: { id: PageId; depth: number }) {
         className={cn(
           'group/row relative flex h-7 cursor-pointer items-center rounded-md pr-1 text-sm leading-5 transition-colors duration-120',
           selected ? 'bg-selected font-medium text-ink' : 'text-ink hover:bg-hover',
-          drop.zone === 'inside' && 'bg-accent-soft text-accent',
+          drop.zone === 'inside' && 'bg-accent-soft text-accent-strong',
         )}
         style={{ paddingLeft: 8 + depth * 16 }}
       >

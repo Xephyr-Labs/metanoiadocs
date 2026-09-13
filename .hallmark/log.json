@@ -2,6 +2,13 @@
   {
     "date": "2026-09-13",
     "macrostructure": "Workbench (app chrome — rail + page menu), unchanged",
+    "theme": "project tokens (preserved) · audit pass: 27 findings fixed — dead opacity modifiers, stale filters, right panel scope, activity feed, auth orb, home eyebrows, table dates/status/assignee, gallery covers, mobile header, breadcrumb root, drawer a11y, accent lettering, tooltip timing, radii",
+    "enrichment": "none — typography only",
+    "brief": "metanoiadocs · hallmark audit of every surface (built + walked live at 1280/768/375, light + dark), then fix all"
+  },
+  {
+    "date": "2026-09-13",
+    "macrostructure": "Workbench (app chrome — rail + page menu), unchanged",
     "theme": "project tokens (preserved) · legibility pass: 450 weight, subpixel rendering, +1 rung on the bottom of the scale",
     "enrichment": "none — typography only",
     "brief": "metanoiadocs · sidebar type read faded and small next to Notion's; plus Notion-parity reading controls (font, small text, full width, import) in the page menu"
