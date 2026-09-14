@@ -15,6 +15,31 @@ interface AwarenessLike {
   getStates(): Map<number, Record<string, { name?: string; color?: string } | undefined>>;
   on(event: 'change', cb: () => void): void;
   off(event: 'change', cb: () => void): void;
+  emit(event: 'change', args: [{ added: number[]; updated: number[]; removed: number[] }, string]): void;
+}
+
+/**
+ * Make the remote-caret painter notice the people who were already here.
+ *
+ * BlockSuite's StoreSelectionExtension fills `remoteSelections` only from
+ * inside an awareness `change` handler — it never reads the states that were
+ * already present when it subscribed. Awareness syncs before the editor
+ * finishes mounting, so opening a document where someone is sitting with their
+ * cursor parked painted nothing: their avatar appeared in the top bar, their
+ * caret did not, and it stayed that way until they happened to move.
+ *
+ * Re-announcing the clients we can already see runs that handler once against
+ * the state we already hold. It is the exact event shape y-protocols emits
+ * (`[{added, updated, removed}, origin]`), so nothing downstream can tell this
+ * from a real one — and with no remote clients it does nothing at all.
+ *
+ * Also worth running on reconnect, which lands a fresh set of states the same
+ * way a first connection does.
+ */
+export function primeRemoteSelections(awareness: AwarenessLike): void {
+  const others = [...awareness.getStates().keys()].filter((id) => id !== awareness.clientID);
+  if (!others.length) return;
+  awareness.emit('change', [{ added: others, updated: [], removed: [] }, 'local']);
 }
 
 type Listener = (users: PresenceUser[]) => void;

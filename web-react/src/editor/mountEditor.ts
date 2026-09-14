@@ -22,7 +22,7 @@ import { applyUpdate } from 'yjs';
 import { IndexeddbPersistence } from 'y-indexeddb';
 import { Signal } from '@preact/signals-core';
 import { avatarFor } from '../lib/avatar';
-import { attachPresence } from './presence';
+import { attachPresence, primeRemoteSelections } from './presence';
 import { attachComments } from './comments';
 import { takePendingSeed } from './pendingSeed';
 import { docPlainText } from './docText';
@@ -406,6 +406,17 @@ export async function mountEditor(
 
   root.replaceChildren(editor);
   await editor.updateComplete;
+
+  // The remote-caret painter is subscribed now, but it only learns about people
+  // from awareness CHANGE events — and awareness synced before this mount, so
+  // anyone already sitting in the document with their cursor parked is invisible
+  // to it until they happen to move. Announce them once, here, and again after a
+  // reconnect delivers a fresh set of states.
+  if (provider) {
+    const awareness = collection.awarenessStore.awareness;
+    primeRemoteSelections(awareness);
+    provider.on('synced', () => primeRemoteSelections(awareness));
+  }
 
   // Inline comments: selection button + quote highlights. Not for public
   // viewers (comments API needs a member session).
