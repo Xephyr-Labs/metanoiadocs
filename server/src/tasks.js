@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import { pool } from './db.js';
 import { sendNotificationEmail } from './auth.js';
 import { sendPush } from './push.js';
+import { linkFor } from './push-rules.js';
 import { coerceFiles, propsPatch } from './props.js';
 import { propsFor } from './props-routes.js';
 import { wouldProjectCycle } from './project-tree.js';
@@ -47,7 +48,9 @@ async function notifyAssignees(task, actor, userIds) {
       user.email,
       `${actorName} assigned you "${title}"`,
       '',
-      `${base}/`
+      // linkFor lands on the dashboard when the task has no page yet, rather
+      // than on /d/null — the same rule the push notification above follows.
+      `${base}${linkFor({ docId: task.doc_id })}`
     );
   }
 }

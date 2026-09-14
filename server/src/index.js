@@ -45,6 +45,7 @@ import { registerPropRoutes } from './props-routes.js';
 import { registerDocPropRoutes } from './doc-props.js';
 import { registerHomeRoutes } from './home.js';
 import { registerPushRoutes, sendPush } from './push.js';
+import { linkFor } from './push-rules.js';
 import { registerFolderRoutes, visibleFolder } from './folders-routes.js';
 import { TRASH_RETENTION_DAYS, startTrashSweeper } from './retention.js';
 import OpenAI from 'openai';
@@ -2238,7 +2239,9 @@ async function createCommentNotifications({ commentId, docId, body, actor }) {
       // The subject already says who did what to which page; the body carries
       // only what it cannot — what they actually said.
       snippet,
-      `${BASE_URL}/`
+      // The page it happened on, not the dashboard — the same address the push
+      // notification for this event already opens.
+      `${BASE_URL}${linkFor({ docId })}`
     );
   }
 }
@@ -2314,7 +2317,7 @@ async function notifyDocMentions(docId, state, actorId) {
       person.email,
       `${actorName} mentioned you in "${docTitle}"`,
       '',
-      `${BASE_URL}/`
+      `${BASE_URL}${linkFor({ docId })}`
     );
   }
 }

@@ -222,6 +222,10 @@ export function inviteEmail({ baseUrl, inviterName, email }) {
  */
 export function notificationEmail({ subject, body, link }) {
   const href = safeUrl(link);
+  // The label follows the link rather than being fixed: a notification about a
+  // page opens that page, but an assignment whose task has no page yet lands on
+  // the dashboard, and "Open the page" would be a lie about where it goes.
+  const label = /\/d\/[^/?#]+/.test(href) ? 'Open the page' : 'Open MetanoiaDocs';
   const paragraphs = String(body || '')
     .split(/\n{2,}/)
     .map((p) => esc(p.trim()).replace(/\n/g, '<br>'))
@@ -232,10 +236,10 @@ export function notificationEmail({ subject, body, link }) {
       preheader: String(body || subject).replace(/\s+/g, ' ').slice(0, 140),
       title: subject,
       body: paragraphs,
-      action: href ? { href, label: 'Open MetanoiaDocs' } : undefined,
+      action: href ? { href, label } : undefined,
       footnote:
         'You are getting this because you are on this workspace. Notifications can be turned off in Settings.',
     }),
-    text: `${body ? `${subject}\n\n${body}` : subject}${href ? `\n\nOpen MetanoiaDocs: ${href}` : ''}`,
+    text: `${body ? `${subject}\n\n${body}` : subject}${href ? `\n\n${label}: ${href}` : ''}`,
   };
 }

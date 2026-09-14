@@ -69,3 +69,24 @@ test('esc leaves ordinary prose alone', () => {
   assert.equal(esc('Ship the Q4 plan'), 'Ship the Q4 plan');
   assert.equal(esc(null), '');
 });
+
+test('a notification opens the page it is about, and says so on the button', () => {
+  const { html, text } = notificationEmail({
+    subject: 'Ada commented on "Q4 plan"',
+    body: 'Can we move this?',
+    link: 'https://docs.example.com/d/abc123',
+  });
+  assert.ok(html.includes('href="https://docs.example.com/d/abc123"'));
+  assert.ok(html.includes('Open the page'));
+  assert.ok(text.includes('Open the page: https://docs.example.com/d/abc123'));
+});
+
+test('a task with no page yet lands on the dashboard, and the button does not claim otherwise', () => {
+  const { html } = notificationEmail({
+    subject: 'Ada assigned you "Ship it"',
+    body: '',
+    link: 'https://docs.example.com/',
+  });
+  assert.ok(!html.includes('Open the page'));
+  assert.ok(html.includes('Open MetanoiaDocs'));
+});
