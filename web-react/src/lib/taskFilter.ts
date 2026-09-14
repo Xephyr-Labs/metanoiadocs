@@ -297,3 +297,23 @@ export function newFilter(field: FilterField): Filter {
     value: field.kind === 'checkbox' ? 'true' : '',
   };
 }
+
+/** The one `tags is any of …` chip in a filter set, if it has one. */
+export const tagFilterOf = (filters: Filter[]) =>
+  filters.find((f) => f.field === 'tags' && isMultiOp(f.op)) ?? null;
+
+/**
+ * Set the focus areas a view is narrowed to, leaving every other filter alone.
+ *
+ * The tag button is a shortcut into the filter bar, not a second filter beside
+ * it, so it edits that one chip: adds it when the first tag is picked, drops it
+ * when the last is unpicked. Two places holding the same narrowing is how a
+ * view ends up showing nothing with an empty-looking bar above it.
+ */
+export function withTagFilter(filters: Filter[], tags: string[]): Filter[] {
+  const current = tagFilterOf(filters);
+  if (!tags.length) return current ? filters.filter((f) => f.id !== current.id) : filters;
+  const value = tags.join(',');
+  if (current) return filters.map((f) => (f.id === current.id ? { ...f, value } : f));
+  return [...filters, { id: crypto.randomUUID(), field: 'tags', op: 'is_any_of', value }];
+}

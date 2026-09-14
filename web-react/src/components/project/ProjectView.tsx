@@ -16,6 +16,7 @@ import { Board } from './Board';
 import { addDays } from '../../lib/gantt';
 import { Calendar } from './Calendar';
 import { FilterBar } from './FilterBar';
+import { TagFilter } from './TagFilter';
 import { Gallery } from './Gallery';
 import { Gantt } from './Gantt';
 import { KindsProvider } from './kinds';
@@ -190,6 +191,7 @@ export function ProjectView() {
             so they share a row with the view switcher instead of stacking a
             second full-width bar under it for one word. */}
         <div className="flex min-w-0 flex-1 items-center gap-2">
+          <TagFilter tags={ws.allTags} filters={filters} onChange={changeFilters} />
           <FilterBar fields={fields} filters={filters} onChange={changeFilters} />
           {filters.length > 0 && (
             <span className="shrink-0 text-2xs tabular-nums text-faint">

@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { ChevronDown, Plus, X } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { useOutsideClick } from '../../hooks/useOutsideClick';
+import { CheckList } from '../ui/CheckList';
 import {
   isMultiOp,
   needsValue,
@@ -25,11 +26,7 @@ const pill =
   'h-6 max-w-[9rem] cursor-pointer rounded bg-transparent px-1 text-xs text-ink outline-none ' +
   'hover:bg-hover focus:bg-canvas';
 
-/**
- * The checkbox list behind "is any of". A row of chips would be the obvious
- * thing and is exactly what does not scale — twenty labels is a wall — so the
- * chip stays one word wide and the list opens under it, scrolling past ten.
- */
+/** The chip's own trigger for "is any of"; the list itself is shared. */
 function ValueChecklist({ field, filter, onChange }: {
   field: FilterField;
   filter: Filter;
@@ -65,27 +62,13 @@ function ValueChecklist({ field, filter, onChange }: {
         <ChevronDown size={12} className="shrink-0 text-faint" />
       </button>
       {open && (
-        <div className="scrollarea absolute left-0 top-7 z-30 max-h-64 w-56 overflow-y-auto rounded-lg border border-line bg-canvas p-1 shadow-pop">
-          {options.map((o) => (
-            <label
-              key={o.value}
-              className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm text-ink hover:bg-hover"
-            >
-              <input type="checkbox" checked={chosen.includes(o.value)} onChange={() => toggle(o.value)} />
-              <span className="min-w-0 flex-1 truncate">{o.label}</span>
-            </label>
-          ))}
-          {!options.length && <p className="px-2 py-1.5 text-2xs text-faint">Nothing to choose from yet.</p>}
-          {chosen.length > 0 && (
-            <button
-              type="button"
-              onClick={() => onChange('')}
-              className="mt-1 w-full rounded px-2 py-1.5 text-left text-2xs text-faint hover:bg-hover hover:text-ink"
-            >
-              Clear selection
-            </button>
-          )}
-        </div>
+        <CheckList
+          className="absolute left-0 top-7 z-30 w-56 shadow-pop"
+          options={options}
+          chosen={chosen}
+          onToggle={toggle}
+          onClear={() => onChange('')}
+        />
       )}
     </div>
   );

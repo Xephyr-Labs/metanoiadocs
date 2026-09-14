@@ -12,6 +12,7 @@ import { IconButton } from '../ui/IconButton';
 import { Skeleton } from '../ui/Skeleton';
 import { DOT } from '../project/Board';
 import { FilterBar } from '../project/FilterBar';
+import { TagFilter } from '../project/TagFilter';
 
 /** One saved filter set for the whole workspace, per browser — the same
  *  arrangement each project's board already uses for its own. */
@@ -150,7 +151,8 @@ export function TasksView() {
               one with the heading leaves them about 240px, and a chip is wider
               than that — the value end of every filter was cut off the screen,
               unreadable and unreachable. */}
-          <div className="order-3 min-w-0 basis-full sm:order-2 sm:basis-0 sm:flex-1">
+          <div className="order-3 flex min-w-0 basis-full items-center gap-2 sm:order-2 sm:basis-0 sm:flex-1">
+            <TagFilter tags={ws.allTags} filters={filters} onChange={save} />
             <FilterBar fields={fields} filters={filters} onChange={save} />
           </div>
           <div className="order-2 ml-auto sm:order-3 sm:ml-0">
