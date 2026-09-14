@@ -285,7 +285,7 @@ export function TopBar() {
           </Button>
           <IconButton
             icon={<Sparkles size={16} />}
-            label="Ask AI"
+            label="Chat with this page"
             active={ws.rightPanel === 'ai'}
             onClick={() => ws.setRightPanel(ws.rightPanel === 'ai' ? null : 'ai')}
           />
@@ -334,8 +334,11 @@ export function TopBar() {
                 { icon: ws.theme === 'dark' ? Sun : Moon, label: ws.theme === 'dark' ? 'Light mode' : 'Dark mode', onSelect: ws.toggleTheme },
                 { icon: PanelRight, label: 'Outline & details', onSelect: () => ws.setRightPanel(ws.rightPanel ? null : 'outline') },
               ] : []),
+              // The chat opens with this page already attached, so the menu
+              // entry and the toolbar button say the same thing.
+              { icon: Sparkles, label: 'Chat with this page', onSelect: () => ws.setRightPanel('ai') },
               // Favorites are per person; a pin puts it on the team's shelf.
-              { icon: Pin, label: page.pinned ? 'Unpin for everyone' : 'Pin for everyone', separatorBefore: isMobile, onSelect: () => ws.togglePin(page.id) },
+              { icon: Pin, label: page.pinned ? 'Unpin for everyone' : 'Pin for everyone', separatorBefore: true, onSelect: () => ws.togglePin(page.id) },
               { icon: Link2, label: 'Copy link', onSelect: () => { copyLink(location.href); } },
               { icon: History, label: 'Version history', onSelect: () => ws.openHistory(page.id) },
               { icon: ArrowUpRight, label: 'Open in new tab', onSelect: () => window.open(location.href, '_blank') },
