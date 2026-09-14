@@ -1,8 +1,9 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { Bot, Check, Info, ListTree, Loader2, MessageSquareText, Send, Sparkles, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { aiStream, docsApi, type CommentRow, type UserRow } from '../../lib/docsApi';
+import { docsApi, type CommentRow, type UserRow } from '../../lib/docsApi';
 import { applyCommentHighlights, clearPendingAnchor, clearPendingFocus, onCommentRequest, usePendingAnchor, usePendingFocus } from '../../editor/comments';
+import { AIChat } from './AIChat';
 import { IntelligenceRail } from '../intelligence/IntelligenceRail';
 import { useIntelligence } from '../../hooks/useIntelligence';
 import { useDocSaveTick } from '../../lib/docSignal';
@@ -12,7 +13,6 @@ import { avatarFor } from '../../lib/avatar';
 import { relativeTime } from '../../lib/time';
 import { useWorkspace, type RightTab } from '../../store/workspace';
 import { cn } from '../../lib/cn';
-import { Button } from '../ui/Button';
 import { EmptyState } from '../ui/EmptyState';
 import { IconButton } from '../ui/IconButton';
 import { Tooltip } from '../ui/Tooltip';
@@ -71,7 +71,7 @@ export function RightPanel() {
         <motion.aside
           key="rp-desktop"
           initial={{ width: 0, opacity: 0 }}
-          animate={{ width: 320, opacity: 1 }}
+          animate={{ width: ws.rightPanel === 'ai' ? 400 : 320, opacity: 1 }}
           exit={{ width: 0, opacity: 0 }}
           transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
           className="relative h-full shrink-0 overflow-hidden border-l border-line bg-canvas"
@@ -87,7 +87,7 @@ function PanelInner() {
   const ws = useWorkspace();
   const docId = ws.currentId;
   return (
-    <div className="flex h-full w-full flex-col md:w-[320px]">
+    <div className={cn('flex h-full w-full flex-col', ws.rightPanel === 'ai' ? 'md:w-[400px]' : 'md:w-[320px]')}>
       <div className="flex h-[45px] shrink-0 items-center gap-0.5 border-b border-line px-2">
         <div className="no-scrollbar flex flex-1 items-center gap-0.5 overflow-x-auto">
           {TABS.map((t) => (
@@ -114,11 +114,11 @@ function PanelInner() {
         <IconButton icon={<X size={16} />} label="Close" onClick={() => ws.setRightPanel(null)} />
       </div>
 
+      {ws.rightPanel === 'ai' ? (
+        <div className="min-h-0 flex-1"><AIChat /></div>
+      ) : (
       <div className="scrollarea min-h-0 flex-1 overflow-y-auto">
-        {ws.rightPanel === 'ai' ? (
-          // AI chat is not doc-scoped — it must work from Home too.
-          <AITab />
-        ) : !docId ? (
+        {!docId ? (
           <EmptyState icon={Info} title="No page open" />
         ) : ws.rightPanel === 'intel' ? (
           <IntelligenceTab docId={docId} />
@@ -130,6 +130,7 @@ function PanelInner() {
           <DetailsTab />
         ) : null}
       </div>
+      )}
     </div>
   );
 }
@@ -344,68 +345,5 @@ function DetailsTab() {
         </div>
       ))}
     </dl>
-  );
-}
-
-function AITab() {
-  const ws = useWorkspace();
-  const [messages, setMessages] = useState<{ role: 'user' | 'assistant'; content: string }[]>([]);
-  const [input, setInput] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const endRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => { endRef.current?.scrollIntoView({ block: 'end' }); }, [messages]);
-
-  const send = async () => {
-    const text = input.trim();
-    if (!text || busy) return;
-    setErr(null);
-    setInput('');
-    const history = [...messages, { role: 'user' as const, content: text }];
-    setMessages([...history, { role: 'assistant', content: '' }]);
-    setBusy(true);
-    try {
-      // Send which doc is open, not its text: the server already has the doc
-      // and reads it under the user's own access.
-      await aiStream({ messages: history, docId: ws.currentId ?? undefined }, (delta) => {
-        setMessages((m) => {
-          const next = [...m];
-          next[next.length - 1] = { role: 'assistant', content: next[next.length - 1].content + delta };
-          return next;
-        });
-      });
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : 'AI error');
-      setMessages((m) => m.slice(0, -1));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="flex h-full flex-col">
-      <div className="flex-1 space-y-3 p-3">
-        {messages.length === 0 && !err && (
-          <div className="flex items-center gap-2 rounded-lg bg-accent-soft p-3 text-sm text-ink">
-            <Sparkles size={16} className="shrink-0 text-accent-strong" />
-            Ask AI to draft, summarize, or answer questions. Configure a provider in Settings.
-          </div>
-        )}
-        {messages.map((m, i) => (
-          <div key={i} className={cn('rounded-lg px-3 py-2 text-sm leading-relaxed', m.role === 'user' ? 'bg-surface text-ink' : 'bg-accent-soft text-ink')}>
-            {m.content || <Loader2 size={14} className="animate-spin text-accent-strong" />}
-          </div>
-        ))}
-        {err && <div className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger">{err}</div>}
-        <div ref={endRef} />
-      </div>
-      <div className="border-t border-line p-3">
-        <div className="flex items-center gap-2 rounded-lg ring-1 ring-inset ring-line focus-within:ring-2 focus-within:ring-accent">
-          <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()} placeholder="Ask AI anything…" className="h-9 flex-1 bg-transparent px-3 text-sm outline-none placeholder:text-faint" />
-          <Button size="sm" variant="primary" className="mr-1" onClick={send} disabled={busy}>{busy ? <Loader2 size={14} className="animate-spin" /> : 'Ask'}</Button>
-        </div>
-      </div>
-    </div>
   );
 }

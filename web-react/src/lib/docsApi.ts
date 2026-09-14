@@ -332,11 +332,25 @@ export const docsApi = {
     req('/settings/ai', { method: 'PUT', body: JSON.stringify(body) }),
 };
 
+/**
+ * One step of the copilot's work: a tool it is calling, then the same `i`
+ * again with `done` once the tool has answered — which is when the server
+ * knows enough to name what it read or changed.
+ */
+export interface AiToolStep {
+  i: number;
+  name: string;
+  hint?: string;
+  done?: boolean;
+  error?: string;
+}
+
 /** Stream an AI response (SSE over POST). Calls onDelta per token. */
 export async function aiStream(
   body: { messages?: { role: string; content: string }[]; action?: string; prompt?: string; selection?: string; docId?: string },
   onDelta: (t: string) => void,
   signal?: AbortSignal,
+  onTool?: (step: AiToolStep) => void,
 ): Promise<void> {
   const res = await fetch('/api/ai', {
     method: 'POST',
@@ -371,13 +385,14 @@ export async function aiStream(
       if (data === '[DONE]') return;
       // Parse inside the try, act outside it: an in-band error must reach the
       // caller, and it cannot do that from a block whose catch ignores throws.
-      let p: { text?: string; error?: string };
+      let p: { text?: string; error?: string; tool?: AiToolStep };
       try {
         p = JSON.parse(data);
       } catch {
         continue; // partial frame
       }
       if (p.text) onDelta(p.text);
+      if (p.tool) onTool?.(p.tool);
       if (p.error) throw new Error(p.error);
     }
   }

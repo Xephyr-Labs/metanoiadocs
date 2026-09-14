@@ -1,81 +1,33 @@
 /**
  * The tools the in-app copilot may call.
  *
- * Same loopback pattern as the MCP surface (mcp-tools.js): every tool calls
- * this server's own REST API carrying the caller's own cookie, so the copilot
- * gets exactly the access the signed-in user already has and adding a tool here
- * cannot create a second, weaker path to the data.
+ * These are not a second, smaller tool table — they are *the* MCP surface
+ * (mcp-tools.js), the same one Claude and any other MCP client get at POST
+ * /mcp. The copilot connects to it over an in-memory transport, so a tool
+ * added for MCP is a tool the copilot can use the same day, with one
+ * description to keep honest instead of two that drift.
  *
- * It is a separate, much smaller table than the MCP one rather than a shared
- * abstraction: the schemas are a different shape (OpenAI function-calling JSON
- * vs MCP/zod), and a chat sidebar wants four tools where an agent wants
- * fourteen. Two short tables beat one indirection layer.
+ * Access is unchanged by this: every MCP tool calls this server's own REST API
+ * carrying the caller's own cookie, so the copilot gets exactly what the
+ * signed-in user already has.
  */
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+
+import { createMetanoiaMcpServer } from './mcp-tools.js';
 
 /** A doc pasted whole into the prompt is mostly waste past this point. */
-const MAX_DOC_CHARS = 12000;
+const MAX_TOOL_CHARS = 12000;
 
-const TOOLS = [
-  {
-    name: 'search_docs',
-    description:
-      'Full-text search across every doc this user can read. Use it to answer questions about documents other than the one open. Returns id, title and a matching snippet — read_doc for the full text.',
-    parameters: {
-      type: 'object',
-      properties: { query: { type: 'string', description: 'Search terms' } },
-      required: ['query'],
-    },
-    call: (api, { query }) => api(`/search?q=${encodeURIComponent(String(query || ''))}`),
-  },
-  {
-    name: 'read_doc',
-    description: "Read a doc's full plain text by id. Get ids from search_docs.",
-    parameters: {
-      type: 'object',
-      properties: { id: { type: 'string', description: 'Document id' } },
-      required: ['id'],
-    },
-    call: async (api, { id }) => {
-      const d = await api(`/docs/${encodeURIComponent(String(id))}/text`);
-      return { ...d, text: String(d?.text || '').slice(0, MAX_DOC_CHARS) };
-    },
-  },
-  {
-    name: 'write_doc',
-    description:
-      "Change a doc's content. mode=append (default) adds markdown to the end; mode=replace overwrites the whole body. Markdown headings, lists, to-dos, quotes and code fences become real editor blocks. Only call this when the user has asked for the document to be changed.",
-    parameters: {
-      type: 'object',
-      properties: {
-        id: { type: 'string', description: 'Document id' },
-        markdown: { type: 'string', description: 'Markdown content' },
-        mode: { type: 'string', enum: ['append', 'replace'] },
-      },
-      required: ['id', 'markdown'],
-    },
-    call: (api, { id, markdown, mode }) =>
-      api(`/docs/${encodeURIComponent(String(id))}/content`, {
-        method: 'POST',
-        body: { markdown: String(markdown || ''), mode: mode === 'replace' ? 'replace' : 'append' },
-      }),
-  },
-  {
-    name: 'create_doc',
-    description: 'Create a new document from a title and optional markdown body. Returns its id.',
-    parameters: {
-      type: 'object',
-      properties: {
-        title: { type: 'string' },
-        content: { type: 'string', description: 'Markdown body (optional)' },
-      },
-      required: ['title'],
-    },
-    call: async (api, { title, content }) => {
-      const d = await api('/docs', { method: 'POST', body: { title: String(title || 'Untitled'), content } });
-      return { id: d?.id, title: d?.title };
-    },
-  },
-];
+/**
+ * JSON Schema the MCP SDK emits carries draft keywords ($schema, additionalProperties)
+ * that some OpenAI-compatible providers reject outright rather than ignore.
+ * Function-calling only needs the shape.
+ */
+function toFunctionParameters(schema) {
+  const { $schema, additionalProperties, ...rest } = schema || {};
+  return { type: 'object', properties: {}, ...rest };
+}
 
 /**
  * @param {object} opts
@@ -83,30 +35,36 @@ const TOOLS = [
  * @param {Record<string,string>} opts.headers  Auth headers forwarded on every call.
  */
 export function aiTools({ base, headers = {} }) {
-  const origin = String(base || '').replace(/\/+$/, '');
+  let server = null;
+  let client = null;
+  let connecting = null;
 
-  async function api(path, { method = 'GET', body } = {}) {
-    const res = await fetch(`${origin}/api${path}`, {
-      method,
-      headers: { ...headers, ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
-    const text = await res.text();
-    let data;
-    try {
-      data = text ? JSON.parse(text) : null;
-    } catch {
-      data = text;
-    }
-    if (!res.ok) throw new Error((data && data.error) || `HTTP ${res.status}`);
-    return data;
+  function connect() {
+    if (connecting) return connecting;
+    connecting = (async () => {
+      server = createMetanoiaMcpServer({ base, headers });
+      const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+      client = new Client({ name: 'metanoiadocs-copilot', version: '1.0.0' });
+      await Promise.all([server.connect(serverSide), client.connect(clientSide)]);
+      return client;
+    })();
+    return connecting;
   }
 
   return {
-    specs: TOOLS.map((t) => ({
-      type: 'function',
-      function: { name: t.name, description: t.description, parameters: t.parameters },
-    })),
+    /** Every MCP tool, as OpenAI function-calling specs. */
+    async specs() {
+      const c = await connect();
+      const { tools } = await c.listTools();
+      return tools.map((t) => ({
+        type: 'function',
+        function: {
+          name: t.name,
+          description: t.description,
+          parameters: toFunctionParameters(t.inputSchema),
+        },
+      }));
+    },
 
     /**
      * Run one tool call. Never throws: a failure has to come back as a result
@@ -114,8 +72,6 @@ export function aiTools({ base, headers = {} }) {
      * stream the user is watching.
      */
     async run(name, argsJson) {
-      const tool = TOOLS.find((t) => t.name === name);
-      if (!tool) return { error: `unknown tool "${name}"` };
       let args;
       try {
         args = argsJson ? JSON.parse(argsJson) : {};
@@ -123,10 +79,37 @@ export function aiTools({ base, headers = {} }) {
         return { error: 'arguments were not valid JSON' };
       }
       try {
-        return await tool.call(api, args);
+        const c = await connect();
+        const result = await c.callTool({ name, arguments: args });
+        const text = (result.content || [])
+          .filter((p) => p.type === 'text')
+          .map((p) => p.text)
+          .join('\n');
+        if (result.isError) return { error: text.replace(/^Error:\s*/, '') || 'tool failed' };
+        let out;
+        try {
+          out = JSON.parse(text);
+        } catch {
+          return { text: text.slice(0, MAX_TOOL_CHARS) };
+        }
+        // read_doc hands back a whole document; one long one must not eat the
+        // context every later round needs.
+        if (out && typeof out.text === 'string') out.text = out.text.slice(0, MAX_TOOL_CHARS);
+        return out;
       } catch (e) {
         return { error: e.message || String(e) };
       }
+    },
+
+    /** Tear the in-memory pair down with the request that opened it. */
+    async close() {
+      if (!connecting) return;
+      try {
+        await connecting;
+      } catch {
+        /* never connected — nothing to close */
+      }
+      await Promise.allSettled([client?.close(), server?.close()]);
     },
   };
 }
