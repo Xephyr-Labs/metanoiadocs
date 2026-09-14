@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import { pool } from './db.js';
 import { sendNotificationEmail } from './auth.js';
 import { sendPush } from './push.js';
-import { propsPatch } from './props.js';
+import { coerceFiles, propsPatch } from './props.js';
 import { propsFor } from './props-routes.js';
 import { wouldProjectCycle } from './project-tree.js';
 
@@ -46,7 +46,8 @@ async function notifyAssignees(task, actor, userIds) {
     await sendNotificationEmail(
       user.email,
       `${actorName} assigned you "${title}"`,
-      `${actorName} assigned you "${title}".\n\nOpen MetanoiaDocs: ${base}/`
+      '',
+      `${base}/`
     );
   }
 }
@@ -631,6 +632,11 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
     if (b.progress !== undefined) set('progress', clampPct(b.progress));
     if (b.points !== undefined) set('points', b.points == null ? null : Number(b.points) || 0);
     if (b.milestone !== undefined) set('milestone', !!b.milestone);
+    if (b.attachments !== undefined) {
+      const files = coerceFiles(b.attachments);
+      if (!files) return res.status(400).json({ error: 'bad attachments' });
+      set('attachments', JSON.stringify(files));
+    }
     // The page this task is written on. Read first, because relinking has to
     // know which page is being left behind.
     let leaving = null;

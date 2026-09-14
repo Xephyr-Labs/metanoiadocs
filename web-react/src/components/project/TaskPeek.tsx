@@ -17,6 +17,7 @@ import { useMoveToFolder } from '../../hooks/useMoveToFolder';
 import { AssigneePicker } from './AssigneePicker';
 import { useKinds } from './kinds';
 import { KindBadge } from './TaskChip';
+import { Attachments } from '../ui/Attachments';
 import { PropertyValue } from './props/PropertyValue';
 
 interface Props {
@@ -227,6 +228,14 @@ export function TaskPeek({
               <TagChips compact page={page} />
             </section>
           )}
+
+          <section className="border-b border-line p-4">
+            <span className={label}>Attachments</span>
+            <Attachments
+              files={task.attachments ?? []}
+              onChange={(next) => onPatch(task.id, { attachments: next })}
+            />
+          </section>
 
           <section className="p-4">
             <span className={label}>Depends on</span>

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PROP_TYPES, propKey, canChangeType, normalizeOptions, coercePropValue, propsPatch, relationError, docKind } from './props.js';
+import { PROP_TYPES, propKey, canChangeType, normalizeOptions, coerceFiles, coercePropValue, propsPatch, relationError, docKind } from './props.js';
 
 test('propKey slugs a label and never collides', () => {
   assert.equal(propKey('Story Points'), 'story-points');
@@ -106,4 +106,29 @@ test('coercePropValue accepts a file list and refuses a bad key', () => {
 test('file is a property type, relation still is not a value', () => {
   assert.ok(PROP_TYPES.includes('file'));
   assert.equal(coercePropValue('relation', ['anything']), undefined);
+});
+
+const KEY = 'a'.repeat(64);
+
+test('an attachment list keeps what a chip needs and nothing a caller made up', () => {
+  const [file] = coerceFiles([
+    { key: KEY.toUpperCase(), name: '  plan.pdf  ', mime: 'application/pdf', size: 1234, role: 'admin' },
+  ]);
+  assert.deepEqual(file, { key: KEY, name: 'plan.pdf', mime: 'application/pdf', size: 1234 });
+});
+
+test('one bad entry refuses the whole list rather than dropping a file silently', () => {
+  assert.equal(coerceFiles([{ key: KEY, name: 'ok.png' }, { key: '../../etc/passwd', name: 'bad' }]), undefined);
+  assert.equal(coerceFiles('nope'), undefined);
+});
+
+test('an empty attachment list is a list, not a refusal', () => {
+  assert.deepEqual(coerceFiles([]), []);
+  assert.deepEqual(coerceFiles(null), []);
+});
+
+test('an unnamed file still has a name, and a nonsense size is zero', () => {
+  const [file] = coerceFiles([{ key: KEY, size: 'huge' }]);
+  assert.equal(file.name, 'file');
+  assert.equal(file.size, 0);
 });

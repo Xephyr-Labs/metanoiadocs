@@ -39,7 +39,7 @@ import { docxFromMarkdown } from './docx.js';
 import { fileToMarkdown, IMPORT_EXTENSIONS } from './import.js';
 import { registerMcpRoute } from './mcp-http.js';
 import { topTerms, extractSignals, findMentions, simhash, hamming, keyphrases, summarize, tokenize, coalesceByKey, blocksFromText } from './intelligence.js';
-import { docKind } from './props.js';
+import { coerceFiles, docKind } from './props.js';
 import { registerTaskRoutes } from './tasks.js';
 import { registerPropRoutes } from './props-routes.js';
 import { registerDocPropRoutes } from './doc-props.js';
@@ -1207,6 +1207,32 @@ app.delete('/api/docs/:id', requireUser, async (req, res) => {
   res.json({ ok: true });
 });
 
+// Files attached to a page. Kept off GET /api/docs on purpose: that payload
+// builds the whole sidebar on every boot, and most pages have no attachments —
+// a task carries its own inline, because a board's task list is small enough
+// to afford it.
+app.get('/api/docs/:id/attachments', requireUser, async (req, res) => {
+  if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
+  const { rows } = await pool.query('SELECT attachments FROM docs WHERE id = $1', [req.params.id]);
+  if (!rows[0]) return res.status(404).json({ error: 'no such page' });
+  res.json(rows[0].attachments ?? []);
+});
+
+// PUT, not PATCH: the client sends the list it wants, the way the sidebar
+// order does, so two people adding a file at once converge on one of the two
+// lists rather than interleaving into a list neither of them chose.
+app.put('/api/docs/:id/attachments', requireUser, async (req, res) => {
+  if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
+  const files = coerceFiles(req.body);
+  if (!files) return res.status(400).json({ error: 'bad attachments' });
+  const { rowCount } = await pool.query(
+    'UPDATE docs SET attachments = $1, updated_at = now(), updated_by = $2 WHERE id = $3',
+    [JSON.stringify(files), req.user.id, req.params.id]
+  );
+  if (!rowCount) return res.status(404).json({ error: 'no such page' });
+  res.json(files);
+});
+
 // Public read-only share. Owner-gated. GET reads current token; POST mints (or
 // returns) one; DELETE revokes it. The token is the whole capability — anyone
 // with the link reads.
@@ -1907,16 +1933,21 @@ app.get('/api/blob/:key', async (req, res) => {
   const { rows } = await pool.query('SELECT mime, data FROM blobs WHERE key = $1', [req.params.key]);
   if (!rows[0]) return res.status(404).end();
   // Never serve a client-supplied Content-Type that a browser could execute in
-  // our origin (stored XSS). Images render inline; anything else is forced to an
-  // inert octet-stream download. nosniff blocks MIME-sniffing around this.
+  // our origin (stored XSS). Only types a browser renders but cannot run are
+  // sent as themselves; anything else is forced to an inert octet-stream
+  // download. nosniff blocks MIME-sniffing around this.
   const mime = String(rows[0].mime || '');
   const isImage = /^image\/(png|jpe?g|gif|webp|avif|bmp|x-icon|svg\+xml)$/i.test(mime);
-  res.setHeader('Content-Type', isImage ? mime : 'application/octet-stream');
+  // Video and audio play in place rather than downloading. Neither format is
+  // script-bearing, so the reasoning that lets an image through covers them.
+  const isMedia = /^(video\/(mp4|webm|ogg)|audio\/(mpeg|mp4|ogg|wav|webm))$/i.test(mime);
+  const inline = isImage || isMedia;
+  res.setHeader('Content-Type', inline ? mime : 'application/octet-stream');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   // Neutralize scripts if the blob is ever loaded as a top-level document (e.g. an
   // SVG opened directly): sandbox blocks script execution. Harmless to <img> use.
   res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox");
-  if (!isImage) {
+  if (!inline) {
     // `?name=` is the file's own name, so a download is not called by its
     // sha256. Quotes and control characters are stripped rather than escaped —
     // a header is not the place to be clever about a filename.
@@ -1924,7 +1955,29 @@ app.get('/api/blob/:key', async (req, res) => {
     res.setHeader('Content-Disposition', wanted ? `attachment; filename="${wanted}"` : 'attachment');
   }
   res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
-  res.end(rows[0].data);
+
+  const data = rows[0].data;
+  if (!isMedia) return res.end(data);
+
+  // Media needs byte ranges: without them Safari refuses to play a video at
+  // all, and everywhere else the scrubber can only ever seek to the start.
+  res.setHeader('Accept-Ranges', 'bytes');
+  const asked = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range || '');
+  if (!asked) return res.end(data);
+  const size = data.length;
+  // "bytes=-500" is the last 500 bytes, not the first 501.
+  const suffix = !asked[1] && !!asked[2];
+  const start = suffix ? Math.max(0, size - Number(asked[2])) : Number(asked[1] || 0);
+  const end = suffix || !asked[2] ? size - 1 : Number(asked[2]);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start > end || start >= size) {
+    res.setHeader('Content-Range', `bytes */${size}`);
+    return res.status(416).end();
+  }
+  const last = Math.min(end, size - 1);
+  res.status(206);
+  res.setHeader('Content-Range', `bytes ${start}-${last}/${size}`);
+  res.setHeader('Content-Length', last - start + 1);
+  res.end(data.subarray(start, last + 1));
 });
 
 app.get('/api/blob', requireUser, async (_req, res) => {
@@ -2182,7 +2235,10 @@ async function createCommentNotifications({ commentId, docId, body, actor }) {
     sendNotificationEmail(
       email,
       `${actorName} ${verb} "${docTitle}"`,
-      `${actorName} ${verb} "${docTitle}":\n\n${snippet}\n\nOpen MetanoiaDocs: ${BASE_URL}/`
+      // The subject already says who did what to which page; the body carries
+      // only what it cannot — what they actually said.
+      snippet,
+      `${BASE_URL}/`
     );
   }
 }
@@ -2257,7 +2313,8 @@ async function notifyDocMentions(docId, state, actorId) {
     sendNotificationEmail(
       person.email,
       `${actorName} mentioned you in "${docTitle}"`,
-      `${actorName} mentioned you in "${docTitle}".\n\nOpen MetanoiaDocs: ${BASE_URL}/`
+      '',
+      `${BASE_URL}/`
     );
   }
 }

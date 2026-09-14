@@ -78,3 +78,11 @@ export function chooseFiles({ accept, multiple = true }: { accept?: string; mult
     input.click();
   });
 }
+
+/**
+ * Types the blob endpoint serves as themselves so a browser can play them.
+ * Anything outside these lists comes back as an octet-stream download, so a
+ * player pointed at one would sit there showing nothing.
+ */
+export const isVideoFile = (file: StoredFile) => /^video\/(mp4|webm|ogg)$/i.test(file.mime);
+export const isAudioFile = (file: StoredFile) => /^audio\/(mpeg|mp4|ogg|wav|webm)$/i.test(file.mime);

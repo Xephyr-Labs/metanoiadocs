@@ -1,3 +1,5 @@
+import type { StoredFile } from './uploads';
+
 // Client for the projects/tasks endpoints and the home dashboard payload.
 // Same-origin and cookie-authed, matching docsApi.
 
@@ -156,6 +158,9 @@ export interface TaskRow {
    *  task has no page yet, or its page is untagged; absent on a row that came
    *  from a cached response predating them. */
   tags?: string[];
+  /** Files on the task itself. A column, not a property, so every database has
+   *  them without one first having to be defined. */
+  attachments?: StoredFile[];
   props: Record<string, unknown>;
   /** Opening text of the row's own page; null when it has no page or an empty
    *  one. Shown by the gallery view — run it through previewLine() first. */
@@ -197,6 +202,7 @@ export interface TaskPatch {
   progress?: number;
   points?: number | null;
   milestone?: boolean;
+  attachments?: StoredFile[];
   docId?: string | null;
   position?: number;
   kind?: TaskKind;
