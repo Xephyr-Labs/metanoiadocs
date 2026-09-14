@@ -58,7 +58,8 @@ interface WorkspaceState {
   favoriteFolderIds: string[];
   recentIds: PageId[];
   allTags: Tag[];
-  tagFilter: string | null;
+  /** Tags the page list is narrowed to. Empty means no tag filter is open. */
+  tagFilter: string[];
   unreadCount: number;
   refreshUnread: () => void;
   markInboxRead: () => void;
@@ -131,7 +132,7 @@ interface WorkspaceState {
   refreshTags: () => Promise<void>;
   addTagToPage: (id: PageId, body: { tagId?: string; name?: string; color?: string }) => Promise<void>;
   removeTagFromPage: (id: PageId, tagId: string) => Promise<void>;
-  setTagFilter: (tagId: string | null) => void;
+  setTagFilter: (tagIds: string[]) => void;
 
   setSidebarCollapsed: (v: boolean) => void;
   setSidebarWidth: (w: number) => void;
@@ -246,7 +247,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [trashOpen, setTrashOpen] = useState(false);
   const [inboxOpen, setInboxOpen] = useState(false);
   const [allTags, setAllTags] = useState<Tag[]>([]);
-  const [tagFilter, setTagFilter] = useState<string | null>(null);
+  const [tagFilter, setTagFilter] = useState<string[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   // Page property definitions are workspace-wide, so they load once with the
   // rest of the boot payload rather than per page.

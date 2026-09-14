@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addDays, barFor, dayX, daysBetween, rangeFor, ticksFor } from './gantt';
+import { addDays, barFor, dayX, daysBetween, rangeFor, ticksFor, weekSegments } from './gantt';
 
 describe('date math', () => {
   it('counts inclusive-exclusive days and crosses month/year ends', () => {
@@ -131,5 +131,51 @@ describe('ticksFor — month boundary beside the first column', () => {
     const ticks = ticksFor({ start: '2026-08-20', end: '2026-09-20', days: 32 }, 10, 7);
     expect(ticks[0].label).toBe('Aug 20');
     expect(ticks.some((t) => t.label === 'Sep')).toBe(true);
+  });
+});
+
+describe('weekSegments', () => {
+  const week = '2026-09-07'; // a Monday
+
+  it('spans a task across every day it runs, not just its due date', () => {
+    const [seg] = weekSegments([{ id: 't', from: '2026-09-08', to: '2026-09-11' }], week);
+    expect(seg).toMatchObject({ col: 1, span: 4, opens: true, closes: true, lane: 0 });
+  });
+
+  it('cuts a range at the week edges and marks the side it continues past', () => {
+    const [seg] = weekSegments([{ id: 't', from: '2026-09-04', to: '2026-09-20' }], week);
+    expect(seg).toMatchObject({ col: 0, span: 7, opens: false, closes: false });
+  });
+
+  it('drops a range that misses the week entirely', () => {
+    expect(weekSegments([{ id: 't', from: '2026-09-01', to: '2026-09-03' }], week)).toEqual([]);
+  });
+
+  it('stacks overlapping rows and reuses a lane once it is free', () => {
+    const segs = weekSegments(
+      [
+        { id: 'long', from: '2026-09-07', to: '2026-09-10' },
+        { id: 'over', from: '2026-09-08', to: '2026-09-09' },
+        { id: 'after', from: '2026-09-12', to: '2026-09-12' },
+      ],
+      week,
+    );
+    const lane = Object.fromEntries(segs.map((s) => [s.id, s.lane]));
+    expect(lane).toEqual({ long: 0, over: 1, after: 0 });
+  });
+});
+
+describe('ticksFor across a year boundary', () => {
+  const range = { start: '2026-11-01', end: '2027-03-01', days: 121 };
+
+  it('names the year in January, and only there', () => {
+    const labels = ticksFor(range, 3, 30).filter((t) => t.major).map((t) => t.label);
+    expect(labels).toEqual(['Nov', 'Dec', 'Jan 2027', 'Feb', 'Mar']);
+  });
+
+  it('drops the months when they collide, keeping the years', () => {
+    const wide = { start: '2026-01-01', end: '2028-12-31', days: 1096 };
+    const labels = ticksFor(wide, 0.8, 30).map((t) => t.label);
+    expect(labels).toEqual(['Jan 2026', 'Jan 2027', 'Jan 2028']);
   });
 });

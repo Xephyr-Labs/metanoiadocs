@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyFilters, fieldsFor, newFilter, needsValue, pruneUnresolvable, type Filter } from './taskFilter';
+import { applyFilters, fieldsFor, newFilter, needsValue, pruneUnresolvable, tagFilterOf, withTagFilter, type Filter } from './taskFilter';
 import type { PropRow, TaskKindRow, TaskRow } from './tasksApi';
 
 const task = (over: Partial<TaskRow>): TaskRow => ({
@@ -250,5 +250,41 @@ describe('pruneUnresolvable', () => {
 
   it('drops a filter on a field that no longer exists', () => {
     expect(pruneUnresolvable([f('sprint_id', 's1')], fields)).toEqual([]);
+  });
+});
+
+describe('withTagFilter', () => {
+  const other: Filter = { id: 'a', field: 'status', op: 'is', value: 'todo' };
+
+  it('adds the chip when the first tag is picked', () => {
+    const next = withTagFilter([other], ['Marketing']);
+    expect(next).toHaveLength(2);
+    expect(next[1]).toMatchObject({ field: 'tags', op: 'is_any_of', value: 'Marketing' });
+  });
+
+  it('edits the chip it already has rather than adding a second', () => {
+    const one = withTagFilter([other], ['Marketing']);
+    const two = withTagFilter(one, ['Marketing', 'Design']);
+    expect(two.filter((f) => f.field === 'tags')).toHaveLength(1);
+    expect(tagFilterOf(two)?.value).toBe('Marketing,Design');
+  });
+
+  it('drops the chip when the last tag is unpicked, keeping the rest', () => {
+    const next = withTagFilter(withTagFilter([other], ['Marketing']), []);
+    expect(next).toEqual([other]);
+  });
+
+  it('narrows to any of the tags, not all of them', () => {
+    const fields = fieldsFor({
+      mode: 'tasks', props: [], users: [], kinds: [], sprints: [],
+      tags: ['Marketing', 'Design'],
+    });
+    const tasks = [
+      task({ id: 'm', tags: ['Marketing'] }),
+      task({ id: 'b', tags: ['Marketing', 'Design'] }),
+      task({ id: 'x', tags: ['Ops'] }),
+    ];
+    const out = applyFilters(tasks, withTagFilter([], ['Marketing', 'Design']), fields);
+    expect(out.map((t) => t.id)).toEqual(['m', 'b']);
   });
 });

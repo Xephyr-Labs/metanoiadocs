@@ -95,7 +95,13 @@ export function ticksFor(range: Range, dayWidth: number, step: number): Tick[] {
   // "Jul 45".
   const FIRST_W = 42; // "Jul 4"
   const MONTH_W = 26; // "Aug"
+  const YEAR_W = 52; // "Jan 2027"
   const DAY_W = 20; // "31"
+
+  // Either every month is labelled or none is. Dropping just the ones that
+  // collide leaves February and April on the ruler and March off it, which
+  // reads as nonsense; zoomed out that far, the years alone are the ruler.
+  const monthsFit = dayWidth * 28 >= MONTH_W;
 
   const ticks: Tick[] = [];
   let lastRight = -Infinity;
@@ -105,22 +111,85 @@ export function ticksFor(range: Range, dayWidth: number, step: number): Tick[] {
     const major = day === 1;
     const first = i === 0;
     if (!major && !first && i % step !== 0) continue;
+    // If a month name won't fit, a bare day number is noise: "19" every
+    // thirty columns says nothing about where you are.
+    if (!major && !first && !monthsFit) continue;
+
+    const d = new Date(toUTC(iso));
+    const startsYear = major && d.getUTCMonth() === 0;
+    if (major && !startsYear && !monthsFit) continue;
 
     const x = i * dayWidth;
     if (!major && x < lastRight) continue; // would overlap the previous label
-    // A month boundary always wins — but not by painting over its neighbour.
+    // A month boundary beats a day number — but not by painting over it.
     // A window that opens on 30 Aug used to label the first column "Aug 30"
     // and then draw "Sep" two columns later on top of it, so the header read
     // "AugSep". The month name says everything the first label was saying.
     if (major && x < lastRight && ticks.length && !ticks[ticks.length - 1].major) ticks.pop();
 
-    const d = new Date(toUTC(iso));
     // The month name alone, never "Aug 26" — beside a row of day numbers that
     // reads as the 26th. The first column names its month too, so a window that
     // opens mid-month still says where it is.
     const month = d.toLocaleDateString(undefined, { month: 'short', timeZone: 'UTC' });
-    ticks.push({ iso, x, major, label: major ? month : first ? `${month} ${day}` : String(day) });
-    lastRight = x + (major ? MONTH_W : first ? FIRST_W : DAY_W);
+    // Only January carries the year. Without it a chart running past New Year
+    // reads as the same twelve months over again.
+    const label = startsYear ? `${month} ${d.getUTCFullYear()}`
+      : major ? month
+      : first ? `${month} ${day}`
+      : String(day);
+    ticks.push({ iso, x, major, label });
+    lastRight = x + (startsYear ? YEAR_W : major ? MONTH_W : first ? FIRST_W : DAY_W);
   }
   return ticks;
+}
+
+export interface WeekSeg {
+  id: string;
+  /** Column the bar starts in, 0-6. */
+  col: number;
+  /** Columns it covers, at least 1. */
+  span: number;
+  /** The row's own start / end fall inside this week, so that edge is real. */
+  opens: boolean;
+  closes: boolean;
+  /** Stacking row within the day cell. */
+  lane: number;
+}
+
+/**
+ * Clip date ranges to one Monday-first week and stack the overlaps.
+ *
+ * A calendar month is drawn a week at a time, so a row running across a week
+ * boundary is two bars, each flat on the side it continues past. Longer bars
+ * take the upper lanes, so a week-long row sits above the single days it
+ * passes over.
+ */
+export function weekSegments(
+  rows: { id: string; from: string; to: string }[],
+  weekStart: string,
+): WeekSeg[] {
+  const last = addDays(weekStart, 6);
+  const segs: WeekSeg[] = [];
+  for (const r of rows) {
+    if (r.to < weekStart || r.from > last) continue;
+    const col = r.from <= weekStart ? 0 : daysBetween(weekStart, r.from);
+    const endCol = r.to >= last ? 6 : daysBetween(weekStart, r.to);
+    segs.push({
+      id: r.id,
+      col,
+      span: endCol - col + 1,
+      opens: r.from >= weekStart,
+      closes: r.to <= last,
+      lane: 0,
+    });
+  }
+  segs.sort((a, b) => a.col - b.col || b.span - a.span);
+  const ends: number[] = [];
+  for (const s of segs) {
+    let lane = ends.findIndex((end) => end <= s.col);
+    if (lane === -1) lane = ends.length;
+    ends[lane] = s.col + s.span;
+    s.lane = lane;
+  }
+  return segs;
 }

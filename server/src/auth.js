@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import nodemailer from 'nodemailer';
 import { pool, findOrCreateUser, isEmailAllowedIn } from './db.js';
+import { inviteEmail, notificationEmail, signInEmail } from './email.js';
 
 const MAGIC_TTL_MIN = 15;
 const SESSION_TTL_DAYS = 30;
@@ -17,6 +18,19 @@ const mailer = DEV
       secure: process.env.SMTP_SECURE === 'true',
       auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
     });
+
+/**
+ * May this session replace the password without producing the old one?
+ *
+ * Only a session begun by a sign-in link. Clicking a link mailed to the
+ * address proves the mailbox, which is the proof every password reset is
+ * built on — and someone who has forgotten the password has no old one to
+ * give. A password session proves only the password, so it must keep proving
+ * it: a borrowed cookie must not be enough to lock the real owner out.
+ */
+export function mayReplacePassword({ sessionVia, passwordMatches }) {
+  return sessionVia === 'link' || passwordMatches === true;
+}
 
 export async function requestMagicLink(email, baseUrl) {
   const clean = String(email || '').trim().toLowerCase();
@@ -42,11 +56,15 @@ export async function requestMagicLink(email, baseUrl) {
     return;
   }
   try {
+    const mail = signInEmail({ link, minutes: MAGIC_TTL_MIN });
     await mailer.sendMail({
       from: process.env.SMTP_FROM || 'MetanoiaDocs <no-reply@example.com>',
       to: clean,
-      subject: 'Your MetanoiaDocs sign-in link',
-      text: `Sign in to MetanoiaDocs:\n\n${link}\n\nThis link expires in ${MAGIC_TTL_MIN} minutes and can be used once.`,
+      subject: mail.subject,
+      // Both, always: a client that refuses HTML still gets the link, and a
+      // mail with no plain part scores as spam on its way in.
+      text: mail.text,
+      html: mail.html,
     });
     console.log(`[auth] sign-in link emailed to ${clean}`);
   } catch (err) {
@@ -62,20 +80,17 @@ export async function requestMagicLink(email, baseUrl) {
  */
 export async function sendInviteEmail(email, baseUrl, inviterName) {
   const clean = String(email || '').trim().toLowerCase();
-  const from = inviterName ? `${inviterName} invited you to MetanoiaDocs` : 'You are invited to MetanoiaDocs';
-  const body =
-    `${inviterName || 'Someone'} invited you to collaborate in MetanoiaDocs.\n\n` +
-    `Create your account and get started:\n${baseUrl}/\n\n` +
-    `You were invited as ${clean}.`;
   if (DEV) {
     console.log(`[invite] DEV invite for ${clean} (would email):\n    ${baseUrl}/`);
     return;
   }
+  const mail = inviteEmail({ baseUrl, inviterName, email: clean });
   await mailer.sendMail({
     from: process.env.SMTP_FROM || 'MetanoiaDocs <no-reply@example.com>',
     to: clean,
-    subject: from,
-    text: body,
+    subject: mail.subject,
+    text: mail.text,
+    html: mail.html,
   });
   console.log(`[invite] invite emailed to ${clean}`);
 }
@@ -84,8 +99,12 @@ export async function sendInviteEmail(email, baseUrl, inviterName) {
  * Best-effort notification email (e.g. "X mentioned you"). Never throws to the
  * caller — a mail failure must not fail the comment that triggered it. In DEV
  * mode (no SMTP) it just logs.
+ *
+ * `body` is what happened, in prose. `link` is where to go and becomes the
+ * button — passed separately rather than written into the prose, so the HTML
+ * does not have to go looking for a URL inside a sentence.
  */
-export async function sendNotificationEmail(to, subject, text) {
+export async function sendNotificationEmail(to, subject, body, link) {
   const clean = String(to || '').trim().toLowerCase();
   if (!clean) return;
   if (DEV) {
@@ -93,11 +112,13 @@ export async function sendNotificationEmail(to, subject, text) {
     return;
   }
   try {
+    const mail = notificationEmail({ subject, body, link });
     await mailer.sendMail({
       from: process.env.SMTP_FROM || 'MetanoiaDocs <no-reply@example.com>',
       to: clean,
-      subject,
-      text,
+      subject: mail.subject,
+      text: mail.text,
+      html: mail.html,
     });
   } catch (err) {
     console.error(`[notify] failed to email ${clean}:`, err.message);
@@ -118,8 +139,8 @@ export async function consumeMagicLink(token) {
   const user = await findOrCreateUser(email);
   const session = crypto.randomBytes(32).toString('base64url');
   await pool.query(
-    `INSERT INTO sessions (token, user_id, expires_at)
-     VALUES ($1, $2, now() + ($3 || ' days')::interval)`,
+    `INSERT INTO sessions (token, user_id, expires_at, via)
+     VALUES ($1, $2, now() + ($3 || ' days')::interval, 'link')`,
     [session, user.id, String(SESSION_TTL_DAYS)]
   );
   return { user, session };

@@ -25,6 +25,21 @@ function coerceFile(raw) {
   return { key: key.toLowerCase(), name, mime, size: Number.isFinite(size) && size >= 0 ? size : 0 };
 }
 
+/**
+ * A list of attached files, or undefined when any entry is malformed.
+ *
+ * One bad entry fails the whole write rather than silently dropping a file
+ * someone just uploaded — a half-saved attachment list is worse than a refusal
+ * they can see. Shared by the `file` property and by the attachments column on
+ * tasks and docs, which store exactly the same thing in a different place.
+ */
+export function coerceFiles(value) {
+  if (value === null || value === undefined) return [];
+  if (!Array.isArray(value)) return undefined;
+  const files = value.slice(0, MAX_FILES).map(coerceFile);
+  return files.some((f) => f === null) ? undefined : files;
+}
+
 /** A stable key for a user-typed label, unique within `taken`. Mirrors
  *  kindKey in tasks.js: derived once at creation, never recomputed, so a
  *  later rename cannot orphan stored values. */
@@ -92,13 +107,8 @@ export function coercePropValue(type, value) {
       // Only http(s): a stored javascript: URL becomes a click target later.
       return /^https?:\/\//i.test(s) ? s : undefined;
     }
-    case 'file': {
-      if (!Array.isArray(value)) return undefined;
-      const files = value.slice(0, MAX_FILES).map(coerceFile);
-      // One bad entry fails the whole patch rather than silently dropping a
-      // file the person just uploaded.
-      return files.some((f) => f === null) ? undefined : files;
-    }
+    case 'file':
+      return coerceFiles(value);
     case 'relation':
       // Relations are edges, never values in props.
       return undefined;

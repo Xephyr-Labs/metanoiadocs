@@ -1,18 +1,31 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarRange } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { barFor, dayX, rangeFor, ticksFor, todayISO } from '../../lib/gantt';
 import type { TaskRow } from '../../lib/tasksApi';
+import { Button } from '../ui/Button';
 import { EmptyState } from '../ui/EmptyState';
 import { SegmentedControl } from '../ui/SegmentedControl';
 import { isOverdue, shortDate } from './TaskChip';
 
 const ROW_H = 32;
 const NAME_W = 280;
-const ZOOM: Record<string, { dayWidth: number; step: number }> = {
-  days: { dayWidth: 26, step: 1 },
-  weeks: { dayWidth: 9, step: 7 },
-  months: { dayWidth: 3, step: 30 },
+
+/**
+ * `pad` is empty time kept on both sides of the work, in days.
+ *
+ * The chart used to end where the tasks did, so there was nothing outside the
+ * plan to scroll into: zoomed out, every bar sat in one clump around today
+ * with no way to look at the quarter after it. The slack scales with the zoom
+ * so each level pans by roughly a screenful either way.
+ */
+const ZOOM: Record<string, { dayWidth: number; step: number; pad: number }> = {
+  days: { dayWidth: 26, step: 1, pad: 30 },
+  weeks: { dayWidth: 9, step: 7, pad: 90 },
+  months: { dayWidth: 3, step: 30, pad: 270 },
+  // Under a pixel a day the month names collide and ticksFor drops to years,
+  // which is the point of this level: several of them at once.
+  years: { dayWidth: 0.8, step: 30, pad: 730 },
 };
 
 /**
@@ -22,8 +35,9 @@ const ZOOM: Record<string, { dayWidth: number; step: number }> = {
  */
 export function Gantt({ tasks, onOpen }: { tasks: TaskRow[]; onOpen: (t: TaskRow) => void }) {
   const [zoom, setZoom] = useState<keyof typeof ZOOM>('days');
-  const { dayWidth, step } = ZOOM[zoom];
+  const { dayWidth, step, pad } = ZOOM[zoom];
   const today = todayISO();
+  const scroller = useRef<HTMLDivElement>(null);
 
   // Undated tasks have nothing to draw; they live on the board instead.
   const rows = useMemo(
@@ -32,9 +46,23 @@ export function Gantt({ tasks, onOpen }: { tasks: TaskRow[]; onOpen: (t: TaskRow
     [tasks],
   );
   const range = useMemo(
-    () => rangeFor(rows.map((t) => ({ start: t.start_at, due: t.due_at })), today),
-    [rows, today],
+    () => rangeFor(rows.map((t) => ({ start: t.start_at, due: t.due_at })), today, pad),
+    [rows, today, pad],
   );
+
+  const todayX = range ? dayX(today, range, dayWidth) : 0;
+  const centreToday = useCallback(() => {
+    const el = scroller.current;
+    // The name column is sticky inside the scroller, so it covers the first
+    // NAME_W of whatever is scrolled under it.
+    if (el) el.scrollLeft = Math.max(0, todayX - (el.clientWidth - NAME_W) / 2);
+  }, [todayX]);
+
+  // Open on today rather than on the far edge of the padding — the slack is
+  // there to be scrolled into, and a chart that opens on empty months looks
+  // broken. Re-runs on a zoom change, not on every task edit, so it never
+  // yanks the view out from under someone who has scrolled somewhere.
+  useEffect(centreToday, [zoom, centreToday]);
 
   if (!range) {
     return (
@@ -52,21 +80,28 @@ export function Gantt({ tasks, onOpen }: { tasks: TaskRow[]; onOpen: (t: TaskRow
   const bars = new Map(
     rows.map((t, i) => [t.id, { ...barFor({ start: t.start_at, due: t.due_at }, range, dayWidth)!, row: i }]),
   );
-  const todayX = dayX(today, range, dayWidth);
 
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between border-b border-line px-4 py-2">
         <span className="text-2xs text-faint">{rows.length} scheduled · {tasks.length - rows.length} undated</span>
-        <SegmentedControl
-          aria-label="Timeline zoom"
-          value={zoom}
-          onChange={(v) => setZoom(v as keyof typeof ZOOM)}
-          segments={[{ value: 'days', label: 'Days' }, { value: 'weeks', label: 'Weeks' }, { value: 'months', label: 'Months' }]}
-        />
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="ghost" onClick={centreToday}>Today</Button>
+          <SegmentedControl
+            aria-label="Timeline zoom"
+            value={zoom}
+            onChange={(v) => setZoom(v as keyof typeof ZOOM)}
+            segments={[
+              { value: 'days', label: 'Days' },
+              { value: 'weeks', label: 'Weeks' },
+              { value: 'months', label: 'Months' },
+              { value: 'years', label: 'Years' },
+            ]}
+          />
+        </div>
       </div>
 
-      <div className="scrollarea flex-1 overflow-auto">
+      <div ref={scroller} className="scrollarea flex-1 overflow-auto">
         <div className="flex min-w-max">
           {/* task names — sticky so they survive a horizontal scroll */}
           <div className="sticky left-0 z-10 shrink-0 border-r border-line bg-canvas" style={{ width: NAME_W }}>

@@ -573,7 +573,7 @@ export function Sidebar() {
                 <button
                   key={t.id}
                   type="button"
-                  onClick={() => ws.setTagFilter(t.id)}
+                  onClick={() => ws.setTagFilter([t.id])}
                   className="flex h-7 w-full items-center gap-2 rounded-md px-2 text-sm leading-5 text-ink transition-colors duration-120 hover:bg-hover"
                 >
                   <span className={cn('h-2.5 w-2.5 shrink-0 rounded-full', swatch(t.color).dot)} />

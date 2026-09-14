@@ -21,6 +21,12 @@ export async function initSchema() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
     CREATE INDEX IF NOT EXISTS sessions_user_idx ON sessions(user_id);
+    -- How this session was started: 'link' for one begun by a sign-in link,
+    -- NULL for a password login. A link is proof of the mailbox, which is what
+    -- lets its session set a new password without proving the old one — the
+    -- whole point of forgetting it. Cleared once used, so the session cannot
+    -- keep doing it.
+    ALTER TABLE sessions ADD COLUMN IF NOT EXISTS via TEXT;
 
     -- Username + password auth (added alongside magic-link, not replacing it).
     ALTER TABLE users ADD COLUMN IF NOT EXISTS username TEXT;
@@ -112,6 +118,10 @@ export async function initSchema() {
     -- Values keyed by doc_props.id, same shape as tasks.props: a page sets only
     -- the properties it actually uses, so the column is sparse by design.
     ALTER TABLE docs ADD COLUMN IF NOT EXISTS props JSONB NOT NULL DEFAULT '{}';
+    -- Files attached to the page itself, as opposed to images pasted into its
+    -- body: the same [{key,name,mime,size}] shape a file property stores, so
+    -- both sides read one validator and one blob store.
+    ALTER TABLE docs ADD COLUMN IF NOT EXISTS attachments JSONB NOT NULL DEFAULT '[]';
 
     CREATE TABLE IF NOT EXISTS schema_migrations (
       key        TEXT PRIMARY KEY,
@@ -393,6 +403,9 @@ export async function initSchema() {
       REFERENCES sprints(id) ON DELETE SET NULL;
     -- epic | story | task | bug. Epics group children via the existing parent_id.
     ALTER TABLE tasks ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'task';
+    -- Attachments every task has, without a database first having to define a
+    -- file property for them. Same shape as docs.attachments.
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS attachments JSONB NOT NULL DEFAULT '[]';
     CREATE INDEX IF NOT EXISTS tasks_sprint_idx ON tasks(sprint_id) WHERE deleted_at IS NULL;
     CREATE INDEX IF NOT EXISTS tasks_assignee_idx
       ON tasks(assignee_id, due_at) WHERE deleted_at IS NULL;
@@ -750,9 +763,14 @@ export async function setSetting(key, value) {
 export async function userForSession(token) {
   if (!token) return null;
   const { rows } = await pool.query(
-    `SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id
+    `SELECT u.*, s.via AS session_via FROM sessions s JOIN users u ON u.id = s.user_id
       WHERE s.token = $1 AND s.expires_at > now()`,
     [token]
   );
   return rows[0] ?? null;
+}
+
+/** Spend a session's link provenance, so it may set a password exactly once. */
+export async function clearSessionVia(token) {
+  await pool.query('UPDATE sessions SET via = NULL WHERE token = $1', [token]);
 }

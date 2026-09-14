@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '../../lib/cn';
-import { addDays, todayISO, toUTC } from '../../lib/gantt';
+import { addDays, daysBetween, todayISO, toUTC, weekSegments } from '../../lib/gantt';
 import type { PropRow, TaskRow } from '../../lib/tasksApi';
 import { IconButton } from '../ui/IconButton';
 import { Button } from '../ui/Button';
 import { selectField } from '../ui/styles';
-import { TaskChip } from './TaskChip';
+import { isOverdue } from './TaskChip';
 
 /** Monday-first grid of whole weeks covering the given month. */
 function monthGrid(year: number, month: number): string[] {
@@ -20,23 +20,35 @@ function monthGrid(year: number, month: number): string[] {
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
+/** Room for the date number, then three bars, then the "+N more" line. */
+const HEADER_H = 24;
+const BAR_H = 18;
+const GAP = 2;
+const LANES = 3;
+
 interface Props {
   tasks: TaskRow[];
-  /** Date properties this database has. Empty in a task database, where the
-   *  due date is the only thing a month grid can lay rows out by. */
+  /** Date properties this database has. Empty in a task database, where start
+   *  and due dates are what a month grid lays rows out by. */
   dateProps: PropRow[];
   onOpen: (t: TaskRow) => void;
   /** Create a row on this date, through whichever field the calendar reads. */
   onAdd: (date: string, propId: string | null) => void;
-  /** Drag a row to another day. Same field as onAdd writes. */
-  onMove: (id: string, date: string, propId: string | null) => void;
+  /**
+   * Drag a row to another day. `date` is where the bar now starts; `days` is
+   * its length in days when the task has a start date to keep, and null when
+   * the due date is the only date it has.
+   */
+  onMove: (id: string, date: string, propId: string | null, days: number | null) => void;
 }
 
 /**
- * Rows laid out by date across a month. A task database reads the due date; a
- * data database reads one of its own date properties, picked in the header.
+ * Rows laid out by date across a month. A task database reads start and due
+ * dates and draws the whole range as a bar; a data database reads one of its
+ * own date properties, picked in the header, which is a single day.
  *
- * Due date, not span — a month grid can't show one.
+ * A task running Monday to Friday is on the calendar all five days — showing
+ * it only on its due date hides every day it is actually being worked on.
  */
 export function Calendar({ tasks, dateProps, onOpen, onAdd, onMove }: Props) {
   const today = todayISO();
@@ -44,32 +56,55 @@ export function Calendar({ tasks, dateProps, onOpen, onAdd, onMove }: Props) {
     year: Number(today.slice(0, 4)),
     month: Number(today.slice(5, 7)) - 1,
   }));
-  // null = the built-in due date. A data database has no due date, so it opens
-  // on its first date property instead.
   const [propId, setPropId] = useState<string | null>(dateProps[0]?.id ?? null);
   const [dragId, setDragId] = useState<string | null>(null);
 
-  // A property deleted while the calendar is open would otherwise leave it
-  // reading a field that no longer exists.
   useEffect(() => {
     if (propId && !dateProps.some((p) => p.id === propId)) setPropId(dateProps[0]?.id ?? null);
   }, [dateProps, propId]);
 
-  const dateOf = (t: TaskRow): string | null => {
-    const raw = propId ? t.props?.[propId] : t.due_at;
-    return typeof raw === 'string' && raw ? raw.slice(0, 10) : null;
+  const days = useMemo(() => monthGrid(cursor.year, cursor.month), [cursor]);
+  const weeks = useMemo(
+    () => Array.from({ length: days.length / 7 }, (_, i) => days.slice(i * 7, i * 7 + 7)),
+    [days],
+  );
+
+  /** The days a row occupies: a start..due range, or the single day a property holds. */
+  const rangeOf = (t: TaskRow): { from: string; to: string; spans: boolean } | null => {
+    if (propId) {
+      const raw = t.props?.[propId];
+      if (typeof raw !== 'string' || !raw) return null;
+      const day = raw.slice(0, 10);
+      return { from: day, to: day, spans: false };
+    }
+    const start = t.start_at?.slice(0, 10) ?? null;
+    const due = t.due_at?.slice(0, 10) ?? null;
+    if (!start && !due) return null;
+    const a = start ?? due!;
+    const b = due ?? start!;
+    return a <= b ? { from: a, to: b, spans: !!start } : { from: b, to: a, spans: !!start };
   };
 
-  const days = useMemo(() => monthGrid(cursor.year, cursor.month), [cursor]);
-  const byDay = useMemo(() => {
-    const m = new Map<string, TaskRow[]>();
+  const segsByWeek = useMemo(() => {
+    const rows: { id: string; from: string; to: string }[] = [];
+    const byId = new Map<string, TaskRow>();
+    /** Length in days when the row has a start to keep; null when due is all it has. */
+    const keep = new Map<string, number | null>();
     for (const t of tasks) {
-      const day = dateOf(t);
-      if (!day) continue;
-      m.set(day, [...(m.get(day) ?? []), t]);
+      const r = rangeOf(t);
+      if (!r) continue;
+      rows.push({ id: t.id, from: r.from, to: r.to });
+      byId.set(t.id, t);
+      keep.set(t.id, r.spans ? daysBetween(r.from, r.to) + 1 : null);
     }
-    return m;
-  }, [tasks, propId]);
+    return weeks.map((week) => {
+      const all = weekSegments(rows, week[0]);
+      const hidden = week.map((_, i) =>
+        all.filter((s) => s.lane >= LANES && s.col <= i && i < s.col + s.span).length,
+      );
+      return { segs: all.filter((s) => s.lane < LANES).map((s) => ({ ...s, task: byId.get(s.id)! })), hidden, keep };
+    });
+  }, [tasks, propId, weeks]);
 
   const shift = (n: number) => setCursor((c) => {
     const d = new Date(Date.UTC(c.year, c.month + n, 1));
@@ -92,7 +127,6 @@ export function Calendar({ tasks, dateProps, onOpen, onAdd, onMove }: Props) {
         >
           Today
         </Button>
-        {/* Only worth a picker when there is a choice to make. */}
         {dateProps.length > 1 && (
           <select
             aria-label="Date shown"
@@ -111,77 +145,104 @@ export function Calendar({ tasks, dateProps, onOpen, onAdd, onMove }: Props) {
         ))}
       </div>
 
-      <div className="scrollarea grid flex-1 auto-rows-fr grid-cols-7 overflow-y-auto">
-        {days.map((iso) => {
-          const inMonth = new Date(toUTC(iso)).getUTCMonth() === cursor.month;
-          const items = byDay.get(iso) ?? [];
-          return (
-            <div
-              key={iso}
-              // The whole cell creates, the way a calendar app does — the ＋ is
-              // the visible affordance, not the only target. A click that
-              // landed on a row inside the cell is that row's, so it stops
-              // there and never reaches this handler.
-              onClick={() => onAdd(iso, propId)}
-              // The dragged row travels in the drag payload rather than in
-              // state: a drop must not depend on a re-render having landed
-              // between picking the row up and letting go of it.
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => {
-                e.preventDefault();
-                const id = e.dataTransfer.getData('text/plain');
-                if (id) onMove(id, iso, propId);
-                setDragId(null);
-              }}
-              className={cn(
-                'group min-h-[92px] cursor-pointer border-b border-r border-line p-1',
-                !inMonth && 'bg-surface',
-                dragId && 'hover:bg-hover',
-              )}
-            >
-              <div className="mb-1 flex items-center justify-between">
-                <span
+      <div className="scrollarea flex flex-1 flex-col overflow-y-auto">
+        {weeks.map((week, wi) => (
+          <div key={week[0]} className="relative grid shrink-0 grid-cols-7">
+            {week.map((iso, di) => {
+              const inMonth = new Date(toUTC(iso)).getUTCMonth() === cursor.month;
+              const hidden = segsByWeek[wi].hidden[di];
+              return (
+                <div
+                  key={iso}
+                  onClick={() => onAdd(iso, propId)}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const id = e.dataTransfer.getData('text/plain');
+                    if (id) onMove(id, iso, propId, segsByWeek[wi].keep.get(id) ?? null);
+                    setDragId(null);
+                  }}
                   className={cn(
-                    'flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-2xs',
-                    iso === today ? 'bg-accent font-semibold text-white' : inMonth ? 'text-muted' : 'text-faint',
+                    'group relative min-h-[104px] cursor-pointer border-b border-r border-line p-1',
+                    !inMonth && 'bg-surface',
+                    dragId && 'hover:bg-hover',
                   )}
                 >
-                  {Number(iso.slice(8, 10))}
-                </span>
-                {/* Shown on focus as well as hover: a keyboard or touch user
-                    has no hover to give. */}
-                <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); onAdd(iso, propId); }}
-                  className="rounded text-2xs text-faint opacity-0 transition-opacity hover:text-accent-strong focus-visible:opacity-100 group-hover:opacity-100"
-                  aria-label={`Add a row on ${iso}`}
-                >
-                  ＋
-                </button>
-              </div>
-              <div className="space-y-0.5">
-                {items.slice(0, 4).map((t) => (
-                  <div
-                    key={t.id}
+                  <div className="flex items-center justify-between">
+                    <span
+                      className={cn(
+                        'flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-2xs',
+                        iso === today ? 'bg-accent font-semibold text-white' : inMonth ? 'text-muted' : 'text-faint',
+                      )}
+                    >
+                      {Number(iso.slice(8, 10))}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); onAdd(iso, propId); }}
+                      className="rounded text-2xs text-faint opacity-0 transition-opacity hover:text-accent-strong focus-visible:opacity-100 group-hover:opacity-100"
+                      aria-label={`Add a row on ${iso}`}
+                    >
+                      ＋
+                    </button>
+                  </div>
+                  {hidden > 0 && (
+                    <span className="absolute bottom-0.5 left-1.5 text-2xs text-faint">+{hidden} more</span>
+                  )}
+                </div>
+              );
+            })}
+
+            {/* Bars float over the day cells so one row can cross them. The
+                layer ignores pointer events; each bar takes its own back. */}
+            <div className="pointer-events-none absolute inset-0">
+              {segsByWeek[wi].segs.map((s) => {
+                const overdue = isOverdue(s.task);
+                return (
+                  <button
+                    key={`${s.task.id}-${s.col}`}
+                    type="button"
                     draggable
                     onDragStart={(e) => {
-                      e.dataTransfer.setData('text/plain', t.id);
+                      e.dataTransfer.setData('text/plain', s.task.id);
                       e.dataTransfer.effectAllowed = 'move';
-                      setDragId(t.id);
+                      setDragId(s.task.id);
                     }}
                     onDragEnd={() => setDragId(null)}
-                    onClick={(e) => e.stopPropagation()}
+                    onClick={(e) => { e.stopPropagation(); onOpen(s.task); }}
+                    title={s.task.title || 'Untitled'}
+                    style={{
+                      left: `calc(${(s.col / 7) * 100}% + ${s.opens ? 3 : 0}px)`,
+                      width: `calc(${(s.span / 7) * 100}% - ${(s.opens ? 3 : 0) + (s.closes ? 3 : 0)}px)`,
+                      top: HEADER_H + s.lane * (BAR_H + GAP),
+                      height: BAR_H,
+                    }}
+                    className={cn(
+                      'pointer-events-auto absolute flex items-center gap-1 overflow-hidden border px-1.5 text-left text-2xs transition-colors',
+                      s.opens ? 'rounded-l' : 'border-l-0',
+                      s.closes ? 'rounded-r' : 'border-r-0',
+                      overdue
+                        ? 'border-danger-soft bg-danger-soft text-danger hover:bg-danger-soft'
+                        : s.task.status === 'done'
+                          ? 'border-line bg-surface text-muted hover:bg-hover'
+                          : 'border-line bg-canvas text-ink hover:bg-hover',
+                    )}
                   >
-                    <TaskChip task={t} compact onOpen={() => onOpen(t)} />
-                  </div>
-                ))}
-                {items.length > 4 && (
-                  <span className="block px-1 text-2xs text-faint">+{items.length - 4} more</span>
-                )}
-              </div>
+                    <span
+                      className={cn(
+                        'h-1.5 w-1.5 shrink-0 rounded-full',
+                        overdue ? 'bg-danger' : s.task.status === 'done' ? 'bg-line-strong' : 'bg-accent',
+                      )}
+                    />
+                    <span className={cn('truncate', s.task.status === 'done' && 'line-through')}>
+                      {s.opens || s.col === 0 ? s.task.title || 'Untitled' : ''}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
-          );
-        })}
+          </div>
+        ))}
       </div>
     </div>
   );

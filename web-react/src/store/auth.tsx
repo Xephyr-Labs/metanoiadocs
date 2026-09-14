@@ -19,6 +19,9 @@ interface AuthState {
   /** No account exists yet: this instance still has to be claimed. */
   needsSetup: boolean;
   login: (username: string, password: string) => Promise<Result>;
+  /** Mail a sign-in link. Resolves ok even for an address with no account —
+   *  the server refuses to say which addresses exist, and so does this. */
+  requestLink: (email: string) => Promise<Result>;
   signup: (name: string, username: string, email: string, password: string) => Promise<Result>;
   setup: (name: string, username: string, email: string, password: string) => Promise<Result>;
   logout: () => Promise<void>;
@@ -81,6 +84,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { ok: false, error: data?.error ?? 'Sign in failed. Try again.' };
   }, []);
 
+  const requestLink = useCallback(async (email: string): Promise<Result> => {
+    const { status } = await api('/auth/request', { email });
+    return status === 200 ? { ok: true } : { ok: false, error: 'Could not send the link. Try again.' };
+  }, []);
+
   const signup = useCallback(
     async (name: string, username: string, email: string, password: string): Promise<Result> => {
       const { status, data } = await api('/auth/register', { name, username, email, password });
@@ -133,8 +141,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo<AuthState>(
-    () => ({ user, loading, needsSetup, login, signup, setup, logout, updateName, changePassword }),
-    [user, loading, needsSetup, login, signup, setup, logout, updateName, changePassword],
+    () => ({ user, loading, needsSetup, login, requestLink, signup, setup, logout, updateName, changePassword }),
+    [user, loading, needsSetup, login, requestLink, signup, setup, logout, updateName, changePassword],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
