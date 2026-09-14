@@ -1340,9 +1340,16 @@ app.post('/api/ai', requireUser, async (req, res) => {
   let toolSpecs = null;
   // The copilot's tools are the MCP surface — the same tools, descriptions and
   // access checks an MCP client gets at POST /mcp, over an in-memory transport.
+  // Both credentials, like the MCP route: a caller who authenticated with a
+  // Bearer token has no cookie, and forwarding only the cookie sent the tool's
+  // own loopback call out unauthenticated — the model then "answered" from a
+  // tool result that said `unauthorized`.
   const tools = aiTools({
     base: `http://127.0.0.1:${PORT}`,
-    headers: req.headers.cookie ? { Cookie: req.headers.cookie } : {},
+    headers: {
+      ...(req.headers.cookie ? { Cookie: req.headers.cookie } : {}),
+      ...(req.headers.authorization ? { Authorization: req.headers.authorization } : {}),
+    },
   });
   if (Array.isArray(req.body?.messages) && req.body.messages.length) {
     // Trust only role+content; cap history so a runaway client can't blow up the prompt.
