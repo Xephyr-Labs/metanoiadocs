@@ -21,6 +21,8 @@ import { Gallery } from './Gallery';
 import { Gantt } from './Gantt';
 import { KindsProvider } from './kinds';
 import { PropsDialog } from './props/PropsDialog';
+import { PropertyVisibility } from './props/PropertyVisibility';
+import { useViewProps } from '../../lib/viewProps';
 import { TaskPeek } from './TaskPeek';
 import { TaskKindsDialog } from './TaskKindsDialog';
 import { TaskTable } from './TaskTable';
@@ -69,6 +71,10 @@ export function ProjectView() {
     clearPendingTask();
   }, [pendingTaskId, p.tasks, clearPendingTask]);
   const dateProps = useMemo(() => p.props.filter((prop) => prop.type === 'date'), [p.props]);
+  // Card views show properties; the table already shows every one as a column
+  // and the backlog is a planning list, so neither needs the control.
+  const CARD_VIEWS = ['board', 'gantt', 'calendar', 'gallery'];
+  const viewProps = useViewProps(ws.activeProjectId, tab, p.props);
   const tabs = useMemo(
     () => (isData ? DATA_TABS.filter((t) => t.value !== 'calendar' || dateProps.length > 0) : TABS),
     [isData, dateProps.length],
@@ -193,6 +199,17 @@ export function ProjectView() {
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <TagFilter tags={ws.allTags} filters={filters} onChange={changeFilters} />
           <FilterBar fields={fields} filters={filters} onChange={changeFilters} />
+          {CARD_VIEWS.includes(tab) && (
+            <PropertyVisibility
+              view={tab}
+              visible={viewProps.visible}
+              hidden={viewProps.hidden}
+              onToggle={viewProps.toggle}
+              onMove={viewProps.move}
+              onShowAll={viewProps.showAll}
+              onHideAll={viewProps.hideAll}
+            />
+          )}
           {filters.length > 0 && (
             <span className="shrink-0 text-2xs tabular-nums text-faint">
               {visible.length} of {scoped.length}
@@ -237,6 +254,8 @@ export function ProjectView() {
         ) : tab === 'board' ? (
           <Board
             tasks={visible}
+            cardProps={viewProps.visible}
+            users={p.users}
             onOpen={setOpen}
             onAdd={(status) => add({ status })}
             onMove={(id, status, position) => {
@@ -256,13 +275,21 @@ export function ProjectView() {
             onSetProp={p.setProp}
           />
         ) : tab === 'gantt' ? (
-          <Gantt tasks={visible} onOpen={setOpen} />
+          <Gantt tasks={visible} cardProps={viewProps.visible} users={p.users} onOpen={setOpen} />
         ) : tab === 'gallery' ? (
-          <Gallery tasks={visible} onOpen={setOpen} onAdd={() => add({})} />
+          <Gallery
+            tasks={visible}
+            cardProps={viewProps.visible}
+            users={p.users}
+            onOpen={setOpen}
+            onAdd={() => add({})}
+          />
         ) : (
           <Calendar
             tasks={visible}
             dateProps={isData ? dateProps : []}
+            cardProps={viewProps.visible}
+            users={p.users}
             onOpen={setOpen}
             onAdd={(date, propId) => add(propId ? { props: { [propId]: date } } : { dueAt: date })}
             onMove={(id, date, propId, days) => {
@@ -272,6 +299,10 @@ export function ProjectView() {
               else if (days) p.patch(id, { startAt: date, dueAt: addDays(date, days - 1) });
               else p.patch(id, { dueAt: date });
             }}
+            // Dragging an edge sets that edge only. Pulling the left edge of a
+            // row that had just a due date gives it a start, which is how it
+            // becomes a span.
+            onResize={(id, from, to) => p.patch(id, { startAt: from, dueAt: to })}
           />
         )}
       </div>

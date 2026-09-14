@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { Plus } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { previewLine } from '../../lib/preview';
-import type { TaskRow } from '../../lib/tasksApi';
+import type { PropRow, TaskRow } from '../../lib/tasksApi';
+import type { UserRow } from '../../lib/docsApi';
 import { SegmentedControl } from '../ui/SegmentedControl';
 import { TaskChip } from './TaskChip';
 
@@ -43,10 +44,14 @@ function storedSize(): Size {
  */
 export function Gallery({
   tasks,
+  cardProps,
+  users,
   onOpen,
   onAdd,
 }: {
   tasks: TaskRow[];
+  cardProps?: PropRow[];
+  users?: UserRow[];
   onOpen: (t: TaskRow) => void;
   onAdd: () => void;
 }) {
@@ -109,7 +114,7 @@ export function Gallery({
                 >
                   <p className={cn('text-2xs leading-4 text-muted', clamp)}>{line}</p>
                 </button>}
-                <TaskChip task={t} onOpen={() => onOpen(t)} flush />
+                <TaskChip task={t} onOpen={() => onOpen(t)} flush cardProps={cardProps} users={users} />
               </article>
             );
           })}

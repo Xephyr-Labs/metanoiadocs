@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import { cn } from '../../lib/cn';
-import { swatch, TAG_COLORS, type TagColor } from '../../lib/tagColors';
+import { type TagColor } from '../../lib/tagColors';
 import type { TaskKindRow, TaskRow } from '../../lib/tasksApi';
 import { Button } from '../ui/Button';
 import { IconButton } from '../ui/IconButton';
-import { Menu } from '../ui/Menu';
+import { ColorPicker } from '../ui/ColorPicker';
 import { Modal } from '../ui/Modal';
 import { Tooltip } from '../ui/Tooltip';
 import { field } from '../ui/styles';
@@ -22,54 +22,6 @@ interface Props {
 }
 
 const PARENT_HINT = 'Tasks of this type can hold children, the way Epic does';
-
-/** A palette dot shaped for Menu's `icon` slot. */
-const dotIcon = (color: string, selected: boolean) =>
-  function Dot({ className }: { className?: string }) {
-    return (
-      <span
-        className={cn(
-          'h-3.5 w-3.5 rounded-full',
-          swatch(color).dot,
-          // The selected colour is marked on the swatch itself. Putting a tick
-          // in Menu's shortcut slot said "keyboard shortcut" in the faintest
-          // ink on the surface — the wrong slot and the wrong weight for state.
-          selected && 'ring-2 ring-ink ring-offset-1 ring-offset-canvas',
-          className,
-        )}
-      />
-    );
-  };
-
-const colorItems = (current: string, onPick: (c: TagColor) => void) =>
-  TAG_COLORS.map((c) => ({
-    icon: dotIcon(c, c === current),
-    label: c[0].toUpperCase() + c.slice(1),
-    onSelect: () => onPick(c),
-  }));
-
-/** The colour swatch that opens the palette. Same control in both rows. */
-function ColorPicker({ color, label, side, onPick }: {
-  color: string;
-  label: string;
-  side?: 'top' | 'bottom';
-  onPick: (c: TagColor) => void;
-}) {
-  return (
-    <Menu
-      align="start"
-      side={side}
-      width={168}
-      trigger={
-        <IconButton
-          label={label}
-          icon={<span className={cn('h-3.5 w-3.5 rounded-full', swatch(color).dot)} />}
-        />
-      }
-      items={colorItems(color, onPick)}
-    />
-  );
-}
 
 function KindRow({ kind, count, fallback, busy, onPatch, onDelete }: {
   kind: TaskKindRow;

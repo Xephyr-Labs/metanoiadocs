@@ -3,8 +3,10 @@ import { avatarFor } from '../../lib/avatar';
 import { cn } from '../../lib/cn';
 import { todayISO } from '../../lib/gantt';
 import { swatch } from '../../lib/tagColors';
-import type { TaskKind, TaskRow } from '../../lib/tasksApi';
+import type { PropRow, TaskKind, TaskRow } from '../../lib/tasksApi';
+import type { UserRow } from '../../lib/docsApi';
 import { useKind, useKinds } from './kinds';
+import { PropChips } from './props/PropChips';
 
 /**
  * The type chip. Colour comes from the shared tag palette, so a type darkens
@@ -88,7 +90,16 @@ export const isOverdue = (t: TaskRow) =>
  * can sit it directly under a preview panel inside one shared card frame —
  * the metadata row stays identical to the board's rather than being copied.
  */
-export function TaskChip({ task, onOpen, compact, flush }: { task: TaskRow; onOpen: () => void; compact?: boolean; flush?: boolean }) {
+export function TaskChip({ task, onOpen, compact, flush, cardProps, users }: {
+  task: TaskRow;
+  onOpen: () => void;
+  compact?: boolean;
+  flush?: boolean;
+  /** Custom properties this view shows, already ordered. Omitted on views that
+   *  have no room for them (the compact chip) or no setting for them yet. */
+  cardProps?: PropRow[];
+  users?: UserRow[];
+}) {
   const overdue = isOverdue(task);
 
   if (compact) {
@@ -122,6 +133,10 @@ export function TaskChip({ task, onOpen, compact, flush }: { task: TaskRow; onOp
           {task.title || 'Untitled'}
         </span>
       </div>
+
+      {/* Custom properties sit closest to the title, the way they do in a
+          Notion card; the row below stays the built-in fields. */}
+      {cardProps?.length ? <PropChips task={task} props={cardProps} users={users} className="mt-1.5" /> : null}
 
       {task.progress > 0 && task.status !== 'done' && (
         <div className="mt-2 h-1 overflow-hidden rounded-full bg-line">

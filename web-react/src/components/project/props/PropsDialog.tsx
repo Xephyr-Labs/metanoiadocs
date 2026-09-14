@@ -1,8 +1,10 @@
 import { ChevronDown, ChevronUp, Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { cn } from '../../../lib/cn';
+import { swatch, TAG_COLORS, type TagColor } from '../../../lib/tagColors';
 import { PROP_TYPES, PROP_TYPE_LABEL, type PropRow, type PropType, type ProjectRow } from '../../../lib/tasksApi';
 import { Button } from '../../ui/Button';
+import { ColorPicker } from '../../ui/ColorPicker';
 import { IconButton } from '../../ui/IconButton';
 import { Modal } from '../../ui/Modal';
 import { field, selectField } from '../../ui/styles';
@@ -32,6 +34,16 @@ function changeableTo(type: PropType): PropType[] {
 }
 
 /**
+ * Colour for the next option: the first one not already in use, else round the
+ * palette. Every option used to be minted grey, so a select of six read as six
+ * identical chips and the colour field existed without ever being set.
+ */
+function nextColor(options: PropRow['options']): TagColor {
+  const used = new Set(options.map((o) => o.color));
+  return TAG_COLORS.find((c) => !used.has(c)) ?? TAG_COLORS[options.length % TAG_COLORS.length];
+}
+
+/**
  * Option rows are keyed by id, never by label — a rename must never mint a
  * new id, or every task that stored the old id renders blank (the value is
  * still in `tasks.props`, but nothing in `prop.options` matches it anymore).
@@ -44,7 +56,7 @@ function OptionsEditor({ prop, onPatch }: { prop: PropRow; onPatch: Props['onPat
   const addOption = () => {
     const label = draft.trim();
     if (label && !prop.options.some((o) => o.label === label)) {
-      setOptions([...prop.options, { id: crypto.randomUUID(), label, color: 'gray' }]);
+      setOptions([...prop.options, { id: crypto.randomUUID(), label, color: nextColor(prop.options) }]);
     }
     setDraft('');
   };
@@ -53,6 +65,11 @@ function OptionsEditor({ prop, onPatch }: { prop: PropRow; onPatch: Props['onPat
     <div className="ml-9 flex flex-col gap-1 pb-1.5">
       {prop.options.map((o) => (
         <div key={o.id} className="flex items-center gap-2">
+          <ColorPicker
+            color={o.color}
+            label={`Colour of ${o.label}`}
+            onPick={(c) => setOptions(prop.options.map((opt) => (opt.id === o.id ? { ...opt, color: c } : opt)))}
+          />
           <input
             className={field}
             defaultValue={o.label}
@@ -66,6 +83,7 @@ function OptionsEditor({ prop, onPatch }: { prop: PropRow; onPatch: Props['onPat
             }}
             onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
           />
+          <span className={cn('shrink-0 rounded px-1.5 py-0.5 text-2xs', swatch(o.color).chip)}>{o.label}</span>
           <IconButton
             icon={<Trash2 size={14} />}
             label={`Delete option ${o.label}`}

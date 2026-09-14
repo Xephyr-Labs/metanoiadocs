@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarRange } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { barFor, dayX, rangeFor, ticksFor, todayISO } from '../../lib/gantt';
-import type { TaskRow } from '../../lib/tasksApi';
+import type { PropRow, TaskRow } from '../../lib/tasksApi';
+import type { UserRow } from '../../lib/docsApi';
+import { PropChips } from './props/PropChips';
 import { Button } from '../ui/Button';
 import { EmptyState } from '../ui/EmptyState';
 import { SegmentedControl } from '../ui/SegmentedControl';
@@ -33,7 +35,13 @@ const ZOOM: Record<string, { dayWidth: number; step: number; pad: number }> = {
  * today line are one SVG overlay sharing the same pixel space. No gantt library
  * — it would bring its own DOM and styling world to fight with the theme.
  */
-export function Gantt({ tasks, onOpen }: { tasks: TaskRow[]; onOpen: (t: TaskRow) => void }) {
+export function Gantt({ tasks, cardProps = [], users, onOpen }: {
+  tasks: TaskRow[];
+  /** Custom properties to show beside each row's title. */
+  cardProps?: PropRow[];
+  users?: UserRow[];
+  onOpen: (t: TaskRow) => void;
+}) {
   const [zoom, setZoom] = useState<keyof typeof ZOOM>('days');
   const { dayWidth, step, pad } = ZOOM[zoom];
   const today = todayISO();
@@ -114,9 +122,13 @@ export function Gantt({ tasks, onOpen }: { tasks: TaskRow[]; onOpen: (t: TaskRow
                 style={{ height: ROW_H }}
                 className="flex w-full items-center gap-1.5 px-3 text-left text-sm transition-colors hover:bg-hover"
               >
-                <span className={cn('truncate', t.status === 'done' ? 'text-muted line-through' : 'text-ink')}>
+                <span className={cn('min-w-0 truncate', t.status === 'done' ? 'text-muted line-through' : 'text-ink')}>
                   {t.title || 'Untitled'}
                 </span>
+                {/* A gantt row is a fixed-height band, so properties ride
+                    alongside the title rather than stacking under it. The name
+                    column keeps the space it needs; chips take what is left. */}
+                <PropChips task={t} props={cardProps} users={users} className="min-w-0 flex-nowrap overflow-hidden" />
               </button>
             ))}
           </div>
