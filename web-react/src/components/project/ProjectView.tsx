@@ -13,6 +13,7 @@ import { Skeleton } from '../ui/Skeleton';
 import { applyFilters, fieldsFor, pruneUnresolvable, type Filter } from '../../lib/taskFilter';
 import { Backlog } from './Backlog';
 import { Board } from './Board';
+import { addDays } from '../../lib/gantt';
 import { Calendar } from './Calendar';
 import { FilterBar } from './FilterBar';
 import { Gallery } from './Gallery';
@@ -262,8 +263,11 @@ export function ProjectView() {
             dateProps={isData ? dateProps : []}
             onOpen={setOpen}
             onAdd={(date, propId) => add(propId ? { props: { [propId]: date } } : { dueAt: date })}
-            onMove={(id, date, propId) => {
+            onMove={(id, date, propId, days) => {
               if (propId) p.setProp(id, propId, date);
+              // A row with a start date keeps its length when it moves; one
+              // with only a due date has nothing to keep.
+              else if (days) p.patch(id, { startAt: date, dueAt: addDays(date, days - 1) });
               else p.patch(id, { dueAt: date });
             }}
           />

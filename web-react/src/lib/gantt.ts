@@ -124,3 +124,54 @@ export function ticksFor(range: Range, dayWidth: number, step: number): Tick[] {
   }
   return ticks;
 }
+
+export interface WeekSeg {
+  id: string;
+  /** Column the bar starts in, 0-6. */
+  col: number;
+  /** Columns it covers, at least 1. */
+  span: number;
+  /** The row's own start / end fall inside this week, so that edge is real. */
+  opens: boolean;
+  closes: boolean;
+  /** Stacking row within the day cell. */
+  lane: number;
+}
+
+/**
+ * Clip date ranges to one Monday-first week and stack the overlaps.
+ *
+ * A calendar month is drawn a week at a time, so a row running across a week
+ * boundary is two bars, each flat on the side it continues past. Longer bars
+ * take the upper lanes, so a week-long row sits above the single days it
+ * passes over.
+ */
+export function weekSegments(
+  rows: { id: string; from: string; to: string }[],
+  weekStart: string,
+): WeekSeg[] {
+  const last = addDays(weekStart, 6);
+  const segs: WeekSeg[] = [];
+  for (const r of rows) {
+    if (r.to < weekStart || r.from > last) continue;
+    const col = r.from <= weekStart ? 0 : daysBetween(weekStart, r.from);
+    const endCol = r.to >= last ? 6 : daysBetween(weekStart, r.to);
+    segs.push({
+      id: r.id,
+      col,
+      span: endCol - col + 1,
+      opens: r.from >= weekStart,
+      closes: r.to <= last,
+      lane: 0,
+    });
+  }
+  segs.sort((a, b) => a.col - b.col || b.span - a.span);
+  const ends: number[] = [];
+  for (const s of segs) {
+    let lane = ends.findIndex((end) => end <= s.col);
+    if (lane === -1) lane = ends.length;
+    ends[lane] = s.col + s.span;
+    s.lane = lane;
+  }
+  return segs;
+}
