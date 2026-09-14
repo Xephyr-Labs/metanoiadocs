@@ -742,15 +742,15 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
       if (written) {
         // Written in, so it is a real page: make it an ordinary one, or it
         // stays hidden from every list that skips row pages.
-        await pool.query(`UPDATE docs SET kind = 'doc', updated_at = now(), updated_by = $2 WHERE id = $1`, [leaving.id, req.user.id]);
+        await pool.query(`UPDATE docs SET kind = 'doc', updated_at = now(), updated_by = $2, updated_via = $3 WHERE id = $1`, [leaving.id, req.user.id, req.via]);
       } else {
         await pool.query('UPDATE docs SET deleted_at = now() WHERE id = $1', [leaving.id]);
       }
     }
     if (b.title !== undefined && rows[0].doc_id) {
       await pool.query(
-        'UPDATE docs SET title = $1, updated_at = now(), updated_by = $3 WHERE id = $2 AND title <> $1',
-        [String(b.title).slice(0, 200), rows[0].doc_id, req.user.id]
+        'UPDATE docs SET title = $1, updated_at = now(), updated_by = $3, updated_via = $4 WHERE id = $2 AND title <> $1',
+        [String(b.title).slice(0, 200), rows[0].doc_id, req.user.id, req.via]
       );
     }
     if (!assignees) return res.json(rows[0]);

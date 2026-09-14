@@ -22,6 +22,10 @@ export interface Page {
   kind: 'doc' | 'design' | 'task';
   /** Who saved it last. Null on a page nobody has edited since it was made. */
   updatedByName: string | null;
+  /** Whether that last save came from a person or from an agent. */
+  updatedByKind: 'person' | 'agent';
+  /** 'ai' when the copilot made that last save, not the person typing. */
+  updatedVia: 'human' | 'ai';
   updatedAt: string;
   /** Pages this one @-references. Drives the sidebar disclosure arrow. */
   linkCount: number;

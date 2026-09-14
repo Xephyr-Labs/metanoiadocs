@@ -33,6 +33,25 @@ export async function initSchema() {
     ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT;
     -- Workspace-level role: 'admin' (can invite) or 'collaborator'.
     ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'collaborator';
+
+    -- Is this account a person or something running on their behalf?
+    --
+    -- An agent authenticates with a personal access token, so every row it
+    -- writes is stamped with a users.id exactly like a human's. Without this
+    -- column "who changed this" has no answer the interface can give: the
+    -- activity feed, the doc byline and the task attribution all read the same
+    -- as a colleague typing. Defaulting to 'person' keeps every existing
+    -- account exactly as it was.
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'person';
+
+    -- Was the last write typed, or made by the copilot on the person's behalf?
+    --
+    -- users.kind answers "which account"; this answers "which hand". Ask AI
+    -- runs inside a person's own session, so there is no second account to
+    -- mark — without this its edits are indistinguishable from their typing.
+    -- 'human' for everything that already exists, which is what it was.
+    ALTER TABLE docs ADD COLUMN IF NOT EXISTS updated_via TEXT NOT NULL DEFAULT 'human';
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS updated_via TEXT NOT NULL DEFAULT 'human';
     CREATE UNIQUE INDEX IF NOT EXISTS users_username_idx
       ON users(username) WHERE username IS NOT NULL;
 

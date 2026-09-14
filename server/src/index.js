@@ -2,6 +2,7 @@ import http from 'node:http';
 import { WebSocketServer } from 'ws';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { AI_ACTOR_NONCE, actorVia } from './actor.js';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import * as cookie from 'cookie';
@@ -111,6 +112,10 @@ for (const method of ['get', 'post', 'put', 'patch', 'delete']) {
     orig(path, ...handlers.map((h) => (typeof h === 'function' ? wrap(h) : h)));
 }
 app.use(express.json());
+// Set on every request, not just authenticated ones: a route that reaches a
+// write without requireUser would otherwise put NULL into a NOT NULL column.
+// Unforgeable — see actorVia.
+app.use((req, _res, next) => { req.via = actorVia(req); next(); });
 
 // Liveness + readiness probe (no auth). Checks the DB round-trips.
 app.get('/health', async (_req, res) => {
@@ -166,7 +171,7 @@ function setSessionCookie(res, token) {
   }));
 }
 
-const publicUser = (u) => ({ id: u.id, email: u.email, name: u.name, username: u.username, role: u.role || 'collaborator' });
+const publicUser = (u) => ({ id: u.id, email: u.email, name: u.name, username: u.username, role: u.role || 'collaborator', kind: u.kind || 'person' });
 
 async function requireAdmin(req, res, next) {
   if (req.user?.role !== 'admin') return res.status(403).json({ error: 'Only an admin can do that.' });
@@ -376,7 +381,7 @@ app.post('/api/notifications/read', requireUser, async (req, res) => {
 // Workspace members = everyone who has signed in (invite-only workspace).
 app.get('/api/users', requireUser, async (_req, res) => {
   const { rows } = await pool.query(
-    'SELECT id, name, email, username, role FROM users ORDER BY (role = $1) DESC, created_at ASC LIMIT 200',
+    'SELECT id, name, email, username, role, kind FROM users ORDER BY (role = $1) DESC, created_at ASC LIMIT 200',
     ['admin']
   );
   res.json(rows);
@@ -430,6 +435,28 @@ app.patch('/api/users/:id/role', requireUser, requireAdmin, async (req, res) => 
   res.json({ ok: true, role });
 });
 
+// Admin: mark an account as an agent, or back to a person.
+//
+// An agent signs in with a personal access token and writes as a normal user,
+// so nothing about a row it touches distinguishes it from a colleague typing.
+// This is the switch that lets the interface say which is which — on the
+// activity feed, on a page's byline, on a task's attribution.
+//
+// Deliberately not self-service: an account calling itself a person is the
+// claim worth protecting, so only an admin can set it, and only for someone
+// else. Marking yourself an agent would be the one move a misbehaving token
+// could make to cover its tracks.
+app.patch('/api/users/:id/kind', requireUser, requireAdmin, async (req, res) => {
+  const kind = req.body?.kind === 'agent' ? 'agent' : 'person';
+  if (req.params.id === req.user.id) {
+    return res.status(400).json({ error: "You can't change your own account kind." });
+  }
+  const target = await pool.query('SELECT 1 FROM users WHERE id = $1', [req.params.id]);
+  if (!target.rowCount) return res.status(404).json({ error: 'No such member.' });
+  await pool.query('UPDATE users SET kind = $1 WHERE id = $2', [kind, req.params.id]);
+  res.json({ ok: true, kind });
+});
+
 // Admin: remove a member. Their owned docs transfer to you so nothing is orphaned.
 app.delete('/api/users/:id', requireUser, requireAdmin, async (req, res) => {
   if (req.params.id === req.user.id) return res.status(400).json({ error: "You can't remove yourself." });
@@ -478,6 +505,8 @@ app.get('/api/docs', requireUser, async (req, res) => {
     `SELECT d.id, d.title, d.icon, d.folder_id, d.parent_id, d.position, d.updated_at,
             coalesce(a.role, 'editor') AS role, d.visibility, d.kind, d.props,
             ub.name AS updated_by_name,
+            coalesce(ub.kind, 'person') AS updated_by_kind,
+            d.updated_via,
             (d.share_token IS NOT NULL) AS shared,
             (f.doc_id IS NOT NULL) AS favorite,
             (pin.doc_id IS NOT NULL) AS pinned,
@@ -747,7 +776,7 @@ app.post('/api/docs/:id/links', requireUser, wrap(async (req, res) => {
   const already = existing.rowCount > 0;
   if (!already && !(await referenceChild(parentId, childId))) return res.status(409).json({ error: NO_BODY_TO_NEST_IN });
   await pool.query('INSERT INTO doc_links (from_id, to_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [parentId, childId]);
-  await pool.query('UPDATE docs SET parent_id = $1, updated_at = now(), updated_by = $3 WHERE id = $2', [parentId, childId, req.user.id]);
+  await pool.query('UPDATE docs SET parent_id = $1, updated_at = now(), updated_by = $3, updated_via = $4 WHERE id = $2', [parentId, childId, req.user.id, req.via]);
   res.json({ ok: true, already });
 }));
 
@@ -892,7 +921,7 @@ app.post('/api/docs/:id/content', requireUser, wrap(async (req, res) => {
   // integration is searchable on what it now says.
   try {
     const { text } = extractText(state);
-    await pool.query('UPDATE docs SET search_text = $1, updated_at = now(), updated_by = $3 WHERE id = $2', [text.slice(0, 100000), docId, req.user.id]);
+    await pool.query('UPDATE docs SET search_text = $1, updated_at = now(), updated_by = $3, updated_via = $4 WHERE id = $2', [text.slice(0, 100000), docId, req.user.id, req.via]);
   } catch { /* an odd state still saves; only the search text goes stale */ }
   res.json({ ok: true });
 }));
@@ -1077,8 +1106,8 @@ app.patch('/api/docs/:id', requireUser, async (req, res) => {
   if (!sets.length) return res.json({ ok: true });
   vals.push(req.params.id);
   await pool.query(
-    `UPDATE docs SET ${sets.join(', ')}, updated_at = now(), updated_by = $${vals.length + 1} WHERE id = $${vals.length}`,
-    [...vals, req.user.id]
+    `UPDATE docs SET ${sets.join(', ')}, updated_at = now(), updated_by = $${vals.length + 1}, updated_via = $${vals.length + 2} WHERE id = $${vals.length}`,
+    [...vals, req.user.id, req.via]
   );
   if (typeof req.body?.title === 'string') {
     // The row and its page show the same title. Write only when it differs,
@@ -1161,7 +1190,7 @@ async function trashGrantOn(docId, userId) {
 // Restore a trashed doc (any grant on it).
 app.post('/api/docs/:id/restore', requireUser, async (req, res) => {
   if (!(await trashGrantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
-  await pool.query('UPDATE docs SET deleted_at = NULL, updated_at = now(), updated_by = $2 WHERE id = $1', [req.params.id, req.user.id]);
+  await pool.query('UPDATE docs SET deleted_at = NULL, updated_at = now(), updated_by = $2, updated_via = $3 WHERE id = $1', [req.params.id, req.user.id, req.via]);
   res.json({ ok: true });
 });
 
@@ -1242,8 +1271,8 @@ app.put('/api/docs/:id/attachments', requireUser, async (req, res) => {
   const files = coerceFiles(req.body);
   if (!files) return res.status(400).json({ error: 'bad attachments' });
   const { rowCount } = await pool.query(
-    'UPDATE docs SET attachments = $1, updated_at = now(), updated_by = $2 WHERE id = $3',
-    [JSON.stringify(files), req.user.id, req.params.id]
+    'UPDATE docs SET attachments = $1, updated_at = now(), updated_by = $2, updated_via = $4 WHERE id = $3',
+    [JSON.stringify(files), req.user.id, req.params.id, req.via]
   );
   if (!rowCount) return res.status(404).json({ error: 'no such page' });
   res.json(files);
@@ -1391,6 +1420,9 @@ app.post('/api/ai', requireUser, async (req, res) => {
     headers: {
       ...(req.headers.cookie ? { Cookie: req.headers.cookie } : {}),
       ...(req.headers.authorization ? { Authorization: req.headers.authorization } : {}),
+      // Every write these tools make is the copilot's, not the person's typing.
+      'X-Actor-Via': 'ai',
+      'X-Actor-Nonce': AI_ACTOR_NONCE,
     },
   });
   if (Array.isArray(req.body?.messages) && req.body.messages.length) {
@@ -2119,7 +2151,7 @@ app.post('/api/docs/:id/versions/:vid/restore-in-place', requireUser, wrap(async
      ON CONFLICT (doc_id) DO UPDATE SET state = EXCLUDED.state, updated_at = now()`,
     [docId, state]
   );
-  await pool.query('UPDATE docs SET updated_at = now(), updated_by = $2 WHERE id = $1', [docId, req.user.id]);
+  await pool.query('UPDATE docs SET updated_at = now(), updated_by = $2, updated_via = $3 WHERE id = $1', [docId, req.user.id, req.via]);
   // The sidebar title and the search text are pushed by whichever editor is
   // open (see mountEditor); a headless restore refreshes them here so a page
   // restored from a phone still searches on its restored contents.

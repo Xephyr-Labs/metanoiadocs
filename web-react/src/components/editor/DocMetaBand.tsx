@@ -8,6 +8,7 @@ import type { Intelligence } from '../../lib/docsApi';
 import { avatarFor } from '../../lib/avatar';
 import { relativeTime } from '../../lib/time';
 import type { Page } from '../../lib/types';
+import { ActorMark } from '../ui/ActorMark';
 import { TagChips } from './TagChips';
 import { TagSuggestions } from './TagSuggestions';
 
@@ -74,6 +75,7 @@ export function DocMetaBand({
             {avatar.initials}
           </span>
           <span className="text-muted">{who}</span>
+          <ActorMark kind={page.updatedByKind} via={page.updatedVia} name={who} />
         </span>
       )}
       <span>Updated {relativeTime(page.updatedAt)}</span>
