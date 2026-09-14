@@ -164,3 +164,18 @@ describe('weekSegments', () => {
     expect(lane).toEqual({ long: 0, over: 1, after: 0 });
   });
 });
+
+describe('ticksFor across a year boundary', () => {
+  const range = { start: '2026-11-01', end: '2027-03-01', days: 121 };
+
+  it('names the year in January, and only there', () => {
+    const labels = ticksFor(range, 3, 30).filter((t) => t.major).map((t) => t.label);
+    expect(labels).toEqual(['Nov', 'Dec', 'Jan 2027', 'Feb', 'Mar']);
+  });
+
+  it('drops the months when they collide, keeping the years', () => {
+    const wide = { start: '2026-01-01', end: '2028-12-31', days: 1096 };
+    const labels = ticksFor(wide, 0.8, 30).map((t) => t.label);
+    expect(labels).toEqual(['Jan 2026', 'Jan 2027', 'Jan 2028']);
+  });
+});

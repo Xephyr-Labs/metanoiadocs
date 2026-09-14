@@ -95,7 +95,13 @@ export function ticksFor(range: Range, dayWidth: number, step: number): Tick[] {
   // "Jul 45".
   const FIRST_W = 42; // "Jul 4"
   const MONTH_W = 26; // "Aug"
+  const YEAR_W = 52; // "Jan 2027"
   const DAY_W = 20; // "31"
+
+  // Either every month is labelled or none is. Dropping just the ones that
+  // collide leaves February and April on the ruler and March off it, which
+  // reads as nonsense; zoomed out that far, the years alone are the ruler.
+  const monthsFit = dayWidth * 28 >= MONTH_W;
 
   const ticks: Tick[] = [];
   let lastRight = -Infinity;
@@ -105,22 +111,34 @@ export function ticksFor(range: Range, dayWidth: number, step: number): Tick[] {
     const major = day === 1;
     const first = i === 0;
     if (!major && !first && i % step !== 0) continue;
+    // If a month name won't fit, a bare day number is noise: "19" every
+    // thirty columns says nothing about where you are.
+    if (!major && !first && !monthsFit) continue;
+
+    const d = new Date(toUTC(iso));
+    const startsYear = major && d.getUTCMonth() === 0;
+    if (major && !startsYear && !monthsFit) continue;
 
     const x = i * dayWidth;
     if (!major && x < lastRight) continue; // would overlap the previous label
-    // A month boundary always wins — but not by painting over its neighbour.
+    // A month boundary beats a day number — but not by painting over it.
     // A window that opens on 30 Aug used to label the first column "Aug 30"
     // and then draw "Sep" two columns later on top of it, so the header read
     // "AugSep". The month name says everything the first label was saying.
     if (major && x < lastRight && ticks.length && !ticks[ticks.length - 1].major) ticks.pop();
 
-    const d = new Date(toUTC(iso));
     // The month name alone, never "Aug 26" — beside a row of day numbers that
     // reads as the 26th. The first column names its month too, so a window that
     // opens mid-month still says where it is.
     const month = d.toLocaleDateString(undefined, { month: 'short', timeZone: 'UTC' });
-    ticks.push({ iso, x, major, label: major ? month : first ? `${month} ${day}` : String(day) });
-    lastRight = x + (major ? MONTH_W : first ? FIRST_W : DAY_W);
+    // Only January carries the year. Without it a chart running past New Year
+    // reads as the same twelve months over again.
+    const label = startsYear ? `${month} ${d.getUTCFullYear()}`
+      : major ? month
+      : first ? `${month} ${day}`
+      : String(day);
+    ticks.push({ iso, x, major, label });
+    lastRight = x + (startsYear ? YEAR_W : major ? MONTH_W : first ? FIRST_W : DAY_W);
   }
   return ticks;
 }
