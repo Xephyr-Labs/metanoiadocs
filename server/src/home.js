@@ -15,6 +15,7 @@ const VISIBLE_JOIN = `LEFT JOIN doc_access a ON a.doc_id = d.id AND a.user_id = 
 const ACTIVITY_SQL = `
   WITH visible AS (
     SELECT d.id, d.title, d.icon, d.kind, d.created_at, d.created_by, d.updated_at, d.updated_by,
+           coalesce(d.updated_via, 'human') AS updated_via,
            coalesce(d.search_text, '') <> '' AS has_text
       FROM docs d ${VISIBLE_JOIN}
      WHERE d.deleted_at IS NULL AND ${VISIBLE}
@@ -22,30 +23,30 @@ const ACTIVITY_SQL = `
   events AS (
     SELECT 'doc_created' AS kind, v.created_by AS actor_id, v.created_at AS at,
            v.id AS doc_id, NULL::text AS project_id, v.title, v.icon,
-           NULL::text AS task_id, NULL::text AS body
+           NULL::text AS task_id, NULL::text AS body, 'human'::text AS via
       -- A task's page is created with the task, and the task already has its
       -- own row below; counting the page too said everything twice.
       FROM visible v WHERE v.created_by IS NOT NULL AND v.kind <> 'task'
     UNION ALL
-    SELECT 'doc_edited', v.updated_by, v.updated_at, v.id, NULL, v.title, v.icon, NULL, NULL
+    SELECT 'doc_edited', v.updated_by, v.updated_at, v.id, NULL, v.title, v.icon, NULL, NULL, v.updated_via
       FROM visible v
      -- Opening a page for the first time seeds its skeleton, which is a real
      -- save with nothing in it. An edit is worth reporting once there is text.
      WHERE v.updated_by IS NOT NULL AND v.updated_at > v.created_at + interval '1 minute' AND v.has_text
     UNION ALL
     SELECT 'comment', c.author_id, c.created_at, c.doc_id, NULL, v.title, v.icon, NULL,
-           left(c.body, 140)
+           left(c.body, 140), 'human'::text
       FROM comments c JOIN visible v ON v.id = c.doc_id
     UNION ALL
-    SELECT 'task_created', t.created_by, t.created_at, t.doc_id, p.id, p.name, p.icon, t.id, t.title
+    SELECT 'task_created', t.created_by, t.created_at, t.doc_id, p.id, p.name, p.icon, t.id, t.title, 'human'::text
       FROM tasks t JOIN projects p ON p.id = t.project_id
      WHERE t.deleted_at IS NULL AND p.archived_at IS NULL AND p.mode <> 'data' AND t.created_by IS NOT NULL
     UNION ALL
-    SELECT 'task_done', t.updated_by, t.done_at, t.doc_id, p.id, p.name, p.icon, t.id, t.title
+    SELECT 'task_done', t.updated_by, t.done_at, t.doc_id, p.id, p.name, p.icon, t.id, t.title, coalesce(t.updated_via, 'human')
       FROM tasks t JOIN projects p ON p.id = t.project_id
      WHERE t.deleted_at IS NULL AND p.archived_at IS NULL AND p.mode <> 'data' AND t.done_at IS NOT NULL
   )
-  SELECT e.*, u.name AS actor_name
+  SELECT e.*, u.name AS actor_name, coalesce(u.kind, 'person') AS actor_kind
     FROM events e LEFT JOIN users u ON u.id = e.actor_id
    ORDER BY e.at DESC NULLS LAST
    LIMIT 30`;

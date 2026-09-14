@@ -116,9 +116,9 @@ export function registerDocPropRoutes(app, { requireUser, wrap, grantOn }) {
     const checked = propsPatch(await docPropsAll(), req.body?.props ?? {});
     if (!checked.ok) return res.status(400).json({ error: checked.error });
     const { rows } = await pool.query(
-      `UPDATE docs SET props = props || $1::jsonb, updated_at = now(), updated_by = $3
+      `UPDATE docs SET props = props || $1::jsonb, updated_at = now(), updated_by = $3, updated_via = $4
         WHERE id = $2 AND deleted_at IS NULL RETURNING props`,
-      [JSON.stringify(checked.value), req.params.id, req.user.id]
+      [JSON.stringify(checked.value), req.params.id, req.user.id, req.via]
     );
     if (!rows[0]) return res.status(404).json({ error: 'not found' });
     res.json(rows[0]);
@@ -128,8 +128,8 @@ export function registerDocPropRoutes(app, { requireUser, wrap, grantOn }) {
   app.delete('/api/docs/:id/props/:propId', requireUser, wrap(async (req, res) => {
     if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
     const { rows } = await pool.query(
-      'UPDATE docs SET props = props - $1, updated_at = now(), updated_by = $3 WHERE id = $2 RETURNING props',
-      [req.params.propId, req.params.id, req.user.id]
+      'UPDATE docs SET props = props - $1, updated_at = now(), updated_by = $3, updated_via = $4 WHERE id = $2 RETURNING props',
+      [req.params.propId, req.params.id, req.user.id, req.via]
     );
     if (!rows[0]) return res.status(404).json({ error: 'not found' });
     res.json(rows[0]);

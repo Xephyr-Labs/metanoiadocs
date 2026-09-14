@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion';
 import {
+  Bot,
   Copy,
   Info,
   KeyRound,
@@ -11,6 +12,7 @@ import {
   Sparkles,
   Sun,
   Trash2,
+  User,
   UserMinus,
   Users,
   X,
@@ -374,6 +376,15 @@ function Members() {
       .catch((e) => setMsg({ ok: false, text: e instanceof Error ? e.message : 'Could not change that role.' }));
     reload();
   };
+  // Marking an account an agent is what makes its edits legible everywhere else
+  // — the activity feed and every page byline read this.
+  const changeKind = async (m: UserRow, kind: 'person' | 'agent') => {
+    setMsg(null);
+    await docsApi
+      .setUserKind(m.id, kind)
+      .catch((e) => setMsg({ ok: false, text: e instanceof Error ? e.message : 'Could not change that.' }));
+    reload();
+  };
   // Removing someone is the one action here with no undo, so it takes two
   // deliberate clicks in the row itself — no browser dialog, and the row can
   // say what removal costs while it asks.
@@ -472,6 +483,9 @@ function Members() {
                     m.role === 'admin'
                       ? { icon: UserMinus, label: 'Make collaborator', onSelect: () => changeRole(m, 'collaborator') }
                       : { icon: Shield, label: 'Make admin', onSelect: () => changeRole(m, 'admin') },
+                    m.kind === 'agent'
+                      ? { icon: User, label: 'Mark as a person', onSelect: () => changeKind(m, 'person') }
+                      : { icon: Bot, label: 'Mark as an agent', onSelect: () => changeKind(m, 'agent') },
                     { icon: Trash2, label: 'Remove from workspace', danger: true, separatorBefore: true, onSelect: () => { setMsg(null); setConfirming(m.id); } },
                   ]}
                   trigger={

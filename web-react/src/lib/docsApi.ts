@@ -45,6 +45,8 @@ export interface DocRow {
   kind: 'doc' | 'design' | 'task';
   /** Who saved it last, for the metadata band. Null until someone edits it. */
   updated_by_name: string | null;
+  updated_by_kind?: 'person' | 'agent';
+  updated_via?: 'human' | 'ai';
   shared: boolean;
   favorite: boolean;
   /** Pinned for everyone. Distinct from `favorite`, which is per person. */
@@ -100,6 +102,8 @@ export interface UserRow {
   email: string;
   username: string;
   role?: string;
+  /** 'agent' when this account is something acting for a person. */
+  kind?: 'person' | 'agent';
 }
 
 export interface CommentRow {
@@ -299,6 +303,9 @@ export const docsApi = {
   deleteToken: (id: string) => req(`/tokens/${id}`, { method: 'DELETE' }),
   setUserRole: (id: string, role: 'admin' | 'collaborator') =>
     req(`/users/${id}/role`, { method: 'PATCH', body: JSON.stringify({ role }) }),
+  /** Mark an account as something running on a person's behalf, or back again. */
+  setUserKind: (id: string, kind: 'person' | 'agent') =>
+    req(`/users/${id}/kind`, { method: 'PATCH', body: JSON.stringify({ kind }) }),
   removeUser: (id: string) => req(`/users/${id}`, { method: 'DELETE' }),
 
   publicGet: (id: string): Promise<{ token: string | null }> => req(`/docs/${id}/public`),

@@ -4,6 +4,7 @@ import { cn } from '../../lib/cn';
 import { relativeTime } from '../../lib/time';
 import { avatarFor } from '../../lib/avatar';
 import type { ActivityRow, MyTask, ProjectRow } from '../../lib/tasksApi';
+import { ActorMark } from '../ui/ActorMark';
 import { useMoveToFolder } from '../../hooks/useMoveToFolder';
 import { IconButton } from '../ui/IconButton';
 import { Menu } from '../ui/Menu';
@@ -208,7 +209,8 @@ export function ActivityLine({ row, onOpen }: { row: ActivityRow; onOpen: () => 
       </span>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm text-ink">
-          <span className="font-medium">{who}</span>{' '}
+          <span className="font-medium">{who}</span>
+          <ActorMark kind={row.actor_kind} via={row.via} name={who} className="ml-1" />{' '}
           <span className="text-muted">{text}</span>{' '}
           {row.title || 'Untitled'}
         </span>

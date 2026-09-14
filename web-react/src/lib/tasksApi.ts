@@ -215,6 +215,10 @@ export interface ActivityRow {
   kind: 'doc_created' | 'doc_edited' | 'comment' | 'task_created' | 'task_done';
   actor_id: string | null;
   actor_name: string | null;
+  /** 'agent' when the account that did this runs on someone's behalf. */
+  actor_kind: 'person' | 'agent';
+  /** 'ai' when the copilot made this write inside that person's session. */
+  via: 'human' | 'ai';
   at: string;
   doc_id: string | null;
   project_id: string | null;
