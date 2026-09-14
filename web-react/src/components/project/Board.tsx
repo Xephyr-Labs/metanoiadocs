@@ -1,11 +1,17 @@
 import { useState } from 'react';
 import { Plus } from 'lucide-react';
 import { cn } from '../../lib/cn';
-import { STATUSES, STATUS_LABEL, type TaskRow, type TaskStatus } from '../../lib/tasksApi';
+import { STATUSES, STATUS_LABEL, type TaskRow, type TaskStatus, type PropRow } from '../../lib/tasksApi';
+import type { UserRow } from '../../lib/docsApi';
 import { TaskChip } from './TaskChip';
 
 interface Props {
   tasks: TaskRow[];
+  /** Custom properties to show on each card, ordered by the view's settings.
+   *  Absent where there is no per-view setting to read — a database embedded
+   *  in a page has no toolbar to configure one. */
+  cardProps?: PropRow[];
+  users?: UserRow[];
   onMove: (id: string, status: TaskStatus, position: number) => void;
   onOpen: (t: TaskRow) => void;
   onAdd: (status: TaskStatus) => void;
@@ -26,7 +32,7 @@ export const DOT: Record<TaskStatus, string> = {
  * columns are drop targets and a card carries its own id, which is all this
  * needs.
  */
-export function Board({ tasks, onMove, onOpen, onAdd }: Props) {
+export function Board({ tasks, cardProps, users, onMove, onOpen, onAdd }: Props) {
   const [over, setOver] = useState<TaskStatus | null>(null);
 
   return (
@@ -83,7 +89,7 @@ export function Board({ tasks, onMove, onOpen, onAdd }: Props) {
                     e.dataTransfer.effectAllowed = 'move';
                   }}
                 >
-                  <TaskChip task={t} onOpen={() => onOpen(t)} />
+                  <TaskChip task={t} onOpen={() => onOpen(t)} cardProps={cardProps} users={users} />
                 </div>
               ))}
               {!column.length && (

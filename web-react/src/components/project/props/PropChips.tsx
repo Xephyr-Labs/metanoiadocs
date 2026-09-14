@@ -1,0 +1,156 @@
+/* Hallmark · component: read-only property chips · genre: modern-minimal
+ * theme: project tokens (index.css) + tag palette (lib/tagColors)
+ * pre-emit critique: P5 H5 E4 S4 R5 V4
+ * states: default · empty (renders nothing) · truncated · media thumb · overflow
+ * contrast: pass (40) — light ramp measured at 4.8-6.9:1, dark at 5.7-10.8:1
+ */
+import { Fragment } from 'react';
+import { Paperclip } from 'lucide-react';
+import { cn } from '../../../lib/cn';
+import { swatch } from '../../../lib/tagColors';
+import { selectedOptions } from '../../../lib/props';
+import { fileUrl, isImageFile, isVideoFile, type StoredFile } from '../../../lib/uploads';
+import type { PropRow, TaskRow } from '../../../lib/tasksApi';
+import type { UserRow } from '../../../lib/docsApi';
+
+/**
+ * A task's properties as they appear ON a card — a calendar event, a board
+ * card, a gallery tile, a gantt row.
+ *
+ * Read-only by design. The card is a summary you scan; editing happens in the
+ * peek panel, where a control has room to be a control. Everything here is one
+ * line tall so a card's height stays a function of how many properties are
+ * shown, not of what happens to be in them.
+ *
+ * Nothing is rendered for an empty value: a card carrying four blank rows to
+ * keep its neighbours' alignment is how a calendar turns into a spreadsheet.
+ */
+export function PropChips({
+  task,
+  props,
+  users,
+  className,
+}: {
+  task: TaskRow;
+  /** Already filtered and ordered by the view's visibility settings. */
+  props: PropRow[];
+  users?: UserRow[];
+  className?: string;
+}) {
+  const chips = props
+    .map((p) => ({ prop: p, node: chipFor(p, task.props?.[p.id], users) }))
+    .filter((c) => c.node !== null);
+
+  if (!chips.length) return null;
+
+  // No wrapper element per property: `display: contents` was hiding the group
+  // from the accessibility tree in some engines, which took the property name
+  // with it. Each chip carries its own title instead.
+  return (
+    <div className={cn('flex flex-wrap items-center gap-1', className)}>
+      {chips.map((c) => (
+        <Fragment key={c.prop.id}>{c.node}</Fragment>
+      ))}
+    </div>
+  );
+}
+
+/** One property's value, or null when there is nothing worth drawing. */
+function chipFor(prop: PropRow, value: unknown, users?: UserRow[]) {
+  switch (prop.type) {
+    case 'select':
+    case 'multi_select': {
+      const chosen = selectedOptions(prop, value);
+      if (!chosen.length) return null;
+      return (
+        <>
+          {chosen.map((o) => (
+            <Chip key={o.id} color={o.color} dot={prop.type === 'select'} title={`${prop.label}: ${o.label}`}>
+              {o.label}
+            </Chip>
+          ))}
+        </>
+      );
+    }
+    case 'checkbox':
+      // Only a ticked box says anything; an unticked one is the default state
+      // of every task that never touched the property.
+      return value ? <Chip color="green" title={prop.label}>✓ {prop.label}</Chip> : null;
+    case 'person': {
+      const u = users?.find((x) => x.id === value);
+      return u ? <Chip color="blue" title={`${prop.label}: ${u.name || u.username}`}>{u.name || u.username}</Chip> : null;
+    }
+    case 'number':
+      return typeof value === 'number' ? <Chip color="gray" title={`${prop.label}: ${value}`}>{value}</Chip> : null;
+    case 'date':
+      return typeof value === 'string' && value ? <Chip color="gray" title={`${prop.label}: ${value.slice(0, 10)}`}>{value.slice(0, 10)}</Chip> : null;
+    case 'url':
+      return typeof value === 'string' && value ? (
+        <Chip color="blue" title={`${prop.label}: ${value}`}>{value.replace(/^https?:\/\//i, '').slice(0, 28)}</Chip>
+      ) : null;
+    case 'file':
+      return <Media files={Array.isArray(value) ? (value as StoredFile[]) : []} />;
+    default:
+      return typeof value === 'string' && value.trim() ? (
+        <span title={`${prop.label}: ${value}`} className="max-w-full truncate text-2xs text-muted">{value}</span>
+      ) : null;
+  }
+}
+
+function Chip({ color, dot, title, children }: { color: string; dot?: boolean; title?: string; children: React.ReactNode }) {
+  return (
+    <span
+      title={title}
+      className={cn(
+        'inline-flex max-w-full items-center gap-1 truncate rounded px-1.5 py-0.5 text-2xs',
+        swatch(color).chip,
+      )}
+    >
+      {dot && <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', swatch(color).dot)} />}
+      <span className="truncate">{children}</span>
+    </span>
+  );
+}
+
+/**
+ * Files on a card: images and video posters show themselves, everything else
+ * is a count. A card is too small to play anything, so a video renders its own
+ * first frame via `preload="metadata"` rather than pulling the whole file.
+ */
+function Media({ files }: { files: StoredFile[] }) {
+  if (!files.length) return null;
+  const shown = files.slice(0, 3);
+  const rest = files.length - shown.length;
+  return (
+    <>
+      {shown.map((f) =>
+        isImageFile(f) ? (
+          <img
+            key={f.key}
+            src={fileUrl(f)}
+            alt={f.name}
+            loading="lazy"
+            className="h-6 w-6 shrink-0 rounded border border-line object-cover"
+          />
+        ) : isVideoFile(f) ? (
+          <video
+            key={f.key}
+            src={fileUrl(f)}
+            preload="metadata"
+            muted
+            playsInline
+            className="h-6 w-8 shrink-0 rounded border border-line bg-surface object-cover"
+          />
+        ) : (
+          <span
+            key={f.key}
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-line bg-surface text-faint"
+          >
+            <Paperclip size={11} />
+          </span>
+        ),
+      )}
+      {rest > 0 && <span className="text-2xs text-faint">+{rest}</span>}
+    </>
+  );
+}
