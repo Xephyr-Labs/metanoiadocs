@@ -21,6 +21,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
+import { ActorMark } from '../ui/ActorMark';
 import { workspaces } from '../../data/mock';
 import { useWorkspace } from '../../store/workspace';
 import { notifyEnabled } from '../../lib/desktopNotify';
@@ -450,7 +451,13 @@ function Members() {
             <div key={m.id} className="flex items-center gap-3 py-3">
               <Avatar name={m.name || m.email} size={32} />
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-ink">{m.name} {m.id === user?.id && <span className="text-faint">(you)</span>}</p>
+                <p className="flex items-center gap-1.5 truncate text-sm font-medium text-ink">
+                  <span className="truncate">{m.name}</span>
+                  {/* An admin can mark an account an agent; they have to be able to
+                      see which ones already are. */}
+                  <ActorMark kind={m.kind} name={m.name} />
+                  {m.id === user?.id && <span className="shrink-0 text-faint">(you)</span>}
+                </p>
                 {asking ? (
                   <p className="text-xs text-danger">
                     Their pages transfer to you and their comments keep their name. Sign-in, tokens and favourites are deleted.

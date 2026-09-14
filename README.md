@@ -55,8 +55,8 @@ One image, one Postgres, one port. `docker compose up -d` and invite the team.
   </tr>
   <tr>
     <td width="50%" valign="top">
-      <img src="assets/screenshots/calendar.png" alt="Month calendar with tasks on their due dates" />
-      <p align="center"><sub><b>Calendar</b> — the same tasks, by due date.</sub></p>
+      <img src="assets/screenshots/calendar.png" alt="Month calendar with multi-day task cards carrying status and area chips" />
+      <p align="center"><sub><b>Calendar</b> — the whole span, not just the due date. Drag an edge to move it; weeks grow to fit.</sub></p>
     </td>
     <td width="50%" valign="top">
       <img src="assets/screenshots/inbox.png" alt="Inbox dialog listing an assignment and two comment mentions" />
@@ -82,7 +82,7 @@ One image, one Postgres, one port. `docker compose up -d` and invite the team.
 
 **Write together**
 
-- **Real-time collaboration** — live multi-cursor editing and presence over Yjs (Hocuspocus). No save button.
+- **Real-time collaboration** — live multi-cursor editing and presence over Yjs (Hocuspocus). Open a page and you see where everyone already is, not just where they move next. No save button.
 - **Rich block editor** — headings, lists, to-dos, tables, databases, code, LaTeX, images, embeds, toggles, columns, callouts, mermaid.
 - **Reading controls** — Serif or Mono, smaller text, full width — per person, from the page menu.
 - **Comments & @-mentions** — threaded, block-anchored; tag a teammate for an in-app, email, and push notification. Tag yourself to leave a reminder.
@@ -111,6 +111,7 @@ One image, one Postgres, one port. `docker compose up -d` and invite the team.
 **Let the machines in**
 
 - **MCP server** — Claude Desktop/Code, Cursor and friends can search, read and write your docs *as you* over the [Model Context Protocol](https://modelcontextprotocol.io), stdio or remote HTTP. See [`mcp/`](mcp/).
+- **AI governance** — every change records whether a person, an agent account, or the copilot made it, and the workspace shows which. See [AI governance](#-ai-governance).
 - **AI assist** — optional OpenAI-compatible copilot with page context and tools, configured in Settings. Bring your own key; it is off by default.
 
 **Run it yourself**
@@ -119,6 +120,42 @@ One image, one Postgres, one port. `docker compose up -d` and invite the team.
 - **One container** — serves the UI, the REST API and the `/sync` WebSocket from one origin. Postgres is the only dependency.
 - **Idempotent schema** — created and migrated on every boot; there are no migration steps.
 - **Web Push** — VAPID keys generate themselves on first use and live in the database.
+
+## 🤖 AI governance
+
+Agents and copilots write to this workspace. So the workspace records **who
+wrote what** — and "who" has two different answers, because one column cannot
+carry both.
+
+**Which account.** An agent signs in with a personal access token and writes as
+a normal user. Marking the account is enough to tell it apart, and only an admin
+can do it — never on themselves. An account calling itself a person is the claim
+worth protecting.
+
+**Which hand.** Ask AI forwards *your* cookie and calls the same routes you do,
+so there is no second account to mark: the edit is yours either way. Every write
+therefore records whether you typed it or the copilot made it for you.
+
+That flag is never taken from the client. A bare header would let any caller
+stamp their edits "human", or blame the copilot for something it did not do — so
+the copilot proves itself with a nonce minted at boot and never sent to a
+browser. Anything else is a person, whatever it claims.
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="assets/screenshots/ai-provenance.png" alt="Activity feed showing a sparkle beside an edit made with Ask AI and a bot glyph beside an agent account, with other entries unmarked" />
+      <p align="center"><sub><b>Provenance</b> — a sparkle for a copilot edit, a bot for an agent account. A person typing gets no mark: the exception is the signal.</sub></p>
+    </td>
+    <td width="50%" valign="top">
+      <img src="assets/screenshots/ai-governance.png" alt="Members settings with an agent account marked, and the admin menu open on Mark as a person" />
+      <p align="center"><sub><b>Control</b> — admins see which accounts are agents and change it from the member list.</sub></p>
+    </td>
+  </tr>
+</table>
+
+Nothing here phones home. The marks are computed from your own database, and the
+MCP server and copilot are both off until you turn them on.
 
 ## 🚀 Quick start
 
