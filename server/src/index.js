@@ -23,8 +23,9 @@ import {
   createFirstAdmin,
   setPasswordHash,
   deleteOtherSessions,
+  clearSessionVia,
 } from './db.js';
-import { requestMagicLink, consumeMagicLink, sendInviteEmail, sendNotificationEmail } from './auth.js';
+import { requestMagicLink, consumeMagicLink, mayReplacePassword, sendInviteEmail, sendNotificationEmail } from './auth.js';
 import { lockedFor, noteFailure, clearFailures, lockoutError } from './throttle.js';
 import { idleAbort } from './idle-abort.js';
 import { aiTools } from './ai-tools.js';
@@ -260,6 +261,11 @@ app.post('/api/auth/login', async (req, res) => {
 
 // Change your own password. The current one is required: a borrowed session
 // cookie must not be enough to lock the real owner out of their account.
+//
+// Unless this session came from a sign-in link. Clicking a link mailed to your
+// address proves the mailbox, which is exactly the proof a password reset is
+// built on — and someone who has forgotten their password has no old one to
+// give. The provenance is spent on use, so the session cannot do it twice.
 app.post('/api/auth/password', requireUser, async (req, res) => {
   const current = String(req.body?.current || '');
   const next = String(req.body?.next || '');
@@ -270,14 +276,23 @@ app.post('/api/auth/password', requireUser, async (req, res) => {
   const mins = lockedFor(key);
   if (mins) return res.status(429).json({ error: lockoutError(mins) });
 
+  const fromLink = req.user.session_via === 'link';
   // A magic-link-only account has no hash to check against, so it has no
   // current password to prove — it signs in by email and doesn't come here.
-  const ok = req.user.password_hash ? await bcrypt.compare(current, req.user.password_hash) : false;
+  const ok = mayReplacePassword({
+    sessionVia: req.user.session_via,
+    passwordMatches: fromLink
+      ? false
+      : req.user.password_hash
+        ? await bcrypt.compare(current, req.user.password_hash)
+        : false,
+  });
   if (!ok) {
     noteFailure(key);
     return res.status(401).json({ error: 'Current password is incorrect.' });
   }
   clearFailures(key);
+  if (fromLink) await clearSessionVia(sessionToken(req));
 
   await setPasswordHash(req.user.id, await bcrypt.hash(next, 12));
   // Bearer-token callers have no cookie to keep, so every session goes.

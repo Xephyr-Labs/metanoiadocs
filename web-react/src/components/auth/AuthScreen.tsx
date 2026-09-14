@@ -1,11 +1,11 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { AlertCircle, AtSign, Eye, EyeOff, Loader2, Lock, Mail, User } from 'lucide-react';
+import { AlertCircle, ArrowLeft, AtSign, Eye, EyeOff, Loader2, Lock, Mail, MailCheck, User } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { cn } from '../../lib/cn';
 import { useAuth } from '../../store/auth';
 import { Logo } from '../brand/Logo';
 
-type Mode = 'login' | 'signup' | 'setup';
+type Mode = 'login' | 'signup' | 'setup' | 'forgot';
 
 /** The three sentences that change per mode; everything else is shared. */
 const COPY: Record<Mode, { title: string; sub: string; cta: string }> = {
@@ -15,6 +15,11 @@ const COPY: Record<Mode, { title: string; sub: string; cta: string }> = {
     title: 'Set up your workspace',
     sub: 'Nobody has claimed this instance yet. The account you create here is the admin.',
     cta: 'Create admin account',
+  },
+  forgot: {
+    title: 'Sign in by email',
+    sub: 'We will send a link that signs you in. You can set a new password once you are back.',
+    cta: 'Send the link',
   },
 };
 
@@ -34,7 +39,7 @@ function Field({
 }
 
 export function AuthScreen() {
-  const { login, signup, setup, needsSetup } = useAuth();
+  const { login, requestLink, signup, setup, needsSetup } = useAuth();
   // A fresh instance has exactly one thing to offer, so setup isn't a mode the
   // user can switch away from — it ends the moment the admin exists.
   const [mode, setMode] = useState<Mode>(needsSetup ? 'setup' : 'login');
@@ -45,6 +50,7 @@ export function AuthScreen() {
   const [showPw, setShowPw] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [sent, setSent] = useState(false);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -54,17 +60,27 @@ export function AuthScreen() {
     const res =
       mode === 'login'
         ? await login(username, password)
-        : mode === 'setup'
-          ? await setup(name, username, email, password)
-          : await signup(name, username, email, password);
+        : mode === 'forgot'
+          ? await requestLink(email)
+          : mode === 'setup'
+            ? await setup(name, username, email, password)
+            : await signup(name, username, email, password);
     setBusy(false);
-    if (!res.ok) setError(res.error ?? 'Something went wrong.');
-    // On success the app swaps to the workspace automatically (user is set).
+    if (!res.ok) {
+      setError(res.error ?? 'Something went wrong.');
+      return;
+    }
+    // Whether or not that address has an account, the answer is the same one —
+    // a sign-in screen that confirms which addresses exist is a list of who to
+    // go after.
+    if (mode === 'forgot') setSent(true);
+    // Otherwise the app swaps to the workspace automatically (user is set).
   };
 
   const switchMode = (m: Mode) => {
     setMode(m);
     setError(null);
+    setSent(false);
   };
 
   return (
@@ -83,9 +99,26 @@ export function AuthScreen() {
           </div>
         </div>
 
+        {sent ? (
+          <div className="rounded-lg border border-line bg-surface p-4 text-center">
+            <MailCheck size={20} className="mx-auto text-accent-strong" />
+            <p className="mt-2 text-sm text-ink">Check {email || 'your inbox'}.</p>
+            <p className="mt-1 text-xs leading-relaxed text-muted">
+              If that address has an account, a sign-in link is on its way. It works once and
+              expires in 15 minutes.
+            </p>
+            <button
+              type="button"
+              onClick={() => switchMode('login')}
+              className="mt-3 text-xs font-medium text-accent-strong hover:underline"
+            >
+              Back to sign in
+            </button>
+          </div>
+        ) : (
         <form onSubmit={submit} className="space-y-2.5">
           <AnimatePresence initial={false}>
-            {mode !== 'login' && (
+            {mode !== 'login' && mode !== 'forgot' && (
               <motion.div
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: 'auto' }}
@@ -114,6 +147,18 @@ export function AuthScreen() {
             )}
           </AnimatePresence>
 
+          {mode === 'forgot' ? (
+            <Field
+              icon={Mail}
+              type="email"
+              required
+              autoFocus
+              placeholder="Email"
+              autoComplete="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+          ) : (
           <Field
             icon={AtSign}
             placeholder={mode === 'login' ? 'Username or email' : 'Username'}
@@ -121,7 +166,9 @@ export function AuthScreen() {
             value={username}
             onChange={(e) => setUsername(e.target.value)}
           />
+          )}
 
+          {mode !== 'forgot' && (
           <div className="flex h-10 items-center gap-2.5 rounded-lg bg-surface px-3 ring-1 ring-inset ring-line transition-shadow focus-within:bg-canvas focus-within:ring-2 focus-within:ring-accent">
             <Lock size={16} className="shrink-0 text-faint" />
             <input
@@ -141,6 +188,7 @@ export function AuthScreen() {
               {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
             </button>
           </div>
+          )}
 
           <AnimatePresence>
             {error && (
@@ -158,8 +206,24 @@ export function AuthScreen() {
 
           {mode === 'login' && (
             <div className="flex justify-end pt-0.5">
-              <button type="button" className="text-xs text-muted transition-colors hover:text-ink">
+              <button
+                type="button"
+                onClick={() => switchMode('forgot')}
+                className="text-xs text-muted transition-colors hover:text-ink"
+              >
                 Forgot password?
+              </button>
+            </div>
+          )}
+
+          {mode === 'forgot' && (
+            <div className="flex justify-start pt-0.5">
+              <button
+                type="button"
+                onClick={() => switchMode('login')}
+                className="flex items-center gap-1 text-xs text-muted transition-colors hover:text-ink"
+              >
+                <ArrowLeft size={12} /> Back to sign in
               </button>
             </div>
           )}
@@ -176,10 +240,11 @@ export function AuthScreen() {
             {busy ? 'Please wait…' : COPY[mode].cta}
           </button>
         </form>
+        )}
 
         {/* Nothing to switch to while the instance is unclaimed — there is no
             account to sign in with and no invitation to accept yet. */}
-        {mode !== 'setup' && (
+        {mode !== 'setup' && mode !== 'forgot' && !sent && (
           <p className="mt-5 text-center text-sm text-muted">
             {mode === 'login' ? 'Have an invitation?' : 'Already have an account?'}{' '}
             <button

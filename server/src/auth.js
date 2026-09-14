@@ -19,6 +19,19 @@ const mailer = DEV
       auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
     });
 
+/**
+ * May this session replace the password without producing the old one?
+ *
+ * Only a session begun by a sign-in link. Clicking a link mailed to the
+ * address proves the mailbox, which is the proof every password reset is
+ * built on — and someone who has forgotten the password has no old one to
+ * give. A password session proves only the password, so it must keep proving
+ * it: a borrowed cookie must not be enough to lock the real owner out.
+ */
+export function mayReplacePassword({ sessionVia, passwordMatches }) {
+  return sessionVia === 'link' || passwordMatches === true;
+}
+
 export async function requestMagicLink(email, baseUrl) {
   const clean = String(email || '').trim().toLowerCase();
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(clean)) throw new Error('invalid email');
@@ -126,8 +139,8 @@ export async function consumeMagicLink(token) {
   const user = await findOrCreateUser(email);
   const session = crypto.randomBytes(32).toString('base64url');
   await pool.query(
-    `INSERT INTO sessions (token, user_id, expires_at)
-     VALUES ($1, $2, now() + ($3 || ' days')::interval)`,
+    `INSERT INTO sessions (token, user_id, expires_at, via)
+     VALUES ($1, $2, now() + ($3 || ' days')::interval, 'link')`,
     [session, user.id, String(SESSION_TTL_DAYS)]
   );
   return { user, session };

@@ -21,6 +21,12 @@ export async function initSchema() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
     CREATE INDEX IF NOT EXISTS sessions_user_idx ON sessions(user_id);
+    -- How this session was started: 'link' for one begun by a sign-in link,
+    -- NULL for a password login. A link is proof of the mailbox, which is what
+    -- lets its session set a new password without proving the old one — the
+    -- whole point of forgetting it. Cleared once used, so the session cannot
+    -- keep doing it.
+    ALTER TABLE sessions ADD COLUMN IF NOT EXISTS via TEXT;
 
     -- Username + password auth (added alongside magic-link, not replacing it).
     ALTER TABLE users ADD COLUMN IF NOT EXISTS username TEXT;
@@ -757,9 +763,14 @@ export async function setSetting(key, value) {
 export async function userForSession(token) {
   if (!token) return null;
   const { rows } = await pool.query(
-    `SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id
+    `SELECT u.*, s.via AS session_via FROM sessions s JOIN users u ON u.id = s.user_id
       WHERE s.token = $1 AND s.expires_at > now()`,
     [token]
   );
   return rows[0] ?? null;
+}
+
+/** Spend a session's link provenance, so it may set a password exactly once. */
+export async function clearSessionVia(token) {
+  await pool.query('UPDATE sessions SET via = NULL WHERE token = $1', [token]);
 }
