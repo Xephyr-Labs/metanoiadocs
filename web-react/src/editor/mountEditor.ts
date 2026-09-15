@@ -27,6 +27,7 @@ import { attachComments } from './comments';
 import { takePendingSeed } from './pendingSeed';
 import { docPlainText } from './docText';
 import { attachMermaidPreviews } from './mermaidPreview';
+import { attachMarkdownPaste } from './markdownPaste';
 import { attachRefClicks, collectPageLinks, pageLinkExtensions, type LinkTarget } from './pageLinks';
 import { missingDocMetas } from './docMetas';
 import { blockLinkExtensions } from './blockLinks';
@@ -462,6 +463,11 @@ export async function mountEditor(
     onChange: (cb) => { doc.spaceDoc.on('update', cb); return () => doc.spaceDoc.off('update', cb); },
   });
 
+  // Markdown pasted from a code editor, a terminal or a fenced block arrives
+  // with syntax-highlight HTML beside it, which outranks the plain text and
+  // reproduces `## Heading` verbatim. See markdownPaste.ts.
+  const detachMarkdownPaste = share || snapshot ? null : attachMarkdownPaste(editor);
+
   // Debounced sync of title (sidebar) + plain text (search) back to the server.
   let timer: ReturnType<typeof setTimeout> | null = null;
   let lastTitle = title;
@@ -522,6 +528,7 @@ export async function mountEditor(
       try { detachColumns(); } catch { /* noop */ }
       try { detachCalloutPanels(); } catch { /* noop */ }
       try { detachMermaid(); } catch { /* noop */ }
+      try { detachMarkdownPaste?.(); } catch { /* noop */ }
       try { themeObserver.disconnect(); } catch { /* noop */ }
       try { virtualKeyboard.dispose(); } catch { /* noop */ }
       try { doc.spaceDoc.off('update', push); } catch { /* noop */ }

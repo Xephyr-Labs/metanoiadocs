@@ -31,7 +31,7 @@ function coerceFile(raw) {
  * One bad entry fails the whole write rather than silently dropping a file
  * someone just uploaded — a half-saved attachment list is worse than a refusal
  * they can see. Shared by the `file` property and by the attachments column on
- * tasks and docs, which store exactly the same thing in a different place.
+ * tasks, which store exactly the same thing in a different place.
  */
 export function coerceFiles(value) {
   if (value === null || value === undefined) return [];

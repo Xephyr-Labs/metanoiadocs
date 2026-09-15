@@ -444,6 +444,16 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const openHistory = useCallback((id: PageId) => setHistoryDocId(id), []);
   const closeHistory = useCallback(() => setHistoryDocId(null), []);
 
+  /**
+   * Open a document. The only way — every caller that made a page and then set
+   * `currentId` itself was a partial copy of this, and each one left something
+   * out. What they all left out was `showDoc`, so a page you had just created
+   * sat at whatever address was there before: "Copy link" handed a colleague
+   * the dashboard, "Open in new tab" opened the dashboard, and the back button
+   * had nothing to go back to. Clicking away and clicking back was the only
+   * way to get the document's own address, because that path went through
+   * here.
+   */
   const select = useCallback((id: PageId) => {
     setCurrentId(id);
     setView('doc');
@@ -537,15 +547,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         folderExpandedRef.current.add(folderId);
         setFolders((f) => (f[folderId] ? { ...f, [folderId]: { ...f[folderId], expanded: true } } : f));
       }
-      setCurrentId(row.id);
-      setView('doc');
-      localStorage.setItem('mn-last-doc', row.id);
+      select(row.id);
       return row.id;
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not create page.');
       return null;
     }
-  }, [refresh]);
+  }, [refresh, select]);
 
   const createDesign = useCallback(async (): Promise<PageId | null> => {
     try {
@@ -588,11 +596,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       // Same reason the drag opens its target: the page that was just made has
       // to be visible where it was made.
       setPages((p) => (p[parentId] ? { ...p, [parentId]: { ...p[parentId], expanded: true } } : p));
-      setCurrentId(row.id);
-      setView('doc');
-      localStorage.setItem('mn-last-doc', row.id);
-      showDoc(row.id);
-      setMobileDrawer(false);
+      select(row.id);
       return row.id;
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not create that page.');
@@ -708,15 +712,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       const row = await docsApi.create({ title: t.name, icon: t.icon });
       setPendingSeed(row.id, t.blocks); // consumed by mountEditor on first mount
       await refresh();
-      setCurrentId(row.id);
-      setView('doc');
-      localStorage.setItem('mn-last-doc', row.id);
+      select(row.id);
       return row.id;
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not create from template.');
       return null;
     }
-  }, [refresh]);
+  }, [refresh, select]);
 
   /**
    * Markdown files → documents. Each file is its own page; a file that fails
@@ -747,11 +749,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       setFolders((f) => (f[folderId] ? { ...f, [folderId]: { ...f[folderId], expanded: true } } : f));
     }
     await refresh();
-    setCurrentId(first);
-    setView('doc');
-    localStorage.setItem('mn-last-doc', first);
+    select(first);
     return first;
-  }, [refresh]);
+  }, [refresh, select]);
 
   const restorePage = useCallback(async (id: PageId) => {
     try {
@@ -763,9 +763,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       return;
     }
     await refresh();
-    setCurrentId(id);
-    setView('doc');
-  }, [refresh]);
+    select(id);
+  }, [refresh, select]);
 
   const refreshDocProps = useCallback(async () => {
     setDocProps(await docsApi.docProps().catch(() => []));
@@ -899,11 +898,17 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       }
       return next;
     });
-    setCurrentId((c) => {
-      if (c !== id) return c;
-      const survivor = Object.keys(snapshot).find((pid) => pid !== id);
-      return survivor ?? null;
-    });
+    const survivor = Object.keys(snapshot).find((pid) => pid !== id) ?? null;
+    setCurrentId((c) => (c === id ? survivor : c));
+    // Same reason every creator goes through select(): the address has to say
+    // what is open. Left alone, /d/<id> kept naming the page that just went to
+    // the trash, so "Copy link" handed someone a dead link and a reload landed
+    // on a fallback that did not match the bar. `replace` because the entry
+    // being corrected is this page's own — going back to it is going nowhere.
+    if (readRoute().docId === id) {
+      if (survivor) showDoc(survivor, { replace: true });
+      else showHome({ replace: true });
+    }
   }, [refresh]);
 
   const toggleTheme = useCallback(() => setTheme((t) => (t === 'dark' ? 'light' : 'dark')), []);

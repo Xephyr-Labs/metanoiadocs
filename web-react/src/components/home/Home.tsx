@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowRight, ChevronLeft, ChevronRight, FileText, Plus, RefreshCw } from 'lucide-react';
+import { ArrowRight, ChevronLeft, ChevronRight, FileText, Plus, RefreshCw, Upload } from 'lucide-react';
 import { useAuth } from '../../store/auth';
 import { useWorkspace } from '../../store/workspace';
 import { docsApi, type MyDocRow } from '../../lib/docsApi';
 import { relativeTime } from '../../lib/time';
+import { pickImportFiles } from '../../lib/docFiles';
 import { tasksApi, type HomePayload, type MyTask } from '../../lib/tasksApi';
 import { PageIcon } from '../ui/PageIcon';
 import { Button } from '../ui/Button';
@@ -143,6 +144,15 @@ export function Home() {
           </div>
           <div className="flex items-center gap-1">
             <IconButton icon={<RefreshCw size={16} />} label="Refresh" onClick={load} />
+            {/* Beside New page, because the two are the same decision: start a
+                page empty, or start it from a file you already have. Secondary,
+                because starting empty is the common one. */}
+            <Button
+              leftIcon={<Upload size={16} />}
+              onClick={() => { pickImportFiles().then((f) => { if (f.length) ws.importFiles(f, null); }); }}
+            >
+              Import
+            </Button>
             <Button variant="primary" leftIcon={<Plus size={16} />} onClick={() => ws.createPage(null)}>
               New page
             </Button>

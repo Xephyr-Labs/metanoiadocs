@@ -14,7 +14,6 @@ import { CommentMarkers } from './CommentMarkers';
 import { EditorBar } from './EditorBar';
 import { FramesPanel } from '../design/FramesPanel';
 import { FloatingToc } from './FloatingToc';
-import { DocAttachments } from './DocAttachments';
 import { DocMetaBand } from './DocMetaBand';
 import { PageProperties } from './PageProperties';
 import { PageHeader } from './PageHeader';
@@ -187,7 +186,6 @@ export function EditorArea() {
                       positioned either way, and rendering it first put every
                       comment pip ahead of the document in the tab order. */}
                   <CommentMarkers container={markerHost} fullWidth={ws.fullWidth} />
-                  <DocAttachments docId={page.id} fullWidth={ws.fullWidth} />
                   <Backlinks docId={page.id} refreshKey={refreshKey} fullWidth={ws.fullWidth} onOpen={(id) => ws.select(id)} />
                 </div>
               </motion.div>

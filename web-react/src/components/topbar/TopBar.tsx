@@ -366,7 +366,12 @@ export function TopBar() {
               ]),
               {
                 icon: Upload,
-                label: 'Import',
+                // "Import" alone read as "put a file into this page", which is
+                // not what it does — every import is its own new page. Say the
+                // destination, so nobody makes a blank page to import into. An
+                // unfiled page has no folder to name, so it says the other true
+                // half instead of naming one that isn't there.
+                label: page.folderId ? 'Import into this folder' : 'Import as a new page',
                 // Files land in the folder this page is filed under, which is
                 // the one thing the sidebar's own import can't know. Unlike the
                 // reading controls above, this has nothing to do with how the
