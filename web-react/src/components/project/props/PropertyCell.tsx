@@ -5,7 +5,7 @@
  */
 import type { UserRow } from '../../../lib/docsApi';
 import { isBuiltinProp, readBuiltin, writeBuiltin } from '../../../lib/builtinProps';
-import type { PropOption, PropRow, TaskPatch, TaskRow } from '../../../lib/tasksApi';
+import { isComputed, type PropOption, type PropRow, type TaskPatch, type TaskRow } from '../../../lib/tasksApi';
 import { AssigneePicker } from '../AssigneePicker';
 import { TagsCell } from './TagsCell';
 import { isOverdue } from '../TaskBadges';
@@ -93,6 +93,12 @@ export function PropertyCell({
         Open row
       </button>
     );
+  }
+
+  // A formula and a rollup are computed every time they are read, so there is
+  // nothing to write — PropertyValue renders them, and `write` is never called.
+  if (isComputed(prop.type)) {
+    return <PropertyValue prop={prop} users={users} value={value} onChange={() => {}} />;
   }
 
   return (

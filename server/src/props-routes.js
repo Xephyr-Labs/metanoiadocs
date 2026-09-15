@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { pool } from './db.js';
-import { PROP_TYPES, propKey, canChangeType, normalizeOptions, relationError } from './props.js';
+import { PROP_TYPES, propKey, canChangeType, normalizeConfig, normalizeOptions, relationError } from './props.js';
 
 const MAX_PROPS = 40;
 
@@ -33,13 +33,16 @@ export function registerPropRoutes(app, { requireUser, wrap }) {
       if (!rowCount) return res.status(400).json({ error: 'a relation needs a target database' });
     }
 
+    const config = normalizeConfig(type, req.body?.config);
+    if (config === undefined) return res.status(400).json({ error: 'bad config' });
+
     const existing = await propsFor(req.params.id);
     if (existing.length >= MAX_PROPS) {
       return res.status(400).json({ error: `A database can have at most ${MAX_PROPS} properties.` });
     }
     const { rows } = await pool.query(
-      `INSERT INTO db_props (id, project_id, key, label, type, options, target_project_id, position)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+      `INSERT INTO db_props (id, project_id, key, label, type, options, target_project_id, position, config)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
       [
         crypto.randomUUID(),
         req.params.id,
@@ -49,8 +52,35 @@ export function registerPropRoutes(app, { requireUser, wrap }) {
         JSON.stringify(normalizeOptions(req.body?.options)),
         targetProjectId,
         existing.length,
+        JSON.stringify(config),
       ]
     );
+
+    // A two-way relation gets its other half on the target database, pointing
+    // back. The edges themselves stay under the *defining* property — the
+    // inverse reads task_relations backwards rather than duplicating every
+    // row, so the two halves can never disagree about what is linked.
+    if (type === 'relation' && req.body?.twoWay && targetProjectId !== req.params.id) {
+      const target = await propsFor(targetProjectId);
+      if (target.length < MAX_PROPS) {
+        const { rows: inverse } = await pool.query(
+          `INSERT INTO db_props
+             (id, project_id, key, label, type, options, target_project_id, position, paired_prop_id, is_inverse)
+           VALUES ($1,$2,$3,$4,'relation','[]'::jsonb,$5,$6,$7,true) RETURNING id`,
+          [
+            crypto.randomUUID(),
+            targetProjectId,
+            propKey(String(req.body?.inverseLabel || label), target.map((x) => x.key)),
+            String(req.body?.inverseLabel || label).trim().slice(0, 60) || label,
+            req.params.id,
+            target.length,
+            rows[0].id,
+          ]
+        );
+        await pool.query('UPDATE db_props SET paired_prop_id = $1 WHERE id = $2', [inverse[0].id, rows[0].id]);
+        rows[0].paired_prop_id = inverse[0].id;
+      }
+    }
     res.json(rows[0]);
   }));
 
@@ -78,6 +108,11 @@ export function registerPropRoutes(app, { requireUser, wrap }) {
     if (b.options !== undefined) set('options', JSON.stringify(normalizeOptions(b.options)));
     if (b.position !== undefined) set('position', Number(b.position) || 0);
     if (b.targetProjectId !== undefined) set('target_project_id', b.targetProjectId || null);
+    if (b.config !== undefined) {
+      const config = normalizeConfig(b.type ?? cur[0].type, b.config);
+      if (config === undefined) return res.status(400).json({ error: 'bad config' });
+      set('config', JSON.stringify(config));
+    }
     if (!sets.length) return res.json(cur[0]);
 
     vals.push(req.params.id);
@@ -130,24 +165,43 @@ export function registerPropRoutes(app, { requireUser, wrap }) {
     return bad ? { error: bad, status: 400 } : { ok: true };
   }
 
+  /**
+   * The edge a write should touch.
+   *
+   * A two-way relation stores one row, under the *defining* property. Linking
+   * from the inverse side is therefore the same edge written backwards — which
+   * is what keeps the two halves from ever disagreeing about what is linked.
+   */
+  async function edgeFor(propId, fromId, toId) {
+    const { rows } = await pool.query('SELECT id, paired_prop_id, is_inverse FROM db_props WHERE id = $1', [propId]);
+    const prop = rows[0];
+    if (prop?.is_inverse && prop.paired_prop_id) {
+      return { propId: prop.paired_prop_id, from: toId, to: fromId, flipped: true };
+    }
+    return { propId, from: fromId, to: toId, flipped: false };
+  }
+
   app.post('/api/tasks/:id/relations', requireUser, wrap(async (req, res) => {
     const { propId, toId } = req.body || {};
     if (!propId || !toId) return res.status(400).json({ error: 'propId and toId required' });
-    const ctx = await edgeContext(req.params.id, propId, toId);
+    const edge = await edgeFor(propId, req.params.id, toId);
+    const ctx = await edgeContext(edge.from, edge.propId, edge.to);
     if (ctx.error) return res.status(ctx.status).json({ error: ctx.error });
     await pool.query(
       `INSERT INTO task_relations (prop_id, from_id, to_id) VALUES ($1,$2,$3)
        ON CONFLICT DO NOTHING`,
-      [propId, req.params.id, toId]
+      [edge.propId, edge.from, edge.to]
     );
     res.json({ ok: true });
   }));
 
   app.delete('/api/tasks/:id/relations', requireUser, wrap(async (req, res) => {
     const { propId, toId } = req.body || {};
+    if (!propId || !toId) return res.status(400).json({ error: 'propId and toId required' });
+    const edge = await edgeFor(propId, req.params.id, toId);
     await pool.query(
       'DELETE FROM task_relations WHERE prop_id = $1 AND from_id = $2 AND to_id = $3',
-      [propId, req.params.id, toId]
+      [edge.propId, edge.from, edge.to]
     );
     res.json({ ok: true });
   }));
@@ -157,13 +211,26 @@ export function registerPropRoutes(app, { requireUser, wrap }) {
       'SELECT * FROM tasks WHERE id = $1 AND deleted_at IS NULL', [req.params.id]
     );
     if (!rows[0]) return res.status(404).json({ error: 'not found' });
-    const { rows: out } = await pool.query(
-      `${RELATED} AND t.id IN (SELECT to_id FROM task_relations WHERE from_id = $1)`,
+    // Edges in both directions. A two-way relation stores one row, under the
+    // defining property — so the inverse half's rows are the same edges read
+    // backwards, reported under the inverse property's own id. Without this
+    // the generated half of every two-way relation would look empty.
+    const { rows: edges } = await pool.query(
+      `SELECT p.id AS prop_id,
+              CASE WHEN p.is_inverse THEN r.from_id ELSE r.to_id END AS other_id
+         FROM db_props p
+         JOIN task_relations r
+           ON r.prop_id = CASE WHEN p.is_inverse THEN p.paired_prop_id ELSE p.id END
+          AND (CASE WHEN p.is_inverse THEN r.to_id ELSE r.from_id END) = $1
+        WHERE p.type = 'relation'`,
       [req.params.id]
     );
-    const { rows: edges } = await pool.query(
-      'SELECT prop_id, to_id FROM task_relations WHERE from_id = $1', [req.params.id]
+    const { rows: out } = await pool.query(
+      `${RELATED} AND t.id = ANY($1)`,
+      [edges.map((e) => e.other_id)]
     );
+    // "Which rows point at me" — every incoming edge, whatever property drew
+    // it. Distinct from the inverse half above, which is one named property.
     const { rows: backlinks } = await pool.query(
       `${RELATED} AND t.id IN (SELECT from_id FROM task_relations WHERE to_id = $1)`,
       [req.params.id]
@@ -171,7 +238,7 @@ export function registerPropRoutes(app, { requireUser, wrap }) {
     const byId = new Map(out.map((r) => [r.id, r]));
     const relations = {};
     for (const e of edges) {
-      const row = byId.get(e.to_id);
+      const row = byId.get(e.other_id);
       if (row) (relations[e.prop_id] ||= []).push(row);
     }
     res.json({ ...rows[0], relations, backlinks });

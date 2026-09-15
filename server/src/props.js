@@ -3,8 +3,51 @@ import crypto from 'node:crypto';
 /** The property types a database column can have. `relation` is the only one
  *  whose value lives outside `tasks.props` — see task_relations. */
 export const PROP_TYPES = [
-  'text', 'number', 'select', 'multi_select', 'date', 'checkbox', 'person', 'url', 'file', 'relation',
+  'text', 'number', 'select', 'multi_select', 'date', 'checkbox', 'person', 'url',
+  'email', 'phone', 'file', 'relation', 'formula', 'rollup',
+  // `created_time`, `created_by`, `edited_time` and `edited_by` are not here:
+  // every task already carries those columns, so they are built-ins
+  // (web-react/src/lib/builtinProps.ts) rather than properties anyone defines.
 ];
+
+/** Types whose value is not stored in `tasks.props` at all. A formula and a
+ *  rollup are computed from other cells every time they are read, so writing
+ *  one is meaningless — `coercePropValue` refuses them the way it refuses a
+ *  relation. */
+export const COMPUTED_TYPES = ['formula', 'rollup'];
+
+/** How a rollup reduces the values it gathers. */
+export const ROLLUP_FUNCTIONS = [
+  'count', 'count_values', 'count_unique', 'sum', 'average', 'min', 'max',
+  'earliest', 'latest', 'percent_checked', 'show_original',
+];
+
+/**
+ * A property's type-specific settings — a formula's expression, a rollup's
+ * (relation, target, function).
+ *
+ * Stored as JSONB and read straight back by the client's evaluator, so this is
+ * a trust boundary like a view's config. The *expression* is not parsed here:
+ * the parser lives in the browser (web-react/src/lib/formula.ts), and one that
+ * only builds literal, property and call nodes cannot be talked into doing
+ * anything else whatever is typed at it. The length cap is the real defence.
+ */
+export function normalizeConfig(type, value) {
+  if (value === null || value === undefined) return {};
+  if (typeof value !== 'object' || Array.isArray(value)) return undefined;
+  if (type === 'formula') {
+    return { expression: String(value.expression ?? '').slice(0, 2000) };
+  }
+  if (type === 'rollup') {
+    const fn = ROLLUP_FUNCTIONS.includes(value.fn) ? value.fn : 'count';
+    return {
+      relation: String(value.relation ?? '').slice(0, 64),
+      target: String(value.target ?? '').slice(0, 64),
+      fn,
+    };
+  }
+  return {};
+}
 
 /** How many files one property may hold, and how long a name may be. Both are
  *  bounds on what a single row can carry, not on the blob store. */
@@ -112,6 +155,19 @@ export function coercePropValue(type, value) {
     case 'relation':
       // Relations are edges, never values in props.
       return undefined;
+    case 'formula':
+    case 'rollup':
+      // Computed every time they are read; there is nothing to store, and a
+      // stored value would be a stale copy that silently outranks the formula.
+      return undefined;
+    case 'email': {
+      const s = String(value).trim().slice(0, 320);
+      // Deliberately loose: an address is validated by sending to it, and a
+      // strict pattern here rejects real addresses people actually have.
+      return s.includes('@') && !/\s/.test(s) ? s : undefined;
+    }
+    case 'phone':
+      return String(value).trim().slice(0, 40);
     default:
       return String(value).trim().slice(0, 2000);
   }

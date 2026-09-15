@@ -260,6 +260,7 @@ const TASK_SELECT = `
          coalesce(dp.deps, '[]'::json) AS deps,
          coalesce(asg.assignees, '[]'::json) AS assignees,
          coalesce(tg.tags, '[]'::json) AS tags,
+         coalesce(rel.relations, '{}'::json) AS "relationIds",
          left(pg.search_text, 240) AS preview
     FROM tasks t
     LEFT JOIN users u ON u.id = t.assignee_id
@@ -283,7 +284,18 @@ const TASK_SELECT = `
       SELECT json_agg(tag.name ORDER BY tag.name) AS tags
         FROM doc_tags dt JOIN tags tag ON tag.id = dt.tag_id
        WHERE dt.doc_id = t.doc_id
-    ) tg ON true`;
+    ) tg ON true
+    LEFT JOIN LATERAL (
+      -- Which rows this one links to, per relation property. Carried on the
+      -- list rather than fetched per row because a rollup has to reduce the
+      -- linked rows' values for every row on screen, and asking once per row
+      -- is a request per card.
+      SELECT json_object_agg(r.prop_id, r.ids) AS relations
+        FROM (
+          SELECT prop_id, json_agg(to_id) AS ids
+            FROM task_relations WHERE from_id = t.id GROUP BY prop_id
+        ) r
+    ) rel ON true`;
 
 // Every live task in the workspace, for the cross-project Tasks view. Narrowing
 // happens in the client against the same filter engine a board uses, so this

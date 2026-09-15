@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import type { UserRow } from '../../lib/docsApi';
 import { builtinProps, defaultPropIds, defaultTableProps } from '../../lib/builtinProps';
 import { canGroupBy, groupOf, groupsFor, type BoardGroup } from '../../lib/grouping';
+import { withComputed } from '../../lib/computed';
 import { applyFilters, fieldsFor, pruneUnresolvable, type Filter, type FilterField } from '../../lib/taskFilter';
 import { applySort, pruneSort, type SortRule } from '../../lib/taskSort';
 import { moveInOrder, resolveViewProps } from '../../lib/viewProps';
@@ -9,6 +10,9 @@ import type { PropRow, ProjectRow, SprintRow, TaskKindRow, TaskPatch, TaskRow, T
 
 interface Source {
   tasks: TaskRow[];
+  /** Rows and properties of the databases a rollup reads. Empty when none does. */
+  linkedRows?: Map<string, TaskRow>;
+  linkedProps?: Map<string, PropRow>;
   props: PropRow[];
   kinds: TaskKindRow[];
   sprints: SprintRow[];
@@ -89,13 +93,26 @@ export function useDatabaseView({
   const sort = pruneSort(config.sort ?? [], fields);
   const scope = config.scope ?? 'all';
 
-  const scoped = scope === 'all' ? source.tasks
-    : scope === 'backlog' ? source.tasks.filter((t) => !t.sprint_id)
-    : source.tasks.filter((t) => t.sprint_id === scope);
+  // Formulas and rollups are materialised before anything else looks at the
+  // list, so filtering, sorting, grouping and every cell see them as ordinary
+  // values — see lib/computed.ts.
+  const rows = useMemo(
+    () => withComputed(source.tasks, {
+      props: source.props,
+      users: source.users,
+      linkedRows: source.linkedRows ?? new Map(),
+      linkedProps: source.linkedProps ?? new Map(),
+    }),
+    [source.tasks, source.props, source.users, source.linkedRows, source.linkedProps],
+  );
+
+  const scoped = scope === 'all' ? rows
+    : scope === 'backlog' ? rows.filter((t) => !t.sprint_id)
+    : rows.filter((t) => t.sprint_id === scope);
   const tasks = applySort(applyFilters(scoped, filters, fields), sort, fields);
   // The backlog is the sprint-planning view, so the sprint scope means nothing
   // there — but the filters and the sort still do.
-  const backlogTasks = applySort(applyFilters(source.tasks, filters, fields), sort, fields);
+  const backlogTasks = applySort(applyFilters(rows, filters, fields), sort, fields);
 
   // What a board is split by. Status unless the view says otherwise — which is
   // what it always was, only now a default rather than the only option.

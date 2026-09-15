@@ -92,17 +92,26 @@ export interface ProjectRow {
 
 export type PropType =
   | 'text' | 'number' | 'select' | 'multi_select'
-  | 'date' | 'checkbox' | 'person' | 'url' | 'file' | 'relation';
+  | 'date' | 'checkbox' | 'person' | 'url' | 'email' | 'phone'
+  | 'file' | 'relation' | 'formula' | 'rollup';
 
 export const PROP_TYPES: PropType[] = [
-  'text', 'number', 'select', 'multi_select', 'date', 'checkbox', 'person', 'url', 'file', 'relation',
+  'text', 'number', 'select', 'multi_select', 'date', 'checkbox', 'person',
+  'url', 'email', 'phone', 'file', 'relation', 'formula', 'rollup',
 ];
 
 export const PROP_TYPE_LABEL: Record<PropType, string> = {
   text: 'Text', number: 'Number', select: 'Select', multi_select: 'Multi-select',
   date: 'Date', checkbox: 'Checkbox', person: 'Person', url: 'URL',
-  file: 'Files & media', relation: 'Relation',
+  email: 'Email', phone: 'Phone', file: 'Files & media', relation: 'Relation',
+  formula: 'Formula', rollup: 'Rollup',
 };
+
+/** Types computed from other cells rather than stored — see lib/computed.ts.
+ *  Nothing writes them, so every editor renders them read-only. */
+export const COMPUTED_TYPES: PropType[] = ['formula', 'rollup'];
+
+export const isComputed = (type: PropType) => COMPUTED_TYPES.includes(type);
 
 /** The six shapes a saved view can take. Mirrors VIEW_KINDS in server/src/views.js. */
 export type ViewKind = 'backlog' | 'board' | 'table' | 'gantt' | 'calendar' | 'gallery';
@@ -155,6 +164,14 @@ export interface PropRow {
   options: PropOption[];
   target_project_id: string | null;
   position: number;
+  /** Type-specific settings: a formula's expression, a rollup's
+   *  (relation, target, function). Empty for every other type. */
+  config?: { expression?: string; relation?: string; target?: string; fn?: string };
+  /** The other half of a two-way relation, if it has one. */
+  paired_prop_id?: string | null;
+  /** True on the generated half — its edges live under the defining property,
+   *  read backwards. */
+  is_inverse?: boolean;
 }
 
 /** A row in another database, as shown on a relation chip. */
@@ -203,6 +220,10 @@ export interface TaskRow {
    *  them without one first having to be defined. */
   attachments?: StoredFile[];
   props: Record<string, unknown>;
+  /** Ids of the rows this one links to, keyed by relation property id.
+   *  Carried on the list so a rollup can reduce them without a request per
+   *  row — distinct from TaskDetail.relations, which carries whole rows. */
+  relationIds?: Record<string, string[]>;
   /** Opening text of the row's own page; null when it has no page or an empty
    *  one. Shown by the gallery view — run it through previewLine() first. */
   preview: string | null;
@@ -317,11 +338,11 @@ export const tasksApi = {
   props: (projectId: string): Promise<PropRow[]> => req(`/projects/${projectId}/props`),
   createProp: (
     projectId: string,
-    b: { label: string; type?: PropType; options?: PropOption[]; targetProjectId?: string },
+    b: { label: string; type?: PropType; options?: PropOption[]; targetProjectId?: string; twoWay?: boolean; inverseLabel?: string; config?: PropRow['config'] },
   ): Promise<PropRow> => req(`/projects/${projectId}/props`, { method: 'POST', ...body(b) }),
   patchProp: (
     id: string,
-    b: Partial<{ label: string; type: PropType; options: PropOption[]; position: number; targetProjectId: string | null }>,
+    b: Partial<{ label: string; type: PropType; options: PropOption[]; position: number; targetProjectId: string | null; config: PropRow['config'] }>,
   ): Promise<PropRow> => req(`/props/${id}`, { method: 'PATCH', ...body(b) }),
   deleteProp: (id: string) => req(`/props/${id}`, { method: 'DELETE' }),
 

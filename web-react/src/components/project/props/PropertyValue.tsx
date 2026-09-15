@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { cn } from '../../../lib/cn';
 import { ExternalLink } from 'lucide-react';
 import type { UserRow } from '../../../lib/docsApi';
 import type { StoredFile } from '../../../lib/uploads';
@@ -69,9 +70,18 @@ function DateValue({ value, danger, onChange }: {
  * was stored, but nothing could be clicked, which is the only thing a URL
  * property is for. Click the link's row to edit it, the arrow to follow it.
  */
-function UrlValue({ value, onChange }: { value: string; onChange: (v: unknown) => void }) {
+function UrlValue({ value, scheme, onChange }: {
+  value: string;
+  /** 'mailto:' or 'tel:' for the address types; absent means a web address. */
+  scheme?: 'mailto:' | 'tel:';
+  onChange: (v: unknown) => void;
+}) {
   const [editing, setEditing] = useState(false);
-  const safe = /^https?:\/\//i.test(value) ? value : '';
+  // Only http(s) is followed for a plain URL — a stored `javascript:` address
+  // would otherwise become a click target. mailto and tel are built from the
+  // value rather than read out of it, so they carry no scheme to smuggle.
+  const safe = scheme ? (value.trim() ? value.trim() : '') : (/^https?:\/\//i.test(value) ? value : '');
+  const href = scheme ? `${scheme}${encodeURIComponent(safe)}` : safe;
 
   if (!editing && safe) {
     return (
@@ -82,10 +92,10 @@ function UrlValue({ value, onChange }: { value: string; onChange: (v: unknown) =
           title="Edit this address"
           className="min-w-0 flex-1 truncate rounded px-1 py-0.5 text-left text-sm text-accent-strong underline decoration-line-strong underline-offset-2 hover:bg-hover"
         >
-          {safe.replace(/^https?:\/\//i, '')}
+          {scheme ? safe : safe.replace(/^https?:\/\//i, '')}
         </button>
         <a
-          href={safe}
+          href={href}
           target="_blank"
           rel="noreferrer noopener"
           aria-label="Open in a new tab"
@@ -102,9 +112,9 @@ function UrlValue({ value, onChange }: { value: string; onChange: (v: unknown) =
       // value so an external change still lands: a save that failed and rolled
       // back must not leave the box showing what never persisted.
       key={value}
-      type="url"
-      inputMode="url"
-      placeholder="https://"
+      type={scheme === 'mailto:' ? 'email' : scheme === 'tel:' ? 'tel' : 'url'}
+      inputMode={scheme === 'mailto:' ? 'email' : scheme === 'tel:' ? 'tel' : 'url'}
+      placeholder={scheme === 'mailto:' ? 'name@example.com' : scheme === 'tel:' ? '+1 555 0100' : 'https://'}
       autoFocus={editing}
       className={field}
       defaultValue={value}
@@ -163,6 +173,28 @@ export function PropertyValue({ prop, users, value, onChange, onEditOptions, dan
       );
     case 'url':
       return <UrlValue value={typeof value === 'string' ? value : ''} onChange={onChange} />;
+    // An address and a number are text with a scheme: the input keyboard and
+    // the tap-to-act are the whole difference, and both matter on a phone.
+    case 'email':
+      return <UrlValue value={typeof value === 'string' ? value : ''} scheme="mailto:" onChange={onChange} />;
+    case 'phone':
+      return <UrlValue value={typeof value === 'string' ? value : ''} scheme="tel:" onChange={onChange} />;
+    // Computed every time they are read, so there is nothing to type at. The
+    // value is still worth showing — and a formula's own error message is the
+    // only place whoever wrote it will see what is wrong.
+    case 'formula':
+    case 'rollup': {
+      const shown = value === null || value === undefined || value === '' ? '—' : String(value);
+      const broken = shown.startsWith('⚠');
+      return (
+        <span
+          title={broken ? shown : `${prop.label} is computed`}
+          className={cn('block truncate px-1 text-sm tabular-nums', broken ? 'text-danger' : 'text-muted')}
+        >
+          {shown}
+        </span>
+      );
+    }
     case 'file':
       return (
         <Attachments

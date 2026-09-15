@@ -77,6 +77,14 @@ const PROP_KIND: Record<PropRow['type'], FieldKind | null> = {
   checkbox: 'checkbox',
   person: 'person',
   url: 'url',
+  email: 'text',
+  phone: 'text',
+  // A formula's own type is whatever it evaluates to; text is the widest
+  // comparison and `contains` is what people actually filter one on.
+  formula: 'text',
+  // A rollup is usually a number, and "greater than" is the question worth
+  // asking of one.
+  rollup: 'number',
   // Files and relations have nothing a filter can compare: one is a list of
   // blobs, the other lives in its own table.
   file: null,

@@ -28,6 +28,12 @@ export function useProject(
   const [users, setUsers] = useState<UserRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Rows and properties of the databases this one links to. Fetched only when
+  // a rollup exists to need them — a relation on its own is read per row by the
+  // peek, and pulling another database's whole task list for a chip nobody is
+  // aggregating would be a request for nothing.
+  const [linkedRows, setLinkedRows] = useState<Map<string, TaskRow>>(new Map());
+  const [linkedProps, setLinkedProps] = useState<Map<string, PropRow>>(new Map());
 
   const refresh = useCallback(async () => {
     if (!projectId) return;
@@ -58,6 +64,32 @@ export function useProject(
   useEffect(() => {
     docsApi.users().then(setUsers).catch(() => setUsers([]));
   }, []);
+
+  // Which databases a rollup on this one has to read.
+  const rollupTargets = props
+    .filter((x) => x.type === 'rollup')
+    .map((x) => props.find((r) => r.id === x.config?.relation)?.target_project_id)
+    .filter((id): id is string => !!id);
+  const targetKey = [...new Set(rollupTargets)].sort().join(',');
+
+  useEffect(() => {
+    const ids = targetKey ? targetKey.split(',') : [];
+    if (!ids.length) {
+      setLinkedRows(new Map());
+      setLinkedProps(new Map());
+      return;
+    }
+    let alive = true;
+    Promise.all(ids.map(async (id) => ({
+      tasks: await tasksApi.projectTasks(id).catch(() => [] as TaskRow[]),
+      props: await tasksApi.props(id).catch(() => [] as PropRow[]),
+    }))).then((sets) => {
+      if (!alive) return;
+      setLinkedRows(new Map(sets.flatMap((x) => x.tasks).map((t) => [t.id, t])));
+      setLinkedProps(new Map(sets.flatMap((x) => x.props).map((x) => [x.id, x])));
+    });
+    return () => { alive = false; };
+  }, [targetKey]);
 
   const patch = useCallback(async (id: string, body: TaskPatch) => {
     setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...localShape(body, users) } : t)));
@@ -157,7 +189,7 @@ export function useProject(
     }
   }, [refresh]);
 
-  const createProp = useCallback(async (b: { label: string; type: PropType; targetProjectId?: string }) => {
+  const createProp = useCallback(async (b: { label: string; type: PropType; targetProjectId?: string; twoWay?: boolean }) => {
     if (!projectId) return 'No database is open.';
     try {
       const row = await tasksApi.createProp(projectId, b);
@@ -168,7 +200,7 @@ export function useProject(
     }
   }, [projectId]);
 
-  const patchProp = useCallback(async (id: string, b: Partial<{ label: string; type: PropType; options: PropOption[] }>) => {
+  const patchProp = useCallback(async (id: string, b: Partial<{ label: string; type: PropType; options: PropOption[]; config: PropRow['config'] }>) => {
     const before = props;
     setProps((prev) => prev.map((p) => (p.id === id ? { ...p, ...b } as PropRow : p)));
     try {
@@ -259,6 +291,7 @@ export function useProject(
 
   return {
     tasks, sprints, kinds, props, users, loading, error, setError, refresh,
+    linkedRows, linkedProps,
     patch, create, remove, addDep, removeDep,
     createKind, patchKind, deleteKind,
     setProp, createProp, patchProp, reorderProp, deleteProp, editOptions,
