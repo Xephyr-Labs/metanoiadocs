@@ -2,10 +2,11 @@ import { useState } from 'react';
 import { Plus } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { previewLine } from '../../lib/preview';
+import { fileUrl, isImageFile } from '../../lib/uploads';
 import type { PropRow, TaskRow } from '../../lib/tasksApi';
 import type { UserRow } from '../../lib/docsApi';
 import { SegmentedControl } from '../ui/SegmentedControl';
-import { TaskChip } from './TaskChip';
+import { coverFile, TaskChip } from './TaskChip';
 
 // `clamp` has to match what `preview` can actually fit: the character cap in
 // previewLine() cannot know the box height, so at S a long line used to spill
@@ -45,12 +46,17 @@ function storedSize(): Size {
 export function Gallery({
   tasks,
   cardProps,
+  allProps,
   users,
   onOpen,
   onAdd,
 }: {
   tasks: TaskRow[];
   cardProps?: PropRow[];
+  /** Every property, not just the shown ones — a card's cover comes from
+   *  whatever file the task has, whether or not that property is on the chip
+   *  row. Hiding a property should not blank the picture. */
+  allProps?: PropRow[];
   users?: UserRow[];
   onOpen: (t: TaskRow) => void;
   onAdd: () => void;
@@ -85,22 +91,52 @@ export function Gallery({
 
       <div className="scrollarea flex-1 overflow-y-auto p-4">
         <div
-          className="grid gap-3"
+          // items-start: a row stretches every card to the tallest in it, so
+          // one card with a cover gave its neighbours a block of empty space
+          // under their chips. Each card is now its own height.
+          className="grid items-start gap-3"
           style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${min}px, 1fr))` }}
         >
           {ordered.map((t) => {
             // trim: a page whose only content is a blank paragraph has a preview
             // of whitespace, which is not a reason to draw a cover.
             const line = (previewLine(t.preview, t.title) ?? '').trim();
+            const cover = coverFile(t, allProps);
             return (
               <article
                 key={t.id}
                 className="overflow-hidden rounded-lg bg-canvas shadow-subtle transition-shadow duration-120 hover:shadow-pop"
               >
-                {/* No preview, no cover: a grid of identical grey "Empty page"
-                    panels was the loudest thing on the screen, and it said
-                    nothing. A card without a page is just its chip. */}
-                {line && <button
+                {/* A picture is what the card is *of*, so it outranks the
+                    opening sentence of the page. Text is the fallback for a
+                    task with no image, not the other way round. */}
+                {cover ? (
+                  <button
+                    type="button"
+                    onClick={() => onOpen(t)}
+                    aria-label={`Open ${t.title || 'Untitled'}`}
+                    className={cn('block w-full border-b border-line bg-surface', preview)}
+                  >
+                    {isImageFile(cover) ? (
+                      <img
+                        src={fileUrl(cover)}
+                        alt={cover.name}
+                        loading="lazy"
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      // muted + playsInline so the browser will paint a poster
+                      // frame without sound and without fetching the whole file.
+                      <video
+                        src={fileUrl(cover)}
+                        preload="metadata"
+                        muted
+                        playsInline
+                        className="h-full w-full object-cover"
+                      />
+                    )}
+                  </button>
+                ) : line ? (<button
                   type="button"
                   onClick={() => onOpen(t)}
                   aria-label={`Open ${t.title || 'Untitled'}`}
@@ -113,8 +149,8 @@ export function Gallery({
                   )}
                 >
                   <p className={cn('text-2xs leading-4 text-muted', clamp)}>{line}</p>
-                </button>}
-                <TaskChip task={t} onOpen={() => onOpen(t)} flush cardProps={cardProps} users={users} />
+                </button>) : null}
+                <TaskChip task={t} onOpen={() => onOpen(t)} flush cover={cover} cardProps={cardProps} users={users} />
               </article>
             );
           })}

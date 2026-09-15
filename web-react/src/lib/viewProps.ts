@@ -18,7 +18,7 @@ const KEY_PREFIX = 'viewProps';
 export const viewPropsKey = (projectId: string, view: string) =>
   `${KEY_PREFIX}:${projectId}:${view}`;
 
-/** How many properties a freshly opened view shows before anyone configures it. */
+/** How many properties a freshly opened view shows when it names no default. */
 const DEFAULT_SHOWN = 3;
 
 /**
@@ -32,18 +32,25 @@ const DEFAULT_SHOWN = 3;
  * A null `order` means nothing was ever stored — that is the only case that
  * gets the default, so "I hid everything" survives a reload instead of
  * springing back to three chips.
+ *
+ * `defaults` names that unconfigured set explicitly, because "the first three"
+ * stopped being a sensible answer once the built-in fields joined the list:
+ * a board card has always drawn its type, due date and people, and deriving
+ * that from list position would be luck. Ids naming nothing are skipped, so a
+ * default set may safely mention a property this project happens not to have.
  */
 export function resolveViewProps(
   order: string[] | null,
   props: PropRow[],
+  defaults?: string[],
 ): { visible: PropRow[]; hidden: PropRow[] } {
-  if (order === null) {
+  if (order === null && !defaults) {
     return { visible: props.slice(0, DEFAULT_SHOWN), hidden: props.slice(DEFAULT_SHOWN) };
   }
   const byId = new Map(props.map((p) => [p.id, p]));
   const seen = new Set<string>();
   const visible: PropRow[] = [];
-  for (const id of order) {
+  for (const id of order ?? defaults ?? []) {
     const p = byId.get(id);
     if (p && !seen.has(id)) {
       seen.add(id);
@@ -76,7 +83,12 @@ function read(key: string): string[] | null {
   }
 }
 
-export function useViewProps(projectId: string | null, view: string, props: PropRow[]) {
+export function useViewProps(
+  projectId: string | null,
+  view: string,
+  props: PropRow[],
+  defaults?: string[],
+) {
   const key = projectId ? viewPropsKey(projectId, view) : null;
   const [order, setOrder] = useState<string[] | null>(() => (key ? read(key) : null));
 
@@ -100,7 +112,7 @@ export function useViewProps(projectId: string | null, view: string, props: Prop
     [key],
   );
 
-  const { visible, hidden } = resolveViewProps(order, props);
+  const { visible, hidden } = resolveViewProps(order, props, defaults);
   const currentOrder = visible.map((p) => p.id);
 
   return {

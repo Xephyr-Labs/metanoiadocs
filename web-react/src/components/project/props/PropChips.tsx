@@ -1,7 +1,8 @@
 /* Hallmark · component: read-only property chips · genre: modern-minimal
  * theme: project tokens (index.css) + tag palette (lib/tagColors)
  * pre-emit critique: P5 H5 E4 S4 R5 V4
- * states: default · empty (renders nothing) · truncated · media thumb · overflow
+ * states: default · empty (renders nothing) · truncated · media thumb ·
+ *         overflow · overdue date · built-in · cover-suppressed
  * contrast: pass (40) — light ramp measured at 4.8-6.9:1, dark at 5.7-10.8:1
  */
 import { Fragment } from 'react';
@@ -9,9 +10,11 @@ import { Paperclip } from 'lucide-react';
 import { cn } from '../../../lib/cn';
 import { swatch } from '../../../lib/tagColors';
 import { selectedOptions } from '../../../lib/props';
+import { isBuiltinProp, readBuiltin } from '../../../lib/builtinProps';
 import { fileUrl, isImageFile, isVideoFile, type StoredFile } from '../../../lib/uploads';
 import type { PropRow, TaskRow } from '../../../lib/tasksApi';
 import type { UserRow } from '../../../lib/docsApi';
+import { AssigneeStack, shortDate } from '../TaskBadges';
 
 /**
  * A task's properties as they appear ON a card — a calendar event, a board
@@ -24,21 +27,33 @@ import type { UserRow } from '../../../lib/docsApi';
  *
  * Nothing is rendered for an empty value: a card carrying four blank rows to
  * keep its neighbours' alignment is how a calendar turns into a spreadsheet.
+ *
+ * Built-in fields (status, assignees, dates, type…) arrive here as ordinary
+ * PropRows with a `sys:` id — see lib/builtinProps. Their value comes off the
+ * task's own column rather than its `props` bag, which is the only difference
+ * between them and a property somebody defined.
  */
 export function PropChips({
   task,
   props,
   users,
+  skipFile,
   className,
 }: {
   task: TaskRow;
   /** Already filtered and ordered by the view's visibility settings. */
   props: PropRow[];
   users?: UserRow[];
+  /** A file the card is already showing full-width as its cover, so the chip
+   *  row leaves it out instead of printing the same picture twice. */
+  skipFile?: StoredFile | null;
   className?: string;
 }) {
   const chips = props
-    .map((p) => ({ prop: p, node: chipFor(p, task.props?.[p.id], users) }))
+    .map((p) => ({
+      prop: p,
+      node: chipFor(p, isBuiltinProp(p.id) ? readBuiltin(task, p.id) : task.props?.[p.id], users, skipFile),
+    }))
     .filter((c) => c.node !== null);
 
   if (!chips.length) return null;
@@ -56,7 +71,27 @@ export function PropChips({
 }
 
 /** One property's value, or null when there is nothing worth drawing. */
-function chipFor(prop: PropRow, value: unknown, users?: UserRow[]) {
+function chipFor(prop: PropRow, value: unknown, users?: UserRow[], skipFile?: StoredFile | null) {
+  // Everyone on the task, as the same overlapped faces the board footer drew
+  // before assignees became a property. A list of names in chips would wrap a
+  // three-person card onto three lines.
+  if (prop.id === 'sys:assignees') {
+    const people = (value ?? []) as TaskRow['assignees'];
+    return people?.length ? <AssigneeStack people={people} /> : null;
+  }
+
+  // Focus areas are page tags — strings, with no option row to colour them by.
+  if (prop.id === 'sys:tags') {
+    const tags = Array.isArray(value) ? (value as string[]) : [];
+    return tags.length ? (
+      <>
+        {tags.map((t) => (
+          <Chip key={t} color="gray" title={`${prop.label}: ${t}`}>{t}</Chip>
+        ))}
+      </>
+    ) : null;
+  }
+
   switch (prop.type) {
     case 'select':
     case 'multi_select': {
@@ -83,13 +118,21 @@ function chipFor(prop: PropRow, value: unknown, users?: UserRow[]) {
     case 'number':
       return typeof value === 'number' ? <Chip color="gray" title={`${prop.label}: ${value}`}>{value}</Chip> : null;
     case 'date':
-      return typeof value === 'string' && value ? <Chip color="gray" title={`${prop.label}: ${value.slice(0, 10)}`}>{value.slice(0, 10)}</Chip> : null;
+      // "Sep 14", the way every other date in the app is written — an ISO
+      // string on a card next to a board that says "Sep 14" reads as a
+      // different kind of value rather than the same one.
+      return typeof value === 'string' && value ? (
+        <Chip color="gray" title={`${prop.label}: ${value.slice(0, 10)}`}>{shortDate(value)}</Chip>
+      ) : null;
     case 'url':
       return typeof value === 'string' && value ? (
         <Chip color="blue" title={`${prop.label}: ${value}`}>{value.replace(/^https?:\/\//i, '').slice(0, 28)}</Chip>
       ) : null;
-    case 'file':
-      return <Media files={Array.isArray(value) ? (value as StoredFile[]) : []} />;
+    case 'file': {
+      const files = Array.isArray(value) ? (value as StoredFile[]) : [];
+      const rest = skipFile ? files.filter((f) => f.key !== skipFile.key) : files;
+      return <Media files={rest} />;
+    }
     default:
       return typeof value === 'string' && value.trim() ? (
         <span title={`${prop.label}: ${value}`} className="max-w-full truncate text-2xs text-muted">{value}</span>

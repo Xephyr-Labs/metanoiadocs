@@ -1,102 +1,45 @@
-import { Diamond, Link2 } from 'lucide-react';
-import { avatarFor } from '../../lib/avatar';
+/* Hallmark · component: task card · genre: modern-minimal
+ * theme: project tokens (index.css)
+ * pre-emit critique: P5 H5 E4 S5 R5 V4
+ * states: default · hover · focus-visible · active · compact · flush ·
+ *         done · overdue · in progress · with cover · empty title
+ */
+import { Link2 } from 'lucide-react';
 import { cn } from '../../lib/cn';
-import { todayISO } from '../../lib/gantt';
-import { swatch } from '../../lib/tagColors';
-import type { PropRow, TaskKind, TaskRow } from '../../lib/tasksApi';
+import { isImageFile, type StoredFile } from '../../lib/uploads';
+import type { PropRow, TaskRow } from '../../lib/tasksApi';
 import type { UserRow } from '../../lib/docsApi';
-import { useKind, useKinds } from './kinds';
+import { isOverdue } from './TaskBadges';
 import { PropChips } from './props/PropChips';
 
-/**
- * The type chip. Colour comes from the shared tag palette, so a type darkens
- * with tags, folders and projects instead of carrying its own one-off hex.
- *
- * Two different absences used to render the same blank space: types not
- * fetched yet, and a type deleted from another tab since this task was loaded.
- * Only the first is nothing to say — the second gets the raw key in neutral
- * ink, so the task doesn't look untyped.
- */
-export function KindBadge({ kind }: { kind: TaskKind }) {
-  const kinds = useKinds();
-  const loaded = kinds.length > 0;
-  const row = useKind(kind);
-  // A card is a task unless it says otherwise. Badging the default kind wrote
-  // TASK on every card in the project; BUG and STORY are the ones worth a word.
-  if (row && (kinds.length < 2 || row.key === 'task')) return null;
-  if (!row) {
-    if (!loaded) return null;
-    return (
-      <span
-        title="This type no longer exists — reopen the project to resync"
-        className={cn('shrink-0 rounded px-1 py-0.5 text-3xs font-semibold uppercase tracking-wide', swatch('gray').chip)}
-      >
-        {kind}
-      </span>
-    );
-  }
-  return (
-    <span className={cn('shrink-0 rounded px-1 py-0.5 text-3xs font-semibold uppercase tracking-wide', swatch(row.color).chip)}>
-      {row.label}
-    </span>
-  );
-}
+// Re-exported so the views that drew these long before the property system
+// existed keep their import path.
+export { AssigneeStack, KindBadge, shortDate, isOverdue } from './TaskBadges';
 
 /**
- * The faces of everyone on a task, overlapped. `max` keeps a task with eight
- * people on it from pushing the rest of a card's metadata off the end; the
- * remainder shows as a count, and the full list is in the tooltip.
- */
-export function AssigneeStack({ people, max = 3 }: { people: TaskRow['assignees']; max?: number }) {
-  const list = people ?? [];
-  if (!list.length) return null;
-  const shown = list.slice(0, max);
-  return (
-    <span className="flex shrink-0 items-center" title={list.map((p) => p.name).join(', ')}>
-      {shown.map((person, i) => {
-        const av = avatarFor(person.name);
-        return (
-          <span
-            key={person.id}
-            className={cn(
-              'flex h-5 w-5 items-center justify-center rounded-full text-3xs font-semibold text-white ring-1 ring-canvas',
-              i > 0 && '-ml-1.5',
-            )}
-            style={{ background: av.color }}
-          >
-            {av.initials}
-          </span>
-        );
-      })}
-      {list.length > shown.length && (
-        <span className="ml-1 text-2xs text-faint">+{list.length - shown.length}</span>
-      )}
-    </span>
-  );
-}
-
-export const shortDate = (iso: string | null) =>
-  iso
-    ? new Date(`${iso.slice(0, 10)}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-    : '';
-
-export const isOverdue = (t: TaskRow) =>
-  !!t.due_at && t.status !== 'done' && t.due_at.slice(0, 10) < todayISO();
-
-/**
- * A task as it appears on the board and in the calendar.
+ * A task as it appears on the board, in the gallery and in the calendar.
  *
  * `flush` drops the card's own rounding, shadow and background so the gallery
  * can sit it directly under a preview panel inside one shared card frame —
  * the metadata row stays identical to the board's rather than being copied.
+ *
+ * The metadata under the title is not hard-coded any more. Type, points, due
+ * date and assignees are properties like every other, delivered in
+ * `cardProps` and drawn by PropChips, so the view's visibility panel governs
+ * all of them; those four are simply what a board card defaults to, which is
+ * exactly what it drew before. What stays hard-coded here is the two things
+ * that are *not* properties: how far along the task is, and what it waits on.
  */
-export function TaskChip({ task, onOpen, compact, flush, cardProps, users }: {
+export function TaskChip({ task, onOpen, compact, flush, cover, cardProps, users }: {
   task: TaskRow;
   onOpen: () => void;
   compact?: boolean;
   flush?: boolean;
-  /** Custom properties this view shows, already ordered. Omitted on views that
-   *  have no room for them (the compact chip) or no setting for them yet. */
+  /** Suppresses the card's own thumbnails — the gallery is already showing
+   *  this file full-width above, and twice is once too many. */
+  cover?: StoredFile | null;
+  /** Properties this view shows, already filtered and ordered. Omitted on
+   *  views with no room for them (the compact chip) or no setting yet. */
   cardProps?: PropRow[];
   users?: UserRow[];
 }) {
@@ -113,7 +56,7 @@ export function TaskChip({ task, onOpen, compact, flush, cardProps, users }: {
         )}
       >
         <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', overdue ? 'bg-danger' : task.status === 'done' ? 'bg-line-strong' : 'bg-accent')} />
-        <span className="truncate">{task.title || 'Untitled'}</span>
+        <span className="truncate font-medium">{task.title || 'Untitled'}</span>
       </button>
     );
   }
@@ -123,45 +66,54 @@ export function TaskChip({ task, onOpen, compact, flush, cardProps, users }: {
       type="button"
       onClick={onOpen}
       className={cn(
-        'w-full p-2.5 text-left transition-[background-color,border-color,box-shadow] duration-120 hover:bg-hover',
+        'w-full p-3 text-left transition-[background-color,border-color,box-shadow] duration-120 hover:bg-hover',
         flush ? 'bg-transparent' : 'rounded-lg border border-line bg-canvas hover:border-line-strong hover:shadow-subtle',
       )}
     >
       <div className="flex items-start gap-1.5">
-        {task.milestone && <Diamond size={12} className="mt-1 shrink-0 fill-current text-accent-strong" />}
-        <span className={cn('flex-1 text-sm leading-5 text-ink', task.status === 'done' && 'line-through text-muted')}>
+        {/* A milestone is drawn by its own property chip now, so the title row
+            is just the title — one less thing competing with it. */}
+        <span className={cn('flex-1 text-sm font-semibold leading-5 text-ink', task.status === 'done' && 'line-through text-muted')}>
           {task.title || 'Untitled'}
         </span>
       </div>
 
-      {/* Custom properties sit closest to the title, the way they do in a
-          Notion card; the row below stays the built-in fields. */}
-      {cardProps?.length ? <PropChips task={task} props={cardProps} users={users} className="mt-1.5" /> : null}
+      {cardProps?.length ? (
+        <PropChips task={task} props={cardProps} users={users} skipFile={cover} className="mt-2" />
+      ) : null}
 
       {task.progress > 0 && task.status !== 'done' && (
-        <div className="mt-2 h-1 overflow-hidden rounded-full bg-line">
+        <div className="mt-2.5 h-1 overflow-hidden rounded-full bg-line">
           <div className="h-full rounded-full bg-accent" style={{ width: `${task.progress}%` }} />
         </div>
       )}
 
-      <div className="mt-2 flex items-center gap-2">
-        <KindBadge kind={task.kind} />
-        {task.points != null && (
-          <span className="rounded-full bg-surface px-1.5 text-2xs font-medium text-muted" title="Story points">{task.points}</span>
-        )}
-        {task.due_at && (
-          <span className={cn('text-2xs', overdue ? 'font-medium text-danger' : 'text-faint')}>
-            {shortDate(task.due_at)}
-          </span>
-        )}
-        {task.deps.length > 0 && (
-          <span className="flex items-center gap-0.5 text-2xs text-faint" title={`${task.deps.length} dependencies`}>
-            <Link2 size={12} />{task.deps.length}
-          </span>
-        )}
-        <span className="flex-1" />
-        <AssigneeStack people={task.assignees} />
-      </div>
+      {task.deps.length > 0 && (
+        <div className="mt-2 flex items-center gap-0.5 text-2xs text-faint" title={`${task.deps.length} dependencies`}>
+          <Link2 size={12} />{task.deps.length}
+        </div>
+      )}
     </button>
   );
+}
+
+/**
+ * The image or video a card can lead with, or null when it has none.
+ *
+ * Attachments first, because that is the field people actually put a picture
+ * in — a `file` property is the deliberate, named case and attachments are
+ * the drop-it-here one. Within each, the first image wins over the first
+ * video: a still costs one request and always renders, where a poster frame
+ * depends on the browser fetching enough of the file to find one.
+ */
+export function coverFile(task: TaskRow, props?: PropRow[]): StoredFile | null {
+  const pools: StoredFile[][] = [task.attachments ?? []];
+  for (const p of props ?? []) {
+    if (p.type === 'file') {
+      const v = task.props?.[p.id];
+      if (Array.isArray(v)) pools.push(v as StoredFile[]);
+    }
+  }
+  const all = pools.flat();
+  return all.find(isImageFile) ?? all.find((f) => /^video\/(mp4|webm|ogg)$/i.test(f.mime)) ?? null;
 }

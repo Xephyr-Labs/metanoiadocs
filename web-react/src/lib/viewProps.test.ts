@@ -48,6 +48,27 @@ describe('resolveViewProps', () => {
     expect(visible.map((p) => p.id)).toEqual(['a']);
     expect(hidden.map((p) => p.id)).toContain('e');
   });
+
+  it('uses the named default when nothing was stored, in the order given', () => {
+    const { visible, hidden } = resolveViewProps(null, props, ['c', 'a']);
+    expect(visible.map((p) => p.id)).toEqual(['c', 'a']);
+    expect(hidden.map((p) => p.id)).toEqual(['b', 'd']);
+  });
+
+  it('skips a default naming a property this project does not have', () => {
+    // A view's default set is written once and shared by every project, so it
+    // can mention a built-in a data database never gets.
+    expect(resolveViewProps(null, props, ['a', 'sys:nope']).visible.map((p) => p.id)).toEqual(['a']);
+  });
+
+  it('still prefers what was stored over the default', () => {
+    expect(resolveViewProps(['b'], props, ['c']).visible.map((p) => p.id)).toEqual(['b']);
+  });
+
+  it('honours an emptied view even where a default exists', () => {
+    // The distinction the defaults must not break: [] is still a choice.
+    expect(resolveViewProps([], props, ['a', 'b']).visible).toEqual([]);
+  });
 });
 
 describe('moveInOrder', () => {

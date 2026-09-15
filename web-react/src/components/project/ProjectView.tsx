@@ -23,6 +23,7 @@ import { KindsProvider } from './kinds';
 import { PropsDialog } from './props/PropsDialog';
 import { PropertyVisibility } from './props/PropertyVisibility';
 import { useViewProps } from '../../lib/viewProps';
+import { builtinProps, DEFAULT_CARD_PROPS } from '../../lib/builtinProps';
 import { TaskPeek } from './TaskPeek';
 import { TaskKindsDialog } from './TaskKindsDialog';
 import { TaskTable } from './TaskTable';
@@ -74,7 +75,15 @@ export function ProjectView() {
   // Card views show properties; the table already shows every one as a column
   // and the backlog is a planning list, so neither needs the control.
   const CARD_VIEWS = ['board', 'gantt', 'calendar', 'gallery'];
-  const viewProps = useViewProps(ws.activeProjectId, tab, p.props);
+  // Status, assignees, dates and the rest are properties too — see
+  // lib/builtinProps. Merging them here is what puts them in the visibility
+  // panel and on cards, rather than teaching each of those about two kinds of
+  // field. Built-ins lead: they are the ones every database has.
+  const allProps = useMemo(
+    () => [...builtinProps(project?.mode ?? 'tasks', p.kinds, p.sprints), ...p.props],
+    [project?.mode, p.kinds, p.sprints, p.props],
+  );
+  const viewProps = useViewProps(ws.activeProjectId, tab, allProps, DEFAULT_CARD_PROPS[tab]);
   const tabs = useMemo(
     () => (isData ? DATA_TABS.filter((t) => t.value !== 'calendar' || dateProps.length > 0) : TABS),
     [isData, dateProps.length],
@@ -280,6 +289,7 @@ export function ProjectView() {
           <Gallery
             tasks={visible}
             cardProps={viewProps.visible}
+            allProps={allProps}
             users={p.users}
             onOpen={setOpen}
             onAdd={() => add({})}
