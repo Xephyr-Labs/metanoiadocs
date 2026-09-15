@@ -7,7 +7,7 @@
  *       their own — one hairline for the whole app beats a truer 8-state grid.
  */
 import { useCallback, useLayoutEffect, useRef, useState } from 'react';
-import { Trash2 } from 'lucide-react';
+import { Maximize2, Trash2 } from 'lucide-react';
 import type { UserRow } from '../../lib/docsApi';
 import { cn } from '../../lib/cn';
 import { isBuiltinProp } from '../../lib/builtinProps';
@@ -99,6 +99,25 @@ function TitleCell({ value, wrap, onCommit, onOpen }: {
   onOpen: () => void;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
+  // The row's way in. The title is a text field, so a click has to put the
+  // caret in it — which left double-click as the only way to open a row, and
+  // nothing on screen said so. Every other view opens on a single click; this
+  // is the grid's equivalent, and the double-click still works for anyone who
+  // learned it.
+  const open = (
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-label={`Open ${value || 'this row'}`}
+      className={cn(
+        'absolute right-0 top-1/2 flex h-6 -translate-y-1/2 items-center gap-1 rounded px-1.5',
+        'bg-canvas text-2xs font-medium text-muted opacity-0 shadow-subtle ring-1 ring-line',
+        'transition-opacity hover:text-ink focus-visible:opacity-100 group-hover:opacity-100',
+      )}
+    >
+      <Maximize2 size={11} /> Open
+    </button>
+  );
 
   const fit = useCallback(() => {
     const el = ref.current;
@@ -115,6 +134,7 @@ function TitleCell({ value, wrap, onCommit, onOpen }: {
   useLayoutEffect(fit, [fit, value]);
 
   return (
+    <span className="relative block pr-2">
     <textarea
       ref={ref}
       key={value}
@@ -140,6 +160,8 @@ function TitleCell({ value, wrap, onCommit, onOpen }: {
         wrap ? 'whitespace-pre-wrap break-words' : 'h-7 whitespace-nowrap',
       )}
     />
+    {open}
+    </span>
   );
 }
 

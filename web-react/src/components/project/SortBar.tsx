@@ -108,7 +108,7 @@ export function SortBar({ fields, sort, onChange }: Props) {
           )}
         >
           {sort.length ? <Plus size={13} /> : <ArrowUpDown size={13} />}
-          {sort.length ? 'Sort' : 'Sort'}
+          Sort
           {sort.length > 0 && <span className="tabular-nums text-faint">{sort.length}</span>}
         </button>
         {open && (
