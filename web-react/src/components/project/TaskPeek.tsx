@@ -7,7 +7,7 @@ import { useAuth } from '../../store/auth';
 import { useWorkspace } from '../../store/workspace';
 import {
   STATUSES, STATUS_LABEL, tasksApi,
-  type ProjectMode, type PropRow, type RelatedRow, type SprintRow, type TaskDetail, type TaskPatch, type TaskRow, type TaskStatus,
+  type ProjectMode, type PropOption, type PropRow, type RelatedRow, type SprintRow, type TaskDetail, type TaskPatch, type TaskRow, type TaskStatus,
 } from '../../lib/tasksApi';
 import { LazyEditor } from '../../editor/LazyEditor';
 import { field, selectField } from '../ui/styles';
@@ -38,6 +38,8 @@ interface Props {
   onManageKinds: () => void;
   /** Opens the property editor, for adding one without leaving the task. */
   onManageProps: () => void;
+  /** Persist a new/renamed/recoloured option made from a select's own menu. */
+  onEditOptions?: (prop: PropRow, options: PropOption[]) => void;
 }
 
 const label = 'mb-1 block text-2xs font-medium text-muted';
@@ -58,7 +60,7 @@ function Row({ name, children }: { name: string; children: React.ReactNode }) {
  */
 export function TaskPeek({
   task, mode, tasks, props, sprints, users, onClose, onPatch, onSetProp, onDelete, onAddDep, onRemoveDep,
-  onManageKinds, onManageProps,
+  onManageKinds, onManageProps, onEditOptions,
 }: Props) {
   const ws = useWorkspace();
   const auth = useAuth();
@@ -272,7 +274,13 @@ export function TaskPeek({
               <span className="text-2xs font-medium text-muted">{p.label}</span>
               {p.type === 'relation'
                 ? <RelationField task={task} prop={p} detail={detail} onChanged={setDetail} />
-                : <PropertyValue prop={p} users={users} value={task.props?.[p.id] ?? null} onChange={(v) => onSetProp(task.id, p.id, v)} />}
+                : <PropertyValue
+                    prop={p}
+                    users={users}
+                    value={task.props?.[p.id] ?? null}
+                    onChange={(v) => onSetProp(task.id, p.id, v)}
+                    onEditOptions={onEditOptions ? (options) => onEditOptions(p, options) : undefined}
+                  />}
             </div>
           ))}
           {/* Properties belong to the whole database, but this is where people

@@ -2,7 +2,7 @@
  * theme: project tokens (index.css)
  * pre-emit critique: P5 H5 E4 S5 R5 V4
  * states: row default · row hover · field hover · field focus · overdue due ·
- *         clipped · wrapped · empty · data mode (work columns hidden)
+ *         clipped · wrapped · empty · no columns · data mode
  * note: fields reuse the shared `input` look (ui/styles) rather than carrying
  *       their own — one hairline for the whole app beats a truer 8-state grid.
  */
@@ -10,28 +10,55 @@ import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { Trash2 } from 'lucide-react';
 import type { UserRow } from '../../lib/docsApi';
 import { cn } from '../../lib/cn';
-import { STATUSES, STATUS_LABEL, type ProjectMode, type PropRow, type TaskPatch, type TaskRow, type TaskStatus } from '../../lib/tasksApi';
+import type { PropOption, PropRow, PropType, TaskPatch, TaskRow } from '../../lib/tasksApi';
 import { SegmentedControl } from '../ui/SegmentedControl';
-import { AssigneePicker } from './AssigneePicker';
-import { PropertyValue } from './props/PropertyValue';
-import { isOverdue } from './TaskChip';
+import { PropertyCell } from './props/PropertyCell';
 
 interface Props {
   tasks: TaskRow[];
-  /** A data database has no status, assignee, dates or progress to show. */
-  mode: ProjectMode;
-  users: UserRow[];
+  /**
+   * Every property this view shows, in display order — the built-in fields
+   * (status, assignees, dates, points, sprint…) and the database's own,
+   * already merged and filtered by the visibility panel. The table used to
+   * hard-code six columns and append the custom ones, which is why Points,
+   * Sprint, Type, Milestone and Files could not be edited from a grid at all.
+   */
   props: PropRow[];
+  users: UserRow[];
   onPatch: (id: string, body: TaskPatch) => void;
   onOpen: (t: TaskRow) => void;
   onDelete: (id: string) => void;
   onSetProp: (taskId: string, propId: string, value: unknown) => void;
+  /** Persist a change to a property's own option list. */
+  onEditOptions?: (prop: PropRow, options: PropOption[]) => void;
+  /** 'Name' rather than 'Task' for the first column, in a data database. */
+  rowLabel?: string;
+  /** Let the grid grow to its content instead of scrolling inside a fixed
+   *  box — what an embedded database wants, so the page scrolls, not the
+   *  block. See the two-scrollbar note in EmbeddedDatabase. */
+  auto?: boolean;
 }
 
 const cell = 'px-2 py-1.5';
 // whitespace-nowrap: a two-word column name breaking onto a second line
 // ("Files & / media") made the header row taller than any data row.
 const head = 'whitespace-nowrap font-semibold';
+
+/** How much room a column needs before its control starts lying about itself.
+ *  A select in an auto-width table reports almost no intrinsic width, so
+ *  without a floor it collapses to its chevron. */
+const MIN_WIDTH: Record<PropType, number> = {
+  text: 160,
+  number: 90,
+  select: 150,
+  multi_select: 170,
+  date: 116,
+  checkbox: 84,
+  person: 150,
+  url: 160,
+  file: 120,
+  relation: 96,
+};
 
 const STORE_KEY = 'mn-table-wrap';
 
@@ -108,32 +135,13 @@ function TitleCell({ value, wrap, onCommit, onOpen }: {
   );
 }
 
-/** A date the way the rest of the app writes one ("Sep 10"), that opens the
- *  native picker on click. The bare <input type="date"> wrote `mm/dd/yyyy` into
- *  every empty cell and `09/10/2026` into the full ones — two formats the board
- *  and calendar beside it never use. */
-function DateCell({ value, onChange, danger }: { value: string | null | undefined; onChange: (v: string | null) => void; danger?: boolean }) {
-  const iso = value?.slice(0, 10) ?? '';
-  const label = iso ? new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '';
-  return (
-    <label className={cn('relative block', input, 'cursor-pointer', danger && 'text-danger', !iso && 'text-faint')}>
-      <span className="block truncate">{label || '—'}</span>
-      <input
-        type="date"
-        aria-label={danger ? 'Due date (overdue)' : 'Date'}
-        className="absolute inset-0 w-full cursor-pointer opacity-0"
-        value={iso}
-        onChange={(e) => onChange(e.target.value || null)}
-      />
-    </label>
-  );
-}
 const input =
   'w-full rounded border border-transparent bg-transparent px-1 py-0.5 text-sm text-ink outline-none hover:border-line focus:border-accent focus:bg-canvas';
 
 /** Dense editable grid. Every field writes straight through on change. */
-export function TaskTable({ tasks, mode, users, props, onPatch, onOpen, onDelete, onSetProp }: Props) {
-  const work = mode !== 'data';
+export function TaskTable({
+  tasks, props, users, onPatch, onOpen, onDelete, onSetProp, onEditOptions, rowLabel = 'Task', auto,
+}: Props) {
   const [wrap, setWrap] = useState(storedWrap);
 
   const pick = (next: boolean) => {
@@ -149,8 +157,7 @@ export function TaskTable({ tasks, mode, users, props, onPatch, onOpen, onDelete
   // sideways, the way a spreadsheet does. `table-fixed` was tried first and
   // is wrong here: it splits the leftover width evenly, which is what cut
   // "Ravi Menon" to "Ravi Me" and a status to "In p". Each column carries its
-  // own minimum instead, below — a select in an auto table reports almost no
-  // intrinsic width, so without one it collapses to its chevron.
+  // own minimum instead — see MIN_WIDTH.
   //
   // Clip keeps every cell on one line and hides the overflow; wrap lets the
   // row grow as tall as its tallest cell. `[&_.flex-wrap]:flex-nowrap` is what
@@ -161,7 +168,7 @@ export function TaskTable({ tasks, mode, users, props, onPatch, onOpen, onDelete
     : 'max-w-0 truncate align-middle [&_.flex-wrap]:flex-nowrap [&_.flex-wrap]:overflow-hidden';
 
   return (
-    <div className="scrollarea flex h-full flex-col overflow-hidden">
+    <div className={cn('scrollarea flex flex-col', auto ? 'min-w-0' : 'h-full overflow-hidden')}>
       <div className="flex items-center justify-end gap-2 px-4 pt-3">
         <SegmentedControl
           aria-label="Long text"
@@ -171,18 +178,16 @@ export function TaskTable({ tasks, mode, users, props, onPatch, onOpen, onDelete
         />
       </div>
 
-      <div className="scrollarea flex-1 overflow-auto p-4">
+      {/* overflow-x only when the grid is allowed to grow: an embedded table
+          that scrolls vertically inside the page is the second scrollbar
+          nobody asked for. */}
+      <div className={cn('scrollarea p-4', auto ? 'overflow-x-auto' : 'flex-1 overflow-auto')}>
       <table className="w-full border-collapse text-sm">
         <thead>
           <tr className="border-b border-line text-left text-2xs text-muted">
-            <th className={cn(cell, head, 'w-[38%] min-w-[240px]')}>{work ? 'Task' : 'Name'}</th>
-            {work && <th className={cn(cell, head, 'min-w-[120px]')}>Status</th>}
-            {work && <th className={cn(cell, head, 'min-w-[150px]')}>Assignee</th>}
-            {work && <th className={cn(cell, head, 'min-w-[88px]')}>Start</th>}
-            {work && <th className={cn(cell, head, 'min-w-[88px]')}>Due</th>}
-            {work && <th className={cn(cell, head, 'min-w-[84px]')}>Progress</th>}
+            <th className={cn(cell, head, 'w-[38%] min-w-[240px]')}>{rowLabel}</th>
             {props.map((p) => (
-              <th key={p.id} className={cn(cell, head, 'min-w-[140px]')}>{p.label}</th>
+              <th key={p.id} className={cn(cell, head)} style={{ minWidth: MIN_WIDTH[p.type] ?? 140 }}>{p.label}</th>
             ))}
             <th className={cn(cell, 'w-8')} />
           </tr>
@@ -198,57 +203,17 @@ export function TaskTable({ tasks, mode, users, props, onPatch, onOpen, onDelete
                   onOpen={() => onOpen(t)}
                 />
               </td>
-              {work && (
-                <>
-                <td className={cn(cell, text)}>
-                  <select
-                    className={cn(input, 'mn-select cursor-pointer pr-6')}
-                    value={t.status}
-                    onChange={(e) => onPatch(t.id, { status: e.target.value as TaskStatus })}
-                  >
-                    {STATUSES.map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
-                  </select>
-                </td>
-                <td className={cn(cell, text)}>
-                  <AssigneePicker
-                    compact
-                    assignees={t.assignees ?? []}
-                    users={users}
-                    onChange={(assigneeIds) => onPatch(t.id, { assigneeIds })}
-                  />
-                </td>
-                <td className={cn(cell, wrap ? 'align-top' : 'align-middle')}>
-                  <DateCell value={t.start_at} onChange={(v) => onPatch(t.id, { startAt: v })} />
-                </td>
-                <td className={cn(cell, wrap ? 'align-top' : 'align-middle')}>
-                  <DateCell value={t.due_at} danger={isOverdue(t)} onChange={(v) => onPatch(t.id, { dueAt: v })} />
-                </td>
-                <td className={cn(cell, wrap ? 'align-top' : 'align-middle')}>
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    className={input}
-                    value={t.progress}
-                    onChange={(e) => onPatch(t.id, { progress: Number(e.target.value) })}
-                  />
-                </td>
-                </>
-              )}
               {props.map((p) => (
                 <td key={p.id} className={cn(cell, text)}>
-                  {p.type === 'relation' ? (
-                    <button type="button" onClick={() => onOpen(t)} className="text-2xs text-muted hover:text-accent-strong">
-                      Open row
-                    </button>
-                  ) : (
-                    <PropertyValue
-                      prop={p}
-                      users={users}
-                      value={t.props?.[p.id] ?? null}
-                      onChange={(v) => onSetProp(t.id, p.id, v)}
-                    />
-                  )}
+                  <PropertyCell
+                    prop={p}
+                    task={t}
+                    users={users}
+                    onPatch={onPatch}
+                    onSetProp={onSetProp}
+                    onEditOptions={onEditOptions}
+                    onOpenRow={() => onOpen(t)}
+                  />
                 </td>
               ))}
               <td className={cn(cell, wrap ? 'align-top' : 'align-middle')}>
@@ -265,7 +230,13 @@ export function TaskTable({ tasks, mode, users, props, onPatch, onOpen, onDelete
           ))}
         </tbody>
       </table>
-      {!tasks.length && <p className="py-10 text-center text-sm text-faint">No tasks yet.</p>}
+      {!tasks.length && <p className="py-10 text-center text-sm text-faint">No rows yet.</p>}
+      {/* Hiding every column leaves a list of titles, which is a legitimate
+          thing to want — but it looks identical to a grid that failed to
+          load, so it says which it is. */}
+      {!props.length && !!tasks.length && (
+        <p className="px-2 py-3 text-2xs text-faint">Every property is hidden in this view.</p>
+      )}
       </div>
     </div>
   );

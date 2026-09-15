@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { docsApi, type UserRow } from '../../lib/docsApi';
+import { isBuiltinProp } from '../../lib/builtinProps';
 import { tasksApi, type PropOption, type PropRow, type PropType, type SprintRow, type SprintState, type TaskKindRow, type TaskPatch, type TaskRow } from '../../lib/tasksApi';
 
 /** What a task-type mutation reports back to the dialog that asked for it. */
@@ -188,6 +189,21 @@ export function useProject(projectId: string | null) {
     }
   }, [props]);
 
+  /**
+   * Save a change to a property's own option list — a new option, a rename, a
+   * recolour, a deletion — made from the menu that sets the value.
+   *
+   * Only a database's own properties keep their options here. A built-in's
+   * come from rows somewhere else: the project's task types (edited in the
+   * type dialog, which owns their keys), its sprints, and the four fixed
+   * statuses. Those hand no editor to the value menu, so this is never called
+   * for them; the guard is so that stays true if one ever does.
+   */
+  const editOptions = useCallback((prop: PropRow, options: PropOption[]) => {
+    if (isBuiltinProp(prop.id)) return;
+    patchProp(prop.id, { options });
+  }, [patchProp]);
+
   const deleteProp = useCallback(async (id: string) => {
     setProps((prev) => prev.filter((p) => p.id !== id));
     setTasks((prev) => prev.map((t) => {
@@ -227,7 +243,7 @@ export function useProject(projectId: string | null) {
     tasks, sprints, kinds, props, users, loading, error, setError, refresh,
     patch, create, remove, addDep, removeDep,
     createKind, patchKind, deleteKind,
-    setProp, createProp, patchProp, reorderProp, deleteProp,
+    setProp, createProp, patchProp, reorderProp, deleteProp, editOptions,
     createSprint, patchSprint, deleteSprint,
   };
 }
