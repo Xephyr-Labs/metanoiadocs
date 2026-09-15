@@ -1,8 +1,10 @@
 /* Hallmark · component: editable task grid · genre: modern-minimal
  * theme: project tokens (index.css)
  * pre-emit critique: P5 H5 E4 S5 R5 V4
- * states: default · hover · focus-visible · active · overdue · clipped ·
- *         wrapped · empty · data mode (work columns hidden)
+ * states: row default · row hover · field hover · field focus · overdue due ·
+ *         clipped · wrapped · empty · data mode (work columns hidden)
+ * note: fields reuse the shared `input` look (ui/styles) rather than carrying
+ *       their own — one hairline for the whole app beats a truer 8-state grid.
  */
 import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { Trash2 } from 'lucide-react';

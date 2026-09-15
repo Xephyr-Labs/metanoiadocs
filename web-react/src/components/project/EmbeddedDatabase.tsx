@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { tasksApi, type ProjectRow } from '../../lib/tasksApi';
 import { Skeleton } from '../ui/Skeleton';
+import { defaultCardProps } from '../../lib/builtinProps';
 import { Board } from './Board';
 import { KindsProvider } from './kinds';
 import { TaskTable } from './TaskTable';
@@ -78,7 +79,14 @@ export function EmbeddedDatabase({ projectId, view, onPick, onView, unavailable 
           </select>
         </header>
         {view === 'board'
-          ? <Board tasks={p.tasks} onOpen={() => {}} onAdd={() => {}} onMove={(id, status, position) => p.patch(id, { status, position })} />
+          ? <Board
+              tasks={p.tasks}
+              cardProps={defaultCardProps('board', project.mode, p.kinds, p.sprints, p.props)}
+              users={p.users}
+              onOpen={() => {}}
+              onAdd={() => {}}
+              onMove={(id, status, position) => p.patch(id, { status, position })}
+            />
           : <TaskTable tasks={p.tasks} mode={project.mode} users={p.users} props={p.props} onPatch={p.patch} onSetProp={p.setProp} onOpen={() => {}} onDelete={p.remove} />}
       </div>
     </KindsProvider>

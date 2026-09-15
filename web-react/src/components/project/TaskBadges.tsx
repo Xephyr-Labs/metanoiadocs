@@ -1,7 +1,8 @@
 /* Hallmark · component: task badge primitives · genre: modern-minimal
  * theme: project tokens (index.css) + tag palette (lib/tagColors)
  * pre-emit critique: P5 H5 E5 S5 R5 V4
- * states: default · loading (types not fetched) · deleted type · overflow · empty
+ * states: default · loading (types not fetched) · deleted type · overflow (+n) · empty
+ * note: display only — no interactive state; the card around them owns those.
  */
 // The small pieces a task draws wherever it appears — its type, its people,
 // its dates.

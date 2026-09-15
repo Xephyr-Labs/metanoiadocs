@@ -132,11 +132,33 @@ export function readBuiltin(task: TaskRow, id: string): unknown {
  * row is a bar between two dates for the same reason.
  */
 export const DEFAULT_CARD_PROPS: Record<string, string[]> = {
-  board: ['sys:kind', 'sys:points', 'sys:due', 'sys:assignees', 'sys:attachments'],
+  board: ['sys:kind', 'sys:milestone', 'sys:points', 'sys:due', 'sys:assignees', 'sys:attachments'],
   // The gallery leads with the picture at full width, so a 24px copy of it in
   // the chip row would be the same file twice on one card.
-  gallery: ['sys:kind', 'sys:points', 'sys:due', 'sys:assignees'],
+  gallery: ['sys:kind', 'sys:milestone', 'sys:points', 'sys:due', 'sys:assignees'],
   calendar: ['sys:assignees', 'sys:attachments'],
   // One row, one line: a gantt bar has room for who, and nothing after that.
   gantt: ['sys:assignees'],
 };
+
+/**
+ * The properties a view shows when there is nowhere to store a choice.
+ *
+ * A database embedded in a page has no toolbar, so it never had a visibility
+ * setting to read — and once the card's metadata row stopped being hard-coded,
+ * "no setting" rendered as "no properties" and those cards lost their type,
+ * dates and people. This is the set they fall back to.
+ */
+export function defaultCardProps(
+  view: string,
+  mode: ProjectMode,
+  kinds: TaskKindRow[] = [],
+  sprints: SprintRow[] = [],
+  props: PropRow[] = [],
+): PropRow[] {
+  const all = [...builtinProps(mode, kinds, sprints), ...props];
+  const wanted = DEFAULT_CARD_PROPS[view] ?? [];
+  return wanted
+    .map((id) => all.find((p) => p.id === id))
+    .filter((p): p is PropRow => p !== undefined);
+}

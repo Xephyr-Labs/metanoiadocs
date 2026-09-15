@@ -6,7 +6,7 @@
  */
 import { Link2 } from 'lucide-react';
 import { cn } from '../../lib/cn';
-import { isImageFile, type StoredFile } from '../../lib/uploads';
+import { isImageFile, isVideoFile, type StoredFile } from '../../lib/uploads';
 import type { PropRow, TaskRow } from '../../lib/tasksApi';
 import type { UserRow } from '../../lib/docsApi';
 import { isOverdue } from './TaskBadges';
@@ -26,8 +26,7 @@ export { AssigneeStack, KindBadge, shortDate, isOverdue } from './TaskBadges';
  * The metadata under the title is not hard-coded any more. Type, points, due
  * date and assignees are properties like every other, delivered in
  * `cardProps` and drawn by PropChips, so the view's visibility panel governs
- * all of them; those four are simply what a board card defaults to, which is
- * exactly what it drew before. What stays hard-coded here is the two things
+ * all of them; that default set is simply what the card drew before. What stays hard-coded here is the two things
  * that are *not* properties: how far along the task is, and what it waits on.
  */
 export function TaskChip({ task, onOpen, compact, flush, cover, cardProps, users }: {
@@ -66,7 +65,8 @@ export function TaskChip({ task, onOpen, compact, flush, cover, cardProps, users
       type="button"
       onClick={onOpen}
       className={cn(
-        'w-full p-3 text-left transition-[background-color,border-color,box-shadow] duration-120 hover:bg-hover',
+        'w-full p-3 text-left transition-[background-color,border-color,box-shadow] duration-120',
+        'hover:bg-hover active:bg-selected',
         flush ? 'bg-transparent' : 'rounded-lg border border-line bg-canvas hover:border-line-strong hover:shadow-subtle',
       )}
     >
@@ -115,5 +115,5 @@ export function coverFile(task: TaskRow, props?: PropRow[]): StoredFile | null {
     }
   }
   const all = pools.flat();
-  return all.find(isImageFile) ?? all.find((f) => /^video\/(mp4|webm|ogg)$/i.test(f.mime)) ?? null;
+  return all.find(isImageFile) ?? all.find(isVideoFile) ?? null;
 }

@@ -132,6 +132,7 @@ export function Gallery({
                         preload="metadata"
                         muted
                         playsInline
+                        aria-hidden
                         className="h-full w-full object-cover"
                       />
                     )}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { builtinProps, isBuiltinProp, readBuiltin, DEFAULT_CARD_PROPS } from './builtinProps';
+import { builtinProps, defaultCardProps, isBuiltinProp, readBuiltin, DEFAULT_CARD_PROPS } from './builtinProps';
 import type { TaskKindRow, TaskRow } from './tasksApi';
 
 const task = (over: Partial<TaskRow> = {}): TaskRow => ({
@@ -93,5 +93,44 @@ describe('DEFAULT_CARD_PROPS', () => {
 
   it('does not repeat the gallery cover in the gallery chip row', () => {
     expect(DEFAULT_CARD_PROPS.gallery).not.toContain('sys:attachments');
+  });
+});
+
+describe('defaultCardProps', () => {
+  it('gives a toolbar-less board the metadata its cards used to hard-code', () => {
+    // The regression this exists to stop: a database embedded in a page has
+    // no visibility setting, and once the card's footer became properties,
+    // "no setting" rendered as a card with nothing but a title on it.
+    const ids = defaultCardProps('board', 'tasks', kinds).map((p) => p.id);
+    expect(ids).toContain('sys:kind');
+    expect(ids).toContain('sys:due');
+    expect(ids).toContain('sys:assignees');
+  });
+
+  it('returns them in the default order, not the registry order', () => {
+    // Assignees come second in builtinProps() and last on a card.
+    const ids = defaultCardProps('board', 'tasks', kinds).map((p) => p.id);
+    expect(ids.indexOf('sys:assignees')).toBeGreaterThan(ids.indexOf('sys:kind'));
+  });
+
+  it('drops built-ins the mode does not have', () => {
+    // A data database has no status or people, so a board default naming them
+    // must come back without them rather than with undefined holes.
+    const rows = defaultCardProps('board', 'data');
+    expect(rows.every((p) => p !== undefined)).toBe(true);
+    expect(rows.map((p) => p.id)).toEqual(['sys:attachments']);
+  });
+
+  it('is empty for a view with no default, rather than throwing', () => {
+    expect(defaultCardProps('table', 'tasks', kinds)).toEqual([]);
+  });
+
+  it('shows no custom property the default set did not ask for', () => {
+    // A project's own properties go through the visibility panel. A card with
+    // nowhere to store a choice gets the built-in default and nothing else,
+    // or an embedded database would sprout every column somebody ever added.
+    const custom = { ...builtinProps('tasks')[0], id: 'c1', key: 'c1', label: 'Area' };
+    expect(defaultCardProps('board', 'tasks', kinds, [], [custom]).map((p) => p.id))
+      .not.toContain('c1');
   });
 });

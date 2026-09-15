@@ -2,7 +2,8 @@
  * theme: project tokens (index.css) + tag palette (lib/tagColors)
  * pre-emit critique: P5 H5 E4 S4 R5 V4
  * states: default · empty (renders nothing) · truncated · media thumb ·
- *         overflow · overdue date · built-in · cover-suppressed
+ *         overflow (+n) · overdue due-date · type-suppressed · cover-suppressed
+ * note: read-only — no hover/focus/active/disabled; the card owns those.
  * contrast: pass (40) — light ramp measured at 4.8-6.9:1, dark at 5.7-10.8:1
  */
 import { Fragment } from 'react';
@@ -14,7 +15,7 @@ import { isBuiltinProp, readBuiltin } from '../../../lib/builtinProps';
 import { fileUrl, isImageFile, isVideoFile, type StoredFile } from '../../../lib/uploads';
 import type { PropRow, TaskRow } from '../../../lib/tasksApi';
 import type { UserRow } from '../../../lib/docsApi';
-import { AssigneeStack, shortDate } from '../TaskBadges';
+import { AssigneeStack, isOverdue, KindBadge, shortDate } from '../TaskBadges';
 
 /**
  * A task's properties as they appear ON a card — a calendar event, a board
@@ -52,7 +53,7 @@ export function PropChips({
   const chips = props
     .map((p) => ({
       prop: p,
-      node: chipFor(p, isBuiltinProp(p.id) ? readBuiltin(task, p.id) : task.props?.[p.id], users, skipFile),
+      node: chipFor(p, isBuiltinProp(p.id) ? readBuiltin(task, p.id) : task.props?.[p.id], task, users, skipFile),
     }))
     .filter((c) => c.node !== null);
 
@@ -71,7 +72,7 @@ export function PropChips({
 }
 
 /** One property's value, or null when there is nothing worth drawing. */
-function chipFor(prop: PropRow, value: unknown, users?: UserRow[], skipFile?: StoredFile | null) {
+function chipFor(prop: PropRow, value: unknown, task: TaskRow, users?: UserRow[], skipFile?: StoredFile | null) {
   // Everyone on the task, as the same overlapped faces the board footer drew
   // before assignees became a property. A list of names in chips would wrap a
   // three-person card onto three lines.
@@ -90,6 +91,22 @@ function chipFor(prop: PropRow, value: unknown, users?: UserRow[], skipFile?: St
         ))}
       </>
     ) : null;
+  }
+
+  // The type badge knows when to say nothing: a project with one type, or a
+  // row typed plainly "task", has nothing to tell apart, and labelling every
+  // card "Task" is noise on all of them. Rendering it through the same badge
+  // the backlog and the peek use keeps that rule in one place — a generic
+  // select chip here would have put "Task" on every card in the project.
+  if (prop.id === 'sys:kind') {
+    return typeof value === 'string' && value ? <KindBadge kind={value} /> : null;
+  }
+
+  // A bare "65" beside a bare "8" says neither which is which; the unit does.
+  if (prop.id === 'sys:progress') {
+    return typeof value === 'number'
+      ? <Chip color="gray" title={`${prop.label}: ${value}%`}>{value}%</Chip>
+      : null;
   }
 
   switch (prop.type) {
@@ -117,13 +134,25 @@ function chipFor(prop: PropRow, value: unknown, users?: UserRow[], skipFile?: St
     }
     case 'number':
       return typeof value === 'number' ? <Chip color="gray" title={`${prop.label}: ${value}`}>{value}</Chip> : null;
-    case 'date':
-      // "Sep 14", the way every other date in the app is written — an ISO
-      // string on a card next to a board that says "Sep 14" reads as a
-      // different kind of value rather than the same one.
-      return typeof value === 'string' && value ? (
-        <Chip color="gray" title={`${prop.label}: ${value.slice(0, 10)}`}>{shortDate(value)}</Chip>
-      ) : null;
+    case 'date': {
+      if (typeof value !== 'string' || !value) return null;
+      // A due date that has passed is red, as it was when the card drew its
+      // own footer — losing that was the one thing on a board card anybody
+      // actually scans for. Only the *due* date: a start date in the past is
+      // just a task that has started.
+      const late = prop.id === 'sys:due' && isOverdue(task);
+      return (
+        // "Sep 14", the way every other date in the app is written — an ISO
+        // string on a card next to a board that says "Sep 14" reads as a
+        // different kind of value rather than the same one.
+        <Chip
+          color={late ? 'red' : 'gray'}
+          title={`${prop.label}: ${value.slice(0, 10)}${late ? ' — overdue' : ''}`}
+        >
+          {shortDate(value)}
+        </Chip>
+      );
+    }
     case 'url':
       return typeof value === 'string' && value ? (
         <Chip color="blue" title={`${prop.label}: ${value}`}>{value.replace(/^https?:\/\//i, '').slice(0, 28)}</Chip>
