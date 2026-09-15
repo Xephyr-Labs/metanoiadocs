@@ -12,8 +12,8 @@ import { addDays, daysBetween, todayISO, toUTC, weekSegments } from '../../lib/g
 import type { PropRow, TaskRow } from '../../lib/tasksApi';
 import type { UserRow } from '../../lib/docsApi';
 import { IconButton } from '../ui/IconButton';
+import { SearchSelect } from '../ui/SearchSelect';
 import { Button } from '../ui/Button';
-import { selectField } from '../ui/styles';
 import { isOverdue } from './TaskChip';
 import { PropChips } from './props/PropChips';
 
@@ -175,16 +175,14 @@ export function Calendar({
           Today
         </Button>
         {dateProps.length > 1 && (
-          <select
-            aria-label="Date shown"
-            className={cn(selectField, 'ml-auto h-7 w-auto px-2 text-xs')}
+          <SearchSelect
+            variant="inline"
+            label="Date shown"
+            className="ml-auto h-7 rounded-md px-2 ring-1 ring-inset ring-line"
             value={propId ?? ''}
-            onChange={(e) => setPropId(e.target.value || null)}
-          >
-            {dateProps.map((p) => (
-              <option key={p.id} value={p.id}>{p.label}</option>
-            ))}
-          </select>
+            options={dateProps.map((p) => ({ value: p.id, label: p.label }))}
+            onChange={(id) => setPropId(id || null)}
+          />
         )}
       </div>
 

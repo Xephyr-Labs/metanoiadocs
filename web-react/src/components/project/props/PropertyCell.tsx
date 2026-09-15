@@ -4,14 +4,11 @@
  * states: default · hover · focus-visible · empty · read-only (tags, relation)
  */
 import type { UserRow } from '../../../lib/docsApi';
-import { isBuiltinProp, readBuiltin, writeBuiltin } from '../../../lib/builtinProps';
+import { isAuditProp, isBuiltinProp, readBuiltin, writeBuiltin } from '../../../lib/builtinProps';
 import { isComputed, type PropOption, type PropRow, type TaskPatch, type TaskRow } from '../../../lib/tasksApi';
 import { AssigneePicker } from '../AssigneePicker';
 import { TagsCell } from './TagsCell';
 import { isOverdue } from '../TaskBadges';
-
-/** The read-only built-ins — see AUDIT in lib/builtinProps. */
-const AUDIT_IDS = new Set(['sys:created', 'sys:createdBy', 'sys:edited', 'sys:editedBy']);
 
 /** A timestamp as a day, since the time of day is rarely the question. */
 const shortDateTime = (iso: string) =>
@@ -76,7 +73,6 @@ export function PropertyCell({
   if (prop.id === 'sys:assignees') {
     return (
       <AssigneePicker
-        compact
         assignees={task.assignees ?? []}
         users={users}
         onChange={(assigneeIds) => onPatch(task.id, { assigneeIds })}
@@ -96,7 +92,7 @@ export function PropertyCell({
 
   if (prop.type === 'relation') {
     return (
-      <button type="button" onClick={onOpenRow} className="px-1 text-2xs text-muted hover:text-accent-strong">
+      <button type="button" onClick={onOpenRow} className="flex h-7 items-center px-2.5 text-2xs text-muted hover:text-accent-strong">
         Open row
       </button>
     );
@@ -105,21 +101,26 @@ export function PropertyCell({
   // A formula and a rollup are computed every time they are read, so there is
   // nothing to write — PropertyValue renders them, and `write` is never called.
   if (isComputed(prop.type)) {
-    return <PropertyValue prop={prop} users={users} value={value} onChange={() => {}} />;
+    return <PropertyValue dense prop={prop} users={users} value={value} onChange={() => {}} />;
   }
 
   // The four audit columns are the database's own record of what happened —
   // `writeBuiltin` returns null for them, so a control here would be one that
   // silently does nothing.
-  if (AUDIT_IDS.has(prop.id)) {
+  if (isAuditProp(prop.id)) {
     const shown = typeof value === 'string' && value
       ? (prop.type === 'date' ? shortDateTime(value) : value)
       : '—';
-    return <span className="block truncate px-1 text-sm text-muted" title={typeof value === 'string' ? value : ''}>{shown}</span>;
+    return (
+      <span className="flex h-7 items-center truncate px-2.5 text-sm text-muted" title={typeof value === 'string' ? value : ''}>
+        {shown}
+      </span>
+    );
   }
 
   return (
     <PropertyValue
+      dense
       prop={prop}
       users={users}
       value={value}

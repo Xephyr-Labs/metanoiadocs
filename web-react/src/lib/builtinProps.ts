@@ -112,6 +112,10 @@ const AUDIT: PropRow[] = [
   row('editedBy', 'Last edited by', 'text', [], 23),
 ];
 
+/** One of the four the database writes for you. Cells render them as text, and
+ *  the table and the peek both leave them out of their default field list. */
+export const isAuditProp = (id: string) => AUDIT.some((a) => a.id === id);
+
 /**
  * A built-in's value, in the shape its declared type expects.
  *
@@ -280,5 +284,5 @@ export function defaultTableProps(builtins: PropRow[], props: PropRow[]): string
   // Everything except the audit columns. They are worth having and worth
   // sorting by; putting four more columns on every table before anyone asks
   // for them is how a grid becomes unreadable.
-  return [...builtins.filter((p) => !AUDIT.some((a) => a.id === p.id)), ...props].map((p) => p.id);
+  return [...builtins.filter((p) => !isAuditProp(p.id)), ...props].map((p) => p.id);
 }

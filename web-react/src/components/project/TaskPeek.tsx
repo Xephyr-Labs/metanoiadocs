@@ -1,26 +1,29 @@
+/* Hallmark · component: row detail panel · genre: modern-minimal
+ * theme: project tokens (index.css)
+ * pre-emit critique: P5 H5 E4 S5 R5 V4
+ * states: opening · loaded · data mode · no page yet · dependency added ·
+ *         dependency removed · backlinked · empty property · deleting
+ */
 import { ExternalLink, Link2, MoreHorizontal, Plus, Settings2, Trash2, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { UserRow } from '../../lib/docsApi';
 import { cn } from '../../lib/cn';
-import { TagChips } from '../editor/TagChips';
 import { useAuth } from '../../store/auth';
 import { useWorkspace } from '../../store/workspace';
+import { builtinProps, isAuditProp } from '../../lib/builtinProps';
 import {
-  STATUSES, STATUS_LABEL, tasksApi,
-  type ProjectMode, type PropOption, type PropRow, type RelatedRow, type SprintRow, type TaskDetail, type TaskPatch, type TaskRow, type TaskStatus,
+  tasksApi,
+  type ProjectMode, type PropOption, type PropRow, type RelatedRow, type SprintRow, type TaskDetail, type TaskPatch, type TaskRow,
 } from '../../lib/tasksApi';
 import { LazyEditor } from '../../editor/LazyEditor';
-import { field, selectField } from '../ui/styles';
 import { IconButton } from '../ui/IconButton';
 import { Menu } from '../ui/Menu';
 import { useDocLinking } from '../../hooks/useDocLinking';
 import { useMoveToFolder } from '../../hooks/useMoveToFolder';
 import { SearchSelect } from '../ui/SearchSelect';
-import { AssigneePicker } from './AssigneePicker';
 import { useKinds } from './kinds';
 import { KindBadge } from './TaskChip';
-import { Attachments } from '../ui/Attachments';
-import { PropertyValue } from './props/PropertyValue';
+import { PropertyCell } from './props/PropertyCell';
 
 interface Props {
   task: TaskRow | null;
@@ -30,6 +33,9 @@ interface Props {
   props: PropRow[];
   sprints: SprintRow[];
   users: UserRow[];
+  /** The project's own colours for the four statuses, so the chip here is the
+   *  colour the board and the table paint. */
+  statusColors?: Record<string, string>;
   onClose: () => void;
   onPatch: (id: string, body: TaskPatch) => void;
   onSetProp: (taskId: string, propId: string, value: unknown) => void;
@@ -42,15 +48,43 @@ interface Props {
   onManageProps: () => void;
   /** Persist a new/renamed/recoloured option made from a select's own menu. */
   onEditOptions?: (prop: PropRow, options: PropOption[]) => void;
+  /** Re-read the row after its page tags change — focus areas live on the page,
+   *  so the task list does not hear about them by itself. */
+  onTagsChanged?: () => void;
 }
 
-const label = 'mb-1 block text-2xs font-medium text-muted';
-
-function Row({ name, children }: { name: string; children: React.ReactNode }) {
+/**
+ * One property: its name on a fixed rail, its value beside it.
+ *
+ * The panel used to run two layouts at once — the built-in fields as labels
+ * stacked above 32px boxes in a two-column grid, the database's own as a left
+ * rail — so the same panel had two value columns at two different x positions,
+ * and half of every section was blank while the panel scrolled for 1600px. One
+ * row per property, name left, value right, is both the shorter shape and the
+ * only one that lines up.
+ */
+function Row({ name, note, action, children }: {
+  name: string;
+  /** "built-in" / "yours", where two properties share a label. */
+  note?: string;
+  /** A control that belongs beside the value, not inside it (the Type gear). */
+  action?: React.ReactNode;
+  children: React.ReactNode;
+}) {
   return (
-    <div className="min-w-0">
-      <span className={label}>{name}</span>
-      {children}
+    <div className="group/row grid grid-cols-[148px_minmax(0,1fr)] items-start gap-2">
+      <span className="flex min-h-7 items-center py-0.5 text-xs text-muted">
+        <span className="truncate" title={name}>{name}</span>
+        {note && <span className="ml-1 shrink-0 text-faint">{note}</span>}
+      </span>
+      {action ? (
+        <div className="flex min-w-0 items-center gap-1">
+          <div className="min-w-0 flex-1">{children}</div>
+          {action}
+        </div>
+      ) : (
+        <div className="min-w-0">{children}</div>
+      )}
     </div>
   );
 }
@@ -59,10 +93,16 @@ function Row({ name, children }: { name: string; children: React.ReactNode }) {
  * A row's page: properties on top, its BlockSuite document underneath. Replaces
  * the old centered TaskDialog — a row is no longer a record you edit and close,
  * it's a page you can write in, reachable at /d/<id> like any other document.
+ *
+ * The fields are not written out here. They come from `builtinProps()` and the
+ * database's own list, both rendered through `PropertyCell` — the same call the
+ * table makes for the same task. Hand-coding eleven fields here is what let the
+ * peek and the grid drift apart: a date read `09/14/2026` in one and `Sep 14`
+ * in the other, a status was a native select here and a coloured chip there.
  */
 export function TaskPeek({
-  task, mode, tasks, props, sprints, users, onClose, onPatch, onSetProp, onDelete, onAddDep, onRemoveDep,
-  onManageKinds, onManageProps, onEditOptions,
+  task, mode, tasks, props, sprints, users, statusColors, onClose, onPatch, onSetProp, onDelete, onAddDep, onRemoveDep,
+  onManageKinds, onManageProps, onEditOptions, onTagsChanged,
 }: Props) {
   const ws = useWorkspace();
   const auth = useAuth();
@@ -77,8 +117,20 @@ export function TaskPeek({
   // every page reference in a task's notes rendered as "Deleted page" and
   // clicked through to nothing. See useDocLinking.
   const { pages: linkTargets, createPage: createLinkedPage } = useDocLinking();
-  // Null for the moment between opening a row and its page existing.
-  const page = docId ? ws.pages[docId] ?? null : null;
+
+  // Every field the panel draws, built-in and database-defined alike. The four
+  // audit columns are left out for the same reason the table leaves them out
+  // of its default: worth having, not worth four rows before anyone asks.
+  const fields = useMemo(() => {
+    const builtins = builtinProps(mode, kinds, sprints, statusColors).filter((p) => !isAuditProp(p.id));
+    return [...builtins, ...props];
+  }, [mode, kinds, sprints, statusColors, props]);
+
+  // Labels carried by more than one property — a database may define its own
+  // "Status" beside the built-in one. Two identical rows is a coin flip.
+  const twice = useMemo(() => new Set(
+    fields.map((p) => p.label.toLowerCase()).filter((l, i, all) => all.indexOf(l) !== i),
+  ), [fields]);
 
   // Opening the row is what creates its page — importing a thousand rows must
   // not create a thousand empty documents.
@@ -155,156 +207,105 @@ export function TaskPeek({
       </header>
 
       <div className="scrollarea min-h-0 flex-1 divide-y divide-line overflow-y-auto">
-        {mode !== 'data' && (
-          <>
-          <section className="grid grid-cols-2 gap-3 p-4">
-            <Row name="Type">
-              <div className="flex items-center gap-1">
-                <select className={selectField} value={task.kind} onChange={(e) => onPatch(task.id, { kind: e.target.value })}>
-                  {!kinds.some((k) => k.key === task.kind) && <option value={task.kind}>{task.kind}</option>}
-                  {kinds.map((k) => <option key={k.id} value={k.key}>{k.label}</option>)}
-                </select>
-                <IconButton icon={<Settings2 size={15} />} label="Edit task types" onClick={onManageKinds} />
-              </div>
-            </Row>
-            <Row name="Status">
-              <select className={selectField} value={task.status} onChange={(e) => onPatch(task.id, { status: e.target.value as TaskStatus })}>
-                {STATUSES.map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
-              </select>
-            </Row>
-            <Row name="Assignees">
-              <AssigneePicker
-                assignees={task.assignees ?? []}
-                users={users}
-                onChange={(assigneeIds) => onPatch(task.id, { assigneeIds })}
-              />
-            </Row>
-            <Row name="Progress %">
-              <input type="number" min={0} max={100} className={field} value={task.progress} onChange={(e) => onPatch(task.id, { progress: Number(e.target.value) })} />
-            </Row>
-            <Row name="Start">
-              <input type="date" className={field} value={task.start_at?.slice(0, 10) ?? ''} onChange={(e) => onPatch(task.id, { startAt: e.target.value || null })} />
-            </Row>
-            <Row name="Due">
-              <input type="date" className={field} value={task.due_at?.slice(0, 10) ?? ''} onChange={(e) => onPatch(task.id, { dueAt: e.target.value || null })} />
-            </Row>
-          </section>
-
-          <section className="grid grid-cols-2 gap-3 p-4">
-            <Row name="Sprint">
-              <select className={selectField} value={task.sprint_id ?? ''} onChange={(e) => onPatch(task.id, { sprintId: e.target.value || null })}>
-                <option value="">Backlog</option>
-                {sprints.map((s) => <option key={s.id} value={s.id}>{s.name}{s.state === 'active' ? ' (active)' : ''}</option>)}
-              </select>
-            </Row>
-            <Row name="Points">
-              <input type="number" min={0} className={field} value={task.points ?? ''} placeholder="—" onChange={(e) => onPatch(task.id, { points: e.target.value === '' ? null : Number(e.target.value) })} />
-            </Row>
-            {!isGroup && parents.length > 0 && (
-              <Row name="Parent">
-                <select className={selectField} value={task.parent_id ?? ''} onChange={(e) => onPatch(task.id, { parentId: e.target.value || null })}>
-                  <option value="">None</option>
-                  {parents.map((t) => <option key={t.id} value={t.id}>{t.title || 'Untitled'}</option>)}
-                </select>
-              </Row>
-            )}
-            {/* A field like the others, not a checkbox floating in the gap
-                between two columns. */}
-            <Row name="Milestone">
-              <label className="flex h-8 items-center gap-2 text-sm text-ink">
-                <input
-                  type="checkbox"
-                  checked={task.milestone}
-                  onChange={(e) => onPatch(task.id, { milestone: e.target.checked })}
-                />
-                <span className={task.milestone ? 'text-ink' : 'text-muted'}>
-                  {task.milestone ? 'On the timeline' : 'Not a milestone'}
-                </span>
-              </label>
-            </Row>
-          </section>
-
-          {/* Focus area is not a task column — it is the tags on the task's own
-              page, the same vocabulary the documents use. Putting the editor
-              here is what makes it reachable: until now a task's page could
-              only be tagged by opening it full-screen, so in practice no task
-              ever was, and the cross-project Focus area filter had nothing to
-              match. */}
-          {page && (
-            <section className="border-b border-line p-4">
-              <span className={label}>Focus area</span>
-              <TagChips compact page={page} />
-            </section>
-          )}
-
-          <section className="border-b border-line p-4">
-            <span className={label}>Attachments</span>
-            <Attachments
-              files={task.attachments ?? []}
-              onChange={(next) => onPatch(task.id, { attachments: next })}
-            />
-          </section>
-
-          <section className="p-4">
-            <span className={label}>Depends on</span>
-            <div className="space-y-1.5">
-              {task.deps.map((d) => (
-                <div key={d} className="flex items-center gap-2 rounded-md border border-line px-2.5 py-1.5 text-sm text-ink">
-                  <Link2 size={14} className="shrink-0 text-faint" />
-                  <span className="min-w-0 flex-1 truncate">{byId.get(d)?.title || 'Untitled'}</span>
-                  <button type="button" onClick={() => onRemoveDep(task.id, d)} className="shrink-0 text-faint hover:text-danger" aria-label="Remove dependency">
-                    <X size={14} />
-                  </button>
-                </div>
-              ))}
-              {/* Searchable: a project's task list is the kind of list a
-                  native select stops working on at about thirty rows. */}
-              <SearchSelect
-                value={depPick || null}
-                placeholder="Add a dependency…"
-                empty="Nothing else in this project yet."
-                options={candidates.map((t) => ({ value: t.id, label: t.title || 'Untitled' }))}
-                onChange={(id) => { onAddDep(task.id, id); setDepPick(''); }}
-              />
-            </div>
-          </section>
-          </>
-        )}
-
-        <section className="space-y-3 p-4">
-          {props.map((p) => (
-            <div key={p.id} className="grid grid-cols-[120px_1fr] items-center gap-3">
-              <span className="text-2xs font-medium text-muted">{p.label}</span>
+        <section className="space-y-0.5 px-4 py-3">
+          {fields.map((p) => (
+            <Row
+              key={p.id}
+              name={p.label}
+              note={twice.has(p.label.toLowerCase()) ? (p.id.startsWith('sys:') ? 'built-in' : 'yours') : undefined}
+              // The type editor opens from beside the Type field, the way the
+              // property editor opens from the bottom of this list.
+              action={p.id === 'sys:kind'
+                ? (
+                  <IconButton
+                    size="sm"
+                    icon={<Settings2 size={14} />}
+                    label="Edit task types"
+                    onClick={onManageKinds}
+                    className="opacity-0 transition-opacity duration-120 group-hover/row:opacity-100 focus-visible:opacity-100"
+                  />
+                )
+                : undefined}
+            >
+              {/* A relation's choices live in another database and its writes
+                  are their own endpoints, so the generic cell cannot draw it —
+                  in the grid it is a link to this panel, and this panel is
+                  where it is actually edited. */}
               {p.type === 'relation'
                 ? <RelationField task={task} prop={p} detail={detail} onChanged={setDetail} />
-                : <PropertyValue
+                : (
+                  <PropertyCell
                     prop={p}
+                    task={task}
                     users={users}
-                    value={task.props?.[p.id] ?? null}
-                    onChange={(v) => onSetProp(task.id, p.id, v)}
-                    onEditOptions={onEditOptions ? (options) => onEditOptions(p, options) : undefined}
-                  />}
-            </div>
+                    onPatch={onPatch}
+                    onSetProp={onSetProp}
+                    onEditOptions={onEditOptions}
+                    onTagsChanged={onTagsChanged}
+                  />
+                )}
+            </Row>
           ))}
-          {/* Properties belong to the whole database, but this is where people
-              notice one is missing — so the editor opens from here too, the way
-              the type editor does from beside the Type field. */}
-          <button
-            type="button"
-            onClick={onManageProps}
-            className="flex items-center gap-1.5 rounded-md px-1 py-1 text-2xs font-medium text-faint transition-colors hover:bg-hover hover:text-ink"
-          >
-            <Plus size={13} /> Add a property
-          </button>
-        </section>
 
-        {/* The page this task is written on. Every task gets one of its own;
-            linking an existing page instead is how a task and a document that
-            were made separately are brought together. */}
-        <section className="p-4">
-          <span className={label}>Page</span>
-          <div className="flex items-center gap-2">
+          {/* Not properties: a parent, a dependency and a page are edges
+              between rows, not values on one. They keep the rail so the panel
+              still reads as a single list. */}
+          {mode !== 'data' && !isGroup && parents.length > 0 && (
+            <Row name="Parent">
+              <SearchSelect
+                variant="bare"
+                value={task.parent_id ?? null}
+                placeholder="None"
+                empty="No group rows in this database."
+                options={parents.map((t) => ({ value: t.id, label: t.title || 'Untitled' }))}
+                onChange={(id) => onPatch(task.id, { parentId: id || null })}
+              />
+            </Row>
+          )}
+
+          {mode !== 'data' && (
+            <Row name="Depends on">
+              <div className="space-y-1">
+                {task.deps.map((d) => (
+                  <div key={d} className="flex items-center gap-2 rounded-md border border-line px-2 py-1 text-sm text-ink">
+                    <Link2 size={13} className="shrink-0 text-faint" />
+                    <span className="min-w-0 flex-1 truncate">{byId.get(d)?.title || 'Untitled'}</span>
+                    <button type="button" onClick={() => onRemoveDep(task.id, d)} className="shrink-0 text-faint hover:text-danger" aria-label="Remove dependency">
+                      <X size={13} />
+                    </button>
+                  </div>
+                ))}
+                {/* Searchable: a project's task list is the kind of list a
+                    native select stops working on at about thirty rows. */}
+                <SearchSelect
+                  variant="bare"
+                  value={depPick || null}
+                  placeholder="Empty"
+                  empty="Nothing else in this project yet."
+                  options={candidates.map((t) => ({ value: t.id, label: t.title || 'Untitled' }))}
+                  onChange={(id) => { onAddDep(task.id, id); setDepPick(''); }}
+                />
+              </div>
+            </Row>
+          )}
+
+          {/* The page this task is written on. Every task gets one of its own;
+              linking an existing page instead is how a task and a document that
+              were made separately are brought together. */}
+          <Row
+            name="Page"
+            action={(
+              <IconButton
+                size="sm"
+                icon={<ExternalLink size={14} />}
+                label="Open this page"
+                disabled={!docId}
+                onClick={() => { if (docId) { ws.select(docId); onClose(); } }}
+              />
+            )}
+          >
             <SearchSelect
+              variant="bare"
               value={docId}
               placeholder="Pick a page…"
               empty="No other pages to link."
@@ -320,19 +321,24 @@ export function TaskPeek({
                 onPatch(task.id, { docId: next });
               }}
             />
-            <IconButton
-              icon={<ExternalLink size={15} />}
-              label="Open this page"
-              disabled={!docId}
-              onClick={() => { if (docId) { ws.select(docId); onClose(); } }}
-            />
-          </div>
+          </Row>
+
+          {/* Properties belong to the whole database, but this is where people
+              notice one is missing — so the editor opens from here too, the way
+              the type editor does from beside the Type field. */}
+          <button
+            type="button"
+            onClick={onManageProps}
+            className="flex items-center gap-1.5 rounded-md py-1 pl-0.5 pr-2 text-xs font-medium text-faint transition-colors hover:bg-hover hover:text-ink"
+          >
+            <Plus size={13} /> Add a property
+          </button>
         </section>
 
         {!!detail?.backlinks.length && (
-          <section className="p-4">
-            <h3 className="mb-2 text-2xs font-semibold uppercase text-muted">Linked from</h3>
-            <ul className="space-y-1">
+          <section className="px-4 py-3">
+            <h3 className="mb-1.5 text-2xs font-semibold uppercase text-muted">Linked from</h3>
+            <ul className="space-y-0.5">
               {detail.backlinks.map((r) => (
                 <li key={r.id}>
                   {/* A list of names you cannot click is a dead end: the row
@@ -365,7 +371,7 @@ export function TaskPeek({
         <section className="mn-peek-editor">
           {/* Without the document's own title the body starts on blank canvas,
               which reads as a rendering fault rather than an empty page. */}
-          <p className={cn(label, 'px-4 pt-4')}>Notes</p>
+          <p className="px-4 pt-3 text-xs text-muted">Notes</p>
           {docId && (
             <LazyEditor
               docId={docId}
@@ -420,7 +426,7 @@ function RelationField({ task, prop, detail, onChanged }: {
 
   return (
     <div className="min-w-0">
-      <div className="mb-1 flex flex-wrap gap-1">
+      <div className={cn('flex flex-wrap gap-1', linked.length && 'mb-1')}>
         {linked.map((r) => (
           <button
             key={r.id}
@@ -434,8 +440,9 @@ function RelationField({ task, prop, detail, onChanged }: {
         ))}
       </div>
       <SearchSelect
+        variant="bare"
         value={null}
-        placeholder="Link a row…"
+        placeholder="Empty"
         empty="That database has no rows yet."
         options={choices
           .filter((c) => !linked.some((l) => l.id === c.id))

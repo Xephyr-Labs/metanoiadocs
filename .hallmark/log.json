@@ -1,5 +1,12 @@
 [
   {
+    "date": "2026-09-15",
+    "macrostructure": "Workbench (app chrome — rail + page menu), unchanged",
+    "theme": "project tokens (preserved) · density pass: one 10px value rail across the grid and the peek, one popover picker replacing the native <select> on every database surface, assignee chips + \"+\"",
+    "enrichment": "none — typography only",
+    "brief": "metanoiadocs · database table + row peek: thin assignee dropdown, a peek that scrolled 1588px of mostly-empty sections, per-column text misalignment, OS-drawn dropdowns"
+  },
+  {
     "date": "2026-09-13",
     "macrostructure": "Workbench (app chrome — rail + page menu), unchanged",
     "theme": "project tokens (preserved) · audit pass: 27 findings fixed — dead opacity modifiers, stale filters, right panel scope, activity feed, auth orb, home eyebrows, table dates/status/assignee, gallery covers, mobile header, breadcrumb root, drawer a11y, accent lettering, tooltip timing, radii",

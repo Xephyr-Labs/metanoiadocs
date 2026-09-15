@@ -19,6 +19,20 @@ export const field =
  */
 export const selectField = `${field} mn-select cursor-pointer`;
 
+/**
+ * The same field with the box taken off — for a grid and for the peek's
+ * property rail, where a permanent border on every value turns a table into a
+ * form. Fifteen columns of boxed inputs is what made Points and Progress the
+ * only two columns you could see when the grid was doing nothing.
+ *
+ * Same hairline language as the rest: transparent at rest, the line on hover,
+ * the accent on focus. Same 10px inset as `field`, so a value lines up with
+ * its column head whichever control happens to be drawing it.
+ */
+export const cellField =
+  'h-7 w-full rounded bg-transparent px-2.5 text-sm text-ink outline-none ring-1 ring-inset ring-transparent ' +
+  'placeholder:text-faint transition-shadow duration-120 hover:ring-line focus:ring-2 focus:ring-accent';
+
 /** The 20px affordance that appears on hover inside a tree/list row (⋯, +, ×).
  * Too small for IconButton's 28px hit box, so it gets its own one-liner rather
  * than eight near-copies that drift apart. */

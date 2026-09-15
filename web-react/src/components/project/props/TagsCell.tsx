@@ -129,7 +129,7 @@ export function TagsCell({ task, onChanged }: { task: TaskRow; onChanged?: () =>
         disabled={busy}
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          'flex h-7 w-full min-w-0 items-center gap-1 rounded border border-transparent px-1 text-left text-sm',
+          'flex h-7 w-full min-w-0 items-center gap-1 rounded border border-transparent px-2.5 text-left text-sm',
           'transition-colors hover:border-line focus:border-accent focus:outline-none disabled:opacity-50',
         )}
       >

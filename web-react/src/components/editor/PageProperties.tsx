@@ -148,7 +148,11 @@ export function PageProperties({ editor, page }: { editor: Element | null; page:
           {/* Capped, not full measure: a value field spanning the whole reading
               width reads as a form, not as metadata. */}
           <span className="min-w-0 max-w-[22rem] flex-1">
+            {/* A page's properties are a rail, the same as a row's — so the
+                values are drawn the same way: no box until the pointer is on
+                one. */}
             <PropertyValue
+              dense
               prop={asPropRow(prop)}
               users={users}
               value={page.props?.[prop.id] ?? null}

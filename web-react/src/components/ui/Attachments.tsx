@@ -70,6 +70,26 @@ export function Attachments({
 
   const remove = (file: StoredFile) => onChange(files.filter((x) => x.key !== file.key));
 
+  /** Dropping a file works on the compact row too — moving attachments onto
+   *  the property rail must not cost the gesture that was the fastest way to
+   *  attach one. Drag events fire on children, hence the depth count. */
+  const dropZone = {
+    onDragEnter: (e: React.DragEvent) => {
+      if (readOnly || !e.dataTransfer.types.includes('Files')) return;
+      depth.current += 1;
+      setOver(true);
+    },
+    onDragOver: (e: React.DragEvent) => { if (!readOnly && e.dataTransfer.types.includes('Files')) e.preventDefault(); },
+    onDragLeave: () => { depth.current = Math.max(0, depth.current - 1); if (!depth.current) setOver(false); },
+    onDrop: (e: React.DragEvent) => {
+      if (readOnly) return;
+      e.preventDefault();
+      depth.current = 0;
+      setOver(false);
+      store([...e.dataTransfer.files]);
+    },
+  };
+
   const addButton = !readOnly && (
     <button
       type="button"
@@ -77,7 +97,10 @@ export function Attachments({
       disabled={busy}
       className={cn(
         'flex items-center gap-1.5 rounded-md text-2xs text-muted transition-colors hover:bg-hover hover:text-ink disabled:opacity-60',
-        compact ? 'h-7 px-1.5' : 'h-8 px-2',
+        // When it is the whole cell, the negative pull puts its label on the
+        // column's 10px rail while the hover fill keeps a gutter of its own.
+        // After a chip it sits on the flex gap instead.
+        compact ? cn('h-7 shrink-0 px-1.5', !files.length && '-ml-1.5') : 'h-8 px-2',
       )}
     >
       <Upload size={13} /> {busy ? 'Uploading…' : files.length ? 'Add another' : label}
@@ -86,16 +109,30 @@ export function Attachments({
 
   if (compact) {
     return (
-      <div className="min-w-0">
+      // One line, chips and the add button together: stacked, a cell holding
+      // one file was twice the height of the row beside it, and a grid whose
+      // rows change height depending on which ones have an attachment does not
+      // read as a grid. `flex-wrap` is also the hook the table's clip mode
+      // uses to hold a cell to a single line.
+      <div
+        {...dropZone}
+        className={cn(
+          'flex min-w-0 flex-wrap items-center gap-1.5 rounded px-2.5 ring-1 ring-inset transition-colors',
+          over ? 'bg-accent-soft ring-accent' : 'ring-transparent',
+        )}
+      >
         {files.length > 0 && (
-          <div className="mb-1.5 flex flex-wrap gap-1.5">
+          <>
             {files.map((f) => (
               <span
                 key={f.key}
-                className="flex max-w-full items-center gap-1.5 rounded-md border border-line bg-surface py-1 pl-1.5 pr-1 text-2xs"
+                // 24px of thumbnail plus 8px of padding made a cell holding a
+                // file 6px taller than one that did not, which is visible as a
+                // limp in the grid's rhythm. Sized to fit the 28px row.
+                className="flex h-6 max-w-full items-center gap-1.5 rounded-md border border-line bg-surface py-0.5 pl-1 pr-1 text-2xs"
               >
                 {isImageFile(f)
-                  ? <img src={fileUrl(f)} alt="" className="h-6 w-6 shrink-0 rounded object-cover" />
+                  ? <img src={fileUrl(f)} alt="" className="h-5 w-5 shrink-0 rounded object-cover" />
                   : <Paperclip size={12} className="shrink-0 text-faint" />}
                 <a
                   href={fileUrl(f)}
@@ -118,30 +155,17 @@ export function Attachments({
                 )}
               </span>
             ))}
-          </div>
+          </>
         )}
         {addButton}
-        {error && <p className="mt-1 text-2xs text-danger">{error}</p>}
+        {error && <p className="w-full text-2xs text-danger">{error}</p>}
       </div>
     );
   }
 
   return (
     <div
-      onDragEnter={(e) => {
-        if (readOnly || !e.dataTransfer.types.includes('Files')) return;
-        depth.current += 1;
-        setOver(true);
-      }}
-      onDragOver={(e) => { if (!readOnly && e.dataTransfer.types.includes('Files')) e.preventDefault(); }}
-      onDragLeave={() => { depth.current = Math.max(0, depth.current - 1); if (!depth.current) setOver(false); }}
-      onDrop={(e) => {
-        if (readOnly) return;
-        e.preventDefault();
-        depth.current = 0;
-        setOver(false);
-        store([...e.dataTransfer.files]);
-      }}
+      {...dropZone}
       className={cn(
         'rounded-lg border border-dashed transition-colors',
         over ? 'border-accent bg-accent-soft' : 'border-transparent',
