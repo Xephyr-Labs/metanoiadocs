@@ -160,7 +160,13 @@ function chipFor(prop: PropRow, value: unknown, task: TaskRow, users?: UserRow[]
     case 'file': {
       const files = Array.isArray(value) ? (value as StoredFile[]) : [];
       const rest = skipFile ? files.filter((f) => f.key !== skipFile.key) : files;
-      return <Media files={rest} />;
+      // null, not an empty <Media>: every other branch reports "nothing to
+      // draw" by returning null, and the caller counts nodes to decide
+      // whether to render the row at all. A <Media> that renders nothing is
+      // still a node, so a card with no chips got the row and its margin
+      // anyway — visible as dead space the moment Files & media joined the
+      // board default.
+      return rest.length ? <Media files={rest} /> : null;
     }
     default:
       return typeof value === 'string' && value.trim() ? (
