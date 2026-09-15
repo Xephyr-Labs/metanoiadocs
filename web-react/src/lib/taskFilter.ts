@@ -163,6 +163,15 @@ export function fieldsFor({
       { key: 'milestone', label: 'Milestone', kind: 'checkbox' },
     );
   }
+  // The database's own record of what happened. Every mode has these — a data
+  // database is made of rows somebody added at some point too — and "what
+  // changed this week" is the question they exist to answer.
+  fields.push(
+    { key: 'created_at', label: 'Created', kind: 'date' },
+    { key: 'updated_at', label: 'Last edited', kind: 'date' },
+    { key: 'created_by_name', label: 'Created by', kind: 'text' },
+    { key: 'updated_by_name', label: 'Last edited by', kind: 'text' },
+  );
   // A task carries the tags of its page, several at a time, so it filters like
   // a multi-select — by name, because that is what a tag is identified by
   // everywhere else in the app.

@@ -9,6 +9,13 @@ import { isComputed, type PropOption, type PropRow, type TaskPatch, type TaskRow
 import { AssigneePicker } from '../AssigneePicker';
 import { TagsCell } from './TagsCell';
 import { isOverdue } from '../TaskBadges';
+
+/** The read-only built-ins — see AUDIT in lib/builtinProps. */
+const AUDIT_IDS = new Set(['sys:created', 'sys:createdBy', 'sys:edited', 'sys:editedBy']);
+
+/** A timestamp as a day, since the time of day is rarely the question. */
+const shortDateTime = (iso: string) =>
+  new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 import { PropertyValue } from './PropertyValue';
 
 /**
@@ -99,6 +106,16 @@ export function PropertyCell({
   // nothing to write — PropertyValue renders them, and `write` is never called.
   if (isComputed(prop.type)) {
     return <PropertyValue prop={prop} users={users} value={value} onChange={() => {}} />;
+  }
+
+  // The four audit columns are the database's own record of what happened —
+  // `writeBuiltin` returns null for them, so a control here would be one that
+  // silently does nothing.
+  if (AUDIT_IDS.has(prop.id)) {
+    const shown = typeof value === 'string' && value
+      ? (prop.type === 'date' ? shortDateTime(value) : value)
+      : '—';
+    return <span className="block truncate px-1 text-sm text-muted" title={typeof value === 'string' ? value : ''}>{shown}</span>;
   }
 
   return (

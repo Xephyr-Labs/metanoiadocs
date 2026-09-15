@@ -92,8 +92,25 @@ export function builtinProps(
     row('milestone', 'Milestone', 'checkbox', [], 8),
     row('tags', 'Focus area', 'multi_select', [], 9),
     row('attachments', 'Files & media', 'file', [], 10),
+    ...AUDIT,
   ];
 }
+
+/**
+ * When the row was made and last touched, and by whom.
+ *
+ * Every task has carried these four columns since the table existed; they were
+ * simply not properties, so they could not be shown on a card, sorted by, or
+ * filtered on — and "what did anyone change this week" had no answer inside
+ * the database. Read-only by nature: `writeBuiltin` returns null for them, so
+ * the cell renders as text rather than a control.
+ */
+const AUDIT: PropRow[] = [
+  row('created', 'Created', 'date', [], 20),
+  row('createdBy', 'Created by', 'text', [], 21),
+  row('edited', 'Last edited', 'date', [], 22),
+  row('editedBy', 'Last edited by', 'text', [], 23),
+];
 
 /**
  * A built-in's value, in the shape its declared type expects.
@@ -120,6 +137,10 @@ export function readBuiltin(task: TaskRow, id: string): unknown {
     case 'sys:milestone': return task.milestone;
     case 'sys:tags': return task.tags ?? [];
     case 'sys:attachments': return task.attachments ?? [];
+    case 'sys:created': return task.created_at ?? null;
+    case 'sys:createdBy': return task.created_by_name ?? null;
+    case 'sys:edited': return task.updated_at ?? null;
+    case 'sys:editedBy': return task.updated_by_name ?? null;
     default: return undefined;
   }
 }
@@ -241,6 +262,8 @@ export function writeBuiltin(id: string, value: unknown): TaskPatch | null {
     case 'sys:sprint': return { sprintId: str() };
     case 'sys:milestone': return { milestone: !!value };
     case 'sys:attachments': return { attachments: Array.isArray(value) ? (value as TaskPatch['attachments']) : [] };
+    // The four audit fields are the database's own record of what happened.
+    // Falling through to null is what makes their cells read-only.
     default: return null;
   }
 }
@@ -254,5 +277,8 @@ export function writeBuiltin(id: string, value: unknown): TaskPatch | null {
  * shorter list for views drawing cards, where six chips is already a lot.
  */
 export function defaultTableProps(builtins: PropRow[], props: PropRow[]): string[] {
-  return [...builtins, ...props].map((p) => p.id);
+  // Everything except the audit columns. They are worth having and worth
+  // sorting by; putting four more columns on every table before anyone asks
+  // for them is how a grid becomes unreadable.
+  return [...builtins.filter((p) => !AUDIT.some((a) => a.id === p.id)), ...props].map((p) => p.id);
 }

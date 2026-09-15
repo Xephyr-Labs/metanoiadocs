@@ -220,6 +220,12 @@ export interface TaskRow {
    *  them without one first having to be defined. */
   attachments?: StoredFile[];
   props: Record<string, unknown>;
+  created_at?: string;
+  updated_at?: string;
+  /** Names, resolved server-side, so "created by" can be a property without a
+   *  second lookup table in the browser. */
+  created_by_name?: string | null;
+  updated_by_name?: string | null;
   /** Ids of the rows this one links to, keyed by relation property id.
    *  Carried on the list so a rollup can reduce them without a request per
    *  row — distinct from TaskDetail.relations, which carries whole rows. */

@@ -257,6 +257,8 @@ async function depEdges(projectId) {
 // title off the front still leaves a full line.
 const TASK_SELECT = `
   SELECT t.*, u.name AS assignee_name,
+         cu.name AS created_by_name,
+         eu.name AS updated_by_name,
          coalesce(dp.deps, '[]'::json) AS deps,
          coalesce(asg.assignees, '[]'::json) AS assignees,
          coalesce(tg.tags, '[]'::json) AS tags,
@@ -264,6 +266,10 @@ const TASK_SELECT = `
          left(pg.search_text, 240) AS preview
     FROM tasks t
     LEFT JOIN users u ON u.id = t.assignee_id
+    -- Who made the row and who touched it last. Both columns already existed;
+    -- only the names were missing, so "created by" could not be a property.
+    LEFT JOIN users cu ON cu.id = t.created_by
+    LEFT JOIN users eu ON eu.id = t.updated_by
     LEFT JOIN docs pg ON pg.id = t.doc_id
     LEFT JOIN LATERAL (
       SELECT coalesce(json_agg(d.depends_on_id), '[]') AS deps
