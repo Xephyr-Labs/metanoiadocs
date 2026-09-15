@@ -32,6 +32,9 @@ interface Props {
   onSetProp: (taskId: string, propId: string, value: unknown) => void;
   /** Persist a change to a property's own option list. */
   onEditOptions?: (prop: PropRow, options: PropOption[]) => void;
+  /** Re-read the rows after a focus area is added or removed — those live on
+   *  the task's page, so the task list does not hear about them by itself. */
+  onTagsChanged?: () => void;
   /** 'Name' rather than 'Task' for the first column, in a data database. */
   rowLabel?: string;
   /** Let the grid grow to its content instead of scrolling inside a fixed
@@ -141,7 +144,8 @@ const input =
 
 /** Dense editable grid. Every field writes straight through on change. */
 export function TaskTable({
-  tasks, props, users, onPatch, onOpen, onDelete, onSetProp, onEditOptions, rowLabel = 'Task', auto,
+  tasks, props, users, onPatch, onOpen, onDelete, onSetProp, onEditOptions, onTagsChanged,
+  rowLabel = 'Task', auto,
 }: Props) {
   const [wrap, setWrap] = useState(storedWrap);
 
@@ -229,6 +233,7 @@ export function TaskTable({
                     onPatch={onPatch}
                     onSetProp={onSetProp}
                     onEditOptions={onEditOptions}
+                    onTagsChanged={onTagsChanged}
                     onOpenRow={() => onOpen(t)}
                   />
                 </td>

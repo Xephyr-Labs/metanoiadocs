@@ -352,6 +352,7 @@ export function EmbeddedDatabase({
               onDelete={p.remove}
               onSetProp={p.setProp}
               onEditOptions={p.editOptions}
+              onTagsChanged={p.refresh}
             />
           )}
         </div>
