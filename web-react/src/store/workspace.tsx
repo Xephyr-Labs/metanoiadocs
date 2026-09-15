@@ -14,7 +14,7 @@ import { tasksApi, type ProjectRow } from '../lib/tasksApi';
 import { setPendingSeed } from '../editor/pendingSeed';
 import { toast } from '../lib/toast';
 import { MAX_IMPORT_BYTES } from '../lib/docFiles';
-import { readRoute, showDoc, showFolder, showHome } from '../lib/route';
+import { readRoute, showDatabase, showDoc, showFolder, showHome } from '../lib/route';
 import { folderChain } from '../lib/folderPath';
 import { useDocSaveTick } from '../lib/docSignal';
 import { placeAt } from '../lib/reorder';
@@ -38,7 +38,10 @@ interface WorkspaceState {
   openAllDocs: () => void;
   /** `taskId` opens that task's panel once the board is up — how a page gets
    *  back to the task it belongs to. */
-  openProject: (id: string, taskId?: string) => void;
+  openProject: (id: string, taskId?: string, viewId?: string) => void;
+  /** The view a /db/<id>/<view> link named, until ProjectView takes it. */
+  pendingViewId: string | null;
+  clearPendingView: () => void;
   /** The task openProject was asked to open, read and cleared by ProjectView. */
   pendingTaskId: string | null;
   clearPendingTask: () => void;
@@ -241,6 +244,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [view, setView] = useState<View>('home');
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [pendingTaskId, setPendingTaskId] = useState<string | null>(null);
+  const [activeViewId, setActiveViewId] = useState<string | null>(null);
   const [projects, setProjects] = useState<ProjectRow[]>([]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(260);
@@ -310,22 +314,27 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   // Arriving on a page or folder link opens it rather than the dashboard.
   useEffect(() => {
-    const { docId, folderId } = readRoute();
+    const { docId, folderId, projectId, viewId } = readRoute();
     if (docId) setView('doc');
     else if (folderId) { setActiveFolderId(folderId); setView('folder'); }
+    else if (projectId) { setActiveProjectId(projectId); setActiveViewId(viewId); setView('project'); }
   }, []);
 
   // Back/forward. The address is the source of truth here — this is the one
   // path where the URL changes without select() having been called.
   useEffect(() => {
     const onPop = () => {
-      const { docId, folderId } = readRoute();
+      const { docId, folderId, projectId, viewId } = readRoute();
       if (docId) {
         setCurrentId((cur) => (pagesRef.current[docId] ? docId : cur));
         setView('doc');
       } else if (folderId) {
         setActiveFolderId(folderId);
         setView('folder');
+      } else if (projectId) {
+        setActiveProjectId(projectId);
+        setActiveViewId(viewId);
+        setView('project');
       } else {
         setView('home');
       }
@@ -406,15 +415,18 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     showHome();
   }, []);
 
-  const openProject = useCallback((id: string, taskId?: string) => {
+  const openProject = useCallback((id: string, taskId?: string, viewId?: string) => {
     setActiveProjectId(id);
     setPendingTaskId(taskId ?? null);
+    setActiveViewId(viewId ?? null);
     setView('project');
     setMobileDrawer(false);
-    // Projects have no address of their own yet; what matters is that the
-    // /d/<id> in the bar stops claiming a document is open.
-    showHome();
+    showDatabase(id, viewId ?? null);
   }, []);
+
+  /** The view a /db/<id>/<view> link asked for, read and cleared by ProjectView
+   *  the way pendingTaskId is — after which the screen owns which view is open. */
+  const clearPendingView = useCallback(() => setActiveViewId(null), []);
 
   const clearPendingTask = useCallback(() => setPendingTaskId(null), []);
 
@@ -1018,7 +1030,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       pinnedIds, pinnedFolderIds, togglePin, toggleFolderPin,
       currentId, currentPage, loading, error, workspaceId,
       historyDocId, openHistory, closeHistory,
-      view, activeProjectId, activeFolderId, openHome, openTasks, openAllDocs, openProject, pendingTaskId, clearPendingTask, openFolder, projects, refreshProjects,
+      view, activeProjectId, activeFolderId, openHome, openTasks, openAllDocs, openProject, pendingTaskId, clearPendingTask, pendingViewId: activeViewId, clearPendingView, openFolder, projects, refreshProjects,
       sidebarCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
       settingsOpen, trashOpen, inboxOpen, mode, fullWidth, theme,
       refresh, select, toggleExpand, toggleFavorite, toggleFolderFavorite, setVisibility, rename, applyTitleFromEditor,
@@ -1034,7 +1046,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       pinnedIds, pinnedFolderIds, togglePin, toggleFolderPin,
       currentId, currentPage, loading, error, workspaceId,
       historyDocId, openHistory, closeHistory,
-      view, activeProjectId, activeFolderId, openHome, openTasks, openAllDocs, openProject, pendingTaskId, clearPendingTask, openFolder, projects, refreshProjects,
+      view, activeProjectId, activeFolderId, openHome, openTasks, openAllDocs, openProject, pendingTaskId, clearPendingTask, activeViewId, clearPendingView, openFolder, projects, refreshProjects,
       sidebarCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
       settingsOpen, trashOpen, inboxOpen, mode, fullWidth, theme,
       refresh, select, toggleExpand, toggleFavorite, toggleFolderFavorite, setVisibility, rename, applyTitleFromEditor,

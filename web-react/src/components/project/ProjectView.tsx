@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Columns3, FolderOpen, MoreHorizontal, Plus, Tags } from 'lucide-react';
 import { useWorkspace } from '../../store/workspace';
+import { showDatabase } from '../../lib/route';
 import { cn } from '../../lib/cn';
 import { VIEW_KINDS, type TaskRow, type TaskStatus, type ViewKind } from '../../lib/tasksApi';
 import { Button } from '../ui/Button';
@@ -62,7 +63,7 @@ export function ProjectView() {
   // Arriving from a page that belongs to a task: open that task's panel as soon
   // as the list it lives in has loaded, then forget the request so a later
   // visit to the same board opens on the board itself.
-  const { pendingTaskId, clearPendingTask } = ws;
+  const { pendingTaskId, clearPendingTask, pendingViewId, clearPendingView } = ws;
   useEffect(() => {
     if (!pendingTaskId) return;
     const wanted = p.tasks.find((t) => t.id === pendingTaskId);
@@ -70,6 +71,23 @@ export function ProjectView() {
     setOpen(wanted);
     clearPendingTask();
   }, [pendingTaskId, p.tasks, clearPendingTask]);
+
+  // A /db/<id>/<view> link names the view it wants. Applied once the list has
+  // loaded, then forgotten — after that the screen owns which view is open.
+  const { views, setActiveId } = v;
+  useEffect(() => {
+    if (!pendingViewId || !views.some((x) => x.id === pendingViewId)) return;
+    setActiveId(pendingViewId);
+    clearPendingView();
+  }, [pendingViewId, views, setActiveId, clearPendingView]);
+
+  // Keep the address on the open view, so a copied link reopens what is on
+  // screen rather than the database's first view.
+  useEffect(() => {
+    if (ws.view === 'project' && ws.activeProjectId && v.activeId) {
+      showDatabase(ws.activeProjectId, v.activeId, { replace: true });
+    }
+  }, [ws.view, ws.activeProjectId, v.activeId]);
 
   if (!project) {
     return (
