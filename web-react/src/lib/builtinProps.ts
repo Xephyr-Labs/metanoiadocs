@@ -142,6 +142,46 @@ export const DEFAULT_CARD_PROPS: Record<string, string[]> = {
 };
 
 /**
+ * How many of a database's own properties ride along in a default.
+ *
+ * Three, because three is what an unconfigured view showed before built-ins
+ * existed (`resolveViewProps`'s old `props.slice(0, 3)`). Naming only the
+ * built-ins in DEFAULT_CARD_PROPS quietly took a project's own properties
+ * *off* every unconfigured card — the opposite of the point.
+ */
+const CUSTOM_IN_DEFAULT = 3;
+
+/** Views with room for the database's properties as well as the built-ins. */
+const ROOMY = new Set(['board', 'gallery']);
+
+/**
+ * The ids a view shows before anyone configures it.
+ *
+ * A board or gallery card gets the built-ins *and* the first few of the
+ * project's own properties, which together are what those cards drew before.
+ * A calendar cell is ~45px per day and a gantt row is one line, so those keep
+ * to the built-ins alone.
+ *
+ * A data database is the exception to that, in every view: it has no status,
+ * no people and no schedule, so its own properties are not extra detail on
+ * top of the built-ins — they are the only thing the card has to say. Keying
+ * this off the mode rather than off "did the built-in set come back empty"
+ * matters, because `Files & media` exists in both modes and would otherwise
+ * look like a full default all by itself.
+ */
+export function defaultPropIds(
+  view: string,
+  builtins: PropRow[],
+  props: PropRow[],
+  mode: ProjectMode = 'tasks',
+): string[] {
+  const has = new Set(builtins.map((b) => b.id));
+  const named = (DEFAULT_CARD_PROPS[view] ?? []).filter((id) => has.has(id));
+  if (!ROOMY.has(view) && mode !== 'data') return named;
+  return [...named, ...props.slice(0, CUSTOM_IN_DEFAULT).map((p) => p.id)];
+}
+
+/**
  * The properties a view shows when there is nowhere to store a choice.
  *
  * A database embedded in a page has no toolbar, so it never had a visibility
@@ -156,9 +196,9 @@ export function defaultCardProps(
   sprints: SprintRow[] = [],
   props: PropRow[] = [],
 ): PropRow[] {
-  const all = [...builtinProps(mode, kinds, sprints), ...props];
-  const wanted = DEFAULT_CARD_PROPS[view] ?? [];
-  return wanted
+  const builtins = builtinProps(mode, kinds, sprints);
+  const all = [...builtins, ...props];
+  return defaultPropIds(view, builtins, props, mode)
     .map((id) => all.find((p) => p.id === id))
     .filter((p): p is PropRow => p !== undefined);
 }

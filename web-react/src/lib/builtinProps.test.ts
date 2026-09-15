@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { builtinProps, defaultCardProps, isBuiltinProp, readBuiltin, DEFAULT_CARD_PROPS } from './builtinProps';
-import type { TaskKindRow, TaskRow } from './tasksApi';
+import { builtinProps, defaultCardProps, defaultPropIds, isBuiltinProp, readBuiltin, DEFAULT_CARD_PROPS } from './builtinProps';
+import type { PropRow, TaskKindRow, TaskRow } from './tasksApi';
 
 const task = (over: Partial<TaskRow> = {}): TaskRow => ({
   id: 't1', project_id: 'p', title: 'A task', status: 'doing',
@@ -125,12 +125,64 @@ describe('defaultCardProps', () => {
     expect(defaultCardProps('table', 'tasks', kinds)).toEqual([]);
   });
 
-  it('shows no custom property the default set did not ask for', () => {
-    // A project's own properties go through the visibility panel. A card with
-    // nowhere to store a choice gets the built-in default and nothing else,
-    // or an embedded database would sprout every column somebody ever added.
-    const custom = { ...builtinProps('tasks')[0], id: 'c1', key: 'c1', label: 'Area' };
-    expect(defaultCardProps('board', 'tasks', kinds, [], [custom]).map((p) => p.id))
-      .not.toContain('c1');
+  it("carries the project's own properties too, capped", () => {
+    // An embedded board has nowhere to store a choice, so it gets the same
+    // default a fresh board does — built-ins plus the first few of the
+    // database's own, not one or the other.
+    const own = (id: string) => ({ ...builtinProps('tasks')[0], id, key: id, label: id });
+    const ids = defaultCardProps('board', 'tasks', kinds, [], ['c1', 'c2', 'c3', 'c4'].map(own))
+      .map((p) => p.id);
+    expect(ids).toContain('sys:due');
+    expect(ids.filter((id) => !id.startsWith('sys:'))).toEqual(['c1', 'c2', 'c3']);
+  });
+});
+
+describe('defaultPropIds', () => {
+  const custom = (id: string): PropRow => ({
+    id, project_id: 'p', key: id, label: id, type: 'text',
+    options: [], target_project_id: null, position: 0,
+  });
+  const mine = [custom('a'), custom('b'), custom('c'), custom('d')];
+
+  it("keeps a project's own properties on an unconfigured board", () => {
+    // The regression: naming only built-ins in DEFAULT_CARD_PROPS took the
+    // first three custom properties OFF every card that had never been
+    // configured — they were what the old props.slice(0, 3) default showed.
+    const ids = defaultPropIds('board', builtinProps('tasks', kinds), mine);
+    expect(ids).toContain('sys:due');
+    expect(ids.filter((id) => !id.startsWith('sys:'))).toEqual(['a', 'b', 'c']);
+  });
+
+  it('keeps a calendar cell to the built-ins — it is 45px wide', () => {
+    const ids = defaultPropIds('calendar', builtinProps('tasks', kinds), mine);
+    expect(ids.some((id) => !id.startsWith('sys:'))).toBe(false);
+  });
+
+  it("gives a data database its own properties even in a tight view", () => {
+    // 'data' has no status, people or schedule. Its own properties are not
+    // extra detail on top of the built-ins — they are all the card has to
+    // say, so a narrow calendar still gets them.
+    const ids = defaultPropIds('calendar', builtinProps('data'), mine, 'data');
+    expect(ids.filter((id) => !id.startsWith('sys:'))).toEqual(['a', 'b', 'c']);
+  });
+
+  it('does not mistake Files & media for a full default in data mode', () => {
+    // The trap: `sys:attachments` exists in both modes, so "did the built-in
+    // set resolve to nothing?" is never true for a calendar, and a data card
+    // would have shown one paperclip and none of its own columns.
+    expect(defaultPropIds('calendar', builtinProps('data'), mine, 'data'))
+      .not.toEqual(['sys:attachments']);
+  });
+
+  it('never names a built-in the mode does not have', () => {
+    const has = new Set(builtinProps('data').map((b) => b.id));
+    for (const id of defaultPropIds('gallery', builtinProps('data'), mine)) {
+      if (id.startsWith('sys:')) expect(has.has(id)).toBe(true);
+    }
+  });
+
+  it('is stable when the project has no properties of its own', () => {
+    expect(defaultPropIds('board', builtinProps('tasks', kinds), []))
+      .toEqual(DEFAULT_CARD_PROPS.board);
   });
 });

@@ -23,7 +23,7 @@ import { KindsProvider } from './kinds';
 import { PropsDialog } from './props/PropsDialog';
 import { PropertyVisibility } from './props/PropertyVisibility';
 import { useViewProps } from '../../lib/viewProps';
-import { builtinProps, DEFAULT_CARD_PROPS } from '../../lib/builtinProps';
+import { builtinProps, defaultPropIds } from '../../lib/builtinProps';
 import { TaskPeek } from './TaskPeek';
 import { TaskKindsDialog } from './TaskKindsDialog';
 import { TaskTable } from './TaskTable';
@@ -79,11 +79,16 @@ export function ProjectView() {
   // lib/builtinProps. Merging them here is what puts them in the visibility
   // panel and on cards, rather than teaching each of those about two kinds of
   // field. Built-ins lead: they are the ones every database has.
-  const allProps = useMemo(
-    () => [...builtinProps(project?.mode ?? 'tasks', p.kinds, p.sprints), ...p.props],
-    [project?.mode, p.kinds, p.sprints, p.props],
+  const builtins = useMemo(
+    () => builtinProps(project?.mode ?? 'tasks', p.kinds, p.sprints),
+    [project?.mode, p.kinds, p.sprints],
   );
-  const viewProps = useViewProps(ws.activeProjectId, tab, allProps, DEFAULT_CARD_PROPS[tab]);
+  const allProps = useMemo(() => [...builtins, ...p.props], [builtins, p.props]);
+  const viewDefaults = useMemo(
+    () => defaultPropIds(tab, builtins, p.props, project?.mode ?? 'tasks'),
+    [tab, builtins, p.props, project?.mode],
+  );
+  const viewProps = useViewProps(ws.activeProjectId, tab, allProps, viewDefaults);
   const tabs = useMemo(
     () => (isData ? DATA_TABS.filter((t) => t.value !== 'calendar' || dateProps.length > 0) : TABS),
     [isData, dateProps.length],
