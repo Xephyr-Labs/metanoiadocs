@@ -13,9 +13,10 @@ import { swatch } from '../../../lib/tagColors';
 import { selectedOptions } from '../../../lib/props';
 import { isBuiltinProp, readBuiltin } from '../../../lib/builtinProps';
 import { fileUrl, isImageFile, isVideoFile, type StoredFile } from '../../../lib/uploads';
-import type { PropRow, TaskRow } from '../../../lib/tasksApi';
+import type { PropRow, TaskKindRow, TaskRow } from '../../../lib/tasksApi';
 import type { UserRow } from '../../../lib/docsApi';
-import { AssigneeStack, isOverdue, KindBadge, shortDate } from '../TaskBadges';
+import { AssigneeStack, isOverdue, KindBadge, shortDate, showsKindBadge } from '../TaskBadges';
+import { useKinds } from '../kinds';
 
 /**
  * A task's properties as they appear ON a card — a calendar event, a board
@@ -50,10 +51,15 @@ export function PropChips({
   skipFile?: StoredFile | null;
   className?: string;
 }) {
+  // Read here rather than inside the type branch: chipFor is a plain
+  // function, and whether the badge draws has to be known before the node is
+  // built — see showsKindBadge.
+  const kinds = useKinds();
+
   const chips = props
     .map((p) => ({
       prop: p,
-      node: chipFor(p, isBuiltinProp(p.id) ? readBuiltin(task, p.id) : task.props?.[p.id], task, users, skipFile),
+      node: chipFor(p, isBuiltinProp(p.id) ? readBuiltin(task, p.id) : task.props?.[p.id], task, kinds, users, skipFile),
     }))
     .filter((c) => c.node !== null);
 
@@ -72,7 +78,14 @@ export function PropChips({
 }
 
 /** One property's value, or null when there is nothing worth drawing. */
-function chipFor(prop: PropRow, value: unknown, task: TaskRow, users?: UserRow[], skipFile?: StoredFile | null) {
+function chipFor(
+  prop: PropRow,
+  value: unknown,
+  task: TaskRow,
+  kinds: TaskKindRow[],
+  users?: UserRow[],
+  skipFile?: StoredFile | null,
+) {
   // Everyone on the task, as the same overlapped faces the board footer drew
   // before assignees became a property. A list of names in chips would wrap a
   // three-person card onto three lines.
@@ -95,11 +108,13 @@ function chipFor(prop: PropRow, value: unknown, task: TaskRow, users?: UserRow[]
 
   // The type badge knows when to say nothing: a project with one type, or a
   // row typed plainly "task", has nothing to tell apart, and labelling every
-  // card "Task" is noise on all of them. Rendering it through the same badge
-  // the backlog and the peek use keeps that rule in one place — a generic
-  // select chip here would have put "Task" on every card in the project.
+  // card "Task" is noise on all of them. It is drawn by the same badge the
+  // backlog and the peek use, so that rule lives in one place — but asked
+  // *first*, because a <KindBadge /> that renders null is still a node, and
+  // the caller counts nodes to decide whether to draw the row at all.
   if (prop.id === 'sys:kind') {
-    return typeof value === 'string' && value ? <KindBadge kind={value} /> : null;
+    if (typeof value !== 'string' || !value) return null;
+    return showsKindBadge(value, kinds) ? <KindBadge kind={value} /> : null;
   }
 
   // A bare "65" beside a bare "8" says neither which is which; the unit does.

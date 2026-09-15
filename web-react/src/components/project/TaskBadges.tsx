@@ -16,8 +16,29 @@ import { avatarFor } from '../../lib/avatar';
 import { cn } from '../../lib/cn';
 import { todayISO } from '../../lib/gantt';
 import { swatch } from '../../lib/tagColors';
-import type { TaskKind, TaskRow } from '../../lib/tasksApi';
+import type { TaskKind, TaskKindRow, TaskRow } from '../../lib/tasksApi';
 import { useKind, useKinds } from './kinds';
+
+/**
+ * Whether KindBadge would draw anything at all.
+ *
+ * Exported because a caller sometimes has to know *before* rendering. The
+ * property chips decide how many chips a card has in order to decide whether
+ * to draw the row that holds them, and a <KindBadge /> that returns null is
+ * still a node — so asking the component was not an answer. One predicate,
+ * used by the badge itself and by anyone counting.
+ */
+export function showsKindBadge(kind: TaskKind, kinds: TaskKindRow[]): boolean {
+  // Nothing is known yet: say nothing rather than guess.
+  if (!kinds.length) return false;
+  const row = kinds.find((k) => k.key === kind);
+  // One type in the project, or the unremarkable default one — either way
+  // there is nothing to tell apart, and a label on every card is noise.
+  if (row && (kinds.length < 2 || row.key === 'task')) return false;
+  // No row and the list HAS loaded means the type was deleted elsewhere;
+  // that is worth saying, so the badge draws the raw key.
+  return true;
+}
 
 /**
  * The type chip. Colour comes from the shared tag palette, so a type darkens
@@ -30,11 +51,9 @@ import { useKind, useKinds } from './kinds';
  */
 export function KindBadge({ kind }: { kind: TaskKind }) {
   const kinds = useKinds();
-  const loaded = kinds.length > 0;
   const row = useKind(kind);
-  if (row && (kinds.length < 2 || row.key === 'task')) return null;
+  if (!showsKindBadge(kind, kinds)) return null;
   if (!row) {
-    if (!loaded) return null;
     return (
       <span
         title="This type no longer exists — reopen the project to resync"
