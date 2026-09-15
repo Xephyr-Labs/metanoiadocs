@@ -10,13 +10,11 @@ import { useEffect, useState } from 'react';
 import { Columns3, FolderOpen, MoreHorizontal, Plus, Tags } from 'lucide-react';
 import { useWorkspace } from '../../store/workspace';
 import { showDatabase } from '../../lib/route';
-import { cn } from '../../lib/cn';
 import { VIEW_KINDS, type TaskRow, type TaskStatus, type ViewKind } from '../../lib/tasksApi';
 import { Button } from '../ui/Button';
 import { EmptyState } from '../ui/EmptyState';
 import { IconButton } from '../ui/IconButton';
 import { Menu } from '../ui/Menu';
-import { field } from '../ui/styles';
 import { Skeleton } from '../ui/Skeleton';
 import { Backlog } from './Backlog';
 import { Board } from './Board';
@@ -29,6 +27,7 @@ import { TagFilter } from './TagFilter';
 import { Gallery } from './Gallery';
 import { Gantt } from './Gantt';
 import { KindsProvider } from './kinds';
+import { SearchSelect } from '../ui/SearchSelect';
 import { PropsDialog } from './props/PropsDialog';
 import { PropertyVisibility } from './props/PropertyVisibility';
 import { ViewTabs } from './ViewTabs';
@@ -176,18 +175,18 @@ export function ProjectView() {
             filter chips that scrolls hides the ones you set. */}
         <div className="flex flex-wrap items-center gap-2 px-4 py-1.5">
           {d.kind !== 'backlog' && p.sprints.length > 0 && (
-            <select
-              aria-label="Sprint scope"
+            <SearchSelect
+              variant="inline"
+              label="Sprint scope"
+              className="h-7 rounded-md px-2 ring-1 ring-inset ring-line"
               value={d.scope}
-              onChange={(e) => d.setScope(e.target.value)}
-              className={cn(field, 'h-7 w-auto px-2 text-xs')}
-            >
-              <option value="all">All tasks</option>
-              <option value="backlog">Backlog</option>
-              {p.sprints.map((s) => (
-                <option key={s.id} value={s.id}>{s.name}{s.state === 'active' ? ' (active)' : ''}</option>
-              ))}
-            </select>
+              options={[
+                { value: 'all', label: 'All tasks' },
+                { value: 'backlog', label: 'Backlog' },
+                ...p.sprints.map((s) => ({ value: s.id, label: s.name, hint: s.state === 'active' ? 'active' : undefined })),
+              ]}
+              onChange={d.setScope}
+            />
           )}
           <TagFilter tags={ws.allTags} filters={d.filters} onChange={d.setFilters} />
           <FilterBar fields={d.fields} filters={d.filters} onChange={d.setFilters} />
@@ -309,9 +308,11 @@ export function ProjectView() {
         onDelete={(id) => { p.remove(id); ws.refreshProjects(); }}
         onAddDep={p.addDep}
         onRemoveDep={p.removeDep}
+        statusColors={project.status_colors}
         onManageKinds={() => setKindsOpen(true)}
         onManageProps={() => setPropsOpen(true)}
         onEditOptions={p.editOptions}
+        onTagsChanged={p.refresh}
       />
 
       <TaskKindsDialog

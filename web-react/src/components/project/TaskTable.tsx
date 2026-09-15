@@ -43,10 +43,17 @@ interface Props {
   auto?: boolean;
 }
 
-const cell = 'px-2 py-1.5';
+// A value cell carries no horizontal padding of its own: every control inside
+// one already insets its text by 10px (`field` / `cellField` / a chip's
+// trigger), so a cell that padded as well put each column's text at a
+// different place — measured against the column head, Assignees sat at +2,
+// Sprint at +5, the dates at +8, Points at +10, Status at +11 and Files at
+// +25. One inset, owned by the control, is what makes a column line up with
+// its own heading and with the column beside it.
+const cell = 'py-1.5';
 // whitespace-nowrap: a two-word column name breaking onto a second line
 // ("Files & / media") made the header row taller than any data row.
-const head = 'whitespace-nowrap font-semibold';
+const head = 'px-2.5 py-1.5 whitespace-nowrap font-semibold';
 
 /** How much room a column needs before its control starts lying about itself.
  *  A select in an auto-width table reports almost no intrinsic width, so
@@ -134,7 +141,7 @@ function TitleCell({ value, wrap, onCommit, onOpen }: {
   useLayoutEffect(fit, [fit, value]);
 
   return (
-    <span className="relative block pr-2">
+    <span className="relative block pr-2.5">
     <textarea
       ref={ref}
       key={value}
@@ -166,7 +173,7 @@ function TitleCell({ value, wrap, onCommit, onOpen }: {
 }
 
 const input =
-  'w-full rounded border border-transparent bg-transparent px-1 py-0.5 text-sm text-ink outline-none hover:border-line focus:border-accent focus:bg-canvas';
+  'w-full rounded border border-transparent bg-transparent px-2.5 py-0.5 text-sm text-ink outline-none hover:border-line focus:border-accent focus:bg-canvas';
 
 /** Dense editable grid. Every field writes straight through on change. */
 export function TaskTable({
@@ -223,9 +230,9 @@ export function TaskTable({
       <table className="w-full border-collapse text-sm">
         <thead>
           <tr className="border-b border-line text-left text-2xs text-muted">
-            <th className={cn(cell, head, 'w-[38%] min-w-[240px]')}>{rowLabel}</th>
+            <th className={cn(head, 'w-[38%] min-w-[240px]')}>{rowLabel}</th>
             {props.map((p) => (
-              <th key={p.id} className={cn(cell, head)} style={{ minWidth: MIN_WIDTH[p.type] ?? 140 }}>
+              <th key={p.id} className={head} style={{ minWidth: MIN_WIDTH[p.type] ?? 140 }}>
                 {p.label}
                 {/* A database may define its own "Status" beside the built-in
                     one — two real properties holding two values. Two identical
@@ -236,7 +243,7 @@ export function TaskTable({
                 )}
               </th>
             ))}
-            <th className={cn(cell, 'w-8')} />
+            <th className={cn(cell, 'w-10')} />
           </tr>
         </thead>
         <tbody>
@@ -264,7 +271,7 @@ export function TaskTable({
                   />
                 </td>
               ))}
-              <td className={cn(cell, wrap ? 'align-top' : 'align-middle')}>
+              <td className={cn(cell, 'px-2', wrap ? 'align-top' : 'align-middle')}>
                 <button
                   type="button"
                   onClick={() => onDelete(t.id)}

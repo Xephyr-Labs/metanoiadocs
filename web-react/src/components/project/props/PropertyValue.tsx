@@ -5,7 +5,8 @@ import type { UserRow } from '../../../lib/docsApi';
 import type { StoredFile } from '../../../lib/uploads';
 import type { PropOption, PropRow } from '../../../lib/tasksApi';
 import { Attachments } from '../../ui/Attachments';
-import { field, selectField } from '../../ui/styles';
+import { AssigneePicker } from '../AssigneePicker';
+import { cellField, field } from '../../ui/styles';
 import { SelectValue } from './SelectValue';
 
 interface Props {
@@ -21,6 +22,12 @@ interface Props {
   danger?: boolean;
   /** The option set cannot grow or shrink, only be recoloured. */
   fixedOptions?: boolean;
+  /**
+   * Drawn inside a grid cell or the peek's property rail rather than a form:
+   * no box until the pointer is on it, and the same 10px inset every other
+   * control in that rail uses. See `cellField`.
+   */
+  dense?: boolean;
 }
 
 /**
@@ -48,7 +55,7 @@ function DateValue({ value, danger, onChange }: {
   return (
     <label
       className={[
-        'relative flex h-8 cursor-pointer items-center rounded-md px-2 text-sm ring-1 ring-inset ring-transparent',
+        'relative flex h-7 cursor-pointer items-center rounded px-2.5 text-sm ring-1 ring-inset ring-transparent',
         'transition-shadow hover:ring-line focus-within:ring-2 focus-within:ring-accent',
         danger ? 'text-danger' : iso ? 'text-ink' : 'text-faint',
       ].join(' ')}
@@ -70,10 +77,11 @@ function DateValue({ value, danger, onChange }: {
  * was stored, but nothing could be clicked, which is the only thing a URL
  * property is for. Click the link's row to edit it, the arrow to follow it.
  */
-function UrlValue({ value, scheme, onChange }: {
+function UrlValue({ value, scheme, dense, onChange }: {
   value: string;
   /** 'mailto:' or 'tel:' for the address types; absent means a web address. */
   scheme?: 'mailto:' | 'tel:';
+  dense?: boolean;
   onChange: (v: unknown) => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -85,12 +93,12 @@ function UrlValue({ value, scheme, onChange }: {
 
   if (!editing && safe) {
     return (
-      <span className="flex h-8 min-w-0 items-center gap-1">
+      <span className="flex h-7 min-w-0 items-center gap-1 pl-2.5">
         <button
           type="button"
           onClick={() => setEditing(true)}
           title="Edit this address"
-          className="min-w-0 flex-1 truncate rounded px-1 py-0.5 text-left text-sm text-accent-strong underline decoration-line-strong underline-offset-2 hover:bg-hover"
+          className="min-w-0 flex-1 truncate rounded py-0.5 text-left text-sm text-accent-strong underline decoration-line-strong underline-offset-2 hover:bg-hover"
         >
           {scheme ? safe : safe.replace(/^https?:\/\//i, '')}
         </button>
@@ -116,7 +124,7 @@ function UrlValue({ value, scheme, onChange }: {
       inputMode={scheme === 'mailto:' ? 'email' : scheme === 'tel:' ? 'tel' : 'url'}
       placeholder={scheme === 'mailto:' ? 'name@example.com' : scheme === 'tel:' ? '+1 555 0100' : 'https://'}
       autoFocus={editing}
-      className={field}
+      className={dense ? cellField : field}
       defaultValue={value}
       onBlur={(e) => {
         setEditing(false);
@@ -127,34 +135,58 @@ function UrlValue({ value, scheme, onChange }: {
   );
 }
 
-export function PropertyValue({ prop, users, value, onChange, onEditOptions, danger, fixedOptions }: Props) {
+/**
+ * A person property holds one user id; the built-in Assignees column holds a
+ * list. Both are drawn by the same picker, so the single one is read as a list
+ * of one and written back as the last name chosen.
+ */
+function asAssignees(value: unknown, users: UserRow[]): { id: string; name: string }[] {
+  const ids = Array.isArray(value)
+    ? value.filter((v): v is string => typeof v === 'string')
+    : typeof value === 'string' && value ? [value] : [];
+  return ids.map((id) => {
+    const u = users.find((x) => x.id === id);
+    return { id, name: u ? (u.name || u.username) : 'Unknown' };
+  });
+}
+
+export function PropertyValue({ prop, users, value, onChange, onEditOptions, danger, fixedOptions, dense }: Props) {
+  const box = dense ? cellField : field;
   switch (prop.type) {
     case 'number':
       return (
         <input
           type="number"
-          className={field}
+          className={cn(box, 'tabular-nums')}
           value={value == null ? '' : String(value)}
           onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))}
         />
       );
     case 'checkbox':
       return (
-        <input
-          type="checkbox"
-          className="h-4 w-4 accent-accent"
-          checked={!!value}
-          onChange={(e) => onChange(e.target.checked)}
-        />
+        // Wrapped, not bare: a 14px box dropped straight into a 10px-inset
+        // column sat two pixels left of every value above it.
+        <label className="flex h-7 items-center px-2.5">
+          <input
+            type="checkbox"
+            className="h-4 w-4 accent-accent"
+            checked={!!value}
+            onChange={(e) => onChange(e.target.checked)}
+          />
+        </label>
       );
     case 'date':
       return <DateValue value={typeof value === 'string' ? value : null} danger={danger} onChange={onChange} />;
+    // The same picker the built-in Assignees column uses: chips, a search, a
+    // "+". A native select here was the one control in the grid the platform
+    // drew, so it agreed with nothing around it in either theme.
     case 'person':
       return (
-        <select className={selectField} value={typeof value === 'string' ? value : ''} onChange={(e) => onChange(e.target.value || null)}>
-          <option value="">Nobody</option>
-          {users.map((u) => <option key={u.id} value={u.id}>{u.name || u.username}</option>)}
-        </select>
+        <AssigneePicker
+          assignees={asAssignees(value, users)}
+          users={users}
+          onChange={(ids) => onChange(prop.id === 'sys:assignees' ? ids : ids[ids.length - 1] ?? null)}
+        />
       );
     // Both go through the same menu: it is the only place an option can be
     // made without leaving the row, and the only place its colour is set
@@ -172,13 +204,13 @@ export function PropertyValue({ prop, users, value, onChange, onEditOptions, dan
         />
       );
     case 'url':
-      return <UrlValue value={typeof value === 'string' ? value : ''} onChange={onChange} />;
+      return <UrlValue value={typeof value === 'string' ? value : ''} dense={dense} onChange={onChange} />;
     // An address and a number are text with a scheme: the input keyboard and
     // the tap-to-act are the whole difference, and both matter on a phone.
     case 'email':
-      return <UrlValue value={typeof value === 'string' ? value : ''} scheme="mailto:" onChange={onChange} />;
+      return <UrlValue value={typeof value === 'string' ? value : ''} scheme="mailto:" dense={dense} onChange={onChange} />;
     case 'phone':
-      return <UrlValue value={typeof value === 'string' ? value : ''} scheme="tel:" onChange={onChange} />;
+      return <UrlValue value={typeof value === 'string' ? value : ''} scheme="tel:" dense={dense} onChange={onChange} />;
     // Computed every time they are read, so there is nothing to type at. The
     // value is still worth showing — and a formula's own error message is the
     // only place whoever wrote it will see what is wrong.
@@ -189,7 +221,7 @@ export function PropertyValue({ prop, users, value, onChange, onEditOptions, dan
       return (
         <span
           title={broken ? shown : `${prop.label} is computed`}
-          className={cn('block truncate px-1 text-sm tabular-nums', broken ? 'text-danger' : 'text-muted')}
+          className={cn('flex h-7 items-center truncate px-2.5 text-sm tabular-nums', broken ? 'text-danger' : 'text-muted')}
         >
           {shown}
         </span>
@@ -207,7 +239,7 @@ export function PropertyValue({ prop, users, value, onChange, onEditOptions, dan
       return (
         <input
           key={typeof value === 'string' ? value : ''}
-          className={field}
+          className={box}
           defaultValue={typeof value === 'string' ? value : ''}
           onBlur={(e) => e.target.value !== value && onChange(e.target.value || null)}
         />

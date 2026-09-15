@@ -7,6 +7,7 @@ import { useRef, useState } from 'react';
 import { ArrowDownNarrowWide, ArrowUpNarrowWide, ArrowUpDown, Plus, X } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { useOutsideClick } from '../../hooks/useOutsideClick';
+import { SearchSelect } from '../ui/SearchSelect';
 import { newSortRule, type SortRule } from '../../lib/taskSort';
 import type { FilterField } from '../../lib/taskFilter';
 
@@ -15,12 +16,6 @@ interface Props {
   sort: SortRule[];
   onChange: (next: SortRule[]) => void;
 }
-
-/** Bare controls: the chip draws the one hairline around them, the way the
- *  filter chips do. */
-const pill =
-  'h-6 max-w-[9rem] cursor-pointer rounded bg-transparent px-1 text-xs text-ink outline-none ' +
-  'hover:bg-hover focus:bg-canvas';
 
 /**
  * How the rows are ordered, as a row of chips.
@@ -63,16 +58,16 @@ export function SortBar({ fields, sort, onChange }: Props) {
             key={rule.id}
             className="flex h-7 shrink-0 items-center gap-0.5 rounded-md border border-line bg-surface px-1 text-xs"
           >
-            <select
-              aria-label="Sort by"
-              className={cn(pill, 'mn-select')}
+            {/* The same inline picker the filter chips use — this was the one
+                native select left in the toolbar, so the two bars sitting
+                inches apart drew two different menus. */}
+            <SearchSelect
+              variant="inline"
+              label="Sort by"
               value={rule.field}
-              onChange={(e) => set(rule.id, { field: e.target.value })}
-            >
-              {[field, ...free].map((f) => (
-                <option key={f.key} value={f.key}>{f.label}</option>
-              ))}
-            </select>
+              options={[field, ...free].map((f) => ({ value: f.key, label: f.label }))}
+              onChange={(key) => set(rule.id, { field: key })}
+            />
             <button
               type="button"
               aria-label={rule.dir === 'asc' ? 'Ascending — click for descending' : 'Descending — click for ascending'}

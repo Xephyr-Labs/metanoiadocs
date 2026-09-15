@@ -3,6 +3,7 @@ import { ChevronDown, Plus, X } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { useOutsideClick } from '../../hooks/useOutsideClick';
 import { CheckList } from '../ui/CheckList';
+import { SearchSelect } from '../ui/SearchSelect';
 import {
   isMultiOp,
   needsValue,
@@ -21,7 +22,11 @@ interface Props {
   onChange: (next: Filter[]) => void;
 }
 
-/** Bare controls: the chip already draws the one hairline around them. */
+/** Bare controls: the chip already draws the one hairline around them. The
+ *  pickers beside them are `SearchSelect variant="inline"`, which is this look
+ *  with a menu the app draws — these were native `<select>`s, so a filter chip
+ *  carried the platform's chevron at the platform's distance, next to our own
+ *  on the checklist trigger two segments along. */
 const pill =
   'h-6 max-w-[9rem] cursor-pointer rounded bg-transparent px-1 text-xs text-ink outline-none ' +
   'hover:bg-hover focus:bg-canvas';
@@ -87,20 +92,26 @@ function ValueInput({
   const common = { className: pill, value: filter.value, onChange: (e: { target: { value: string } }) => onChange(e.target.value) };
   if (field.kind === 'checkbox') {
     return (
-      <select {...common} aria-label="Value">
-        <option value="true">Checked</option>
-        <option value="false">Unchecked</option>
-      </select>
+      <SearchSelect
+        variant="inline"
+        label="Value"
+        value={filter.value || 'true'}
+        options={[{ value: 'true', label: 'Checked' }, { value: 'false', label: 'Unchecked' }]}
+        onChange={onChange}
+      />
     );
   }
   if (field.options && ['select', 'multi_select', 'person'].includes(field.kind)) {
     return (
-      <select {...common} aria-label="Value">
-        <option value="">Choose…</option>
-        {field.options.map((o) => (
-          <option key={o.value} value={o.value}>{o.label}</option>
-        ))}
-      </select>
+      <SearchSelect
+        variant="inline"
+        label="Value"
+        placeholder="Choose…"
+        empty="Nothing to choose from."
+        value={filter.value || null}
+        options={field.options.map((o) => ({ value: o.value, label: o.label }))}
+        onChange={onChange}
+      />
     );
   }
   const type = field.kind === 'date' ? 'date' : field.kind === 'number' ? 'number' : 'text';
@@ -155,32 +166,28 @@ export function FilterBar({ fields, filters, onChange }: Props) {
             key={f.id}
             className="flex items-center gap-0.5 rounded-md bg-surface px-1 py-0.5 ring-1 ring-inset ring-line"
           >
-            <select
-              className={cn(pill, 'font-medium')}
-              aria-label="Field"
+            <SearchSelect
+              variant="inline"
+              label="Field"
+              className="font-medium"
               value={f.field}
-              onChange={(e) => setField(f.id, e.target.value)}
-            >
-              {fields.map((x) => (
-                <option key={x.key} value={x.key}>{x.label}</option>
-              ))}
-            </select>
-            <select
-              className={cn(pill, 'text-muted')}
-              aria-label="Condition"
+              options={fields.map((x) => ({ value: x.key, label: x.label }))}
+              onChange={(key) => setField(f.id, key)}
+            />
+            <SearchSelect
+              variant="inline"
+              label="Condition"
+              className="text-muted"
               value={f.op}
-              onChange={(e) => {
-                const op = e.target.value as FilterOp;
+              options={OPS[field.kind].map((op) => ({ value: op, label: OP_LABEL[op] }))}
+              onChange={(value) => {
+                const op = value as FilterOp;
                 // A single value and a list read the same string differently;
                 // keep the value only when the shape does not change.
                 const keep = isMultiOp(op) === isMultiOp(f.op);
                 patch(f.id, { op, ...(keep ? {} : { value: '' }) });
               }}
-            >
-              {OPS[field.kind].map((op) => (
-                <option key={op} value={op}>{OP_LABEL[op]}</option>
-              ))}
-            </select>
+            />
             {needsValue(f.op) && (
               <ValueInput field={field} filter={f} onChange={(value) => patch(f.id, { value })} />
             )}

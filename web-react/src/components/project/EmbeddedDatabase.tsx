@@ -17,7 +17,7 @@ import { cn } from '../../lib/cn';
 import { IconButton } from '../ui/IconButton';
 import { Menu } from '../ui/Menu';
 import { Skeleton } from '../ui/Skeleton';
-import { selectField } from '../ui/styles';
+import { SearchSelect } from '../ui/SearchSelect';
 import { TooltipProvider } from '../ui/Tooltip';
 import { Backlog } from './Backlog';
 import { Board } from './Board';
@@ -184,10 +184,13 @@ export function EmbeddedDatabase({
   if (!projectId) {
     return (
       <div className="rounded-md border border-line p-4">
-        <select className={selectField} defaultValue="" onChange={(e) => e.target.value && onPick(e.target.value)}>
-          <option value="">Pick a database…</option>
-          {projects.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
-        </select>
+        <SearchSelect
+          value={null}
+          placeholder="Pick a database…"
+          empty="No databases in this workspace yet."
+          options={projects.map((x) => ({ value: x.id, label: x.name }))}
+          onChange={(id) => id && onPick(id)}
+        />
       </div>
     );
   }
