@@ -1,4 +1,4 @@
-import { ArrowRight, Clock, FilePlus2, History, Moon, PanelRight, Search, Settings, Share2, Sparkles, Sun, Upload } from 'lucide-react';
+import { ArrowRight, Clock, FilePlus2, Files, History, Moon, PanelRight, Search, Settings, Share2, Sparkles, Sun, Upload } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '../../lib/cn';
 import { docsApi, type SearchRow } from '../../lib/docsApi';
@@ -45,6 +45,15 @@ export function CommandPalette() {
       title: 'Import Markdown, Word or PDF as a new page',
       icon: Upload,
       run: () => { pickImportFiles().then((f) => { if (f.length) ws.importFiles(f, null); }); },
+    },
+    // Named for what people call it — "all docs" — plus the word they would
+    // actually type when a page has gone missing.
+    {
+      kind: 'command',
+      id: 'alldocs',
+      title: 'All documents — browse every page, filed or not',
+      icon: Files,
+      run: ws.openAllDocs,
     },
     { kind: 'command', id: 'share', title: 'Share current page', icon: Share2, run: () => ws.setShareOpen(true) },
     // Only with a page open: version history is a property of a document, and

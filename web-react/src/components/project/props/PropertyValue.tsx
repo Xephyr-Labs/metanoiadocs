@@ -1,18 +1,67 @@
 import { useState } from 'react';
 import { ExternalLink } from 'lucide-react';
 import type { UserRow } from '../../../lib/docsApi';
-import { cn } from '../../../lib/cn';
-import { selectedOptions } from '../../../lib/props';
 import type { StoredFile } from '../../../lib/uploads';
-import type { PropRow } from '../../../lib/tasksApi';
+import type { PropOption, PropRow } from '../../../lib/tasksApi';
 import { Attachments } from '../../ui/Attachments';
 import { field, selectField } from '../../ui/styles';
+import { SelectValue } from './SelectValue';
 
 interface Props {
   prop: PropRow;
   users: UserRow[];
   value: unknown;
   onChange: (value: unknown) => void;
+  /** Persist a change to the property's own option list. Given, the select
+   *  menu can also make, rename, recolour and delete options; omitted, it is
+   *  a picker over whatever already exists. */
+  onEditOptions?: (options: PropOption[]) => void;
+  /** Draw a date in the danger colour — a due date that has passed. */
+  danger?: boolean;
+  /** The option set cannot grow or shrink, only be recoloured. */
+  fixedOptions?: boolean;
+}
+
+/**
+ * A date the way the rest of the app writes one ("Sep 10"), opening the native
+ * picker on click.
+ *
+ * A bare `<input type="date">` writes `mm/dd/yyyy` into every empty cell and
+ * `09/10/2026` into the full ones — two formats the board and the calendar
+ * beside it never use, and in a grid the placeholder alone is louder than the
+ * data. This lived in TaskTable, which is why only the table's two built-in
+ * date columns got it and every date *property* stayed raw.
+ */
+function DateValue({ value, danger, onChange }: {
+  value: string | null;
+  danger?: boolean;
+  onChange: (v: string | null) => void;
+}) {
+  const iso = value?.slice(0, 10) ?? '';
+  // "Sep 14", the way every other date in the app is written — a full date in
+  // a grid next to a board that says "Sep 14" reads as a different kind of
+  // value rather than the same one. The year is in the picker this opens.
+  const label = iso
+    ? new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+    : '';
+  return (
+    <label
+      className={[
+        'relative flex h-8 cursor-pointer items-center rounded-md px-2 text-sm ring-1 ring-inset ring-transparent',
+        'transition-shadow hover:ring-line focus-within:ring-2 focus-within:ring-accent',
+        danger ? 'text-danger' : iso ? 'text-ink' : 'text-faint',
+      ].join(' ')}
+    >
+      <span className="block truncate">{label || '—'}</span>
+      <input
+        type="date"
+        aria-label={danger ? 'Date (overdue)' : 'Date'}
+        className="absolute inset-0 w-full cursor-pointer opacity-0"
+        value={iso}
+        onChange={(e) => onChange(e.target.value || null)}
+      />
+    </label>
+  );
 }
 
 /**
@@ -68,7 +117,7 @@ function UrlValue({ value, onChange }: { value: string; onChange: (v: unknown) =
   );
 }
 
-export function PropertyValue({ prop, users, value, onChange }: Props) {
+export function PropertyValue({ prop, users, value, onChange, onEditOptions, danger, fixedOptions }: Props) {
   switch (prop.type) {
     case 'number':
       return (
@@ -89,14 +138,7 @@ export function PropertyValue({ prop, users, value, onChange }: Props) {
         />
       );
     case 'date':
-      return (
-        <input
-          type="date"
-          className={field}
-          value={typeof value === 'string' ? value.slice(0, 10) : ''}
-          onChange={(e) => onChange(e.target.value || null)}
-        />
-      );
+      return <DateValue value={typeof value === 'string' ? value : null} danger={danger} onChange={onChange} />;
     case 'person':
       return (
         <select className={selectField} value={typeof value === 'string' ? value : ''} onChange={(e) => onChange(e.target.value || null)}>
@@ -104,38 +146,21 @@ export function PropertyValue({ prop, users, value, onChange }: Props) {
           {users.map((u) => <option key={u.id} value={u.id}>{u.name || u.username}</option>)}
         </select>
       );
+    // Both go through the same menu: it is the only place an option can be
+    // made without leaving the row, and the only place its colour is set
+    // beside the chip that wears it.
     case 'select':
+    case 'multi_select':
       return (
-        <select className={selectField} value={typeof value === 'string' ? value : ''} onChange={(e) => onChange(e.target.value || null)}>
-          <option value="">Empty</option>
-          {prop.options.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
-        </select>
+        <SelectValue
+          prop={prop}
+          value={value}
+          multi={prop.type === 'multi_select'}
+          onChange={onChange}
+          onEditOptions={onEditOptions}
+          fixed={fixedOptions}
+        />
       );
-    case 'multi_select': {
-      const chosen = new Set(selectedOptions(prop, value).map((o) => o.id));
-      return (
-        <div className="flex flex-wrap gap-1">
-          {prop.options.map((o) => (
-            <button
-              key={o.id}
-              type="button"
-              onClick={() => {
-                const next = new Set(chosen);
-                if (next.has(o.id)) next.delete(o.id); else next.add(o.id);
-                onChange([...next]);
-              }}
-              className={cn(
-                'rounded-full border border-line px-2 py-0.5 text-2xs',
-                chosen.has(o.id) ? 'bg-accent-soft text-accent-strong' : 'text-muted hover:bg-hover',
-              )}
-            >
-              {o.label}
-            </button>
-          ))}
-          {!prop.options.length && <span className="text-2xs text-faint">No options yet.</span>}
-        </div>
-      );
-    }
     case 'url':
       return <UrlValue value={typeof value === 'string' ? value : ''} onChange={onChange} />;
     case 'file':

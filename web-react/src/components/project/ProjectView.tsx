@@ -23,7 +23,7 @@ import { KindsProvider } from './kinds';
 import { PropsDialog } from './props/PropsDialog';
 import { PropertyVisibility } from './props/PropertyVisibility';
 import { useViewProps } from '../../lib/viewProps';
-import { builtinProps, defaultPropIds } from '../../lib/builtinProps';
+import { builtinProps, defaultPropIds, defaultTableProps } from '../../lib/builtinProps';
 import { TaskPeek } from './TaskPeek';
 import { TaskKindsDialog } from './TaskKindsDialog';
 import { TaskTable } from './TaskTable';
@@ -57,7 +57,9 @@ export function ProjectView() {
   // Scope for board/table/gantt/calendar: 'all', 'backlog', or a sprint id.
   const [scope, setScope] = useState('all');
   const [filters, setFilters] = useState<Filter[]>([]);
-  const p = useProject(ws.activeProjectId);
+  // Status colours live on the project row, so a repaint has to refresh the
+  // list the sidebar and this screen both read.
+  const p = useProject(ws.activeProjectId, ws.refreshProjects);
   const isData = project?.mode === 'data';
 
   // Arriving from a page that belongs to a task: open that task's panel as soon
@@ -72,20 +74,29 @@ export function ProjectView() {
     clearPendingTask();
   }, [pendingTaskId, p.tasks, clearPendingTask]);
   const dateProps = useMemo(() => p.props.filter((prop) => prop.type === 'date'), [p.props]);
-  // Card views show properties; the table already shows every one as a column
-  // and the backlog is a planning list, so neither needs the control.
-  const CARD_VIEWS = ['board', 'gantt', 'calendar', 'gallery'];
+  // Every view that draws properties can choose which — the table included.
+  // It used to be excluded on the grounds that it "already shows every one as
+  // a column", which was only ever true of the custom ones: Points, Sprint,
+  // Type, Milestone and Files had no column at all. Now it really does show
+  // all of them, and a grid of eighteen columns is exactly the thing that
+  // needs a way to put some away. The backlog stays out: it is a planning
+  // list, not a grid of values.
+  const CARD_VIEWS = ['board', 'table', 'gantt', 'calendar', 'gallery'];
   // Status, assignees, dates and the rest are properties too — see
   // lib/builtinProps. Merging them here is what puts them in the visibility
   // panel and on cards, rather than teaching each of those about two kinds of
   // field. Built-ins lead: they are the ones every database has.
   const builtins = useMemo(
-    () => builtinProps(project?.mode ?? 'tasks', p.kinds, p.sprints),
-    [project?.mode, p.kinds, p.sprints],
+    () => builtinProps(project?.mode ?? 'tasks', p.kinds, p.sprints, project?.status_colors),
+    [project?.mode, p.kinds, p.sprints, project?.status_colors],
   );
   const allProps = useMemo(() => [...builtins, ...p.props], [builtins, p.props]);
   const viewDefaults = useMemo(
-    () => defaultPropIds(tab, builtins, p.props, project?.mode ?? 'tasks'),
+    // The table is the one view with room for all of them, so its unconfigured
+    // state is every property rather than a chosen few.
+    () => (tab === 'table'
+      ? defaultTableProps(builtins, p.props)
+      : defaultPropIds(tab, builtins, p.props, project?.mode ?? 'tasks')),
     [tab, builtins, p.props, project?.mode],
   );
   const viewProps = useViewProps(ws.activeProjectId, tab, allProps, viewDefaults);
@@ -280,13 +291,14 @@ export function ProjectView() {
         ) : tab === 'table' ? (
           <TaskTable
             tasks={visible}
-            mode={project.mode}
+            props={viewProps.visible}
             users={p.users}
-            props={p.props}
-            onPatch={(id, body) => { p.patch(id, body); syncPageTitle(id, body); }}
+            rowLabel={isData ? 'Name' : 'Task'}
+            onPatch={(id, body) => { p.patch(id, body); syncPageTitle(id, body); ws.refreshProjects(); }}
             onOpen={setOpen}
             onDelete={(id) => { p.remove(id); ws.refreshProjects(); }}
             onSetProp={p.setProp}
+            onEditOptions={p.editOptions}
           />
         ) : tab === 'gantt' ? (
           <Gantt tasks={visible} cardProps={viewProps.visible} users={p.users} onOpen={setOpen} />
@@ -338,6 +350,7 @@ export function ProjectView() {
         onRemoveDep={p.removeDep}
         onManageKinds={() => setKindsOpen(true)}
         onManageProps={() => setPropsOpen(true)}
+        onEditOptions={p.editOptions}
       />
 
       <TaskKindsDialog

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_KINDS, kindKey, wantedAssignees } from './tasks.js';
+import { cleanStatusColors, DEFAULT_KINDS, kindKey, wantedAssignees } from './tasks.js';
 
 test('kindKey slugs a typed label', () => {
   assert.equal(kindKey('Spike'), 'spike');
@@ -47,4 +47,27 @@ test('the seeded defaults are unique and exactly one groups children', () => {
   const keys = DEFAULT_KINDS.map((k) => k.key);
   assert.equal(new Set(keys).size, keys.length);
   assert.deepEqual(DEFAULT_KINDS.filter((k) => k.is_group).map((k) => k.key), ['epic']);
+});
+
+test('cleanStatusColors keeps the pairs that name a real status and colour', () => {
+  assert.deepEqual(
+    cleanStatusColors({ todo: 'purple', done: 'teal' }),
+    { todo: 'purple', done: 'teal' },
+  );
+});
+
+test('cleanStatusColors drops a bad pair without losing the good ones', () => {
+  // One unknown key must not cost the three beside it: the body is the whole
+  // map, so rejecting it outright would throw away a valid repaint.
+  assert.deepEqual(
+    cleanStatusColors({ todo: 'red', shipped: 'red', doing: 'chartreuse' }),
+    { todo: 'red' },
+  );
+});
+
+test('cleanStatusColors refuses anything that is not a map', () => {
+  assert.equal(cleanStatusColors(null), null);
+  assert.equal(cleanStatusColors('red'), null);
+  assert.equal(cleanStatusColors(['red']), null);
+  assert.deepEqual(cleanStatusColors({}), {});
 });

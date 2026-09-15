@@ -1,13 +1,14 @@
 import { ChevronDown, ChevronUp, Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { cn } from '../../../lib/cn';
-import { swatch, TAG_COLORS, type TagColor } from '../../../lib/tagColors';
+import { swatch } from '../../../lib/tagColors';
 import { PROP_TYPES, PROP_TYPE_LABEL, type PropRow, type PropType, type ProjectRow } from '../../../lib/tasksApi';
 import { Button } from '../../ui/Button';
 import { ColorPicker } from '../../ui/ColorPicker';
 import { IconButton } from '../../ui/IconButton';
 import { Modal } from '../../ui/Modal';
 import { field, selectField } from '../../ui/styles';
+import { nextColor } from './SelectValue';
 
 interface Props {
   open: boolean;
@@ -31,16 +32,6 @@ const COMPATIBLE: PropType[][] = [['text', 'url'], ['select', 'multi_select']];
 
 function changeableTo(type: PropType): PropType[] {
   return COMPATIBLE.find((pair) => pair.includes(type)) ?? [type];
-}
-
-/**
- * Colour for the next option: the first one not already in use, else round the
- * palette. Every option used to be minted grey, so a select of six read as six
- * identical chips and the colour field existed without ever being set.
- */
-function nextColor(options: PropRow['options']): TagColor {
-  const used = new Set(options.map((o) => o.color));
-  return TAG_COLORS.find((c) => !used.has(c)) ?? TAG_COLORS[options.length % TAG_COLORS.length];
 }
 
 /**

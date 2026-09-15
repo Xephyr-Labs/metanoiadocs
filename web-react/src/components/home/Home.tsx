@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowRight, ChevronLeft, ChevronRight, FileText, Plus, RefreshCw, Upload } from 'lucide-react';
+import { ArrowRight, ChevronLeft, ChevronRight, FileText, MoreHorizontal, Plus, RefreshCw, Upload } from 'lucide-react';
+import { useDocMenu } from '../../hooks/useDocMenu';
 import { useAuth } from '../../store/auth';
 import { useWorkspace } from '../../store/workspace';
 import { docsApi, type MyDocRow } from '../../lib/docsApi';
@@ -10,6 +11,7 @@ import { PageIcon } from '../ui/PageIcon';
 import { Button } from '../ui/Button';
 import { EmptyState } from '../ui/EmptyState';
 import { IconButton } from '../ui/IconButton';
+import { Menu } from '../ui/Menu';
 import { Skeleton } from '../ui/Skeleton';
 import { ActivityLine, Card, DocCard, ProjectCard, StatTile, TaskBucket } from './cards';
 
@@ -23,6 +25,33 @@ function greeting(hour: number) {
 }
 
 const MY_DOCS_PAGE = 12;
+
+/** One row of "My documents", carrying the same actions every other document
+ *  row does — this list is where a page with no folder is easiest to find, so
+ *  it is where filing and deleting one is most useful. */
+function MyDocRow({ doc, onOpen }: { doc: MyDocRow; onOpen: () => void }) {
+  const menu = useDocMenu(doc.id);
+  return (
+    <div className="group/row relative flex items-center">
+      <button
+        type="button"
+        onClick={onOpen}
+        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 pr-8 text-left transition-colors duration-120 hover:bg-hover"
+      >
+        <PageIcon icon={doc.icon} size={16} />
+        <span className="min-w-0 flex-1 truncate text-sm text-ink">{doc.title || 'Untitled'}</span>
+        <span className="shrink-0 text-2xs text-faint">{relativeTime(doc.updated_at)}</span>
+      </button>
+      <span className="absolute right-1 opacity-0 transition-opacity duration-120 focus-within:opacity-100 group-hover/row:opacity-100">
+        <Menu
+          align="end"
+          items={menu}
+          trigger={<span><IconButton icon={<MoreHorizontal size={15} />} label={`Actions for ${doc.title || 'Untitled'}`} /></span>}
+        />
+      </span>
+    </div>
+  );
+}
 
 /** Paginated list of everything the signed-in user created. */
 function MyDocsCard({ onOpen }: { onOpen: (id: string) => void }) {
@@ -58,18 +87,7 @@ function MyDocsCard({ onOpen }: { onOpen: (id: string) => void }) {
         <EmptyState compact icon={FileText} title="No documents yet" hint="Pages you create show up here." />
       ) : (
         <div className="space-y-px">
-          {data.rows.map((d) => (
-            <button
-              key={d.id}
-              type="button"
-              onClick={() => onOpen(d.id)}
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors duration-120 hover:bg-hover"
-            >
-              <PageIcon icon={d.icon} size={16} />
-              <span className="min-w-0 flex-1 truncate text-sm text-ink">{d.title || 'Untitled'}</span>
-              <span className="shrink-0 text-2xs text-faint">{relativeTime(d.updated_at)}</span>
-            </button>
-          ))}
+          {data.rows.map((d) => <MyDocRow key={d.id} doc={d} onOpen={() => onOpen(d.id)} />)}
         </div>
       )}
     </Card>

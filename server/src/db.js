@@ -535,6 +535,12 @@ export async function initSchema() {
     -- The columns are the same either way: switching mode hides fields, it
     -- never drops them, so a database can be flipped back with nothing lost.
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS mode TEXT NOT NULL DEFAULT 'tasks';
+    -- Per-project colours for the four fixed statuses, as { status: colour }.
+    -- Only the colours: the statuses themselves are ids that every board
+    -- column, filter and rollup in the app is written against, so they are
+    -- repainted here, never renamed or invented. Missing keys fall back to the
+    -- palette the app has always drawn (web-react/src/lib/builtinProps.ts).
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS status_colors JSONB NOT NULL DEFAULT '{}';
   `);
 
   await normalizeLegacyFolderImport();

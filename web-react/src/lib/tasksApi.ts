@@ -79,6 +79,9 @@ export interface ProjectRow {
   position: number;
   parent_id: string | null;
   mode: ProjectMode;
+  /** Per-project colours for the four fixed statuses, `{ status: colour }`.
+   *  Missing keys fall back to the palette builtinProps has always drawn. */
+  status_colors: Record<string, string>;
   /** Postgres count() arrives as a string. */
   total: string;
   done: string;
@@ -255,7 +258,10 @@ export const tasksApi = {
   projects: (): Promise<ProjectRow[]> => req('/projects'),
   createProject: (b: { name: string; icon?: string; color?: string; docId?: string; parentId?: string | null; mode?: ProjectMode }): Promise<ProjectRow> =>
     req('/projects', { method: 'POST', ...body(b) }),
-  patchProject: (id: string, b: Partial<{ name: string; icon: string; color: string; position: number; archived: boolean; mode: ProjectMode }>) =>
+  patchProject: (
+    id: string,
+    b: Partial<{ name: string; icon: string; color: string; position: number; archived: boolean; mode: ProjectMode; statusColors: Record<string, string> }>,
+  ) =>
     req(`/projects/${id}`, { method: 'PATCH', ...body(b) }),
   archiveProject: (id: string) => req(`/projects/${id}`, { method: 'DELETE' }),
   moveProject: (id: string, b: { parentId: string | null; position?: number }): Promise<ProjectRow> =>

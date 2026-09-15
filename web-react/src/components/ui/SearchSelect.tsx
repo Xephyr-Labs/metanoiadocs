@@ -1,0 +1,133 @@
+/* Hallmark · component: searchable picker · genre: modern-minimal
+ * theme: project tokens (index.css)
+ * pre-emit critique: P5 H5 E4 S5 R5 V4
+ * states: default · hover · focus-visible · open · searching · no matches ·
+ *         empty list · disabled · chosen
+ */
+import { createPortal } from 'react-dom';
+import { useRef, useState, type ReactNode } from 'react';
+import { Check, ChevronDown } from 'lucide-react';
+import { cn } from '../../lib/cn';
+import { useAnchoredPopover } from '../../hooks/useAnchoredPopover';
+import { useOutsideClick } from '../../hooks/useOutsideClick';
+
+export interface SearchOption {
+  value: string;
+  label: string;
+  /** Secondary text on the right — a project name, a folder, a date. */
+  hint?: string;
+  lead?: ReactNode;
+}
+
+/**
+ * A `<select>` for a list nobody can read at a glance.
+ *
+ * "Link a page" over two hundred documents, "depends on" over every task in
+ * the project, "link a row" over another database — all of them were native
+ * selects, which means scrolling an alphabetical list with no way to type at
+ * it. The moment a workspace has more than a screenful of anything, that
+ * control stops working, and these are exactly the lists that grow.
+ *
+ * Deliberately not a combobox that creates: choosing an existing thing and
+ * making a new one are different decisions, and the places that offer both
+ * (the "@" menu) say so with two groups rather than one ambiguous input.
+ */
+export function SearchSelect({
+  value,
+  options,
+  placeholder = 'Choose…',
+  empty = 'Nothing to choose from.',
+  disabled,
+  onChange,
+  className,
+}: {
+  value: string | null;
+  options: SearchOption[];
+  placeholder?: string;
+  empty?: string;
+  disabled?: boolean;
+  onChange: (value: string) => void;
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const pop = useRef<HTMLDivElement>(null);
+  const { anchor, style } = useAnchoredPopover(open, 260);
+  useOutsideClick(pop, () => setOpen(false), open);
+
+  const q = query.trim().toLowerCase();
+  const matches = q
+    ? options.filter((o) => o.label.toLowerCase().includes(q) || (o.hint ?? '').toLowerCase().includes(q))
+    : options;
+  const chosen = options.find((o) => o.value === value) ?? null;
+
+  const choose = (next: string) => {
+    onChange(next);
+    setQuery('');
+    setOpen(false);
+  };
+
+  return (
+    <>
+      <button
+        ref={anchor}
+        type="button"
+        disabled={disabled}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => { setQuery(''); setOpen((v) => !v); }}
+        className={cn(
+          'flex h-8 w-full min-w-0 items-center gap-1.5 rounded-md bg-surface px-2.5 text-left text-sm',
+          'ring-1 ring-inset ring-line transition-shadow duration-120 focus:outline-none focus:ring-2 focus:ring-accent',
+          'disabled:opacity-50',
+          className,
+        )}
+      >
+        {chosen?.lead}
+        <span className={cn('min-w-0 flex-1 truncate', chosen ? 'text-ink' : 'text-faint')}>
+          {chosen?.label ?? placeholder}
+        </span>
+        <ChevronDown size={14} className="shrink-0 text-faint" />
+      </button>
+
+      {open && style && createPortal(
+        <div
+          ref={pop}
+          style={style}
+          className="scrollarea z-50 flex flex-col overflow-hidden rounded-lg border border-line bg-canvas p-1.5 shadow-pop"
+        >
+          <input
+            autoFocus
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setOpen(false);
+              if (e.key === 'Enter' && matches[0]) { e.preventDefault(); choose(matches[0].value); }
+            }}
+            placeholder="Search…"
+            className="mb-1 h-7 w-full shrink-0 rounded-md bg-surface px-2 text-xs text-ink outline-none ring-1 ring-inset ring-line placeholder:text-faint focus:ring-2 focus:ring-accent"
+          />
+          <div className="scrollarea min-h-0 flex-1 overflow-y-auto">
+            {matches.map((o) => (
+              <button
+                key={o.value}
+                type="button"
+                onClick={() => choose(o.value)}
+                className="flex w-full items-center gap-2 rounded-md px-1.5 py-1.5 text-left hover:bg-hover"
+              >
+                {o.lead}
+                <span className="min-w-0 flex-1 truncate text-xs text-ink">{o.label}</span>
+                {o.hint && <span className="shrink-0 truncate text-2xs text-faint">{o.hint}</span>}
+                {o.value === value && <Check size={13} className="shrink-0 text-accent-strong" />}
+              </button>
+            ))}
+            {!matches.length && (
+              <p className="px-2 py-2 text-2xs text-faint">{options.length ? 'Nothing matches.' : empty}</p>
+            )}
+          </div>
+        </div>,
+        document.body,
+      )}
+    </>
+  );
+}

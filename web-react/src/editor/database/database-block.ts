@@ -3,28 +3,37 @@ import { html } from 'lit';
 import { createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { EmbeddedDatabase } from '../../components/project/EmbeddedDatabase';
-import { defaultDatabaseProps, type DatabaseBlockProps, type MetanoiaDatabaseBlockModel } from './database-model';
+import {
+  defaultDatabaseProps, EMBEDDED_VIEWS,
+  type DatabaseBlockProps, type EmbeddedView, type MetanoiaDatabaseBlockModel,
+} from './database-model';
 
 export class MetanoiaDatabaseBlockComponent extends BlockComponent<MetanoiaDatabaseBlockModel> {
   private root: Root | null = null;
 
-  // Mirrors the chart block's own accessor: `this.model.props` is not reliably
-  // populated at the point `updated()` first fires, so read through the same
-  // fallback every other prop read in this codebase uses.
+  /**
+   * Read defensively, and keep the schema version where it is.
+   *
+   * A database saved before width/header existed carries neither, and a
+   * document written by an older build is the normal case, not the edge — so
+   * every field is defaulted here rather than migrated. Bumping the block's
+   * schema version instead would make those older documents fail validation
+   * outright, which is a much worse answer to "this prop is missing".
+   */
   private get props(): DatabaseBlockProps {
     const raw = (this.model as unknown as { props?: unknown }).props ?? this.model;
     const o = (raw && typeof raw === 'object' ? raw : {}) as Partial<DatabaseBlockProps>;
     const d = defaultDatabaseProps();
     return {
       projectId: typeof o.projectId === 'string' ? o.projectId : d.projectId,
-      view: o.view === 'board' ? 'board' : 'table',
+      view: EMBEDDED_VIEWS.includes(o.view as EmbeddedView) ? (o.view as EmbeddedView) : d.view,
+      width: o.width === 'full' ? 'full' : 'column',
+      header: typeof o.header === 'boolean' ? o.header : d.header,
       height: typeof o.height === 'number' ? o.height : d.height,
     };
   }
 
   override disconnectedCallback() {
-    // React roots must be unmounted asynchronously — unmounting inside a
-    // lit lifecycle callback while React is rendering throws.
     const root = this.root;
     this.root = null;
     if (root) queueMicrotask(() => root.unmount());
@@ -35,24 +44,32 @@ export class MetanoiaDatabaseBlockComponent extends BlockComponent<MetanoiaDatab
     const host = this.querySelector('.mn-db-host');
     if (!host) return;
     const props = this.props;
+    const set = (patch: Partial<DatabaseBlockProps>) => this.store.updateBlock(this.model, patch);
     this.root ??= createRoot(host);
     this.root.render(
       createElement(EmbeddedDatabase, {
         projectId: props.projectId,
         view: props.view,
-        // Set for a public share and a version snapshot alike (mountEditor sets
-        // it before either ever mounts a block) — the project/task endpoints
-        // this component reads need a member session and would 401 there.
+        width: props.width,
+        header: props.header,
+        height: props.height,
         unavailable: this.store.readonly,
-        onPick: (projectId: string) => this.store.updateBlock(this.model, { projectId }),
-        onView: (view: 'board' | 'table') => this.store.updateBlock(this.model, { view }),
+        readonly: this.store.readonly,
+        onPick: (projectId: string) => set({ projectId }),
+        onView: (view: EmbeddedView) => set({ view }),
+        onWidth: (width: 'column' | 'full') => set({ width }),
+        onHeader: (header: boolean) => set({ header }),
+        onHeight: (height: number) => set({ height }),
       }),
     );
   }
 
   override renderBlock() {
+    const { width } = this.props;
+    // The wrapper keeps the note's width whatever the block does — the
+    // breakout is measured against it, so it has to stay put. See useBreakout.
     return html`
-      <div class="mn-db" style=${`min-height:${this.props.height}px`} contenteditable="false">
+      <div class="mn-db" data-width=${width} contenteditable="false">
         <div class="mn-db-host"></div>
       </div>`;
   }

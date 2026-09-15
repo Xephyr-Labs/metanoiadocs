@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { docsApi, type UserRow } from '../../lib/docsApi';
+import { isBuiltinProp } from '../../lib/builtinProps';
 import { tasksApi, type PropOption, type PropRow, type PropType, type SprintRow, type SprintState, type TaskKindRow, type TaskPatch, type TaskRow } from '../../lib/tasksApi';
 
 /** What a task-type mutation reports back to the dialog that asked for it. */
@@ -12,7 +13,14 @@ export type KindResult =
  * gantt without a second fetch. Mutations apply locally first and re-sync from
  * the server on failure — the same optimistic pattern the doc store uses.
  */
-export function useProject(projectId: string | null) {
+export function useProject(
+  projectId: string | null,
+  /** Called after a change that lives on the project row rather than on a
+   *  task — status colours, today. The project list is owned by whoever is
+   *  displaying it (the workspace store, or an embed's own fetch), so this
+   *  hook reports the write instead of guessing how to refresh it. */
+  onProjectChanged?: () => void,
+) {
   const [tasks, setTasks] = useState<TaskRow[]>([]);
   const [sprints, setSprints] = useState<SprintRow[]>([]);
   const [kinds, setKinds] = useState<TaskKindRow[]>([]);
@@ -188,6 +196,32 @@ export function useProject(projectId: string | null) {
     }
   }, [props]);
 
+  /**
+   * Save a change to a property's own option list — a new option, a rename, a
+   * recolour, a deletion — made from the menu that sets the value.
+   *
+   * Only a database's own properties keep their options here. A built-in's
+   * come from rows somewhere else: the project's task types (edited in the
+   * type dialog, which owns their keys), its sprints, and the four fixed
+   * statuses. Those hand no editor to the value menu, so this is never called
+   * for them; the guard is so that stays true if one ever does.
+   */
+  const editOptions = useCallback((prop: PropRow, options: PropOption[]) => {
+    // The four statuses are the one built-in that can be restyled from the
+    // value menu: their ids are fixed, so all that can change is the colour,
+    // and that is a project setting rather than a property row.
+    if (prop.id === 'sys:status') {
+      if (!projectId) return;
+      const statusColors = Object.fromEntries(options.map((o) => [o.id, o.color]));
+      tasksApi.patchProject(projectId, { statusColors })
+        .then(() => onProjectChanged?.())
+        .catch(() => setError('Could not save that colour.'));
+      return;
+    }
+    if (isBuiltinProp(prop.id)) return;
+    patchProp(prop.id, { options });
+  }, [patchProp, projectId, onProjectChanged]);
+
   const deleteProp = useCallback(async (id: string) => {
     setProps((prev) => prev.filter((p) => p.id !== id));
     setTasks((prev) => prev.map((t) => {
@@ -227,7 +261,7 @@ export function useProject(projectId: string | null) {
     tasks, sprints, kinds, props, users, loading, error, setError, refresh,
     patch, create, remove, addDep, removeDep,
     createKind, patchKind, deleteKind,
-    setProp, createProp, patchProp, reorderProp, deleteProp,
+    setProp, createProp, patchProp, reorderProp, deleteProp, editOptions,
     createSprint, patchSprint, deleteSprint,
   };
 }

@@ -23,6 +23,7 @@ import {
   type PropRow,
   type SprintRow,
   type TaskKindRow,
+  type TaskPatch,
   type TaskRow,
 } from './tasksApi';
 
@@ -68,6 +69,8 @@ export function builtinProps(
   mode: ProjectMode,
   kinds: TaskKindRow[] = [],
   sprints: SprintRow[] = [],
+  /** Per-project overrides for the status chips, `{ status: colour }`. */
+  statusColors: Record<string, string> = {},
 ): PropRow[] {
   // A data database has no status, no assignee, no schedule — Backlog, Board
   // and the work half of the table are all hidden for it. Offering those as
@@ -76,7 +79,7 @@ export function builtinProps(
 
   return [
     row('status', 'Status', 'select',
-      STATUSES.map((s) => ({ id: s, label: STATUS_LABEL[s], color: STATUS_COLOR[s] ?? 'gray' })), 0),
+      STATUSES.map((s) => ({ id: s, label: STATUS_LABEL[s], color: statusColors[s] || STATUS_COLOR[s] || 'gray' })), 0),
     row('assignees', 'Assignees', 'person', [], 1),
     row('kind', 'Type', 'select',
       kinds.map((k) => ({ id: k.key, label: k.label, color: k.color })), 2),
@@ -201,4 +204,55 @@ export function defaultCardProps(
   return defaultPropIds(view, builtins, props, mode)
     .map((id) => all.find((p) => p.id === id))
     .filter((p): p is PropRow => p !== undefined);
+}
+
+/**
+ * The PATCH body that writes a built-in, or null when this id is not one that
+ * can be written through `tasks.*`.
+ *
+ * The mirror of `readBuiltin`, and the reason a cell never has to know which
+ * universe its property came from: it asks for a body, and either gets one to
+ * send to the task endpoint or is told to write the value into the `props` bag
+ * instead. Without it, "every property is editable" would mean a switch on
+ * `sys:` ids in the table, in the peek, and in the embedded database — three
+ * copies of the same mapping, two of which would eventually disagree.
+ *
+ * `sys:tags` is the deliberate null. A task's focus areas are the tags on its
+ * *page*, written through the doc endpoints against a doc id this function
+ * does not have; returning a body for it would silently write a `props` entry
+ * that nothing reads. Callers that can reach the page (the peek) render the
+ * real tag editor; the rest show the chips and leave them alone.
+ */
+export function writeBuiltin(id: string, value: unknown): TaskPatch | null {
+  const str = () => (typeof value === 'string' && value ? value : null);
+  const num = () => (typeof value === 'number' && Number.isFinite(value) ? value : null);
+  switch (id) {
+    case 'sys:status': return str() ? { status: str() as TaskRow['status'] } : null;
+    case 'sys:assignees':
+      return { assigneeIds: Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [] };
+    case 'sys:kind': return str() ? { kind: str() as string } : null;
+    case 'sys:start': return { startAt: str() };
+    case 'sys:due': return { dueAt: str() };
+    case 'sys:points': return { points: num() };
+    // Progress is a percentage with a floor, not a nullable number: clearing
+    // the box means 0% done, which is a real answer, and `null` would fail the
+    // server's range check rather than reading as "not started".
+    case 'sys:progress': return { progress: Math.max(0, Math.min(100, num() ?? 0)) };
+    case 'sys:sprint': return { sprintId: str() };
+    case 'sys:milestone': return { milestone: !!value };
+    case 'sys:attachments': return { attachments: Array.isArray(value) ? (value as TaskPatch['attachments']) : [] };
+    default: return null;
+  }
+}
+
+/**
+ * Every property a table column could hold, in the order the peek lists them.
+ *
+ * The table is the one view with somewhere to put all of them, so its default
+ * is "all of them" rather than a chosen few — a grid that silently omits Points
+ * and Sprint is the complaint this answers. `DEFAULT_CARD_PROPS` stays the
+ * shorter list for views drawing cards, where six chips is already a lot.
+ */
+export function defaultTableProps(builtins: PropRow[], props: PropRow[]): string[] {
+  return [...builtins, ...props].map((p) => p.id);
 }
