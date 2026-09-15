@@ -17,6 +17,7 @@ import { IconButton } from '../ui/IconButton';
 import { Menu } from '../ui/Menu';
 import { SegmentedControl } from '../ui/SegmentedControl';
 import { Skeleton } from '../ui/Skeleton';
+import { TooltipProvider } from '../ui/Tooltip';
 import { selectField } from '../ui/styles';
 import { Backlog } from './Backlog';
 import { Board } from './Board';
@@ -257,17 +258,26 @@ export function EmbeddedDatabase({
   );
 
   return (
+    // This block renders in its own React root (database-block.ts), so the
+    // app's providers are not above it — an IconButton here throws "Tooltip
+    // must be used within TooltipProvider" without this. Same reason the
+    // project list is fetched over REST rather than read from the store.
+    <TooltipProvider delayDuration={700} skipDelayDuration={300}>
     <KindsProvider kinds={p.kinds}>
     <div ref={root} style={breakout} className="group/db relative">
       <div className="rounded-md border border-line">
         {header ? (
           <header className="flex flex-wrap items-center gap-2 border-b border-line px-3 py-2">
             <span>{project.icon}</span>
+            {/* A floor, not just flex-1: at the page's reading measure the
+                controls are wider than the room left over, and without one
+                the name was squeezed to "We…" while they stayed whole. With
+                it they wrap to a second line and the name keeps its words. */}
             <button
               type="button"
               onClick={() => requestOpenProject(projectId)}
               title="Open this database"
-              className="min-w-0 flex-1 truncate rounded px-1 text-left text-sm font-medium text-ink hover:bg-hover"
+              className="min-w-[140px] flex-1 truncate rounded px-1 text-left text-sm font-medium text-ink hover:bg-hover"
             >
               {project.name}
             </button>
@@ -357,5 +367,6 @@ export function EmbeddedDatabase({
       )}
     </div>
     </KindsProvider>
+    </TooltipProvider>
   );
 }

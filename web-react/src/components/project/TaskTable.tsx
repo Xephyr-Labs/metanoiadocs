@@ -10,6 +10,7 @@ import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { Trash2 } from 'lucide-react';
 import type { UserRow } from '../../lib/docsApi';
 import { cn } from '../../lib/cn';
+import { isBuiltinProp } from '../../lib/builtinProps';
 import type { PropOption, PropRow, PropType, TaskPatch, TaskRow } from '../../lib/tasksApi';
 import { SegmentedControl } from '../ui/SegmentedControl';
 import { PropertyCell } from './props/PropertyCell';
@@ -163,6 +164,13 @@ export function TaskTable({
   // row grow as tall as its tallest cell. `[&_.flex-wrap]:flex-nowrap` is what
   // holds a multi-select's chips on that one line — white-space does not
   // reach flex children.
+  // Labels carried by more than one property in this view — see the header.
+  const twice = new Set(
+    props
+      .map((p) => p.label.toLowerCase())
+      .filter((label, i, all) => all.indexOf(label) !== i),
+  );
+
   const text = wrap
     ? 'whitespace-normal break-words align-top'
     : 'max-w-0 truncate align-middle [&_.flex-wrap]:flex-nowrap [&_.flex-wrap]:overflow-hidden';
@@ -187,7 +195,16 @@ export function TaskTable({
           <tr className="border-b border-line text-left text-2xs text-muted">
             <th className={cn(cell, head, 'w-[38%] min-w-[240px]')}>{rowLabel}</th>
             {props.map((p) => (
-              <th key={p.id} className={cn(cell, head)} style={{ minWidth: MIN_WIDTH[p.type] ?? 140 }}>{p.label}</th>
+              <th key={p.id} className={cn(cell, head)} style={{ minWidth: MIN_WIDTH[p.type] ?? 140 }}>
+                {p.label}
+                {/* A database may define its own "Status" beside the built-in
+                    one — two real properties holding two values. Two identical
+                    column heads is a coin flip, so say which is which, and only
+                    where the clash is real. */}
+                {twice.has(p.label.toLowerCase()) && (
+                  <span className="ml-1 font-normal text-faint">{isBuiltinProp(p.id) ? 'built-in' : 'yours'}</span>
+                )}
+              </th>
             ))}
             <th className={cn(cell, 'w-8')} />
           </tr>

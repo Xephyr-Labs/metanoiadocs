@@ -38,8 +38,11 @@ function DateValue({ value, danger, onChange }: {
   onChange: (v: string | null) => void;
 }) {
   const iso = value?.slice(0, 10) ?? '';
+  // "Sep 14", the way every other date in the app is written — a full date in
+  // a grid next to a board that says "Sep 14" reads as a different kind of
+  // value rather than the same one. The year is in the picker this opens.
   const label = iso
-    ? new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+    ? new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
     : '';
   return (
     <label
