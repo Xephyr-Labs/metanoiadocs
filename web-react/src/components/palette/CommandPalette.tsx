@@ -1,7 +1,8 @@
-import { ArrowRight, Clock, FilePlus2, History, Moon, PanelRight, Search, Settings, Share2, Sparkles, Sun } from 'lucide-react';
+import { ArrowRight, Clock, FilePlus2, History, Moon, PanelRight, Search, Settings, Share2, Sparkles, Sun, Upload } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '../../lib/cn';
 import { docsApi, type SearchRow } from '../../lib/docsApi';
+import { pickImportFiles } from '../../lib/docFiles';
 import { useWorkspace } from '../../store/workspace';
 import { DocIcon } from '../ui/DocIcon';
 import { Modal } from '../ui/Modal';
@@ -34,6 +35,17 @@ export function CommandPalette() {
 
   const commands: Item[] = useMemo(() => [
     { kind: 'command', id: 'new', title: 'Create new page', icon: FilePlus2, run: () => ws.createPage(null) },
+    // Import was reachable only from three context menus and the workspace
+    // dropdown, so the first place anyone looks for a command had no answer.
+    // The title names the formats because the palette matches on it, and
+    // "does this thing take a .docx?" is the question being asked.
+    {
+      kind: 'command',
+      id: 'import',
+      title: 'Import Markdown, Word or PDF as a new page',
+      icon: Upload,
+      run: () => { pickImportFiles().then((f) => { if (f.length) ws.importFiles(f, null); }); },
+    },
     { kind: 'command', id: 'share', title: 'Share current page', icon: Share2, run: () => ws.setShareOpen(true) },
     // Only with a page open: version history is a property of a document, and
     // an entry that silently does nothing from Home is worse than no entry.
