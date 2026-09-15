@@ -13,7 +13,9 @@ import { LazyEditor } from '../../editor/LazyEditor';
 import { field, selectField } from '../ui/styles';
 import { IconButton } from '../ui/IconButton';
 import { Menu } from '../ui/Menu';
+import { useDocLinking } from '../../hooks/useDocLinking';
 import { useMoveToFolder } from '../../hooks/useMoveToFolder';
+import { SearchSelect } from '../ui/SearchSelect';
 import { AssigneePicker } from './AssigneePicker';
 import { useKinds } from './kinds';
 import { KindBadge } from './TaskChip';
@@ -71,6 +73,10 @@ export function TaskPeek({
   // A task's page is a page like any other, so it can be filed in a folder
   // straight from here rather than being hunted down in the sidebar first.
   const moveTo = useMoveToFolder(docId);
+  // Without these the notes editor installs no link extensions at all, so
+  // every page reference in a task's notes rendered as "Deleted page" and
+  // clicked through to nothing. See useDocLinking.
+  const { pages: linkTargets, createPage: createLinkedPage } = useDocLinking();
   // Null for the moment between opening a row and its page existing.
   const page = docId ? ws.pages[docId] ?? null : null;
 
@@ -251,18 +257,15 @@ export function TaskPeek({
                   </button>
                 </div>
               ))}
-              <select
-                className={cn(selectField, 'cursor-pointer text-muted')}
-                value={depPick}
-                onChange={(e) => {
-                  if (!e.target.value) return;
-                  onAddDep(task.id, e.target.value);
-                  setDepPick('');
-                }}
-              >
-                <option value="">Add a dependency…</option>
-                {candidates.map((t) => <option key={t.id} value={t.id}>{t.title || 'Untitled'}</option>)}
-              </select>
+              {/* Searchable: a project's task list is the kind of list a
+                  native select stops working on at about thirty rows. */}
+              <SearchSelect
+                value={depPick || null}
+                placeholder="Add a dependency…"
+                empty="Nothing else in this project yet."
+                options={candidates.map((t) => ({ value: t.id, label: t.title || 'Untitled' }))}
+                onChange={(id) => { onAddDep(task.id, id); setDepPick(''); }}
+              />
             </div>
           </section>
           </>
@@ -301,19 +304,22 @@ export function TaskPeek({
         <section className="p-4">
           <span className={label}>Page</span>
           <div className="flex items-center gap-2">
-            <select
-              className={cn(selectField, 'cursor-pointer')}
-              value={docId ?? ''}
-              onChange={(e) => {
-                const next = e.target.value || null;
-                if (!next || next === docId) return;
+            <SearchSelect
+              value={docId}
+              placeholder="Pick a page…"
+              empty="No other pages to link."
+              options={[
+                ...(docId
+                  ? [{ value: docId, label: ws.pages[docId]?.title || task.title || 'This task’s page' }]
+                  : []),
+                ...linkable.map((pg) => ({ value: pg.id, label: pg.title || 'Untitled' })),
+              ]}
+              onChange={(next) => {
+                if (next === docId) return;
                 setDocId(next);
                 onPatch(task.id, { docId: next });
               }}
-            >
-              {docId && <option value={docId}>{ws.pages[docId]?.title || task.title || 'This task’s page'}</option>}
-              {linkable.map((p) => <option key={p.id} value={p.id}>{p.title || 'Untitled'}</option>)}
-            </select>
+            />
             <IconButton
               icon={<ExternalLink size={15} />}
               label="Open this page"
@@ -328,8 +334,24 @@ export function TaskPeek({
             <h3 className="mb-2 text-2xs font-semibold uppercase text-muted">Linked from</h3>
             <ul className="space-y-1">
               {detail.backlinks.map((r) => (
-                <li key={r.id} className="truncate text-sm text-ink">
-                  <span className="text-faint">{r.project_name} · </span>{r.title || 'Untitled'}
+                <li key={r.id}>
+                  {/* A list of names you cannot click is a dead end: the row
+                      that links to this one is precisely the row you now want
+                      to read. Its page if it has one, its board if it does
+                      not — a row created by an import has no page yet. */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (r.doc_id) ws.select(r.doc_id);
+                      else ws.openProject(r.project_id, r.id);
+                      onClose();
+                    }}
+                    className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-sm text-ink transition-colors hover:bg-hover"
+                  >
+                    <Link2 size={13} className="shrink-0 text-faint" />
+                    <span className="shrink-0 text-faint">{r.project_name}</span>
+                    <span className="min-w-0 flex-1 truncate">{r.title || 'Untitled'}</span>
+                  </button>
                 </li>
               ))}
             </ul>
@@ -358,6 +380,9 @@ export function TaskPeek({
               // the row in the same session hands mountEditor a stale title,
               // which would overwrite the very edit that was just typed.
               onTitle={(t) => { ws.applyTitleFromEditor(docId, t); if (t !== task.title) onPatch(task.id, { title: t }); }}
+              pages={linkTargets}
+              createPage={createLinkedPage}
+              onOpenDoc={(id) => { ws.select(id); onClose(); }}
             />
           )}
         </section>
@@ -408,16 +433,15 @@ function RelationField({ task, prop, detail, onChanged }: {
           </button>
         ))}
       </div>
-      <select
-        className={field}
-        value=""
-        onChange={(e) => e.target.value && tasksApi.addRelation(task.id, prop.id, e.target.value).then(refresh)}
-      >
-        <option value="">Link a row…</option>
-        {choices
+      <SearchSelect
+        value={null}
+        placeholder="Link a row…"
+        empty="That database has no rows yet."
+        options={choices
           .filter((c) => !linked.some((l) => l.id === c.id))
-          .map((c) => <option key={c.id} value={c.id}>{c.title || 'Untitled'}</option>)}
-      </select>
+          .map((c) => ({ value: c.id, label: c.title || 'Untitled' }))}
+        onChange={(id) => tasksApi.addRelation(task.id, prop.id, id).then(refresh)}
+      />
     </div>
   );
 }

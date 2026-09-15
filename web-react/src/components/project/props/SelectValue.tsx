@@ -5,9 +5,10 @@
  *         recolouring · empty (no options) · read-only (no editor passed)
  */
 import { createPortal } from 'react-dom';
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { Check, Palette, Plus, Trash2, X } from 'lucide-react';
 import { cn } from '../../../lib/cn';
+import { useAnchoredPopover } from '../../../hooks/useAnchoredPopover';
 import { useOutsideClick } from '../../../hooks/useOutsideClick';
 import { selectedOptions } from '../../../lib/props';
 import { swatch, TAG_COLORS, type TagColor } from '../../../lib/tagColors';
@@ -57,29 +58,11 @@ export function SelectValue({
   // Which option is showing its palette. One at a time: two open palettes in a
   // 240px menu is 18 dots and no way to tell which row you are painting.
   const [painting, setPainting] = useState<string | null>(null);
-  const anchor = useRef<HTMLButtonElement>(null);
   const pop = useRef<HTMLDivElement>(null);
-  const [box, setBox] = useState<{ top: number; left: number; width: number } | null>(null);
-
-  // Fixed, not absolute. This control lives in a table cell inside a scrolling
-  // grid; an absolutely positioned menu is clipped by that scroll box, so the
-  // options of the last visible row were unreachable.
-  useLayoutEffect(() => {
-    if (!open || !anchor.current) return;
-    const place = () => {
-      const r = anchor.current?.getBoundingClientRect();
-      if (!r) return;
-      setBox({ top: Math.min(r.bottom + 4, window.innerHeight - 40), left: r.left, width: Math.max(r.width, 240) });
-    };
-    place();
-    window.addEventListener('scroll', place, true);
-    window.addEventListener('resize', place);
-    return () => {
-      window.removeEventListener('scroll', place, true);
-      window.removeEventListener('resize', place);
-    };
-  }, [open]);
-
+  // Portalled and fixed: this control lives in a table cell inside a scrolling
+  // grid, and an absolutely positioned menu is clipped by that scroll box —
+  // which is how the options of the last visible row became unreachable.
+  const { anchor, style } = useAnchoredPopover(open);
   useOutsideClick(pop, () => setOpen(false), open);
 
   const chosen = selectedOptions(prop, value);
@@ -157,11 +140,11 @@ export function SelectValue({
         )}
       </button>
 
-      {open && box && createPortal(
+      {open && style && createPortal(
         <div
           ref={pop}
-          style={{ position: 'fixed', top: box.top, left: box.left, width: box.width }}
-          className="z-50 rounded-lg border border-line bg-canvas p-1.5 shadow-pop"
+          style={style}
+          className="z-50 flex flex-col overflow-hidden rounded-lg border border-line bg-canvas p-1.5 shadow-pop"
         >
           <input
             autoFocus
@@ -172,10 +155,10 @@ export function SelectValue({
               if (e.key === 'Escape') setOpen(false);
             }}
             placeholder={canAdd ? 'Search or create…' : 'Search…'}
-            className="mb-1 h-7 w-full rounded-md bg-surface px-2 text-xs text-ink outline-none ring-1 ring-inset ring-line placeholder:text-faint focus:ring-2 focus:ring-accent"
+            className="mb-1 h-7 w-full shrink-0 rounded-md bg-surface px-2 text-xs text-ink outline-none ring-1 ring-inset ring-line placeholder:text-faint focus:ring-2 focus:ring-accent"
           />
 
-          <div className="scrollarea max-h-[240px] overflow-y-auto">
+          <div className="scrollarea min-h-0 flex-1 overflow-y-auto">
             {matches.map((o) => (
               <div key={o.id} className="group/opt rounded-md hover:bg-hover">
                 <div className="flex items-center gap-1 px-1 py-0.5">
@@ -270,7 +253,7 @@ export function SelectValue({
             <button
               type="button"
               onClick={() => { onChange(multi ? [] : null); if (!multi) setOpen(false); }}
-              className="mt-1 flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-2xs text-faint hover:bg-hover hover:text-ink"
+              className="mt-1 flex w-full shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-2xs text-faint hover:bg-hover hover:text-ink"
             >
               <X size={12} /> Clear
             </button>

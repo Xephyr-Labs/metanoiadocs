@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { FileText, Plus } from 'lucide-react';
-import { docsApi } from '../../lib/docsApi';
 import { emitDocSaved } from '../../lib/docSignal';
 import { useAuth } from '../../store/auth';
 import { useWorkspace } from '../../store/workspace';
 import { LazyEditor } from '../../editor/LazyEditor';
+import { useDocLinking } from '../../hooks/useDocLinking';
 import { useIntelligence } from '../../hooks/useIntelligence';
 import { Button } from '../ui/Button';
 import { EmptyState } from '../ui/EmptyState';
-import { Backlinks } from './Backlinks';
+import { LinkedPages } from './LinkedPages';
 import { CommentMarkers } from './CommentMarkers';
 import { EditorBar } from './EditorBar';
 import { FramesPanel } from '../design/FramesPanel';
@@ -25,23 +25,9 @@ export function EditorArea() {
   const auth = useAuth();
   const page = ws.currentPage;
 
-  // "@" linking. `pages` is read lazily on each keystroke so a page created a
-  // moment ago is already offerable. Creating from the menu must not navigate,
-  // so it goes straight to the API rather than through ws.createPage.
-  const pagesRef = useRef(ws.pages);
-  pagesRef.current = ws.pages;
-  const linkTargets = useCallback(
-    () => Object.values(pagesRef.current).map((p) => ({ id: p.id, title: p.title, icon: p.icon })),
-    [],
-  );
-  const createLinkedPage = useCallback(
-    async (title: string) => {
-      const row = await docsApi.create({ title }).catch(() => null);
-      if (row) ws.refresh();
-      return row?.id ?? null;
-    },
-    [ws],
-  );
+  // "@" linking — the same three the task peek installs. See useDocLinking for
+  // why they travel together.
+  const { pages: linkTargets, createPage: createLinkedPage } = useDocLinking();
 
   // Bumped when the server says this document was restored: BlockSuite builds
   // its block models at mount, so a wholesale rewrite of the document needs the
@@ -186,7 +172,7 @@ export function EditorArea() {
                       positioned either way, and rendering it first put every
                       comment pip ahead of the document in the tab order. */}
                   <CommentMarkers container={markerHost} fullWidth={ws.fullWidth} />
-                  <Backlinks docId={page.id} refreshKey={refreshKey} fullWidth={ws.fullWidth} onOpen={(id) => ws.select(id)} />
+                  <LinkedPages docId={page.id} refreshKey={refreshKey} fullWidth={ws.fullWidth} onOpen={(id) => ws.select(id)} />
                 </div>
               </motion.div>
             </div>
