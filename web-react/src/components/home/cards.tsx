@@ -5,7 +5,7 @@ import { relativeTime } from '../../lib/time';
 import { avatarFor } from '../../lib/avatar';
 import type { ActivityRow, MyTask, ProjectRow } from '../../lib/tasksApi';
 import { ActorMark } from '../ui/ActorMark';
-import { useMoveToFolder } from '../../hooks/useMoveToFolder';
+import { useDocMenu } from '../../hooks/useDocMenu';
 import { IconButton } from '../ui/IconButton';
 import { Menu } from '../ui/Menu';
 
@@ -103,7 +103,7 @@ export function DocCard({ doc, onOpen }: {
 }) {
   // A menu cannot live inside the card's own <button>, so the card is a box
   // with the button filling it and the menu sitting on top in the corner.
-  const moveTo = useMoveToFolder(doc.id);
+  const menu = useDocMenu(doc.id);
   return (
     <div className="group relative h-full">
       <button
@@ -121,15 +121,13 @@ export function DocCard({ doc, onOpen }: {
           </span>
         </span>
       </button>
-      {moveTo && (
-        <span className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 transition-opacity duration-120 focus-within:opacity-100 group-hover:opacity-100">
-          <Menu
-            align="end"
-            items={[moveTo]}
-            trigger={<span><IconButton icon={<MoreHorizontal size={15} />} label={`Actions for ${doc.title || 'Untitled'}`} /></span>}
-          />
-        </span>
-      )}
+      <span className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 transition-opacity duration-120 focus-within:opacity-100 group-hover:opacity-100">
+        <Menu
+          align="end"
+          items={menu}
+          trigger={<span><IconButton icon={<MoreHorizontal size={15} />} label={`Actions for ${doc.title || 'Untitled'}`} /></span>}
+        />
+      </span>
     </div>
   );
 }

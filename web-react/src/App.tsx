@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { useEffect } from 'react';
 import { CommandPalette } from './components/palette/CommandPalette';
+import { AllDocsView } from './components/docs/AllDocsView';
 import { EditorArea } from './components/editor/EditorArea';
 import { FolderView } from './components/folder/FolderView';
 import { HistoryView } from './components/history/HistoryView';
@@ -68,6 +69,7 @@ export default function App() {
           <TopBar />
           <main className="min-h-0 flex-1">
             {ws.view === 'home' ? <Home />
+              : ws.view === 'docs' ? <AllDocsView />
               : ws.view === 'tasks' ? <TasksView />
               : ws.view === 'project' ? <ProjectView />
               : ws.view === 'folder' ? <FolderView />

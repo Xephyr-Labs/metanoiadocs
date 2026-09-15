@@ -208,6 +208,8 @@ export function TopBar() {
           </Crumb>
         ) : ws.view === 'tasks' ? (
           <Crumb current>Tasks</Crumb>
+        ) : ws.view === 'docs' ? (
+          <Crumb current>All documents</Crumb>
         ) : ws.view === 'home' ? (
           <Crumb current>Home</Crumb>
         ) : null}

@@ -3,6 +3,7 @@ import {
   CheckSquare,
   ChevronDown,
   ChevronRight,
+  Files,
   Folder,
   Home,
   Inbox,
@@ -14,6 +15,7 @@ import {
   Settings,
   Star,
   Table2,
+  Tag as TagIcon,
   Trash2,
   Upload,
 } from 'lucide-react';
@@ -27,6 +29,7 @@ import { toast } from '../../lib/toast';
 import { LogoMark } from '../brand/Logo';
 import { PageIcon } from '../ui/PageIcon';
 import { tasksApi, type ProjectMode, type ProjectRow } from '../../lib/tasksApi';
+import type { Tag } from '../../lib/types';
 import { workspaces } from '../../data/mock';
 import { templates } from '../../data/templates';
 import { useAuth } from '../../store/auth';
@@ -38,7 +41,7 @@ import { rowAction } from '../ui/styles';
 import { PageTree } from './PageTree';
 import { FolderTree } from './FolderTree';
 import { DOC_MIME, dragSource } from './rowDrag';
-import { useMoveToFolder } from '../../hooks/useMoveToFolder';
+import { useDocMenu } from '../../hooks/useDocMenu';
 
 /**
  * Only `alert` spends the accent. "You are here" is a neutral fill — where you
@@ -225,13 +228,14 @@ function ProjectRows({
   );
 }
 
-/** A row in Recent or Favorites. Draggable onto a folder like a tree row, and
- *  carrying the same "Move to" menu — a page reached from here is usually one
- *  that has no home yet, which is exactly when it needs filing. */
+/** A row in Recent, Pinned, Favorites, Designs or Public links. Draggable onto
+ *  a folder like a tree row, and carrying the same menu the tree does — these
+ *  are the pages reached most often, and they used to be the ones you could do
+ *  least with. */
 function DocRow({ id }: { id: string }) {
   const ws = useWorkspace();
   const p = ws.pages[id];
-  const moveTo = useMoveToFolder(id);
+  const menu = useDocMenu(id);
   if (!p) return null;
   return (
     <div className="group/row relative flex items-center">
@@ -245,15 +249,64 @@ function DocRow({ id }: { id: string }) {
         <span className="block h-5 min-w-0 flex-1 !self-center truncate leading-5 text-left">{p.title}</span>
         {p.favorite && <Star size={14} className="shrink-0 fill-current text-amber-400" />}
       </button>
-      {moveTo && (
-        <span className="absolute right-1 opacity-0 transition-opacity duration-120 focus-within:opacity-100 group-hover/row:opacity-100">
-          <Menu
-            align="end"
-            items={[moveTo]}
-            trigger={<button type="button" className={rowAction} aria-label={`Actions for ${p.title}`}><MoreHorizontal size={14} /></button>}
-          />
-        </span>
-      )}
+      <span className="absolute right-1 opacity-0 transition-opacity duration-120 focus-within:opacity-100 group-hover/row:opacity-100">
+        <Menu
+          align="end"
+          items={menu}
+          trigger={<button type="button" onClick={(e) => e.stopPropagation()} className={rowAction} aria-label={`Actions for ${p.title}`}><MoreHorizontal size={14} /></button>}
+        />
+      </span>
+    </div>
+  );
+}
+
+/**
+ * A tag in the rail.
+ *
+ * The menu exists for one row: a tag could be taken off a page but never
+ * removed from the workspace, so one made by a typo stayed in the sidebar and
+ * in every picker for good. Deleting is admin-only server-side, so the refusal
+ * is reported rather than swallowed — a row that appears to do nothing is
+ * worse than one that says why.
+ */
+function TagRow({ tag }: { tag: Tag }) {
+  const ws = useWorkspace();
+  return (
+    <div className="group/row relative flex items-center">
+      <button
+        type="button"
+        onClick={() => ws.setTagFilter([tag.id])}
+        className="flex h-7 w-full items-center gap-2 rounded-md px-2 pr-7 text-sm leading-5 text-ink transition-colors duration-120 hover:bg-hover"
+      >
+        <span className={cn('h-2.5 w-2.5 shrink-0 rounded-full', swatch(tag.color).dot)} />
+        <span className="block h-5 min-w-0 flex-1 !self-center truncate leading-5 text-left">{tag.name}</span>
+        {tag.count ? <span className="text-2xs text-faint">{tag.count}</span> : null}
+      </button>
+      <span className="absolute right-1 opacity-0 transition-opacity duration-120 focus-within:opacity-100 group-hover/row:opacity-100">
+        <Menu
+          align="end"
+          trigger={<button type="button" className={rowAction} aria-label={`Actions for ${tag.name}`}><MoreHorizontal size={14} /></button>}
+          items={[
+            { icon: TagIcon, label: 'Show pages', onSelect: () => ws.setTagFilter([tag.id]) },
+            {
+              icon: Trash2,
+              label: 'Delete tag',
+              danger: true,
+              separatorBefore: true,
+              onSelect: () => {
+                // Count first: "on 14 pages" is the only thing that makes this
+                // a decision rather than a reflex, and the tag is gone from all
+                // of them at once.
+                const where = tag.count ? ` It is on ${tag.count} page${tag.count === 1 ? '' : 's'}.` : '';
+                if (!window.confirm(`Delete the tag "${tag.name}"?${where}`)) return;
+                ws.deleteTag(tag.id).then((err) => {
+                  toast(err ?? `Deleted the tag ${tag.name}.`);
+                });
+              },
+            },
+          ]}
+        />
+      </span>
     </div>
   );
 }
@@ -429,6 +482,9 @@ export function Sidebar() {
           ) : undefined}
         />
         <NavItem icon={<CheckSquare size={16} />} label="Tasks" active={ws.view === 'tasks'} onClick={ws.openTasks} />
+        {/* The tree below only draws a page once it has been filed somewhere,
+            so the ones easiest to lose are the ones it never shows. */}
+        <NavItem icon={<Files size={16} />} label="All documents" active={ws.view === 'docs'} onClick={ws.openAllDocs} />
         <NavItem icon={<Settings size={16} />} label="Settings" onClick={() => ws.setSettingsOpen(true)} />
       </div>
 
@@ -569,18 +625,7 @@ export function Sidebar() {
           <section className="mb-5">
             <SectionLabel>Tags</SectionLabel>
             <div className="space-y-px">
-              {ws.allTags.map((t) => (
-                <button
-                  key={t.id}
-                  type="button"
-                  onClick={() => ws.setTagFilter([t.id])}
-                  className="flex h-7 w-full items-center gap-2 rounded-md px-2 text-sm leading-5 text-ink transition-colors duration-120 hover:bg-hover"
-                >
-                  <span className={cn('h-2.5 w-2.5 shrink-0 rounded-full', swatch(t.color).dot)} />
-                  <span className="block h-5 min-w-0 flex-1 !self-center truncate leading-5 text-left">{t.name}</span>
-                  {t.count ? <span className="text-2xs text-faint">{t.count}</span> : null}
-                </button>
-              ))}
+              {ws.allTags.map((t) => <TagRow key={t.id} tag={t} />)}
             </div>
           </section>
         )}

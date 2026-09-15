@@ -25,7 +25,7 @@ import type { EditorMode, Folder, Page, PageId, Tag } from '../lib/types';
 export type RightTab = 'intel' | 'comments' | 'outline' | 'details' | 'ai';
 
 /** Which surface fills the main column. Cheaper than a router for five screens. */
-export type View = 'home' | 'doc' | 'project' | 'folder' | 'tasks';
+export type View = 'home' | 'doc' | 'project' | 'folder' | 'tasks' | 'docs';
 
 interface WorkspaceState {
   view: View;
@@ -34,6 +34,8 @@ interface WorkspaceState {
   openHome: () => void;
   /** Every project's work in one filterable list. */
   openTasks: () => void;
+  /** Every page in one list — the way back to one nobody filed. */
+  openAllDocs: () => void;
   /** `taskId` opens that task's panel once the board is up — how a page gets
    *  back to the task it belongs to. */
   openProject: (id: string, taskId?: string) => void;
@@ -132,6 +134,9 @@ interface WorkspaceState {
   refreshTags: () => Promise<void>;
   addTagToPage: (id: PageId, body: { tagId?: string; name?: string; color?: string }) => Promise<void>;
   removeTagFromPage: (id: PageId, tagId: string) => Promise<void>;
+  /** Destroy a tag everywhere. Admin-only server-side; resolves to the error
+   *  text when it is refused, so the caller can say why. */
+  deleteTag: (tagId: string) => Promise<string | null>;
   setTagFilter: (tagIds: string[]) => void;
 
   setSidebarCollapsed: (v: boolean) => void;
@@ -390,6 +395,14 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setMobileDrawer(false);
     // No address of its own, like a project — what matters is that the bar
     // stops claiming a document is open.
+    showHome();
+  }, []);
+
+  const openAllDocs = useCallback(() => {
+    setView('docs');
+    setMobileDrawer(false);
+    // No address of its own, like Tasks and a project — what matters is that
+    // the bar stops claiming a document is open.
     showHome();
   }, []);
 
@@ -876,6 +889,26 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     refreshTags();
   }, [refresh, refreshTags]);
 
+  /**
+   * Remove a tag from the workspace, not just from a page.
+   *
+   * There was no way to do this at all: a tag made by a typo stayed in the
+   * sidebar and in every picker for good, and taking it off each page one at a
+   * time left the tag itself behind. The rows on `doc_tags` cascade, so the
+   * pages lose it as a side effect — which is why this re-reads them rather
+   * than trying to patch the cache by hand.
+   */
+  const deleteTag = useCallback(async (tagId: string) => {
+    try {
+      await docsApi.deleteTag(tagId);
+    } catch (e) {
+      return e instanceof Error ? e.message : 'Could not delete that tag.';
+    }
+    setTagFilter((cur) => cur.filter((x) => x !== tagId));
+    await Promise.all([refreshTags(), refresh()]);
+    return null;
+  }, [refresh, refreshTags]);
+
   const deletePage = useCallback((id: PageId) => {
     const snapshot = pagesRef.current;
     if (!snapshot[id]) return;
@@ -985,12 +1018,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       pinnedIds, pinnedFolderIds, togglePin, toggleFolderPin,
       currentId, currentPage, loading, error, workspaceId,
       historyDocId, openHistory, closeHistory,
-      view, activeProjectId, activeFolderId, openHome, openTasks, openProject, pendingTaskId, clearPendingTask, openFolder, projects, refreshProjects,
+      view, activeProjectId, activeFolderId, openHome, openTasks, openAllDocs, openProject, pendingTaskId, clearPendingTask, openFolder, projects, refreshProjects,
       sidebarCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
       settingsOpen, trashOpen, inboxOpen, mode, fullWidth, theme,
       refresh, select, toggleExpand, toggleFavorite, toggleFolderFavorite, setVisibility, rename, applyTitleFromEditor,
       createPage, createDesign, movePage, createChildPage, reorderPage, linkPage, reorderFolder, moveFolder, createFolder, renameFolder, setFolderColor, setIcon, toggleFolder, deleteFolder, createFromTemplate, importFiles, deletePage, restorePage,
-      refreshTags, addTagToPage, removeTagFromPage, setTagFilter,
+      refreshTags, addTagToPage, removeTagFromPage, deleteTag, setTagFilter,
       setSidebarCollapsed, setSidebarWidth, setMobileDrawer, setRightPanel, setPaletteOpen,
       setShareOpen, setSettingsOpen, setTrashOpen, setInboxOpen, setMode, setFullWidth, toggleTheme,
     }),
@@ -1001,12 +1034,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       pinnedIds, pinnedFolderIds, togglePin, toggleFolderPin,
       currentId, currentPage, loading, error, workspaceId,
       historyDocId, openHistory, closeHistory,
-      view, activeProjectId, activeFolderId, openHome, openTasks, openProject, pendingTaskId, clearPendingTask, openFolder, projects, refreshProjects,
+      view, activeProjectId, activeFolderId, openHome, openTasks, openAllDocs, openProject, pendingTaskId, clearPendingTask, openFolder, projects, refreshProjects,
       sidebarCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
       settingsOpen, trashOpen, inboxOpen, mode, fullWidth, theme,
       refresh, select, toggleExpand, toggleFavorite, toggleFolderFavorite, setVisibility, rename, applyTitleFromEditor,
       createPage, createDesign, movePage, createChildPage, reorderPage, linkPage, reorderFolder, moveFolder, createFolder, renameFolder, setFolderColor, setIcon, toggleFolder, deleteFolder, createFromTemplate, importFiles, deletePage, restorePage,
-      refreshTags, addTagToPage, removeTagFromPage, toggleTheme,
+      refreshTags, addTagToPage, removeTagFromPage, deleteTag, toggleTheme,
     ],
   );
 

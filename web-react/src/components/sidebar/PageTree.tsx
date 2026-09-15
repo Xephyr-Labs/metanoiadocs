@@ -1,9 +1,8 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { ChevronRight, Copy, Download, FileText, FileType, Link2, MoreHorizontal, Plus, Printer, Star, Trash2 } from 'lucide-react';
+import { ChevronRight, MoreHorizontal, Plus } from 'lucide-react';
 import { useState } from 'react';
 import { cn } from '../../lib/cn';
-import { downloadDocx, downloadMarkdown, printDoc } from '../../lib/docFiles';
-import { docUrl } from '../../lib/route';
+import { useDocMenu } from '../../hooks/useDocMenu';
 import { requestTitleFocus } from '../../lib/titleFocus';
 import type { PageId } from '../../lib/types';
 import { useWorkspace } from '../../store/workspace';
@@ -11,12 +10,12 @@ import { DocIcon } from '../ui/DocIcon';
 import { Menu } from '../ui/Menu';
 import { rowAction } from '../ui/styles';
 import { DOC_MIME, dragSource, useRowDrop } from './rowDrag';
-import { copyLink } from '../../lib/clipboard';
 
 function Row({ id, depth }: { id: PageId; depth: number }) {
   const ws = useWorkspace();
   const page = ws.pages[id];
   const [hover, setHover] = useState(false);
+  const menu = useDocMenu(id);
   // Same gesture as the folder tree: the outer quarters place this page above or
   // below its neighbour, the middle nests it under them.
   const drop = useRowDrop({
@@ -30,7 +29,6 @@ function Row({ id, depth }: { id: PageId; depth: number }) {
   if (!page) return null;
   const selected = ws.currentId === id;
   const hasChildren = page.children.length > 0;
-  const fav = ws.favoriteIds.includes(id);
 
   return (
     <>
@@ -123,22 +121,7 @@ function Row({ id, depth }: { id: PageId; depth: number }) {
                 <MoreHorizontal size={16} />
               </button>
             }
-            items={[
-              { icon: Star, label: fav ? 'Remove from Favorites' : 'Add to Favorites', onSelect: () => ws.toggleFavorite(id) },
-              { icon: Link2, label: 'Copy link', onSelect: () => { copyLink(docUrl(id)); } },
-              { icon: Copy, label: 'Duplicate' },
-              { icon: FileText, label: 'Rename', onSelect: () => { requestTitleFocus(id); ws.select(id); } },
-              {
-                icon: Download,
-                label: 'Export',
-                items: [
-                  { icon: FileType, label: 'Word (.docx)', onSelect: () => downloadDocx(id) },
-                  { icon: FileText, label: 'Markdown (.md)', onSelect: () => downloadMarkdown(id) },
-                  { icon: Printer, label: 'PDF', onSelect: () => printDoc(id) },
-                ],
-              },
-              { icon: Trash2, label: 'Delete', danger: true, separatorBefore: true, onSelect: () => ws.deletePage(id) },
-            ]}
+            items={menu}
           />
           <button
             type="button"
