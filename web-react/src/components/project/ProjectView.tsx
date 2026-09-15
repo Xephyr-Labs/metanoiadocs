@@ -299,6 +299,9 @@ export function ProjectView() {
             onDelete={(id) => { p.remove(id); ws.refreshProjects(); }}
             onSetProp={p.setProp}
             onEditOptions={p.editOptions}
+            // A focus area is a tag on the task's page, so both the task list
+            // and the workspace's tag counts have to be re-read.
+            onTagsChanged={() => { p.refresh(); ws.refreshTags(); }}
           />
         ) : tab === 'gantt' ? (
           <Gantt tasks={visible} cardProps={viewProps.visible} users={p.users} onOpen={setOpen} />

@@ -1,4 +1,4 @@
-import { Download, ExternalLink, FileText, FileType, Link2, Printer, Star, Trash2 } from 'lucide-react';
+import { Download, ExternalLink, FileText, FileType, Link2, Pin, Printer, Star, Trash2 } from 'lucide-react';
 import type { MenuItem } from '../components/ui/Menu';
 import { copyLink } from '../lib/clipboard';
 import { downloadDocx, downloadMarkdown, printDoc } from '../lib/docFiles';
@@ -21,12 +21,25 @@ import { useMoveToFolder } from './useMoveToFolder';
  * `onOpenNewTab` is a plain link, not a router call: a second tab is the whole
  * point, and `/d/<id>` is a real address the app restores on load.
  */
-export function useDocMenu(id: PageId, { onRename }: { onRename?: () => void } = {}): MenuItem[] {
+export function useDocMenu(
+  id: PageId,
+  {
+    onRename,
+    extra,
+  }: {
+    onRename?: () => void;
+    /** Rows that only make sense where this menu is being drawn — "Add a page
+     *  inside" belongs to the tree, not to a card on Home. They sit after the
+     *  navigation rows so the shared ones keep the same order everywhere. */
+    extra?: MenuItem[];
+  } = {},
+): MenuItem[] {
   const ws = useWorkspace();
   const moveTo = useMoveToFolder(id);
   // A card on Home can name a document the page store has not cached. Every
   // action here addresses the document by id, so they all still work; the
-  // favourite toggle simply reads as "add", which is the safe way round.
+  // favourite and pin toggles simply read as "add", which is the safe way round.
+  const page = ws.pages[id] ?? null;
   const fav = ws.favoriteIds.includes(id);
 
   const rename = onRename ?? (() => { requestTitleFocus(id); ws.select(id); });
@@ -38,11 +51,20 @@ export function useDocMenu(id: PageId, { onRename }: { onRename?: () => void } =
       onSelect: () => { window.open(docUrl(id), '_blank', 'noopener,noreferrer'); },
     },
     { icon: Link2, label: 'Copy link', onSelect: () => { copyLink(docUrl(id)); } },
+    ...(extra ?? []),
     {
       icon: Star,
       label: fav ? 'Remove from Favorites' : 'Add to Favorites',
       separatorBefore: true,
       onSelect: () => ws.toggleFavorite(id),
+    },
+    // Favorites are yours; a pin is the whole team's. It lived only in the
+    // folder tree, which meant the one place a page is pinned from was the one
+    // place you had already found it.
+    {
+      icon: Pin,
+      label: page?.pinned ? 'Unpin for everyone' : 'Pin for everyone',
+      onSelect: () => ws.togglePin(id),
     },
     { icon: FileText, label: 'Rename', onSelect: rename },
     ...(moveTo ? [moveTo] : []),

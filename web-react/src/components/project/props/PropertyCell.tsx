@@ -3,12 +3,11 @@
  * pre-emit critique: P5 H5 E4 S5 R5 V4
  * states: default · hover · focus-visible · empty · read-only (tags, relation)
  */
-import { cn } from '../../../lib/cn';
 import type { UserRow } from '../../../lib/docsApi';
 import { isBuiltinProp, readBuiltin, writeBuiltin } from '../../../lib/builtinProps';
-import { swatch } from '../../../lib/tagColors';
 import type { PropOption, PropRow, TaskPatch, TaskRow } from '../../../lib/tasksApi';
 import { AssigneePicker } from '../AssigneePicker';
+import { TagsCell } from './TagsCell';
 import { isOverdue } from '../TaskBadges';
 import { PropertyValue } from './PropertyValue';
 
@@ -35,6 +34,7 @@ export function PropertyCell({
   onSetProp,
   onEditOptions,
   onOpenRow,
+  onTagsChanged,
 }: {
   prop: PropRow;
   task: TaskRow;
@@ -45,6 +45,9 @@ export function PropertyCell({
   onEditOptions?: (prop: PropRow, options: PropOption[]) => void;
   /** Relations are edited on the row itself — this opens it. */
   onOpenRow?: () => void;
+  /** Re-read the row after its page tags change. Omit to leave Focus area
+   *  read-only. */
+  onTagsChanged?: () => void;
 }) {
   const builtin = isBuiltinProp(prop.id);
   const value = builtin ? readBuiltin(task, prop.id) : task.props?.[prop.id] ?? null;
@@ -75,19 +78,13 @@ export function PropertyCell({
   }
 
   // Focus areas are the tags on the task's *page*, not a task column — see
-  // writeBuiltin. Shown, because they are worth scanning; not edited here,
-  // because the write needs a doc id this cell does not have. The peek, which
-  // does, draws the real tag editor.
+  // writeBuiltin — so they get their own cell, which resolves the doc id
+  // (minting the page if the row has never been opened) and writes through the
+  // doc endpoints. Without `onTagsChanged` it stays the read-only chip list:
+  // the caller's cached row would otherwise keep showing the old tags after a
+  // write, which reads as the click having failed.
   if (prop.id === 'sys:tags') {
-    const tags = Array.isArray(value) ? (value as string[]) : [];
-    if (!tags.length) return <span className="px-1 text-sm text-faint">—</span>;
-    return (
-      <span className="flex flex-wrap items-center gap-1" title="Focus areas are edited on the task’s page">
-        {tags.map((t) => (
-          <span key={t} className={cn('truncate rounded px-1.5 py-0.5 text-2xs', swatch('gray').chip)}>{t}</span>
-        ))}
-      </span>
-    );
+    return <TagsCell task={task} onChanged={onTagsChanged} />;
   }
 
   if (prop.type === 'relation') {

@@ -4,20 +4,23 @@
  * success (link copied) · empty (nothing filed here yet)
  */
 import { motion } from 'framer-motion';
-import { AlertCircle, Check, ChevronRight, Folder, FolderOpen, FolderPlus, Link2, Plus, Star, Upload } from 'lucide-react';
+import { AlertCircle, Check, ChevronRight, Folder, FolderOpen, FolderPlus, Link2, MoreHorizontal, Plus, Star, Upload } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { useDocMenu } from '../../hooks/useDocMenu';
 import { folderChain } from '../../lib/folderPath';
 import { folderTint } from '../../lib/tagColors';
 import { pickImportFiles } from '../../lib/docFiles';
 import { folderUrl } from '../../lib/route';
 import { copyText } from '../../lib/clipboard';
 import { relativeTime } from '../../lib/time';
+import type { PageId } from '../../lib/types';
 import { cn } from '../../lib/cn';
 import { useWorkspace } from '../../store/workspace';
 import { Button } from '../ui/Button';
 import { DocIcon } from '../ui/DocIcon';
 import { EmptyState } from '../ui/EmptyState';
 import { IconButton } from '../ui/IconButton';
+import { Menu, type MenuItem } from '../ui/Menu';
 
 /** "4 folders · 12 pages", with the halves that are zero left out entirely. */
 function countLine(folders: number, pages: number): string {
@@ -27,18 +30,56 @@ function countLine(folders: number, pages: number): string {
   return parts.join(' · ') || 'Empty';
 }
 
-function Row({ icon, name, meta, onOpen }: { icon: React.ReactNode; name: string; meta: string; onOpen: () => void }) {
+function Row({ icon, name, meta, onOpen, actions }: {
+  icon: React.ReactNode;
+  name: string;
+  meta: string;
+  onOpen: () => void;
+  /** A document's menu. Folders get none — the sidebar owns those. */
+  actions?: MenuItem[];
+}) {
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className="group flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-left transition-colors duration-120 hover:bg-hover"
-    >
-      {icon}
-      <span className="min-w-0 flex-1 truncate text-base text-ink">{name}</span>
-      <span className="shrink-0 text-2xs text-faint">{meta}</span>
-      <ChevronRight size={14} className="shrink-0 text-faint opacity-0 transition-opacity duration-120 group-hover:opacity-100" />
-    </button>
+    // A menu cannot live inside the row's own <button>, so the row is a box
+    // with the button filling it and the menu sitting on top at the end.
+    <div className="group relative flex items-center">
+      <button
+        type="button"
+        onClick={onOpen}
+        className="flex w-full items-center gap-2.5 rounded-md px-2 py-2 pr-9 text-left transition-colors duration-120 hover:bg-hover"
+      >
+        {icon}
+        <span className="min-w-0 flex-1 truncate text-base text-ink">{name}</span>
+        <span className="shrink-0 text-2xs text-faint">{meta}</span>
+        <ChevronRight size={14} className="shrink-0 text-faint opacity-0 transition-opacity duration-120 group-hover:opacity-100" />
+      </button>
+      {actions && (
+        <span className="absolute right-1.5 opacity-0 transition-opacity duration-120 focus-within:opacity-100 group-hover:opacity-100">
+          <Menu
+            align="end"
+            items={actions}
+            trigger={<span><IconButton icon={<MoreHorizontal size={15} />} label={`Actions for ${name}`} /></span>}
+          />
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** A page in the folder listing, carrying the same menu every other document
+ *  row does. The hook is a hook, so the row has to be its own component. */
+function PageRow({ id }: { id: PageId }) {
+  const ws = useWorkspace();
+  const page = ws.pages[id];
+  const menu = useDocMenu(id);
+  if (!page) return null;
+  return (
+    <Row
+      icon={<DocIcon hasChildren={page.children.length > 0} size={16} />}
+      name={page.title || 'Untitled'}
+      meta={relativeTime(page.updatedAt)}
+      onOpen={() => ws.select(id)}
+      actions={menu}
+    />
   );
 }
 
@@ -177,15 +218,7 @@ export function FolderView() {
                   onOpen={() => ws.openFolder(f.id)}
                 />
               ))}
-              {pages.map((p) => (
-                <Row
-                  key={p.id}
-                  icon={<DocIcon hasChildren={p.children.length > 0} size={16} />}
-                  name={p.title || 'Untitled'}
-                  meta={relativeTime(p.updatedAt)}
-                  onOpen={() => ws.select(p.id)}
-                />
-              ))}
+              {pages.map((p) => <PageRow key={p.id} id={p.id} />)}
             </>
           )}
         </div>

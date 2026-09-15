@@ -1,10 +1,10 @@
-import { ChevronRight, Download, FilePlus, FileText, FileType, Folder, FolderOpen, Link2, MoreHorizontal, Pin, Plus, Printer, Star, Trash2, Upload } from 'lucide-react';
+import { ChevronRight, FilePlus, FileText, Folder, FolderOpen, Link2, MoreHorizontal, Pin, Plus, Star, Trash2, Upload } from 'lucide-react';
 import { useState } from 'react';
 import { DOC_MIME, FOLDER_MIME, dragSource, useRowDrop } from './rowDrag';
 import { cn } from '../../lib/cn';
-import { docUrl, folderUrl } from '../../lib/route';
+import { folderUrl } from '../../lib/route';
 import { copyLink } from '../../lib/clipboard';
-import { downloadDocx, downloadMarkdown, pickImportFiles, printDoc } from '../../lib/docFiles';
+import { pickImportFiles } from '../../lib/docFiles';
 import { TAG_COLORS, folderTint, swatch } from '../../lib/tagColors';
 import type { PageId } from '../../lib/types';
 import { useWorkspace } from '../../store/workspace';
@@ -12,7 +12,7 @@ import { PageIcon } from '../ui/PageIcon';
 import { Menu } from '../ui/Menu';
 import { RowInput } from '../ui/RowInput';
 import { requestTitleFocus } from '../../lib/titleFocus';
-import { useMoveToFolder } from '../../hooks/useMoveToFolder';
+import { useDocMenu } from '../../hooks/useDocMenu';
 import { rowAction } from '../ui/styles';
 
 const ColorDot = (color: string) =>
@@ -41,10 +41,20 @@ function DocumentRow({ id, depth }: { id: PageId; depth: number }) {
       else ws.reorderPage(draggedId, id, zone);
     },
   });
-  const moveTo = useMoveToFolder(id);
+  // The same list every other document row draws — this one had grown its own,
+  // which is why the sidebar's folder-filed pages were the last place without
+  // "Open in a new tab". Only the two rows that are genuinely about the tree
+  // stay local to it.
+  const menu = useDocMenu(id, {
+    extra: [
+      { icon: FileText, label: 'Open', onSelect: () => ws.select(id) },
+      // Creating it opens it, and the parent's arrow appears with the
+      // reference the server just wrote into its body.
+      { icon: FilePlus, label: 'Add a page inside', onSelect: () => { ws.createChildPage(id); } },
+    ],
+  });
   if (!page) return null;
   const selected = ws.currentId === id;
-  const fav = ws.favoriteIds.includes(id);
   // Children are in the store already — a nested page left the top level to be
   // here, so opening this row costs no round trip. Expansion lives in the store
   // too, which is what lets a drop open its new parent.
@@ -102,31 +112,7 @@ function DocumentRow({ id, depth }: { id: PageId; depth: number }) {
       <span className={cn('flex shrink-0 items-center gap-0.5 transition-opacity', hover ? 'opacity-100' : 'opacity-0')}>
         <Menu
           trigger={<button type="button" onClick={(e) => e.stopPropagation()} className={rowAction} aria-label="Document actions"><MoreHorizontal size={16} /></button>}
-          items={[
-            { icon: Star, label: fav ? 'Remove from Favorites' : 'Add to Favorites', onSelect: () => ws.toggleFavorite(id) },
-            // Favorites are yours; a pin is the whole team's.
-            { icon: Pin, label: page.pinned ? 'Unpin for everyone' : 'Pin for everyone', onSelect: () => ws.togglePin(id) },
-            { icon: FileText, label: 'Open', onSelect: () => ws.select(id) },
-            // Creating it opens it, and the parent's arrow appears with the
-            // reference the server just wrote into its body.
-            {
-              icon: FilePlus,
-              label: 'Add a page inside',
-              onSelect: () => { ws.createChildPage(id); },
-            },
-            { icon: Link2, label: 'Copy link', onSelect: () => { copyLink(docUrl(id)); } },
-            {
-              icon: Download,
-              label: 'Export',
-              items: [
-                { icon: FileType, label: 'Word (.docx)', onSelect: () => downloadDocx(id) },
-                { icon: FileText, label: 'Markdown (.md)', onSelect: () => downloadMarkdown(id) },
-                { icon: Printer, label: 'PDF', onSelect: () => printDoc(id) },
-              ],
-            },
-            ...(moveTo ? [{ ...moveTo, separatorBefore: true }] : []),
-            { icon: Trash2, label: 'Delete', danger: true, separatorBefore: true, onSelect: () => ws.deletePage(id) },
-          ]}
+          items={menu}
         />
       </span>
     </div>
