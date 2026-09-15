@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../../../lib/cn';
 import { useOutsideClick } from '../../../hooks/useOutsideClick';
+import { isBuiltinProp } from '../../../lib/builtinProps';
 import type { PropRow, PropType } from '../../../lib/tasksApi';
 
 /** The type's icon, so a list of names is scannable by shape as well as text. */
@@ -76,6 +77,20 @@ export function PropertyVisibility({
   const shown = visible.filter(match);
   const off = hidden.filter(match);
 
+  // A database can define its own "Status" beside the built-in one — they are
+  // genuinely two properties holding two values, so neither can be hidden or
+  // renamed away. But two identical rows in a list of toggles is a coin flip.
+  // Mark them only where the clash is real: adding "Built-in" to all eleven
+  // would be noise on rows nothing is competing with.
+  const seen = new Set<string>();
+  const twice = new Set<string>();
+  for (const p of [...visible, ...hidden]) {
+    const key = p.label.toLowerCase();
+    if (seen.has(key)) twice.add(key);
+    seen.add(key);
+  }
+  const ambiguous = (p: PropRow) => twice.has(p.label.toLowerCase());
+
   return (
     <div ref={box} className="relative shrink-0">
       <button
@@ -113,6 +128,7 @@ export function PropertyVisibility({
                 key={p.id}
                 prop={p}
                 shown
+                ambiguous={ambiguous(p)}
                 canUp={i > 0}
                 canDown={i < shown.length - 1}
                 onMove={onMove}
@@ -127,7 +143,7 @@ export function PropertyVisibility({
             empty="Everything is shown."
             rows={off}
           >
-            {(p) => <Row key={p.id} prop={p} shown={false} onToggle={onToggle} />}
+            {(p) => <Row key={p.id} prop={p} shown={false} ambiguous={ambiguous(p)} onToggle={onToggle} />}
           </Section>
         </div>
       )}
@@ -170,6 +186,7 @@ function Section({
 function Row({
   prop,
   shown,
+  ambiguous,
   canUp,
   canDown,
   onMove,
@@ -177,6 +194,8 @@ function Row({
 }: {
   prop: PropRow;
   shown: boolean;
+  /** Another property in this list carries the same label. */
+  ambiguous?: boolean;
   canUp?: boolean;
   canDown?: boolean;
   onMove?: (id: string, by: -1 | 1) => void;
@@ -212,7 +231,14 @@ function Row({
         <span className="w-4 shrink-0" />
       )}
       <Icon size={13} className="shrink-0 text-faint" />
-      <span className="min-w-0 flex-1 truncate text-xs text-ink">{prop.label}</span>
+      <span className="min-w-0 flex-1 truncate text-xs text-ink">
+        {prop.label}
+        {ambiguous && (
+          <span className="ml-1.5 text-2xs text-faint">
+            {isBuiltinProp(prop.id) ? 'built-in' : 'yours'}
+          </span>
+        )}
+      </span>
       <button
         type="button"
         onClick={() => onToggle(prop.id)}

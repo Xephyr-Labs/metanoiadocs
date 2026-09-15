@@ -356,7 +356,7 @@ function Week({
       <div
         ref={grid}
         style={{ minHeight: MIN_WEEK, gridTemplateRows: `auto repeat(${lanes}, min-content)` }}
-        className="pointer-events-none relative grid grid-cols-7 gap-x-1 gap-y-1 px-1 pb-2"
+        className="pointer-events-none relative grid grid-cols-7 gap-x-1 gap-y-1.5 px-1 pb-2"
       >
         {week.map((iso, i) => {
           const inMonth = new Date(toUTC(iso)).getUTCMonth() === month;
@@ -474,11 +474,11 @@ function Card({
           onOpen(t);
         }}
         title={t.title || 'Untitled'}
-        className="flex w-full min-w-0 cursor-pointer flex-col items-start gap-1 px-1.5 py-1 text-left"
+        className="flex w-full min-w-0 cursor-pointer flex-col items-start gap-1 px-2 py-1.5 text-left"
       >
         <span
           className={cn(
-            'w-full truncate text-2xs font-medium',
+            'w-full truncate text-2xs font-semibold',
             done ? 'text-muted line-through' : overdue ? 'text-danger' : 'text-ink',
           )}
         >
