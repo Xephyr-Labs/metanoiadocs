@@ -1,20 +1,31 @@
 import { useState } from 'react';
 import { Plus } from 'lucide-react';
 import { cn } from '../../lib/cn';
-import { STATUSES, STATUS_LABEL, type TaskRow, type TaskStatus, type PropRow } from '../../lib/tasksApi';
+import type { TaskRow, TaskStatus, PropRow } from '../../lib/tasksApi';
+import type { BoardGroup } from '../../lib/grouping';
 import type { UserRow } from '../../lib/docsApi';
 import { TaskChip } from './TaskChip';
 
 interface Props {
   tasks: TaskRow[];
+  /**
+   * The columns, in order, and which task belongs in which. Passed in rather
+   * than derived here: the board used to map over the four statuses, so it
+   * could only ever be a status board. `groupOf` is the caller's because only
+   * it knows what the view is grouped by.
+   */
+  groups: BoardGroup[];
+  groupOf: (task: TaskRow) => string;
   /** Custom properties to show on each card, ordered by the view's settings.
    *  Absent where there is no per-view setting to read — a database embedded
    *  in a page has no toolbar to configure one. */
   cardProps?: PropRow[];
   users?: UserRow[];
-  onMove: (id: string, status: TaskStatus, position: number) => void;
+  /** `value` is the column's, whatever the board is grouped by — the caller
+   *  turns it back into a status, an assignee or a property write. */
+  onMove: (id: string, value: string, position: number) => void;
   onOpen: (t: TaskRow) => void;
-  onAdd: (status: TaskStatus) => void;
+  onAdd: (value: string) => void;
 }
 
 /** One dot per column, so the four headers are told apart before they are read.
@@ -32,48 +43,49 @@ export const DOT: Record<TaskStatus, string> = {
  * columns are drop targets and a card carries its own id, which is all this
  * needs.
  */
-export function Board({ tasks, cardProps, users, onMove, onOpen, onAdd }: Props) {
-  const [over, setOver] = useState<TaskStatus | null>(null);
+export function Board({ tasks, groups, groupOf, cardProps, users, onMove, onOpen, onAdd }: Props) {
+  const [over, setOver] = useState<string | null>(null);
 
   return (
     <div className="scrollarea flex h-full gap-3 overflow-x-auto p-4">
-      {STATUSES.map((status) => {
-        const column = tasks
-          .filter((t) => t.status === status)
-          .sort((a, b) => a.position - b.position);
+      {groups.map((group) => {
+        // Only the ungrouped board keeps the manual order a drag writes; any
+        // other grouping has no position of its own, so the list arrives
+        // already sorted by the view and is left as it is.
+        const column = tasks.filter((t) => groupOf(t) === group.value);
         return (
           <div
-            key={status}
-            onDragOver={(e) => { e.preventDefault(); setOver(status); }}
-            onDragLeave={() => setOver((s) => (s === status ? null : s))}
+            key={group.value}
+            onDragOver={(e) => { e.preventDefault(); setOver(group.value); }}
+            onDragLeave={() => setOver((s) => (s === group.value ? null : s))}
             onDrop={(e) => {
               e.preventDefault();
               setOver(null);
               const id = e.dataTransfer.getData('text/task-id');
               if (!id) return;
               const last = column[column.length - 1];
-              onMove(id, status, (last ? last.position : 0) + 1);
+              onMove(id, group.value, (last ? last.position : 0) + 1);
             }}
             className={cn(
               'flex w-[280px] shrink-0 flex-col rounded-lg bg-surface p-2 transition-colors duration-120',
-              over === status && 'ring-2 ring-inset ring-accent',
+              over === group.value && 'ring-2 ring-inset ring-accent',
             )}
           >
             <header className="flex h-8 items-center justify-between px-1.5">
               {/* Set like a section label, not like a heading: four of these sit
                   side by side all day, and the cards under them are the content. */}
               <span className="flex items-center gap-2 text-3xs font-semibold uppercase tracking-[0.08em] text-muted">
-                <span aria-hidden className={cn('h-1.5 w-1.5 rounded-full', DOT[status])} />
-                {STATUS_LABEL[status]}
+                <span aria-hidden className={cn('h-1.5 w-1.5 rounded-full', group.dot)} />
+                {group.label}
                 <span className="rounded-full bg-canvas px-1.5 text-3xs font-medium tabular-nums text-faint ring-1 ring-line">
                   {column.length}
                 </span>
               </span>
               <button
                 type="button"
-                onClick={() => onAdd(status)}
+                onClick={() => onAdd(group.value)}
                 className="flex h-5 w-5 items-center justify-center rounded text-faint hover:bg-hover hover:text-muted"
-                aria-label={`Add to ${STATUS_LABEL[status]}`}
+                aria-label={`Add to ${group.label}`}
               >
                 <Plus size={14} />
               </button>

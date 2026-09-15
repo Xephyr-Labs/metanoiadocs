@@ -1,4 +1,6 @@
 import type { StoredFile } from './uploads';
+import type { Filter } from './taskFilter';
+import type { SortRule } from './taskSort';
 
 // Client for the projects/tasks endpoints and the home dashboard payload.
 // Same-origin and cookie-authed, matching docsApi.
@@ -101,6 +103,42 @@ export const PROP_TYPE_LABEL: Record<PropType, string> = {
   date: 'Date', checkbox: 'Checkbox', person: 'Person', url: 'URL',
   file: 'Files & media', relation: 'Relation',
 };
+
+/** The six shapes a saved view can take. Mirrors VIEW_KINDS in server/src/views.js. */
+export type ViewKind = 'backlog' | 'board' | 'table' | 'gantt' | 'calendar' | 'gallery';
+
+export const VIEW_KINDS: ViewKind[] = ['backlog', 'board', 'table', 'gantt', 'calendar', 'gallery'];
+
+export const VIEW_KIND_LABEL: Record<ViewKind, string> = {
+  backlog: 'Backlog', board: 'Board', table: 'Table',
+  gantt: 'Gantt', calendar: 'Calendar', gallery: 'Gallery',
+};
+
+/**
+ * Everything a view remembers. One bag rather than six columns because the
+ * toolbar reads and writes it as a unit — see server/src/views.js.
+ *
+ * `props` null means "never configured", which is what lets a view fall back to
+ * its type's default set instead of showing nothing.
+ */
+export interface ViewConfig {
+  filters?: Filter[];
+  sort?: SortRule[];
+  /** A FilterField key, or null for an ungrouped view. */
+  groupBy?: string | null;
+  props?: string[] | null;
+  /** 'all', 'backlog', or a sprint id. */
+  scope?: string;
+}
+
+export interface ViewRow {
+  id: string;
+  project_id: string;
+  name: string;
+  kind: ViewKind;
+  position: number;
+  config: ViewConfig;
+}
 
 export interface PropOption {
   id: string;
@@ -266,6 +304,15 @@ export const tasksApi = {
   archiveProject: (id: string) => req(`/projects/${id}`, { method: 'DELETE' }),
   moveProject: (id: string, b: { parentId: string | null; position?: number }): Promise<ProjectRow> =>
     req(`/projects/${id}/move`, { method: 'POST', ...body(b) }),
+
+  views: (projectId: string): Promise<ViewRow[]> => req(`/projects/${projectId}/views`),
+  createView: (projectId: string, b: { name?: string; kind?: ViewKind; config?: ViewConfig }): Promise<ViewRow> =>
+    req(`/projects/${projectId}/views`, { method: 'POST', ...body(b) }),
+  /** `config` is MERGED server-side, so one facet can be saved without
+   *  restating the rest — see the PATCH in server/src/views.js. */
+  patchView: (id: string, b: Partial<{ name: string; kind: ViewKind; position: number; config: ViewConfig }>): Promise<ViewRow> =>
+    req(`/views/${id}`, { method: 'PATCH', ...body(b) }),
+  deleteView: (id: string) => req(`/views/${id}`, { method: 'DELETE' }),
 
   props: (projectId: string): Promise<PropRow[]> => req(`/projects/${projectId}/props`),
   createProp: (

@@ -12,6 +12,14 @@ export const EMBEDDED_VIEWS: EmbeddedView[] = ['backlog', 'board', 'table', 'gan
 export interface DatabaseBlockProps {
   /** The project (database) this view reads. Empty until one is picked. */
   projectId: string;
+  /**
+   * The saved view to show. Empty means "whichever is first" — which is what
+   * a block written before saved views existed carries, and what one whose
+   * view has since been deleted falls back to.
+   */
+  viewId: string;
+  /** The view *type* this block used to carry, before views were rows. Read
+   *  only so an old block still opens on something sensible; never written. */
   view: EmbeddedView;
   /** 'full' breaks the block out of the page's reading measure, out to the
    *  editor's own column — what a fifteen-column table needs and a paragraph
@@ -27,7 +35,7 @@ export interface DatabaseBlockProps {
 export type MetanoiaDatabaseProps = DatabaseBlockProps & Omit<GfxCommonBlockProps, 'scale'>;
 
 export function defaultDatabaseProps(): DatabaseBlockProps {
-  return { projectId: '', view: 'table', width: 'column', header: true, height: 360 };
+  return { projectId: '', viewId: '', view: 'table', width: 'column', header: true, height: 360 };
 }
 
 export const MetanoiaDatabaseBlockSchema = defineBlockSchema({

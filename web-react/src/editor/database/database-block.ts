@@ -26,6 +26,7 @@ export class MetanoiaDatabaseBlockComponent extends BlockComponent<MetanoiaDatab
     const d = defaultDatabaseProps();
     return {
       projectId: typeof o.projectId === 'string' ? o.projectId : d.projectId,
+      viewId: typeof o.viewId === 'string' ? o.viewId : d.viewId,
       view: EMBEDDED_VIEWS.includes(o.view as EmbeddedView) ? (o.view as EmbeddedView) : d.view,
       width: o.width === 'full' ? 'full' : 'column',
       header: typeof o.header === 'boolean' ? o.header : d.header,
@@ -49,14 +50,15 @@ export class MetanoiaDatabaseBlockComponent extends BlockComponent<MetanoiaDatab
     this.root.render(
       createElement(EmbeddedDatabase, {
         projectId: props.projectId,
-        view: props.view,
+        viewId: props.viewId,
         width: props.width,
         header: props.header,
         height: props.height,
         unavailable: this.store.readonly,
         readonly: this.store.readonly,
-        onPick: (projectId: string) => set({ projectId }),
-        onView: (view: EmbeddedView) => set({ view }),
+        // Picking a different database invalidates the view this block named.
+        onPick: (projectId: string) => set({ projectId, viewId: '' }),
+        onView: (viewId: string) => set({ viewId }),
         onWidth: (width: 'column' | 'full') => set({ width }),
         onHeader: (header: boolean) => set({ header }),
         onHeight: (height: number) => set({ height }),

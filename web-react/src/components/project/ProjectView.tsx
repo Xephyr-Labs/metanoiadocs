@@ -1,66 +1,63 @@
-import { useEffect, useMemo, useState } from 'react';
-import { CalendarDays, Columns3, GanttChartSquare, KanbanSquare, LayoutGrid, ListTodo, MoreHorizontal, Plus, Table2, Tags, FolderOpen } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Columns3, FolderOpen, MoreHorizontal, Plus, Tags } from 'lucide-react';
 import { useWorkspace } from '../../store/workspace';
 import { cn } from '../../lib/cn';
-import type { TaskRow, TaskStatus } from '../../lib/tasksApi';
+import { VIEW_KINDS, type TaskRow, type TaskStatus, type ViewKind } from '../../lib/tasksApi';
 import { Button } from '../ui/Button';
 import { EmptyState } from '../ui/EmptyState';
 import { IconButton } from '../ui/IconButton';
 import { Menu } from '../ui/Menu';
 import { field } from '../ui/styles';
-import { SegmentedControl } from '../ui/SegmentedControl';
 import { Skeleton } from '../ui/Skeleton';
-import { applyFilters, fieldsFor, pruneUnresolvable, type Filter } from '../../lib/taskFilter';
 import { Backlog } from './Backlog';
 import { Board } from './Board';
 import { addDays } from '../../lib/gantt';
 import { Calendar } from './Calendar';
 import { FilterBar } from './FilterBar';
+import { SortBar } from './SortBar';
+import { GroupBy } from './GroupBy';
 import { TagFilter } from './TagFilter';
 import { Gallery } from './Gallery';
 import { Gantt } from './Gantt';
 import { KindsProvider } from './kinds';
 import { PropsDialog } from './props/PropsDialog';
 import { PropertyVisibility } from './props/PropertyVisibility';
-import { useViewProps } from '../../lib/viewProps';
-import { builtinProps, defaultPropIds, defaultTableProps } from '../../lib/builtinProps';
+import { ViewTabs } from './ViewTabs';
 import { TaskPeek } from './TaskPeek';
 import { TaskKindsDialog } from './TaskKindsDialog';
 import { TaskTable } from './TaskTable';
+import { useDatabaseView } from './useDatabaseView';
 import { useProject } from './useProject';
-
-const TABS = [
-  { value: 'backlog', label: 'Backlog', icon: <ListTodo size={14} /> },
-  { value: 'board', label: 'Board', icon: <KanbanSquare size={14} /> },
-  { value: 'table', label: 'Table', icon: <Table2 size={14} /> },
-  { value: 'gantt', label: 'Gantt', icon: <GanttChartSquare size={14} /> },
-  { value: 'calendar', label: 'Calendar', icon: <CalendarDays size={14} /> },
-  { value: 'gallery', label: 'Gallery', icon: <LayoutGrid size={14} /> },
-];
+import { useViews } from './useViews';
 
 /** Backlog, Board and Gantt read status, sprints and start/due dates, which a
- *  data database does not have — so it gets the table, the gallery (which reads
- *  only the row's page), and a calendar only once it has a date property for
- *  one to read. */
-const DATA_TABS = TABS.filter(
-  (t) => t.value === 'table' || t.value === 'calendar' || t.value === 'gallery',
-);
+ *  data database does not have. */
+const DATA_KINDS: ViewKind[] = ['table', 'calendar', 'gallery'];
 
-/** One project, five views over the same task list. */
+/** Views that draw properties on a card or in a column — the backlog is a
+ *  planning list, not a grid of values. */
+const SHOWS_PROPS = new Set<ViewKind>(['board', 'table', 'gantt', 'calendar', 'gallery']);
+
+/** One database, as many saved views as anyone cares to make. */
 export function ProjectView() {
   const ws = useWorkspace();
   const project = ws.projects.find((p) => p.id === ws.activeProjectId) ?? null;
-  const [tab, setTab] = useState('board');
   const [open, setOpen] = useState<TaskRow | null>(null);
   const [kindsOpen, setKindsOpen] = useState(false);
   const [propsOpen, setPropsOpen] = useState(false);
-  // Scope for board/table/gantt/calendar: 'all', 'backlog', or a sprint id.
-  const [scope, setScope] = useState('all');
-  const [filters, setFilters] = useState<Filter[]>([]);
   // Status colours live on the project row, so a repaint has to refresh the
   // list the sidebar and this screen both read.
   const p = useProject(ws.activeProjectId, ws.refreshProjects);
+  const v = useViews(ws.activeProjectId);
   const isData = project?.mode === 'data';
+
+  const d = useDatabaseView({
+    project,
+    source: p,
+    view: v.active,
+    tagNames: ws.allTags.map((t) => t.name),
+    onSave: (patch) => { if (v.activeId) v.setConfig(v.activeId, patch); },
+  });
 
   // Arriving from a page that belongs to a task: open that task's panel as soon
   // as the list it lives in has loaded, then forget the request so a later
@@ -73,71 +70,6 @@ export function ProjectView() {
     setOpen(wanted);
     clearPendingTask();
   }, [pendingTaskId, p.tasks, clearPendingTask]);
-  const dateProps = useMemo(() => p.props.filter((prop) => prop.type === 'date'), [p.props]);
-  // Every view that draws properties can choose which — the table included.
-  // It used to be excluded on the grounds that it "already shows every one as
-  // a column", which was only ever true of the custom ones: Points, Sprint,
-  // Type, Milestone and Files had no column at all. Now it really does show
-  // all of them, and a grid of eighteen columns is exactly the thing that
-  // needs a way to put some away. The backlog stays out: it is a planning
-  // list, not a grid of values.
-  const CARD_VIEWS = ['board', 'table', 'gantt', 'calendar', 'gallery'];
-  // Status, assignees, dates and the rest are properties too — see
-  // lib/builtinProps. Merging them here is what puts them in the visibility
-  // panel and on cards, rather than teaching each of those about two kinds of
-  // field. Built-ins lead: they are the ones every database has.
-  const builtins = useMemo(
-    () => builtinProps(project?.mode ?? 'tasks', p.kinds, p.sprints, project?.status_colors),
-    [project?.mode, p.kinds, p.sprints, project?.status_colors],
-  );
-  const allProps = useMemo(() => [...builtins, ...p.props], [builtins, p.props]);
-  const viewDefaults = useMemo(
-    // The table is the one view with room for all of them, so its unconfigured
-    // state is every property rather than a chosen few.
-    () => (tab === 'table'
-      ? defaultTableProps(builtins, p.props)
-      : defaultPropIds(tab, builtins, p.props, project?.mode ?? 'tasks')),
-    [tab, builtins, p.props, project?.mode],
-  );
-  const viewProps = useViewProps(ws.activeProjectId, tab, allProps, viewDefaults);
-  const tabs = useMemo(
-    () => (isData ? DATA_TABS.filter((t) => t.value !== 'calendar' || dateProps.length > 0) : TABS),
-    [isData, dateProps.length],
-  );
-  const fields = useMemo(
-    () => fieldsFor({
-      mode: project?.mode ?? 'tasks',
-      props: p.props,
-      users: p.users,
-      kinds: p.kinds,
-      sprints: p.sprints,
-      tags: ws.allTags.map((t) => t.name),
-    }),
-    [project?.mode, p.props, p.users, p.kinds, p.sprints, ws.allTags],
-  );
-
-  // Filters are per project and survive a reload, so a view someone set up is
-  // still there tomorrow. Per browser, not per account — nothing to sync.
-  const filterKey = ws.activeProjectId ? `mn-filters-${ws.activeProjectId}` : null;
-
-  // Sprint ids are per-project; a stale scope from the last project would
-  // filter every view down to nothing. Same for a filter naming a property
-  // that only the last project had.
-  useEffect(() => {
-    setScope('all');
-    try {
-      const saved = filterKey ? localStorage.getItem(filterKey) : null;
-      const parsed = saved ? JSON.parse(saved) : [];
-      // Anything can be in localStorage — a half-written value, a key someone
-      // else's code wrote. JSON.parse succeeding does not make it a filter list.
-      setFilters(Array.isArray(parsed) ? parsed : []);
-    } catch {
-      setFilters([]);
-    }
-  }, [ws.activeProjectId, filterKey]);
-  useEffect(() => {
-    if (!tabs.some((t) => t.value === tab)) setTab(tabs[0]?.value ?? 'table');
-  }, [tabs, tab]);
 
   if (!project) {
     return (
@@ -149,18 +81,21 @@ export function ProjectView() {
     );
   }
 
-  // No window.prompt: create untitled and let the dialog's title field take it.
+  const kinds = isData ? DATA_KINDS : VIEW_KINDS;
+  const dateProps = p.props.filter((prop) => prop.type === 'date');
+
+  // No window.prompt: create untitled and let the panel's title field take it.
   const add = async (extra: { status?: TaskStatus; dueAt?: string; sprintId?: string | null; props?: Record<string, unknown> } = {}) => {
     // A task added while a sprint is scoped lands in that sprint.
     const sprintId = extra.sprintId !== undefined ? extra.sprintId
-      : scope !== 'all' && scope !== 'backlog' ? scope : undefined;
+      : d.scope !== 'all' && d.scope !== 'backlog' ? d.scope : undefined;
     const row = await p.create({ title: '', ...extra, ...(sprintId !== undefined ? { sprintId } : {}) });
     // Counts in the sidebar and on Home come from the project list.
     ws.refreshProjects();
     if (row) setOpen({ ...row, deps: [] });
   };
 
-  // Keep the live task in the dialog: patches land in p.tasks, not in `open`.
+  // Keep the live task in the panel: patches land in p.tasks, not in `open`.
   const openTask = open ? p.tasks.find((t) => t.id === open.id) ?? null : null;
 
   // A title edit from the board/table/peek writes tasks.title (and,
@@ -174,85 +109,78 @@ export function ProjectView() {
     if (t?.doc_id) ws.applyTitleFromEditor(t.doc_id, body.title);
   };
 
-  const scoped = scope === 'all' ? p.tasks
-    : scope === 'backlog' ? p.tasks.filter((t) => !t.sprint_id)
-    : p.tasks.filter((t) => t.sprint_id === scope);
-
-  // Saved chips that can't resolve in this project (a sprint that was deleted,
-  // a member who left) are ignored rather than shown as "Choose…" matching nothing.
-  const live = pruneUnresolvable(filters, fields);
-  const visible = applyFilters(scoped, live, fields);
-  // The backlog is the sprint-planning view, so the sprint scope means nothing
-  // there — but the filters still do.
-  const backlogTasks = applyFilters(p.tasks, live, fields);
-
-  const changeFilters = (next: Filter[]) => {
-    setFilters(next);
-    if (!filterKey) return;
-    try {
-      if (next.length) localStorage.setItem(filterKey, JSON.stringify(next));
-      else localStorage.removeItem(filterKey);
-    } catch {
-      /* private mode — filters still work for this session, just not the next */
-    }
-  };
-
   return (
     <KindsProvider kinds={p.kinds}>
     <div className="flex h-full flex-col bg-canvas">
-      {/* No project name here: the top bar's path already says which database
-          this is, and repeating it made two headings, one of them redundant.
-          This row is the controls only. */}
-      <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-4 py-2">
-        {tab !== 'backlog' && p.sprints.length > 0 && (
-          <select
-            aria-label="Sprint scope"
-            value={scope}
-            onChange={(e) => setScope(e.target.value)}
-            className={cn(field, 'h-7 w-auto px-2 text-xs')}
-          >
-            <option value="all">All tasks</option>
-            <option value="backlog">Backlog</option>
-            {p.sprints.map((s) => (
-              <option key={s.id} value={s.id}>{s.name}{s.state === 'active' ? ' (active)' : ''}</option>
-            ))}
-          </select>
-        )}
-        {/* Scope and filters are the same question — what am I looking at —
-            so they share a row with the view switcher instead of stacking a
-            second full-width bar under it for one word. */}
-        <div className="flex min-w-0 flex-1 items-center gap-2">
-          <TagFilter tags={ws.allTags} filters={filters} onChange={changeFilters} />
-          <FilterBar fields={fields} filters={filters} onChange={changeFilters} />
-          {CARD_VIEWS.includes(tab) && (
+      {/* Two rows: which view, then how that view is narrowed. They were one,
+          and at six tabs plus filters plus properties it wrapped on anything
+          narrower than a desktop. */}
+      <header className="shrink-0 border-b border-line px-4 pt-1.5">
+        <div className="flex items-center gap-2">
+          <ViewTabs
+            views={v.views}
+            activeId={v.activeId}
+            kinds={kinds}
+            onSelect={v.setActiveId}
+            onCreate={(k) => v.create(k)}
+            onRename={v.rename}
+            onRetype={v.retype}
+            onDuplicate={v.duplicate}
+            onDelete={(id) => { void v.remove(id); }}
+          />
+          <div className="ml-auto flex shrink-0 items-center gap-2">
+            <Button variant="primary" size="sm" leftIcon={<Plus size={14} />} onClick={() => add()}>
+              {isData ? 'Row' : 'Task'}
+            </Button>
+            <Menu
+              align="end"
+              trigger={<IconButton icon={<MoreHorizontal size={16} />} label="Database settings" />}
+              items={[
+                { icon: Tags, label: 'Task types…', onSelect: () => setKindsOpen(true) },
+                { icon: Columns3, label: 'Properties…', onSelect: () => setPropsOpen(true) },
+              ]}
+            />
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 py-1.5">
+          {d.kind !== 'backlog' && p.sprints.length > 0 && (
+            <select
+              aria-label="Sprint scope"
+              value={d.scope}
+              onChange={(e) => d.setScope(e.target.value)}
+              className={cn(field, 'h-7 w-auto px-2 text-xs')}
+            >
+              <option value="all">All tasks</option>
+              <option value="backlog">Backlog</option>
+              {p.sprints.map((s) => (
+                <option key={s.id} value={s.id}>{s.name}{s.state === 'active' ? ' (active)' : ''}</option>
+              ))}
+            </select>
+          )}
+          <TagFilter tags={ws.allTags} filters={d.filters} onChange={d.setFilters} />
+          <FilterBar fields={d.fields} filters={d.filters} onChange={d.setFilters} />
+          <SortBar fields={d.fields} sort={d.sort} onChange={d.setSort} />
+          {d.kind === 'board' && (
+            <GroupBy fields={d.fields} value={d.groupField?.key ?? null} onChange={d.setGroupBy} />
+          )}
+          {SHOWS_PROPS.has(d.kind) && (
             <PropertyVisibility
-              view={tab}
-              visible={viewProps.visible}
-              hidden={viewProps.hidden}
-              onToggle={viewProps.toggle}
-              onMove={viewProps.move}
-              onShowAll={viewProps.showAll}
-              onHideAll={viewProps.hideAll}
+              view={d.kind}
+              visible={d.visible}
+              hidden={d.hidden}
+              onToggle={d.toggleProp}
+              onMove={d.moveProp}
+              onShowAll={d.showAllProps}
+              onHideAll={d.hideAllProps}
             />
           )}
-          {filters.length > 0 && (
+          {(d.filters.length > 0 || d.sort.length > 0) && (
             <span className="shrink-0 text-2xs tabular-nums text-faint">
-              {visible.length} of {scoped.length}
+              {d.tasks.length} of {d.scopedCount}
             </span>
           )}
         </div>
-        <SegmentedControl aria-label="Project view" segments={tabs} value={tab} onChange={setTab} />
-        <Button variant="primary" size="sm" leftIcon={<Plus size={14} />} onClick={() => add()}>
-          {isData ? 'Row' : 'Task'}
-        </Button>
-        <Menu
-          align="end"
-          trigger={<IconButton icon={<MoreHorizontal size={16} />} label="Project settings" />}
-          items={[
-            { icon: Tags, label: 'Task types…', onSelect: () => setKindsOpen(true) },
-            { icon: Columns3, label: 'Properties…', onSelect: () => setPropsOpen(true) },
-          ]}
-        />
       </header>
 
       {p.error && (
@@ -260,14 +188,14 @@ export function ProjectView() {
       )}
 
       <div className="min-h-0 flex-1">
-        {p.loading ? (
+        {p.loading || v.loading ? (
           <div className="space-y-3 p-4">
             <Skeleton className="h-24 w-full" />
             <Skeleton className="h-24 w-full" />
           </div>
-        ) : tab === 'backlog' ? (
+        ) : d.kind === 'backlog' ? (
           <Backlog
-            tasks={backlogTasks}
+            tasks={d.backlogTasks}
             sprints={p.sprints}
             onOpen={setOpen}
             onMoveToSprint={(id, sprintId) => p.patch(id, { sprintId })}
@@ -276,22 +204,21 @@ export function ProjectView() {
             onPatchSprint={p.patchSprint}
             onDeleteSprint={p.deleteSprint}
           />
-        ) : tab === 'board' ? (
+        ) : d.kind === 'board' ? (
           <Board
-            tasks={visible}
-            cardProps={viewProps.visible}
+            tasks={d.tasks}
+            groups={d.groups}
+            groupOf={d.groupOf}
+            cardProps={d.visible}
             users={p.users}
             onOpen={setOpen}
-            onAdd={(status) => add({ status })}
-            onMove={(id, status, position) => {
-              p.patch(id, { status, position });
-              ws.refreshProjects();
-            }}
+            onAdd={(value) => add(d.groupSeed(value))}
+            onMove={(id, value, position) => { d.moveToGroup(id, value, position); ws.refreshProjects(); }}
           />
-        ) : tab === 'table' ? (
+        ) : d.kind === 'table' ? (
           <TaskTable
-            tasks={visible}
-            props={viewProps.visible}
+            tasks={d.tasks}
+            props={d.visible}
             users={p.users}
             rowLabel={isData ? 'Name' : 'Task'}
             onPatch={(id, body) => { p.patch(id, body); syncPageTitle(id, body); ws.refreshProjects(); }}
@@ -303,22 +230,22 @@ export function ProjectView() {
             // and the workspace's tag counts have to be re-read.
             onTagsChanged={() => { p.refresh(); ws.refreshTags(); }}
           />
-        ) : tab === 'gantt' ? (
-          <Gantt tasks={visible} cardProps={viewProps.visible} users={p.users} onOpen={setOpen} />
-        ) : tab === 'gallery' ? (
+        ) : d.kind === 'gantt' ? (
+          <Gantt tasks={d.tasks} cardProps={d.visible} users={p.users} onOpen={setOpen} />
+        ) : d.kind === 'gallery' ? (
           <Gallery
-            tasks={visible}
-            cardProps={viewProps.visible}
-            allProps={allProps}
+            tasks={d.tasks}
+            cardProps={d.visible}
+            allProps={d.allProps}
             users={p.users}
             onOpen={setOpen}
             onAdd={() => add({})}
           />
         ) : (
           <Calendar
-            tasks={visible}
+            tasks={d.tasks}
             dateProps={isData ? dateProps : []}
-            cardProps={viewProps.visible}
+            cardProps={d.visible}
             users={p.users}
             onOpen={setOpen}
             onAdd={(date, propId) => add(propId ? { props: { [propId]: date } } : { dueAt: date })}
