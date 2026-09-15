@@ -1,13 +1,14 @@
 /* Hallmark · component: saved view tabs · genre: modern-minimal
+ * pre-emit critique: P5 H5 E5 S5 R5 V4
  * theme: project tokens (index.css)
- * pre-emit critique: P5 H5 E4 S5 R5 V4
  * states: default · hover · active · focus-visible · renaming · menu open ·
  *         adding · last view (delete refused) · overflowing (scrolls)
+ * note: every tab reserves the same chrome, so switching never moves the strip.
  */
 import { useEffect, useRef, useState } from 'react';
 import {
-  CalendarDays, Copy, GanttChartSquare, KanbanSquare, LayoutGrid, ListTodo,
-  MoreHorizontal, Pencil, Plus, Shapes, Table2, Trash2,
+  CalendarDays, ChevronDown, Copy, GanttChartSquare, KanbanSquare, LayoutGrid,
+  ListTodo, Pencil, Plus, Shapes, Table2, Trash2,
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { VIEW_KIND_LABEL, type ViewKind, type ViewRow } from '../../lib/tasksApi';
@@ -43,8 +44,16 @@ interface Props {
  * This replaces a six-segment control over the six view *types*. The
  * difference is the whole point: a type was a way of looking at everything,
  * and a view is a saved question — "This sprint", "Blocked", "Mine, by
- * assignee" — that happens to be drawn as a board. Which is why a view can be
- * renamed, duplicated and deleted, and why two of them can be boards.
+ * assignee" — that happens to be drawn as a board.
+ *
+ * The active tab IS its own menu button: clicking a tab you are not on selects
+ * it, clicking the one you are on opens its settings. That is one control
+ * rather than a tab plus a ⋯ beside it — and the ⋯ beside it was the bug. It
+ * rendered only while a tab was active, inside the strip's flow, so switching
+ * views shifted every tab to its right by 24px and the second click of a
+ * double-click landed on a different tab than the first. The chevron slot is
+ * drawn on every tab, transparent until it means something, so the strip's
+ * geometry never depends on which view is open.
  */
 export function ViewTabs({
   views, activeId, kinds, onSelect, onCreate, onRename, onRetype, onDuplicate, onDelete,
@@ -52,78 +61,109 @@ export function ViewTabs({
   const [renaming, setRenaming] = useState<string | null>(null);
 
   return (
-    <div className="scrollarea flex min-w-0 items-center gap-0.5 overflow-x-auto">
+    // gap-2 between tabs against gap-1.5 inside one: proximity has to say that
+    // an icon belongs to the label beside it and not to the tab after it.
+    // At 2px they read as a single run of words.
+    <div className="scrollarea flex min-w-0 items-center gap-2 overflow-x-auto pr-1">
       {views.map((view) => {
-        const Icon = ICON[view.kind] ?? Table2;
         const active = view.id === activeId;
-        return (
-          <div key={view.id} className="group/tab flex shrink-0 items-center">
-            {renaming === view.id ? (
-              <RenameBox
-                value={view.name}
-                onCommit={(name) => { setRenaming(null); if (name && name !== view.name) onRename(view.id, name); }}
-                onCancel={() => setRenaming(null)}
-              />
-            ) : (
-              <button
-                type="button"
-                onClick={() => (active ? setRenaming(view.id) : onSelect(view.id))}
-                // The active tab renames on a second click, the way a file name
-                // does — a rename nobody can find is a rename nobody makes.
-                title={active ? 'Click again to rename' : undefined}
-                className={cn(
-                  'flex h-7 items-center gap-1.5 rounded-md px-2 text-xs transition-colors duration-120',
-                  active ? 'bg-selected font-medium text-ink' : 'text-muted hover:bg-hover hover:text-ink',
-                )}
-              >
-                <Icon size={13} className="shrink-0" />
-                <span className="max-w-[10rem] truncate">{view.name}</span>
-              </button>
+
+        if (renaming === view.id) {
+          return (
+            <RenameBox
+              key={view.id}
+              value={view.name}
+              onCommit={(name) => { setRenaming(null); if (name && name !== view.name) onRename(view.id, name); }}
+              onCancel={() => setRenaming(null)}
+            />
+          );
+        }
+
+        const tab = (
+          <button
+            type="button"
+            aria-current={active ? 'page' : undefined}
+            onClick={active ? undefined : () => onSelect(view.id)}
+            className={cn(
+              'flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs transition-colors duration-120',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+              active ? 'bg-selected font-medium text-ink' : 'text-muted hover:bg-hover hover:text-ink',
             )}
-            {active && (
-              <Menu
-                align="start"
-                trigger={
-                  <span>
-                    <IconButton size="sm" icon={<MoreHorizontal size={14} />} label={`Settings for ${view.name}`} />
-                  </span>
-                }
-                items={[
-                  { icon: Pencil, label: 'Rename', onSelect: () => setRenaming(view.id) },
-                  {
-                    icon: Shapes,
-                    label: 'Change type',
-                    items: kinds.map((k) => ({
-                      icon: ICON[k],
-                      label: VIEW_KIND_LABEL[k],
-                      checked: k === view.kind,
-                      onSelect: () => onRetype(view.id, k),
-                    })),
-                  },
-                  // A copy carries the filters — which is how you keep one and
-                  // try a different question on the other.
-                  { icon: Copy, label: 'Duplicate', onSelect: () => onDuplicate(view) },
-                  {
-                    icon: Trash2,
-                    label: 'Delete view',
-                    danger: true,
-                    separatorBefore: true,
-                    onSelect: () => onDelete(view.id),
-                  },
-                ]}
-              />
-            )}
-          </div>
+          >
+            <TabIcon kind={view.kind} />
+            <span className="max-w-[10rem] truncate">{view.name}</span>
+            {/* Always in the layout, visible only on the tab it acts on. A
+                control that appears and disappears inside a flex row is a
+                control that moves everything after it. */}
+            <ChevronDown
+              size={12}
+              aria-hidden
+              className={cn('shrink-0 transition-opacity', active ? 'opacity-60' : 'opacity-0')}
+            />
+          </button>
+        );
+
+        // Clicking the tab you are already on opens its settings — so the
+        // chevron is a promise the control keeps, and rename has one home.
+        return active ? (
+          <Menu
+            key={view.id}
+            align="start"
+            trigger={tab}
+            items={[
+              { icon: Pencil, label: 'Rename', onSelect: () => setRenaming(view.id) },
+              {
+                icon: Shapes,
+                label: 'Change type',
+                items: kinds.map((k) => ({
+                  icon: ICON[k],
+                  label: VIEW_KIND_LABEL[k],
+                  checked: k === view.kind,
+                  onSelect: () => onRetype(view.id, k),
+                })),
+              },
+              // A copy carries the filters — which is how you keep one and
+              // try a different question on the other.
+              { icon: Copy, label: 'Duplicate', onSelect: () => onDuplicate(view) },
+              {
+                icon: Trash2,
+                label: 'Delete view',
+                danger: true,
+                separatorBefore: true,
+                onSelect: () => onDelete(view.id),
+              },
+            ]}
+          />
+        ) : (
+          <span key={view.id} className="shrink-0">{tab}</span>
         );
       })}
 
-      <Menu
-        align="start"
-        trigger={<span><IconButton size="sm" icon={<Plus size={14} />} label="Add a view" /></span>}
-        items={kinds.map((k) => ({ icon: ICON[k], label: VIEW_KIND_LABEL[k], onSelect: () => onCreate(k) }))}
-      />
+      {/* ml-1 on top of the row gap: a new-view button is not a seventh view,
+          and at the same spacing it read as one. */}
+      <span className="ml-1 shrink-0">
+        <Menu
+          align="start"
+          trigger={<span><IconButton size="sm" icon={<Plus size={14} />} label="Add a view" /></span>}
+          items={kinds.map((k) => ({ icon: ICON[k], label: VIEW_KIND_LABEL[k], onSelect: () => onCreate(k) }))}
+        />
+      </span>
     </div>
   );
+}
+
+/**
+ * The view's icon, nudged up a pixel.
+ *
+ * Geometric centring measures exactly right and looks wrong: a 13px glyph
+ * centred on an 18px line box sits below the text's cap height, which is where
+ * the eye reads the line. Optical centring is a pixel, and it is the
+ * difference between "aligned" and "slightly off" without anyone being able to
+ * say why.
+ */
+function TabIcon({ kind }: { kind: ViewKind }) {
+  const Icon = ICON[kind] ?? Table2;
+  return <Icon size={13} aria-hidden className="shrink-0 -translate-y-px" />;
 }
 
 /** Renaming in place. Escape abandons, Enter and blur commit — the same three
@@ -146,7 +186,7 @@ function RenameBox({ value, onCommit, onCancel }: {
         if (e.key === 'Escape') { e.currentTarget.value = value; onCancel(); }
       }}
       aria-label="View name"
-      className="h-7 w-32 rounded-md bg-surface px-2 text-xs text-ink outline-none ring-1 ring-inset ring-accent"
+      className="h-7 w-32 shrink-0 rounded-md bg-surface px-2 text-xs text-ink outline-none ring-1 ring-inset ring-accent"
     />
   );
 }

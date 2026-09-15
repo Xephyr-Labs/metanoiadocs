@@ -1,3 +1,11 @@
+/* Hallmark · component: one database, many saved views · genre: modern-minimal
+ * pre-emit critique: P5 H5 E4 S5 R5 V4
+ * theme: project tokens (index.css)
+ * states: loading · empty (no project) · error · view open · peek open ·
+ *         filtered · sorted · grouped · data mode (three views)
+ * note: two header rows — which view, then how it is narrowed — separated by a
+ *       hairline so navigation and chrome are not one undifferentiated field.
+ */
 import { useEffect, useState } from 'react';
 import { Columns3, FolderOpen, MoreHorizontal, Plus, Tags } from 'lucide-react';
 import { useWorkspace } from '../../store/workspace';
@@ -133,8 +141,10 @@ export function ProjectView() {
       {/* Two rows: which view, then how that view is narrowed. They were one,
           and at six tabs plus filters plus properties it wrapped on anything
           narrower than a desktop. */}
-      <header className="shrink-0 border-b border-line px-4 pt-1.5">
-        <div className="flex items-center gap-2">
+      <header className="shrink-0 border-b border-line">
+        {/* Row one is navigation, row two is chrome. Without the rule between
+            them the whole header reads as one grey field and neither row leads. */}
+        <div className="flex items-center gap-2 border-b border-line px-4 py-1.5">
           <ViewTabs
             views={v.views}
             activeId={v.activeId}
@@ -161,7 +171,10 @@ export function ProjectView() {
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 py-1.5">
+        {/* Row one scrolls, row two wraps — deliberately different, because a
+            tab strip that reflows onto two lines loses its order and a row of
+            filter chips that scrolls hides the ones you set. */}
+        <div className="flex flex-wrap items-center gap-2 px-4 py-1.5">
           {d.kind !== 'backlog' && p.sprints.length > 0 && (
             <select
               aria-label="Sprint scope"
