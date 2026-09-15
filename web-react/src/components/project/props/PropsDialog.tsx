@@ -9,14 +9,15 @@ import { IconButton } from '../../ui/IconButton';
 import { Modal } from '../../ui/Modal';
 import { field, selectField } from '../../ui/styles';
 import { nextColor } from './SelectValue';
+import { FormulaEditor, RollupEditor } from './ComputedEditor';
 
 interface Props {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   props: PropRow[];
   projects: ProjectRow[];
-  onCreate: (b: { label: string; type: PropType; targetProjectId?: string }) => Promise<string | null>;
-  onPatch: (id: string, b: Partial<{ label: string; type: PropType; options: PropRow['options'] }>) => void;
+  onCreate: (b: { label: string; type: PropType; targetProjectId?: string; twoWay?: boolean }) => Promise<string | null>;
+  onPatch: (id: string, b: Partial<{ label: string; type: PropType; options: PropRow['options']; config: PropRow['config'] }>) => void;
   onDelete: (id: string) => void;
   /** Swap a property with its neighbour; `by` is -1 for up, 1 for down. */
   onReorder: (id: string, by: -1 | 1) => void;
@@ -98,10 +99,11 @@ export function PropsDialog({ open, onOpenChange, props, projects, onCreate, onP
   const [label, setLabel] = useState('');
   const [type, setType] = useState<PropType>('text');
   const [target, setTarget] = useState('');
+  const [twoWay, setTwoWay] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const add = async () => {
-    const err = await onCreate({ label, type, ...(type === 'relation' ? { targetProjectId: target } : {}) });
+    const err = await onCreate({ label, type, ...(type === 'relation' ? { targetProjectId: target, twoWay } : {}) });
     if (err) return setError(err);
     setLabel('');
     setError(null);
@@ -149,6 +151,15 @@ export function PropsDialog({ open, onOpenChange, props, projects, onCreate, onP
               <IconButton icon={<Trash2 size={14} />} label={`Delete ${p.label}`} onClick={() => onDelete(p.id)} />
             </div>
             {(p.type === 'select' || p.type === 'multi_select') && <OptionsEditor prop={p} onPatch={onPatch} />}
+            {p.type === 'formula' && <FormulaEditor prop={p} onPatch={onPatch} />}
+            {p.type === 'rollup' && (
+              <RollupEditor prop={p} relations={props.filter((x) => x.type === 'relation')} onPatch={onPatch} />
+            )}
+            {p.is_inverse && (
+              <p className="ml-9 pb-1.5 text-2xs text-faint">
+                The other half of a relation on another database. Edit it there.
+              </p>
+            )}
           </div>
         ))}
         {!props.length && <p className="text-sm text-faint">No custom properties yet.</p>}
@@ -164,10 +175,20 @@ export function PropsDialog({ open, onOpenChange, props, projects, onCreate, onP
             {PROP_TYPES.map((t) => <option key={t} value={t}>{PROP_TYPE_LABEL[t]}</option>)}
           </select>
           {type === 'relation' && (
-            <select className={selectField} value={target} onChange={(e) => setTarget(e.target.value)}>
-              <option value="">Link to…</option>
-              {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
+            <>
+              <select className={selectField} value={target} onChange={(e) => setTarget(e.target.value)}>
+                <option value="">Link to…</option>
+                {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+              {/* Two-way puts the matching property on the other database, so
+                  the link reads from both ends. The edges stay single rows
+                  under this property — the other half reads them backwards,
+                  which is what keeps the two from ever disagreeing. */}
+              <label className="flex items-center gap-1.5 text-2xs text-muted">
+                <input type="checkbox" checked={twoWay} onChange={(e) => setTwoWay(e.target.checked)} />
+                Show on both databases
+              </label>
+            </>
           )}
           <Button variant="primary" size="sm" leftIcon={<Plus size={14} />} onClick={add}>Add</Button>
         </div>

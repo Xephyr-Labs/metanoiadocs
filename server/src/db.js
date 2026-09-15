@@ -535,6 +535,39 @@ export async function initSchema() {
     -- The columns are the same either way: switching mode hides fields, it
     -- never drops them, so a database can be flipped back with nothing lost.
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS mode TEXT NOT NULL DEFAULT 'tasks';
+    -- Saved views: many named views over one database, each with its own
+    -- filters, sort, grouping and visible properties. Until now a project had
+    -- exactly one view per type and its filters were per *project*, so two
+    -- differently-filtered boards could not both exist — and an embedded
+    -- database could not differ from the project screen it mirrored.
+    --
+    -- config is one JSONB bag rather than six columns because every field in
+    -- it is read and written together, by the client, as a unit: adding a sort
+    -- direction should not be a migration.
+    CREATE TABLE IF NOT EXISTS db_views (
+      id         TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      name       TEXT NOT NULL DEFAULT 'View',
+      kind       TEXT NOT NULL DEFAULT 'table',
+      position   INT NOT NULL DEFAULT 0,
+      config     JSONB NOT NULL DEFAULT '{}',
+      created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS db_views_project_idx ON db_views(project_id, position);
+
+    -- Everything a property type needs that is not an option list: a formula's
+    -- expression, a rollup's (relation, target, function). Same reasoning as
+    -- db_views.config — one bag, written whole by the editor that owns it.
+    ALTER TABLE db_props ADD COLUMN IF NOT EXISTS config JSONB NOT NULL DEFAULT '{}';
+    -- The other half of a two-way relation. Self-referencing, nullable: a
+    -- one-way relation (the only kind that used to exist) simply has none.
+    ALTER TABLE db_props ADD COLUMN IF NOT EXISTS paired_prop_id TEXT
+      REFERENCES db_props(id) ON DELETE SET NULL;
+    -- True on the generated half. The rows live under the *defining* prop id,
+    -- so the inverse reads task_relations backwards rather than duplicating it.
+    ALTER TABLE db_props ADD COLUMN IF NOT EXISTS is_inverse BOOLEAN NOT NULL DEFAULT false;
+
     -- Per-project colours for the four fixed statuses, as { status: colour }.
     -- Only the colours: the statuses themselves are ids that every board
     -- column, filter and rollup in the app is written against, so they are

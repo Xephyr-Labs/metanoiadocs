@@ -52,9 +52,14 @@ describe('fieldsFor', () => {
   });
 
 
-  it('drops the work fields for a data database', () => {
+  it('drops the work fields for a data database, but keeps the audit ones', () => {
+    // A data database has no status, assignee or schedule. It does have rows
+    // somebody added at some point, so "created by" is still a real question.
     const keys = fieldsFor({ mode: 'data', props: [], users: [], kinds: [], sprints: [] }).map((f) => f.key);
-    expect(keys).toEqual(['title']);
+    expect(keys).toEqual(['title', 'created_at', 'updated_at', 'created_by_name', 'updated_by_name']);
+    for (const work of ['status', 'assignee_id', 'due_at', 'sprint_id']) {
+      expect(keys).not.toContain(work);
+    }
   });
 
   it('offers no filter on a relation, which is not stored on the row', () => {

@@ -77,6 +77,14 @@ const PROP_KIND: Record<PropRow['type'], FieldKind | null> = {
   checkbox: 'checkbox',
   person: 'person',
   url: 'url',
+  email: 'text',
+  phone: 'text',
+  // A formula's own type is whatever it evaluates to; text is the widest
+  // comparison and `contains` is what people actually filter one on.
+  formula: 'text',
+  // A rollup is usually a number, and "greater than" is the question worth
+  // asking of one.
+  rollup: 'number',
   // Files and relations have nothing a filter can compare: one is a list of
   // blobs, the other lives in its own table.
   file: null,
@@ -155,6 +163,15 @@ export function fieldsFor({
       { key: 'milestone', label: 'Milestone', kind: 'checkbox' },
     );
   }
+  // The database's own record of what happened. Every mode has these — a data
+  // database is made of rows somebody added at some point too — and "what
+  // changed this week" is the question they exist to answer.
+  fields.push(
+    { key: 'created_at', label: 'Created', kind: 'date' },
+    { key: 'updated_at', label: 'Last edited', kind: 'date' },
+    { key: 'created_by_name', label: 'Created by', kind: 'text' },
+    { key: 'updated_by_name', label: 'Last edited by', kind: 'text' },
+  );
   // A task carries the tags of its page, several at a time, so it filters like
   // a multi-select — by name, because that is what a tag is identified by
   // everywhere else in the app.

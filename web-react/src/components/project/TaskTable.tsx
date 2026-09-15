@@ -60,8 +60,12 @@ const MIN_WIDTH: Record<PropType, number> = {
   checkbox: 84,
   person: 150,
   url: 160,
+  email: 170,
+  phone: 130,
   file: 120,
   relation: 96,
+  formula: 140,
+  rollup: 110,
 };
 
 const STORE_KEY = 'mn-table-wrap';

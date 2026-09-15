@@ -16,7 +16,10 @@ import {
   Hash,
   Link as LinkIcon,
   ListChecks,
+  Mail,
   Paperclip,
+  Phone,
+  Sigma,
   SlidersHorizontal,
   Type,
   User,
@@ -36,8 +39,12 @@ const ICON: Record<PropType, typeof Type> = {
   checkbox: CheckSquare,
   person: User,
   url: LinkIcon,
+  email: Mail,
+  phone: Phone,
   file: Paperclip,
   relation: ArrowUpRight,
+  formula: Sigma,
+  rollup: Sigma,
 };
 
 /**

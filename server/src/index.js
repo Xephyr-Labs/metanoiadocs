@@ -44,6 +44,7 @@ import { topTerms, extractSignals, findMentions, simhash, hamming, keyphrases, s
 import { docKind } from './props.js';
 import { registerTaskRoutes } from './tasks.js';
 import { registerPropRoutes } from './props-routes.js';
+import { registerViewRoutes } from './views.js';
 import { registerDocPropRoutes } from './doc-props.js';
 import { registerHomeRoutes } from './home.js';
 import { registerPushRoutes, sendPush } from './push.js';
@@ -2366,6 +2367,7 @@ app.use(express.static(WEB_DIST));
 // is long enough. Must register before the SPA catch-all below.
 registerTaskRoutes(app, { requireUser, wrap, createDocRow });
 registerPropRoutes(app, { requireUser, wrap });
+registerViewRoutes(app, { requireUser, wrap });
 registerDocPropRoutes(app, { requireUser, wrap, grantOn });
 registerHomeRoutes(app, { requireUser, wrap });
 registerPushRoutes(app, { requireUser, wrap });

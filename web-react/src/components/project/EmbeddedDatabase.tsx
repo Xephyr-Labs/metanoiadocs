@@ -4,46 +4,46 @@
  * states: loading · picker (no database chosen) · missing · unavailable
  *         (share/snapshot) · default · header hidden · full width · resizing
  */
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { CalendarDays, Columns3, ExternalLink, GanttChartSquare, KanbanSquare, LayoutGrid, ListTodo, Maximize2, Minimize2, MoreHorizontal, Table2 } from 'lucide-react';
-import type { EmbeddedView } from '../../editor/database/database-model';
+import { createElement } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
+import {
+  CalendarDays, Columns3, ExternalLink, GanttChartSquare, KanbanSquare, LayoutGrid,
+  ListTodo, Maximize2, Minimize2, MoreHorizontal, Table2,
+} from 'lucide-react';
 import { requestOpenProject } from '../../lib/navSignal';
 import { addDays } from '../../lib/gantt';
-import { tasksApi, type ProjectRow } from '../../lib/tasksApi';
-import { builtinProps, defaultCardProps, defaultPropIds, defaultTableProps } from '../../lib/builtinProps';
-import { useViewProps } from '../../lib/viewProps';
+import { tasksApi, type ProjectRow, type ViewKind } from '../../lib/tasksApi';
 import { cn } from '../../lib/cn';
 import { IconButton } from '../ui/IconButton';
 import { Menu } from '../ui/Menu';
-import { SegmentedControl } from '../ui/SegmentedControl';
 import { Skeleton } from '../ui/Skeleton';
-import { TooltipProvider } from '../ui/Tooltip';
 import { selectField } from '../ui/styles';
+import { TooltipProvider } from '../ui/Tooltip';
 import { Backlog } from './Backlog';
 import { Board } from './Board';
 import { Calendar } from './Calendar';
+import { FilterBar } from './FilterBar';
 import { Gallery } from './Gallery';
 import { Gantt } from './Gantt';
+import { GroupBy } from './GroupBy';
 import { KindsProvider } from './kinds';
 import { PropertyVisibility } from './props/PropertyVisibility';
+import { SortBar } from './SortBar';
 import { TaskTable } from './TaskTable';
+import { useDatabaseView } from './useDatabaseView';
 import { useProject } from './useProject';
+import { useViews } from './useViews';
 
-const VIEW_TABS = [
-  { value: 'backlog', label: 'Backlog', icon: <ListTodo size={13} /> },
-  { value: 'board', label: 'Board', icon: <KanbanSquare size={13} /> },
-  { value: 'table', label: 'Table', icon: <Table2 size={13} /> },
-  { value: 'gantt', label: 'Gantt', icon: <GanttChartSquare size={13} /> },
-  { value: 'calendar', label: 'Calendar', icon: <CalendarDays size={13} /> },
-  { value: 'gallery', label: 'Gallery', icon: <LayoutGrid size={13} /> },
-];
-
-/** A data database has no status, people or schedule for these three to read. */
-const DATA_VIEWS = new Set(['table', 'calendar', 'gallery']);
+const VIEW_ICON: Record<ViewKind, typeof Table2> = {
+  backlog: ListTodo, board: KanbanSquare, table: Table2,
+  gantt: GanttChartSquare, calendar: CalendarDays, gallery: LayoutGrid,
+};
 
 interface Props {
   projectId: string;
-  view: EmbeddedView;
+  /** The saved view this block shows. Empty means "whichever is first", which
+   *  is also what a block written before saved views existed carries. */
+  viewId: string;
   /** 'full' breaks the block out of the page's reading measure. */
   width: 'column' | 'full';
   /** Draw the database's icon and name above the view. */
@@ -51,7 +51,7 @@ interface Props {
   /** Pixel height of the views that need a viewport. The table ignores it. */
   height: number;
   onPick: (projectId: string) => void;
-  onView: (view: EmbeddedView) => void;
+  onView: (viewId: string) => void;
   onWidth: (width: 'column' | 'full') => void;
   onHeader: (header: boolean) => void;
   onHeight: (height: number) => void;
@@ -107,23 +107,21 @@ function useBreakout(ref: React.RefObject<HTMLDivElement | null>, enabled: boole
 }
 
 /**
- * Renders the SAME views the full project screen uses, so an embedded database
- * can't drift from what a click-through to the project shows — and so the six
- * views are six views here too, rather than the table and the board it used to
- * be limited to.
+ * A saved view of a database, on a page.
+ *
+ * It points at a *view*, not at a project and a type — which is what makes it
+ * a linked view in the Notion sense: the same database can appear on two pages
+ * showing two different saved questions, and each is the real view, not a copy
+ * that drifts. Everything it draws comes from `useDatabaseView`, the same hook
+ * the project screen uses, so the two cannot disagree.
  *
  * This mounts inside its own React root (see database-block.ts), a separate
- * tree from the app's main root — `useWorkspace()`'s context can't cross that
- * boundary, so the project list is fetched directly here and navigation goes
- * through lib/navSignal.
- *
- * Refetches on window focus so a rename/delete/create made elsewhere while
- * this document stays open is picked up. An embed in a tab that never loses
- * focus won't see the update until it does — same residual gap `useProject`
- * itself has (no live push channel exists for project metadata).
+ * tree from the app's — `useWorkspace()`'s context can't cross that boundary,
+ * so the project list is fetched directly here, navigation goes through
+ * lib/navSignal, and every provider has to be re-declared inside.
  */
 export function EmbeddedDatabase({
-  projectId, view, width, header, height,
+  projectId, viewId, width, header, height,
   onPick, onView, onWidth, onHeader, onHeight, unavailable, readonly,
 }: Props) {
   const [projects, setProjects] = useState<ProjectRow[]>([]);
@@ -144,26 +142,21 @@ export function EmbeddedDatabase({
 
   // Status colours are on the project row, so a repaint refetches the list
   // this block reads its name and mode from.
-  const p = useProject(unavailable ? null : (projectId || null), fetchProjects);
+  const live = unavailable ? null : (projectId || null);
+  const p = useProject(live, fetchProjects);
+  const v = useViews(live);
   const project = projects.find((x) => x.id === projectId) ?? null;
-  const mode = project?.mode ?? 'tasks';
 
-  // The same merge the project screen does — built-ins and the database's own,
-  // as one list. It is what puts Assignees (and so "tag people"), Status,
-  // dates and Files on an embedded table at all.
-  const builtins = useMemo(
-    () => builtinProps(mode, p.kinds, p.sprints, project?.status_colors),
-    [mode, p.kinds, p.sprints, project?.status_colors],
-  );
-  const allProps = useMemo(() => [...builtins, ...p.props], [builtins, p.props]);
-  const viewDefaults = useMemo(
-    () => (view === 'table' ? defaultTableProps(builtins, p.props) : defaultPropIds(view, builtins, p.props, mode)),
-    [view, builtins, p.props, mode],
-  );
-  // Keyed by project + view, the same storage the project screen uses — so a
-  // column hidden on the board stays hidden whether you got there through the
-  // sidebar or through this block.
-  const viewProps = useViewProps(projectId || null, view, allProps, viewDefaults);
+  // The block names a view; falling back to the first is what a block written
+  // before saved views existed gets, and what one whose view was deleted gets.
+  const view = v.views.find((x) => x.id === viewId) ?? v.views[0] ?? null;
+
+  const d = useDatabaseView({
+    project,
+    source: p,
+    view,
+    onSave: (patch) => { if (view) v.setConfig(view.id, patch); },
+  });
 
   // Dragging the foot of the block. Only the views that need a viewport have
   // one; the table grows to its content, which is the whole point of `auto`.
@@ -202,21 +195,17 @@ export function EmbeddedDatabase({
     return <p className="rounded-md border border-line p-4 text-sm text-faint">That database no longer exists.</p>;
   }
 
-  const tabs = VIEW_TABS.filter((t) => mode !== 'data' || DATA_VIEWS.has(t.value));
-  const current: EmbeddedView = tabs.some((t) => t.value === view) ? view : (tabs[0].value as EmbeddedView);
+  const mode = project.mode;
   const dateProps = p.props.filter((prop) => prop.type === 'date');
   // The table is the one view with no viewport of its own — it grows down the
   // page, so the page scrolls and the block does not. Every other view is a
   // viewport by nature (a board scrolls sideways, a gantt both ways), and
   // those keep an explicit height you can drag.
-  const scrolls = current !== 'table';
+  const scrolls = d.kind !== 'table';
+  const ViewIcon = VIEW_ICON[d.kind] ?? Table2;
 
   const settings = [
-    {
-      icon: ExternalLink,
-      label: 'Open database',
-      onSelect: () => requestOpenProject(projectId),
-    },
+    { icon: ExternalLink, label: 'Open database', onSelect: () => requestOpenProject(projectId) },
     {
       icon: width === 'full' ? Minimize2 : Maximize2,
       label: width === 'full' ? 'Fit to text width' : 'Full width',
@@ -224,30 +213,44 @@ export function EmbeddedDatabase({
       separatorBefore: true,
       onSelect: () => onWidth(width === 'full' ? 'column' : 'full'),
     },
-    {
-      icon: Columns3,
-      label: 'Show database name',
-      checked: header,
-      onSelect: () => onHeader(!header),
-    },
+    { icon: Columns3, label: 'Show database name', checked: header, onSelect: () => onHeader(!header) },
   ];
 
   const controls = (
     <>
-      <PropertyVisibility
-        view={current}
-        visible={viewProps.visible}
-        hidden={viewProps.hidden}
-        onToggle={viewProps.toggle}
-        onMove={viewProps.move}
-        onShowAll={viewProps.showAll}
-        onHideAll={viewProps.hideAll}
+      {/* Which saved view, not which type: two blocks can show the same
+          database asking two different questions. */}
+      <Menu
+        align="start"
+        trigger={
+          <button
+            type="button"
+            className="flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-xs text-muted transition-colors hover:bg-hover hover:text-ink"
+          >
+            {createElement(ViewIcon, { size: 13 })}
+            <span className="max-w-[9rem] truncate">{view?.name ?? 'View'}</span>
+          </button>
+        }
+        items={v.views.map((x) => ({
+          icon: VIEW_ICON[x.kind] ?? Table2,
+          label: x.name,
+          checked: x.id === view?.id,
+          onSelect: () => onView(x.id),
+        }))}
       />
-      <SegmentedControl
-        aria-label="Database view"
-        segments={tabs}
-        value={current}
-        onChange={(v) => onView(v as EmbeddedView)}
+      <FilterBar fields={d.fields} filters={d.filters} onChange={d.setFilters} />
+      <SortBar fields={d.fields} sort={d.sort} onChange={d.setSort} />
+      {d.kind === 'board' && (
+        <GroupBy fields={d.fields} value={d.groupField?.key ?? null} onChange={d.setGroupBy} />
+      )}
+      <PropertyVisibility
+        view={d.kind}
+        visible={d.visible}
+        hidden={d.hidden}
+        onToggle={d.toggleProp}
+        onMove={d.moveProp}
+        onShowAll={d.showAllProps}
+        onHideAll={d.hideAllProps}
       />
       <Menu
         align="end"
@@ -287,16 +290,18 @@ export function EmbeddedDatabase({
           // With the name off, the controls are still reachable — they fade in
           // over the top-right corner rather than disappearing with it.
           !readonly && (
-            <div className="absolute right-1 top-1 z-10 flex items-center gap-1 rounded-md border border-line bg-canvas px-1 py-0.5 opacity-0 shadow-subtle transition-opacity focus-within:opacity-100 group-hover/db:opacity-100">
+            <div className="absolute right-1 top-1 z-10 flex flex-wrap items-center justify-end gap-1 rounded-md border border-line bg-canvas px-1 py-0.5 opacity-0 shadow-subtle transition-opacity focus-within:opacity-100 group-hover/db:opacity-100">
               {controls}
             </div>
           )
         )}
 
         <div className={cn(scrolls && 'min-h-0')} style={scrolls ? { height } : undefined}>
-          {current === 'backlog' ? (
+          {v.loading ? (
+            <Skeleton className="h-24 w-full" />
+          ) : d.kind === 'backlog' ? (
             <Backlog
-              tasks={p.tasks}
+              tasks={d.backlogTasks}
               sprints={p.sprints}
               onOpen={() => requestOpenProject(projectId)}
               onMoveToSprint={(id, sprintId) => p.patch(id, { sprintId })}
@@ -305,31 +310,33 @@ export function EmbeddedDatabase({
               onPatchSprint={p.patchSprint}
               onDeleteSprint={p.deleteSprint}
             />
-          ) : current === 'board' ? (
+          ) : d.kind === 'board' ? (
             <Board
-              tasks={p.tasks}
-              cardProps={viewProps.visible.length ? viewProps.visible : defaultCardProps('board', mode, p.kinds, p.sprints, p.props)}
+              tasks={d.tasks}
+              groups={d.groups}
+              groupOf={d.groupOf}
+              cardProps={d.visible}
               users={p.users}
               onOpen={() => requestOpenProject(projectId)}
-              onAdd={(status) => p.create({ title: '', status })}
-              onMove={(id, status, position) => p.patch(id, { status, position })}
+              onAdd={(value) => p.create({ title: '', ...d.groupSeed(value) })}
+              onMove={d.moveToGroup}
             />
-          ) : current === 'gantt' ? (
-            <Gantt tasks={p.tasks} cardProps={viewProps.visible} users={p.users} onOpen={() => requestOpenProject(projectId)} />
-          ) : current === 'gallery' ? (
+          ) : d.kind === 'gantt' ? (
+            <Gantt tasks={d.tasks} cardProps={d.visible} users={p.users} onOpen={() => requestOpenProject(projectId)} />
+          ) : d.kind === 'gallery' ? (
             <Gallery
-              tasks={p.tasks}
-              cardProps={viewProps.visible}
-              allProps={allProps}
+              tasks={d.tasks}
+              cardProps={d.visible}
+              allProps={d.allProps}
               users={p.users}
               onOpen={() => requestOpenProject(projectId)}
               onAdd={() => p.create({ title: '' })}
             />
-          ) : current === 'calendar' ? (
+          ) : d.kind === 'calendar' ? (
             <Calendar
-              tasks={p.tasks}
+              tasks={d.tasks}
               dateProps={mode === 'data' ? dateProps : []}
-              cardProps={viewProps.visible}
+              cardProps={d.visible}
               users={p.users}
               onOpen={() => requestOpenProject(projectId)}
               onAdd={(date, propId) => p.create(propId ? { title: '', props: { [propId]: date } } : { title: '', dueAt: date })}
@@ -343,8 +350,8 @@ export function EmbeddedDatabase({
           ) : (
             <TaskTable
               auto
-              tasks={p.tasks}
-              props={viewProps.visible}
+              tasks={d.tasks}
+              props={d.visible}
               users={p.users}
               rowLabel={mode === 'data' ? 'Name' : 'Task'}
               onPatch={p.patch}

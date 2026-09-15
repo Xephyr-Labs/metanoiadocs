@@ -3,9 +3,11 @@ import {
   CheckSquare,
   ChevronDown,
   ChevronRight,
+  ExternalLink,
   Files,
   Folder,
   Home,
+  Link2,
   Inbox,
   KanbanSquare,
   LogOut,
@@ -21,6 +23,8 @@ import {
 } from 'lucide-react';
 import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { cn } from '../../lib/cn';
+import { copyLink } from '../../lib/clipboard';
+import { dbUrl } from '../../lib/route';
 import { pickImportFiles } from '../../lib/docFiles';
 import { avatarFor } from '../../lib/avatar';
 import { nestByParent } from '../../lib/pageTree';
@@ -181,7 +185,15 @@ function ProjectRows({
                   </button>
                 }
                 items={[
-                  { icon: KanbanSquare, label: 'New database inside', onSelect: () => onNewUnder(p.id, 'tasks') },
+                  // A database has an address now, so it links and opens like a
+                  // page does — see lib/route's dbUrl.
+                  {
+                    icon: ExternalLink,
+                    label: 'Open in a new tab',
+                    onSelect: () => { window.open(dbUrl(p.id), '_blank', 'noopener,noreferrer'); },
+                  },
+                  { icon: Link2, label: 'Copy link', onSelect: () => { copyLink(dbUrl(p.id)); } },
+                  { icon: KanbanSquare, label: 'New database inside', separatorBefore: true, onSelect: () => onNewUnder(p.id, 'tasks') },
                   { icon: Table2, label: 'New data database inside', onSelect: () => onNewUnder(p.id, 'data') },
                   {
                     icon: p.mode === 'data' ? KanbanSquare : Table2,
