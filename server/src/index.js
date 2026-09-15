@@ -41,7 +41,7 @@ import { docxFromMarkdown } from './docx.js';
 import { fileToMarkdown, IMPORT_EXTENSIONS } from './import.js';
 import { registerMcpRoute } from './mcp-http.js';
 import { topTerms, extractSignals, findMentions, simhash, hamming, keyphrases, summarize, tokenize, coalesceByKey, blocksFromText } from './intelligence.js';
-import { coerceFiles, docKind } from './props.js';
+import { docKind } from './props.js';
 import { registerTaskRoutes } from './tasks.js';
 import { registerPropRoutes } from './props-routes.js';
 import { registerDocPropRoutes } from './doc-props.js';

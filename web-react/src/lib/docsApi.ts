@@ -22,7 +22,6 @@ async function req(path: string, opts: RequestInit = {}): Promise<any> {
   return ct.includes('application/json') ? res.json() : res.text();
 }
 
-
 export interface TagRow {
   id: string;
   name: string;
