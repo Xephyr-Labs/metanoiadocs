@@ -104,7 +104,16 @@ export function PropertyCell({
       users={users}
       value={value}
       onChange={write}
-      onEditOptions={onEditOptions ? (options) => onEditOptions(prop, options) : undefined}
+      // Built-ins mostly own their options somewhere else — a project's task
+      // types and sprints are rows with their own editors — so offering to
+      // edit them from here would draw controls that quietly do nothing.
+      // Status is the exception: its ids are fixed, so only the colour can
+      // change, and that is a project setting the value menu can write.
+      onEditOptions={
+        onEditOptions && (!builtin || prop.id === 'sys:status')
+          ? (options) => onEditOptions(prop, options)
+          : undefined
+      }
       // Only the *due* date goes red. A start date in the past is a task that
       // has started, which is the normal state of most of them.
       danger={prop.id === 'sys:due' && isOverdue(task)}

@@ -57,7 +57,9 @@ export function ProjectView() {
   // Scope for board/table/gantt/calendar: 'all', 'backlog', or a sprint id.
   const [scope, setScope] = useState('all');
   const [filters, setFilters] = useState<Filter[]>([]);
-  const p = useProject(ws.activeProjectId);
+  // Status colours live on the project row, so a repaint has to refresh the
+  // list the sidebar and this screen both read.
+  const p = useProject(ws.activeProjectId, ws.refreshProjects);
   const isData = project?.mode === 'data';
 
   // Arriving from a page that belongs to a task: open that task's panel as soon
@@ -85,8 +87,8 @@ export function ProjectView() {
   // panel and on cards, rather than teaching each of those about two kinds of
   // field. Built-ins lead: they are the ones every database has.
   const builtins = useMemo(
-    () => builtinProps(project?.mode ?? 'tasks', p.kinds, p.sprints),
-    [project?.mode, p.kinds, p.sprints],
+    () => builtinProps(project?.mode ?? 'tasks', p.kinds, p.sprints, project?.status_colors),
+    [project?.mode, p.kinds, p.sprints, project?.status_colors],
   );
   const allProps = useMemo(() => [...builtins, ...p.props], [builtins, p.props]);
   const viewDefaults = useMemo(

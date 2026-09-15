@@ -4,7 +4,7 @@
  * states: loading · picker (no database chosen) · missing · unavailable
  *         (share/snapshot) · default · header hidden · full width · resizing
  */
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { CalendarDays, Columns3, ExternalLink, GanttChartSquare, KanbanSquare, LayoutGrid, ListTodo, Maximize2, Minimize2, MoreHorizontal, Table2 } from 'lucide-react';
 import type { EmbeddedView } from '../../editor/database/database-model';
 import { requestOpenProject } from '../../lib/navSignal';
@@ -130,22 +130,30 @@ export function EmbeddedDatabase({
   const root = useRef<HTMLDivElement>(null);
   const breakout = useBreakout(root, width === 'full');
 
+  const fetchProjects = useCallback(
+    () => tasksApi.projects().then(setProjects).catch(() => {}).finally(() => setProjectsLoading(false)),
+    [],
+  );
   useEffect(() => {
     if (unavailable) return;
-    const fetchProjects = () => tasksApi.projects().then(setProjects).catch(() => {}).finally(() => setProjectsLoading(false));
     fetchProjects();
     window.addEventListener('focus', fetchProjects);
     return () => window.removeEventListener('focus', fetchProjects);
-  }, [unavailable]);
+  }, [unavailable, fetchProjects]);
 
-  const p = useProject(unavailable ? null : (projectId || null));
+  // Status colours are on the project row, so a repaint refetches the list
+  // this block reads its name and mode from.
+  const p = useProject(unavailable ? null : (projectId || null), fetchProjects);
   const project = projects.find((x) => x.id === projectId) ?? null;
   const mode = project?.mode ?? 'tasks';
 
   // The same merge the project screen does — built-ins and the database's own,
   // as one list. It is what puts Assignees (and so "tag people"), Status,
   // dates and Files on an embedded table at all.
-  const builtins = useMemo(() => builtinProps(mode, p.kinds, p.sprints), [mode, p.kinds, p.sprints]);
+  const builtins = useMemo(
+    () => builtinProps(mode, p.kinds, p.sprints, project?.status_colors),
+    [mode, p.kinds, p.sprints, project?.status_colors],
+  );
   const allProps = useMemo(() => [...builtins, ...p.props], [builtins, p.props]);
   const viewDefaults = useMemo(
     () => (view === 'table' ? defaultTableProps(builtins, p.props) : defaultPropIds(view, builtins, p.props, mode)),

@@ -13,7 +13,14 @@ export type KindResult =
  * gantt without a second fetch. Mutations apply locally first and re-sync from
  * the server on failure — the same optimistic pattern the doc store uses.
  */
-export function useProject(projectId: string | null) {
+export function useProject(
+  projectId: string | null,
+  /** Called after a change that lives on the project row rather than on a
+   *  task — status colours, today. The project list is owned by whoever is
+   *  displaying it (the workspace store, or an embed's own fetch), so this
+   *  hook reports the write instead of guessing how to refresh it. */
+  onProjectChanged?: () => void,
+) {
   const [tasks, setTasks] = useState<TaskRow[]>([]);
   const [sprints, setSprints] = useState<SprintRow[]>([]);
   const [kinds, setKinds] = useState<TaskKindRow[]>([]);
@@ -200,9 +207,20 @@ export function useProject(projectId: string | null) {
    * for them; the guard is so that stays true if one ever does.
    */
   const editOptions = useCallback((prop: PropRow, options: PropOption[]) => {
+    // The four statuses are the one built-in that can be restyled from the
+    // value menu: their ids are fixed, so all that can change is the colour,
+    // and that is a project setting rather than a property row.
+    if (prop.id === 'sys:status') {
+      if (!projectId) return;
+      const statusColors = Object.fromEntries(options.map((o) => [o.id, o.color]));
+      tasksApi.patchProject(projectId, { statusColors })
+        .then(() => onProjectChanged?.())
+        .catch(() => setError('Could not save that colour.'));
+      return;
+    }
     if (isBuiltinProp(prop.id)) return;
     patchProp(prop.id, { options });
-  }, [patchProp]);
+  }, [patchProp, projectId, onProjectChanged]);
 
   const deleteProp = useCallback(async (id: string) => {
     setProps((prev) => prev.filter((p) => p.id !== id));

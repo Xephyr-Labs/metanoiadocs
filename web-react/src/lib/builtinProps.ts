@@ -69,6 +69,8 @@ export function builtinProps(
   mode: ProjectMode,
   kinds: TaskKindRow[] = [],
   sprints: SprintRow[] = [],
+  /** Per-project overrides for the status chips, `{ status: colour }`. */
+  statusColors: Record<string, string> = {},
 ): PropRow[] {
   // A data database has no status, no assignee, no schedule — Backlog, Board
   // and the work half of the table are all hidden for it. Offering those as
@@ -77,7 +79,7 @@ export function builtinProps(
 
   return [
     row('status', 'Status', 'select',
-      STATUSES.map((s) => ({ id: s, label: STATUS_LABEL[s], color: STATUS_COLOR[s] ?? 'gray' })), 0),
+      STATUSES.map((s) => ({ id: s, label: STATUS_LABEL[s], color: statusColors[s] || STATUS_COLOR[s] || 'gray' })), 0),
     row('assignees', 'Assignees', 'person', [], 1),
     row('kind', 'Type', 'select',
       kinds.map((k) => ({ id: k.key, label: k.label, color: k.color })), 2),

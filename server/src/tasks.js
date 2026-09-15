@@ -112,6 +112,28 @@ const isMode = (m) => PROJECT_MODES.includes(m);
 
 const isStatus = (s) => STATUSES.includes(s);
 
+/**
+ * The palette a chip may be painted in — the same nine names the tag palette
+ * offers (web-react/src/lib/tagColors.ts). Kept as a list rather than a length
+ * check so a typo lands as a 400 here instead of as an unstyled grey chip
+ * three screens away.
+ */
+const CHIP_COLORS = ['gray', 'red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'pink'];
+
+/**
+ * `{ status: colour }`, keeping only the pairs that name a real status and a
+ * real colour. Anything else is dropped rather than rejected: the body is a
+ * whole map, and one unknown key should not lose the three good ones with it.
+ */
+export function cleanStatusColors(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const out = {};
+  for (const [status, color] of Object.entries(value)) {
+    if (isStatus(status) && CHIP_COLORS.includes(color)) out[status] = color;
+  }
+  return out;
+}
+
 /** Seeded into every project on first read. Not built-ins — all four can be
  * renamed, recoloured or deleted like any type someone adds later. */
 export const DEFAULT_KINDS = [
@@ -367,6 +389,12 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
       if (!isMode(req.body.mode)) return res.status(400).json({ error: 'bad mode' });
       vals.push(req.body.mode);
       sets.push(`mode = $${vals.length}`);
+    }
+    if (req.body?.statusColors !== undefined) {
+      const colors = cleanStatusColors(req.body.statusColors);
+      if (!colors) return res.status(400).json({ error: 'bad statusColors' });
+      vals.push(JSON.stringify(colors));
+      sets.push(`status_colors = $${vals.length}::jsonb`);
     }
     // Archiving is a toggle, not a one-way door: the sidebar's Archive action
     // offers an undo, and that undo comes back through here.
