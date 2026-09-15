@@ -1252,32 +1252,6 @@ app.delete('/api/docs/:id', requireUser, async (req, res) => {
   res.json({ ok: true });
 });
 
-// Files attached to a page. Kept off GET /api/docs on purpose: that payload
-// builds the whole sidebar on every boot, and most pages have no attachments —
-// a task carries its own inline, because a board's task list is small enough
-// to afford it.
-app.get('/api/docs/:id/attachments', requireUser, async (req, res) => {
-  if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
-  const { rows } = await pool.query('SELECT attachments FROM docs WHERE id = $1', [req.params.id]);
-  if (!rows[0]) return res.status(404).json({ error: 'no such page' });
-  res.json(rows[0].attachments ?? []);
-});
-
-// PUT, not PATCH: the client sends the list it wants, the way the sidebar
-// order does, so two people adding a file at once converge on one of the two
-// lists rather than interleaving into a list neither of them chose.
-app.put('/api/docs/:id/attachments', requireUser, async (req, res) => {
-  if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
-  const files = coerceFiles(req.body);
-  if (!files) return res.status(400).json({ error: 'bad attachments' });
-  const { rowCount } = await pool.query(
-    'UPDATE docs SET attachments = $1, updated_at = now(), updated_by = $2, updated_via = $4 WHERE id = $3',
-    [JSON.stringify(files), req.user.id, req.params.id, req.via]
-  );
-  if (!rowCount) return res.status(404).json({ error: 'no such page' });
-  res.json(files);
-});
-
 // Public read-only share. Owner-gated. GET reads current token; POST mints (or
 // returns) one; DELETE revokes it. The token is the whole capability — anyone
 // with the link reads.

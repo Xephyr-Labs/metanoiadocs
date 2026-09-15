@@ -137,10 +137,13 @@ export async function initSchema() {
     -- Values keyed by doc_props.id, same shape as tasks.props: a page sets only
     -- the properties it actually uses, so the column is sparse by design.
     ALTER TABLE docs ADD COLUMN IF NOT EXISTS props JSONB NOT NULL DEFAULT '{}';
-    -- Files attached to the page itself, as opposed to images pasted into its
-    -- body: the same [{key,name,mime,size}] shape a file property stores, so
-    -- both sides read one validator and one blob store.
-    ALTER TABLE docs ADD COLUMN IF NOT EXISTS attachments JSONB NOT NULL DEFAULT '[]';
+    -- No docs.attachments here on purpose. Pages carried an attachment list
+    -- for three days and not one of the 114 documents in production ever used
+    -- it: a file that belongs to a page either belongs IN the page, or belongs
+    -- to the task the page is about. Tasks keep theirs (see below). An install
+    -- that already has the column keeps it — nothing reads it, and dropping a
+    -- column from a migration that runs on every boot would take somebody
+    -- else's files with it.
 
     CREATE TABLE IF NOT EXISTS schema_migrations (
       key        TEXT PRIMARY KEY,
@@ -423,7 +426,8 @@ export async function initSchema() {
     -- epic | story | task | bug. Epics group children via the existing parent_id.
     ALTER TABLE tasks ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'task';
     -- Attachments every task has, without a database first having to define a
-    -- file property for them. Same shape as docs.attachments.
+    -- file property for them. Same [{key,name,mime,size}] shape a file
+    -- property stores, so both read one validator and one blob store.
     ALTER TABLE tasks ADD COLUMN IF NOT EXISTS attachments JSONB NOT NULL DEFAULT '[]';
     CREATE INDEX IF NOT EXISTS tasks_sprint_idx ON tasks(sprint_id) WHERE deleted_at IS NULL;
     CREATE INDEX IF NOT EXISTS tasks_assignee_idx

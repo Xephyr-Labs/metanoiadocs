@@ -22,7 +22,6 @@ async function req(path: string, opts: RequestInit = {}): Promise<any> {
   return ct.includes('application/json') ? res.json() : res.text();
 }
 
-import type { StoredFile } from './uploads';
 
 export interface TagRow {
   id: string;
@@ -244,13 +243,6 @@ export const docsApi = {
   emptyTrash: (): Promise<{ deleted: number; skipped: number }> =>
     req('/docs/trash/empty', { method: 'POST' }),
   backlinks: (id: string): Promise<BacklinkRow[]> => req(`/docs/${id}/backlinks`),
-  /** Files attached to a page. Fetched per page rather than shipped with the
-   *  sidebar payload, which loads every page in the workspace on boot. */
-  attachments: (id: string): Promise<StoredFile[]> => req(`/docs/${id}/attachments`),
-  /** The whole list, not a delta — two people adding at once land on one of
-   *  the two lists rather than a merge neither of them asked for. */
-  setAttachments: (id: string, files: StoredFile[]): Promise<StoredFile[]> =>
-    req(`/docs/${id}/attachments`, { method: 'PUT', body: JSON.stringify(files) }),
   /** Pages this one @-references — the sidebar hangs them under it. */
   links: (id: string): Promise<BacklinkRow[]> => req(`/docs/${id}/links`),
   /** `ids` is the container's whole list in its new order, not just the moved one. */
