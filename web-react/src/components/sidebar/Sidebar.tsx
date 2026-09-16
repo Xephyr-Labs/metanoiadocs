@@ -848,12 +848,12 @@ export function Sidebar() {
             <p className="truncate text-sm font-medium text-ink">{auth.user?.name ?? 'User'}</p>
             <p className="truncate text-2xs text-faint">{auth.user?.role === 'admin' ? 'Admin' : `@${auth.user?.username ?? 'you'}`}</p>
           </div>
-          <button type="button" onClick={() => ws.setSettingsOpen(true)} className="flex h-6 w-6 items-center justify-center rounded text-faint hover:bg-hover hover:text-ink" aria-label="Settings">
-            <Settings size={16} />
-          </button>
-          <button type="button" onClick={() => auth.logout()} className="flex h-6 w-6 items-center justify-center rounded text-faint hover:bg-hover hover:text-danger-strong" aria-label="Log out">
-            <LogOut size={16} />
-          </button>
+          {/* The two smallest targets in the chrome were here, hand-rolled at
+              24px. IconButton is the same control the rail and the top bar use:
+              28px, tooltip-labelled, and it already owns the danger tone that
+              Log out was spelling out by hand. */}
+          <IconButton icon={<Settings size={16} />} label="Settings" side="top" onClick={() => ws.setSettingsOpen(true)} />
+          <IconButton icon={<LogOut size={16} />} label="Log out" side="top" tone="danger" onClick={() => auth.logout()} />
         </div>
       </div>
       </div>
