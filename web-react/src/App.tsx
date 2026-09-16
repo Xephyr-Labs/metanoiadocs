@@ -104,7 +104,11 @@ export default function App() {
                 tabIndex={-1}
                 ref={(el) => el?.focus({ preventScroll: true })}
                 onKeyDown={(e) => { if (e.key === 'Escape') ws.setMobileDrawer(false); }}
-                className="fixed left-0 top-0 z-50 h-full w-[280px] shadow-modal outline-none"
+                // 300, not 280: the drawer holds the same rail as the inline sidebar, and a
+                // 72px rail inside 280 left the tree 208px to draw folder names in.
+                // Capped against the viewport so a 320px phone still shows the backdrop
+                // it has to tap to get out.
+                className="fixed left-0 top-0 z-50 h-full w-[300px] max-w-[88vw] shadow-modal outline-none"
               >
                 <Sidebar />
               </motion.div>
