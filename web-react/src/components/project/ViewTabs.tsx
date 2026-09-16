@@ -8,7 +8,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   CalendarDays, ChevronDown, Copy, GanttChartSquare, KanbanSquare, LayoutGrid,
-  ListTodo, Pencil, Plus, Shapes, Table2, Trash2,
+  ListTodo, Pencil, Plus, PieChart, Shapes, Table2, Trash2,
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { VIEW_KIND_LABEL, type ViewKind, type ViewRow } from '../../lib/tasksApi';
@@ -22,6 +22,7 @@ const ICON: Record<ViewKind, typeof Table2> = {
   gantt: GanttChartSquare,
   calendar: CalendarDays,
   gallery: LayoutGrid,
+  dashboard: PieChart,
 };
 
 interface Props {

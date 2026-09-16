@@ -83,7 +83,7 @@ export function SortBar({ fields, sort, onChange }: Props) {
               type="button"
               aria-label={`Remove sort by ${field.label}`}
               onClick={() => onChange(sort.filter((s) => s.id !== rule.id))}
-              className="flex h-5 w-5 items-center justify-center rounded text-faint hover:bg-hover hover:text-danger"
+              className="flex h-5 w-5 items-center justify-center rounded text-faint hover:bg-hover hover:text-danger-strong"
             >
               <X size={12} />
             </button>

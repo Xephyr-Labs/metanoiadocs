@@ -176,7 +176,7 @@ export function Gantt({ tasks, cardProps = [], users, onOpen }: {
                       style={{ left: bar.x + dayWidth / 2 - 5, top: i * ROW_H + ROW_H / 2 - 5 }}
                       className={cn(
                         'absolute h-2.5 w-2.5 rounded-full ring-4',
-                        late ? 'bg-danger ring-danger-soft' : 'bg-accent ring-accent-soft',
+                        late ? 'bg-danger-strong ring-danger-soft' : 'bg-accent ring-accent-soft',
                         t.status === 'done' && 'opacity-60',
                       )}
                     />
@@ -204,7 +204,7 @@ export function Gantt({ tasks, cardProps = [], users, onOpen }: {
                       'absolute h-5 overflow-hidden rounded text-left ring-1 ring-inset',
                       // A late bar used to sit on the page background, which read
                       // as an empty outline rather than as a bar.
-                      late ? 'bg-danger-soft ring-danger' : 'bg-accent-soft ring-accent',
+                      late ? 'bg-danger-soft ring-danger-strong' : 'bg-accent-soft ring-accent',
                       t.status === 'done' && 'opacity-70',
                     )}
                   >
@@ -212,7 +212,7 @@ export function Gantt({ tasks, cardProps = [], users, onOpen }: {
                         at all is indistinguishable from an empty box, so it keeps
                         a 3px cap in the status colour. */}
                     <span
-                      className={cn('block h-full', late ? 'bg-danger' : 'bg-accent')}
+                      className={cn('block h-full', late ? 'bg-danger-strong' : 'bg-accent')}
                       style={{ width: t.progress > 0 ? `${t.progress}%` : '3px' }}
                     />
                   </button>

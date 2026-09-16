@@ -37,14 +37,34 @@ test('a 2xx is delivered on the first attempt', async () => {
   assert.equal(calls, 1);
 });
 
-test('a 4xx is not retried — an identical payload it already refused will be refused again', async () => {
+test('deliver makes exactly one attempt — the worker owns the retry schedule', async () => {
+  // It used to loop internally, which meant the schedule lived in this
+  // function's stack and died with the process. One attempt, recorded, requeued
+  // by the worker if it is worth another go.
   let calls = 0;
   const out = await deliver({ url: 'https://x/h', secret: 's' }, 'task.created', { id: '1' }, {
-    fetchImpl: async () => { calls++; return { ok: false, status: 410 }; },
+    fetchImpl: async () => { calls++; return { ok: false, status: 500 }; },
   });
   assert.equal(calls, 1);
+  assert.equal(out.attempts, 1);
+  assert.equal(out.ok, false);
+  assert.equal(out.statusCode, 500);
+});
+
+test('a 4xx reports its status so the worker knows not to retry it', async () => {
+  const out = await deliver({ url: 'https://x/h', secret: 's' }, 'task.created', { id: '1' }, {
+    fetchImpl: async () => ({ ok: false, status: 410 }),
+  });
   assert.equal(out.ok, false);
   assert.equal(out.statusCode, 410);
+});
+
+test('a network failure reports no status, which is what makes it retryable', async () => {
+  const out = await deliver({ url: 'https://x/h', secret: 's' }, 'task.created', { id: '1' }, {
+    fetchImpl: async () => { throw new Error('fetch failed'); },
+  });
+  assert.equal(out.statusCode, null);
+  assert.equal(out.error, 'fetch failed');
 });
 
 test('the signed body carries the event and the payload the receiver was promised', async () => {

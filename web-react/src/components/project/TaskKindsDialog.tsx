@@ -104,7 +104,7 @@ function KindRow({ kind, count, fallback, busy, onPatch, onDelete }: {
           <button
             type="button"
             onClick={() => { setConfirming(false); onDelete(); }}
-            className="h-6 shrink-0 rounded-md px-2 text-2xs font-medium text-danger transition-colors duration-120 hover:bg-danger-soft active:bg-danger-soft"
+            className="h-6 shrink-0 rounded-md px-2 text-2xs font-medium text-danger-strong transition-colors duration-120 hover:bg-danger-soft active:bg-danger-soft"
           >
             Delete
           </button>
@@ -118,7 +118,7 @@ function KindRow({ kind, count, fallback, busy, onPatch, onDelete }: {
         </div>
       )}
 
-      {error && <p className="mt-1 pl-9 text-2xs text-danger">{error}</p>}
+      {error && <p className="mt-1 pl-9 text-2xs text-danger-strong">{error}</p>}
     </div>
   );
 }
@@ -187,7 +187,7 @@ export function TaskKindsDialog({ open, onOpenChange, kinds, tasks, onCreate, on
             role="status"
             className={cn(
               'mb-2 rounded-md px-2.5 py-1.5 text-2xs',
-              notice.bad ? 'bg-danger-soft text-danger' : 'bg-surface text-muted',
+              notice.bad ? 'bg-danger-soft text-danger-strong' : 'bg-surface text-muted',
             )}
           >
             {notice.text}

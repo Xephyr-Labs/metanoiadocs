@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Plus } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import type { TaskRow, TaskStatus, PropRow } from '../../lib/tasksApi';
-import type { BoardGroup } from '../../lib/grouping';
+import { STATUS_DOT, type BoardGroup } from '../../lib/grouping';
 import type { UserRow } from '../../lib/docsApi';
 import { TaskChip } from './TaskChip';
 
@@ -29,14 +29,10 @@ interface Props {
 }
 
 /** One dot per column, so the four headers are told apart before they are read.
- *  Exported because the cross-project list draws the same four states, and two
- *  private copies would be two palettes within a week. */
-export const DOT: Record<TaskStatus, string> = {
-  todo: 'bg-line-strong',
-  doing: 'bg-accent',
-  review: 'bg-amber-400',
-  done: 'bg-emerald-500',
-};
+ *  Re-exported from lib/grouping rather than declared again: this file and that
+ *  one held byte-identical copies, which is the drift the old comment here
+ *  warned about happening to itself. */
+export const DOT = STATUS_DOT as Record<TaskStatus, string>;
 
 /**
  * Kanban. Uses the native HTML drag-and-drop API rather than a drag library —

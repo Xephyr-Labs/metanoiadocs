@@ -14,18 +14,30 @@
 export const TAG_COLORS = ['gray', 'red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'pink'] as const;
 export type TagColor = (typeof TAG_COLORS)[number];
 
-interface Swatch { chip: string; dot: string }
+interface Swatch {
+  chip: string;
+  dot: string;
+  /** A filled area big enough that its colour is the only thing carrying the
+   *  meaning — a chart segment, a progress band.
+   *
+   *  Not `dot`. A dot is 10px beside its own text label, so it can afford to be
+   *  decorative; measured on the light surface the 500 steps run 1.8–2.4:1,
+   *  under the 3:1 floor for a graphic that has to be read. One step darker in
+   *  light clears it (yellow needs two — 600 is still 2.7:1); dark mode keeps
+   *  the 500s, which measure 4.3–8.2:1 on the dark card. */
+  bar: string;
+}
 
 const MAP: Record<string, Swatch> = {
-  gray:   { chip: 'bg-gray-500/10 text-gray-700 dark:text-gray-300',       dot: 'bg-gray-400' },
-  red:    { chip: 'bg-red-500/10 text-red-700 dark:text-red-400',          dot: 'bg-red-500' },
-  orange: { chip: 'bg-orange-500/20 text-orange-800 dark:text-orange-400', dot: 'bg-orange-500' },
-  yellow: { chip: 'bg-yellow-500/20 text-yellow-800 dark:text-yellow-400', dot: 'bg-yellow-500' },
-  green:  { chip: 'bg-green-500/10 text-green-800 dark:text-green-400',    dot: 'bg-green-500' },
-  teal:   { chip: 'bg-teal-500/10 text-teal-800 dark:text-teal-400',       dot: 'bg-teal-500' },
-  blue:   { chip: 'bg-blue-500/10 text-blue-700 dark:text-blue-400',       dot: 'bg-blue-500' },
-  purple: { chip: 'bg-purple-500/10 text-purple-700 dark:text-purple-400', dot: 'bg-purple-500' },
-  pink:   { chip: 'bg-pink-500/10 text-pink-700 dark:text-pink-400',       dot: 'bg-pink-500' },
+  gray:   { chip: 'bg-gray-500/10 text-gray-700 dark:text-gray-300',       dot: 'bg-gray-400',   bar: 'bg-gray-600 dark:bg-gray-400' },
+  red:    { chip: 'bg-red-500/10 text-red-700 dark:text-red-400',          dot: 'bg-red-500',    bar: 'bg-red-600 dark:bg-red-500' },
+  orange: { chip: 'bg-orange-500/20 text-orange-800 dark:text-orange-400', dot: 'bg-orange-500', bar: 'bg-orange-600 dark:bg-orange-500' },
+  yellow: { chip: 'bg-yellow-500/20 text-yellow-800 dark:text-yellow-400', dot: 'bg-yellow-500', bar: 'bg-yellow-700 dark:bg-yellow-500' },
+  green:  { chip: 'bg-green-500/10 text-green-800 dark:text-green-400',    dot: 'bg-green-500',  bar: 'bg-green-600 dark:bg-green-500' },
+  teal:   { chip: 'bg-teal-500/10 text-teal-800 dark:text-teal-400',       dot: 'bg-teal-500',   bar: 'bg-teal-600 dark:bg-teal-500' },
+  blue:   { chip: 'bg-blue-500/10 text-blue-700 dark:text-blue-400',       dot: 'bg-blue-500',   bar: 'bg-blue-600 dark:bg-blue-500' },
+  purple: { chip: 'bg-purple-500/10 text-purple-700 dark:text-purple-400', dot: 'bg-purple-500', bar: 'bg-purple-600 dark:bg-purple-500' },
+  pink:   { chip: 'bg-pink-500/10 text-pink-700 dark:text-pink-400',       dot: 'bg-pink-500',   bar: 'bg-pink-600 dark:bg-pink-500' },
 };
 
 export const swatch = (color: string): Swatch => MAP[color] ?? MAP.gray;

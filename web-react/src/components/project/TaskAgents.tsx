@@ -43,7 +43,7 @@ function RunRow({ run, onCancel }: { run: AgentRunRow; onCancel: () => void }) {
             'h-1.5 w-1.5 shrink-0 rounded-full',
             run.status === 'running' ? 'animate-pulse bg-accent'
               : run.status === 'done' ? 'bg-accent-strong'
-              : run.status === 'failed' ? 'bg-danger'
+              : run.status === 'failed' ? 'bg-danger-strong'
               : 'ring-1 ring-line-strong',
           )}
         />
@@ -56,14 +56,14 @@ function RunRow({ run, onCancel }: { run: AgentRunRow; onCancel: () => void }) {
           <button
             type="button"
             onClick={onCancel}
-            className="shrink-0 rounded px-1.5 py-0.5 text-2xs text-danger transition-colors duration-120 hover:bg-danger-soft"
+            className="shrink-0 rounded px-1.5 py-0.5 text-2xs text-danger-strong transition-colors duration-120 hover:bg-danger-soft"
           >
             Cancel
           </button>
         )}
       </div>
       {run.status === 'failed' && run.error && (
-        <p className="mt-1 pl-[14px] text-2xs leading-4 text-danger">{run.error.slice(0, 300)}</p>
+        <p className="mt-1 pl-[14px] text-2xs leading-4 text-danger-strong">{run.error.slice(0, 300)}</p>
       )}
     </li>
   );

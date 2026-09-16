@@ -196,7 +196,7 @@ export function AuthScreen() {
                 initial={{ opacity: 0, y: -4 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -4 }}
-                className="flex items-center gap-2 rounded-md bg-danger-soft px-3 py-2 text-sm text-danger"
+                className="flex items-center gap-2 rounded-md bg-danger-soft px-3 py-2 text-sm text-danger-strong"
               >
                 <AlertCircle size={16} className="shrink-0" />
                 {error}

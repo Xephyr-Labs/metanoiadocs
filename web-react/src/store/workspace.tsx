@@ -247,7 +247,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [activeViewId, setActiveViewId] = useState<string | null>(null);
   const [projects, setProjects] = useState<ProjectRow[]>([]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [sidebarWidth, setSidebarWidth] = useState(260);
+  // 44 for the icon rail plus the 260 the panel beside it has always had.
+  const [sidebarWidth, setSidebarWidth] = useState(304);
   const [mobileDrawerOpen, setMobileDrawer] = useState(false);
   const [rightPanel, setRightPanel] = useState<RightTab | null>(null);
   const [activeFolderId, setActiveFolderId] = useState<string | null>(null);

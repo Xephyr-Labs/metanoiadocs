@@ -178,7 +178,7 @@ export function Home() {
         </header>
 
         {error && (
-          <div className="mb-6 rounded-lg bg-surface px-4 py-3 text-sm text-danger shadow-subtle">{error}</div>
+          <div className="mb-6 rounded-lg bg-surface px-4 py-3 text-sm text-danger-strong shadow-subtle">{error}</div>
         )}
 
         {!data ? (

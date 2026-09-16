@@ -44,5 +44,5 @@ test('cleanConfig refuses anything that is not an object', () => {
 });
 
 test('the seeded view kinds are the ones the client can render', () => {
-  assert.deepEqual(VIEW_KINDS, ['backlog', 'board', 'table', 'gantt', 'calendar', 'gallery']);
+  assert.deepEqual(VIEW_KINDS, ['backlog', 'board', 'table', 'gantt', 'calendar', 'gallery', 'dashboard']);
 });

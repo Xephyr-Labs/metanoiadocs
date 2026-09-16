@@ -256,7 +256,7 @@ function PasswordRow() {
         />
       </div>
       {(problem || msg) && !msg?.ok && (
-        <p className="mt-2 flex items-center gap-1.5 text-xs text-danger">
+        <p className="mt-2 flex items-center gap-1.5 text-xs text-danger-strong">
           <AlertCircle size={14} /> {problem ?? msg?.text}
         </p>
       )}
@@ -428,7 +428,7 @@ function Members() {
           </Button>
         </div>
         {msg && (
-          <p className={cn('mt-2 flex items-center gap-1.5 text-xs', msg.ok ? 'text-accent-strong' : 'text-danger')}>
+          <p className={cn('mt-2 flex items-center gap-1.5 text-xs', msg.ok ? 'text-accent-strong' : 'text-danger-strong')}>
             {msg.ok ? <Check size={14} /> : <AlertCircle size={14} />}
             {msg.text}
           </p>
@@ -450,7 +450,7 @@ function Members() {
                   {m.id === user?.id && <span className="shrink-0 text-faint">(you)</span>}
                 </p>
                 {asking ? (
-                  <p className="text-xs text-danger">
+                  <p className="text-xs text-danger-strong">
                     Their pages transfer to you and their comments keep their name. Sign-in, tokens and favourites are deleted.
                   </p>
                 ) : (
@@ -649,11 +649,11 @@ function AiSettings() {
             Save
           </Button>
           {missing ? (
-            <span className="flex items-center gap-1.5 text-xs text-danger">
+            <span className="flex items-center gap-1.5 text-xs text-danger-strong">
               <AlertCircle size={14} /> Add a provider URL, a model and a key before turning it on.
             </span>
           ) : msg ? (
-            <span className={cn('flex items-center gap-1.5 text-xs', msg.ok ? 'text-accent-strong' : 'text-danger')}>
+            <span className={cn('flex items-center gap-1.5 text-xs', msg.ok ? 'text-accent-strong' : 'text-danger-strong')}>
               {msg.ok ? <Check size={14} /> : <AlertCircle size={14} />} {msg.text}
             </span>
           ) : null}
@@ -772,7 +772,7 @@ function Tokens() {
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium text-ink">{t.name}</p>
                 {asking ? (
-                  <p className="text-xs text-danger">Anything signed in with this token stops working.</p>
+                  <p className="text-xs text-danger-strong">Anything signed in with this token stops working.</p>
                 ) : (
                   <p className="truncate text-xs text-faint">
                     Created {relativeTime(t.created_at)}
@@ -800,7 +800,7 @@ function Tokens() {
               ) : (
                 <button
                   onClick={() => setConfirming(t.id)}
-                  className="shrink-0 rounded-md px-2 py-1 text-xs text-danger transition-colors duration-120 hover:bg-danger-soft"
+                  className="shrink-0 rounded-md px-2 py-1 text-xs text-danger-strong transition-colors duration-120 hover:bg-danger-soft"
                 >
                   Revoke
                 </button>

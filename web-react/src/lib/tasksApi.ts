@@ -114,13 +114,13 @@ export const COMPUTED_TYPES: PropType[] = ['formula', 'rollup'];
 export const isComputed = (type: PropType) => COMPUTED_TYPES.includes(type);
 
 /** The six shapes a saved view can take. Mirrors VIEW_KINDS in server/src/views.js. */
-export type ViewKind = 'backlog' | 'board' | 'table' | 'gantt' | 'calendar' | 'gallery';
+export type ViewKind = 'backlog' | 'board' | 'table' | 'gantt' | 'calendar' | 'gallery' | 'dashboard';
 
-export const VIEW_KINDS: ViewKind[] = ['backlog', 'board', 'table', 'gantt', 'calendar', 'gallery'];
+export const VIEW_KINDS: ViewKind[] = ['backlog', 'board', 'table', 'gantt', 'calendar', 'gallery', 'dashboard'];
 
 export const VIEW_KIND_LABEL: Record<ViewKind, string> = {
   backlog: 'Backlog', board: 'Board', table: 'Table',
-  gantt: 'Gantt', calendar: 'Calendar', gallery: 'Gallery',
+  gantt: 'Gantt', calendar: 'Calendar', gallery: 'Gallery', dashboard: 'Dashboard',
 };
 
 /**
@@ -338,6 +338,9 @@ export interface AutomationRow {
   id: string;
   project_id: string;
   name: string;
+  /** Which tasks the rule may touch — the same filter shape a saved view
+   *  stores. Empty means every task. */
+  condition: Filter[];
   trigger_kind: AutomationTrigger;
   /** The status a task has to enter, for a `status` rule. Null for a manual one. */
   trigger_value: string | null;
@@ -449,9 +452,9 @@ export const tasksApi = {
     req(`/tasks/${id}/deps/${dependsOn}`, { method: 'DELETE' }),
 
   automations: (projectId: string): Promise<AutomationRow[]> => req(`/projects/${projectId}/automations`),
-  createAutomation: (projectId: string, b: { name?: string; trigger?: AutomationTrigger; value?: string | null; actions?: AutomationAction[] }): Promise<AutomationRow> =>
+  createAutomation: (projectId: string, b: { name?: string; trigger?: AutomationTrigger; value?: string | null; actions?: AutomationAction[]; condition?: Filter[] }): Promise<AutomationRow> =>
     req(`/projects/${projectId}/automations`, { method: 'POST', ...body(b) }),
-  patchAutomation: (id: string, b: Partial<{ name: string; trigger: AutomationTrigger; value: string | null; actions: AutomationAction[]; active: boolean; position: number }>): Promise<AutomationRow> =>
+  patchAutomation: (id: string, b: Partial<{ name: string; trigger: AutomationTrigger; value: string | null; actions: AutomationAction[]; condition: Filter[]; active: boolean; position: number }>): Promise<AutomationRow> =>
     req(`/automations/${id}`, { method: 'PATCH', ...body(b) }),
   deleteAutomation: (id: string) => req(`/automations/${id}`, { method: 'DELETE' }),
   /** Fire a rule on one task by hand — what makes a rule a quick action. */

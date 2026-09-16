@@ -187,7 +187,7 @@ export function FolderView() {
             onClick={copyLink}
             leftIcon={
               copied === 'yes' ? <Check size={14} className="text-accent-strong" />
-              : copied === 'failed' ? <AlertCircle size={14} className="text-danger" />
+              : copied === 'failed' ? <AlertCircle size={14} className="text-danger-strong" />
               : <Link2 size={14} />
             }
           >

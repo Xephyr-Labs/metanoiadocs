@@ -132,7 +132,7 @@ export function TrashDialog() {
                         {/* The countdown is the only part that ever needs to
                             raise its voice, so the tint stays on that span. */}
                         {countdown(d.purge_at) && (
-                          <> · <span className={cn(soon && 'font-medium text-danger')}>{countdown(d.purge_at)}</span></>
+                          <> · <span className={cn(soon && 'font-medium text-danger-strong')}>{countdown(d.purge_at)}</span></>
                         )}
                       </>
                     )}
@@ -172,7 +172,7 @@ export function TrashDialog() {
                       <button
                         onClick={() => { setConfirming(d.id); setError(null); }}
                         aria-label={`Delete ${d.title || 'Untitled'} permanently`}
-                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-faint transition-colors duration-120 hover:bg-danger-soft hover:text-danger"
+                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-faint transition-colors duration-120 hover:bg-danger-soft hover:text-danger-strong"
                       >
                         <X size={14} />
                       </button>
@@ -185,7 +185,7 @@ export function TrashDialog() {
         )}
 
         {error && (
-          <p className="mt-1 flex items-center gap-1.5 px-2 py-1.5 text-xs text-danger">
+          <p className="mt-1 flex items-center gap-1.5 px-2 py-1.5 text-xs text-danger-strong">
             <AlertCircle size={14} className="shrink-0" /> {error}
           </p>
         )}
@@ -218,7 +218,7 @@ export function TrashDialog() {
           ) : (
             <button
               onClick={() => { setAskEmpty(true); setConfirming(null); setError(null); }}
-              className="ml-auto flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-muted transition-colors duration-120 hover:bg-danger-soft hover:text-danger"
+              className="ml-auto flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-muted transition-colors duration-120 hover:bg-danger-soft hover:text-danger-strong"
             >
               <Trash2 size={14} /> Empty trash
             </button>

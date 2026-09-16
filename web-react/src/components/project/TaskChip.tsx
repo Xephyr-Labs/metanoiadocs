@@ -51,10 +51,10 @@ export function TaskChip({ task, onOpen, compact, flush, cover, cardProps, users
         onClick={onOpen}
         className={cn(
           'flex w-full items-center gap-1 rounded px-1 py-0.5 text-left text-2xs transition-colors hover:bg-hover',
-          overdue ? 'text-danger' : 'text-ink',
+          overdue ? 'text-danger-strong' : 'text-ink',
         )}
       >
-        <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', overdue ? 'bg-danger' : task.status === 'done' ? 'bg-line-strong' : 'bg-accent')} />
+        <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', overdue ? 'bg-danger-strong' : task.status === 'done' ? 'bg-line-strong' : 'bg-accent')} />
         <span className="truncate font-medium">{task.title || 'Untitled'}</span>
       </button>
     );

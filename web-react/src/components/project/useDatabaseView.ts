@@ -166,6 +166,10 @@ export function useDatabaseView({
   return {
     kind,
     config,
+    // The project's own status palette, for anything that paints a status
+    // outside a board column — the dashboard's charts, today. `groupColors`
+    // above is not it: that follows whatever the view is grouped by.
+    statusColors: project?.status_colors ?? {},
     fields,
     allProps,
     filters,

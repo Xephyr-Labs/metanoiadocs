@@ -20,6 +20,7 @@ import { Backlog } from './Backlog';
 import { Board } from './Board';
 import { addDays } from '../../lib/gantt';
 import { Calendar } from './Calendar';
+import { Dashboard } from './Dashboard';
 import { FilterBar } from './FilterBar';
 import { SortBar } from './SortBar';
 import { GroupBy } from './GroupBy';
@@ -193,7 +194,8 @@ export function ProjectView() {
           )}
           <TagFilter tags={ws.allTags} filters={d.filters} onChange={d.setFilters} />
           <FilterBar fields={d.fields} filters={d.filters} onChange={d.setFilters} />
-          <SortBar fields={d.fields} sort={d.sort} onChange={d.setSort} />
+          {/* A chart has no row order, so there is nothing for a sort to do. */}
+          {d.kind !== 'dashboard' && <SortBar fields={d.fields} sort={d.sort} onChange={d.setSort} />}
           {d.kind === 'board' && (
             <GroupBy fields={d.fields} value={d.groupField?.key ?? null} onChange={d.setGroupBy} />
           )}
@@ -217,7 +219,7 @@ export function ProjectView() {
       </header>
 
       {p.error && (
-        <div className="border-b border-line bg-surface px-4 py-2 text-sm text-danger">{p.error}</div>
+        <div className="border-b border-line bg-surface px-4 py-2 text-sm text-danger-strong">{p.error}</div>
       )}
 
       <div className="min-h-0 flex-1">
@@ -254,6 +256,10 @@ export function ProjectView() {
             props={d.visible}
             users={p.users}
             rowLabel={isData ? 'Name' : 'Task'}
+            // Widths are per person (localStorage, keyed by view); order is
+            // shared and goes back into the view's own `props` array.
+            viewId={v.activeId ?? undefined}
+            onReorder={(ids) => d.setProps(ids)}
             onPatch={(id, body) => { p.patch(id, body); syncPageTitle(id, body); ws.refreshProjects(); }}
             onOpen={setOpen}
             onDelete={(id) => { p.remove(id); ws.refreshProjects(); }}
@@ -265,6 +271,10 @@ export function ProjectView() {
           />
         ) : d.kind === 'gantt' ? (
           <Gantt tasks={d.tasks} cardProps={d.visible} users={p.users} onOpen={setOpen} />
+        ) : d.kind === 'dashboard' ? (
+          // The same filtered list every other view reads, so narrowing the
+          // view narrows the charts.
+          <Dashboard tasks={d.tasks} sprints={p.sprints} scope={d.scope} statusColors={d.statusColors} />
         ) : d.kind === 'gallery' ? (
           <Gallery
             tasks={d.tasks}

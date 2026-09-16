@@ -13,6 +13,10 @@
  * single restrained blue accent, hairline borders. Dark = Notion dark.
  * ------------------------------------------------------------------ */
 :root {
+  /* The sidebar's header row. A token because the icon rail beside it has to
+   * start its first icon on the same line as the first nav row, and a second
+   * hand-typed 45 would drift the moment either one moved. */
+  --mn-head-h: 45px;
   --canvas: #ffffff;
   --surface: #f7f7f5;
   --surface-2: #fbfbfa;
@@ -44,7 +48,22 @@
   /* The danger twin of accent-soft — a late gantt bar had no tint to sit in,
      so it rendered as a hollow outline and read as a rendering fault. */
   --danger-soft: #fbeceb;
-  --danger: #d44c47;
+  /* Split for the same reason --accent is: one red cannot do both jobs.
+   *
+   * --danger is the FILL — the six solid destructive buttons put white on it,
+   * and it also paints the overdue dots and late gantt bars. White on the old
+   * #d44c47 measured 4.45:1, a hair under AA for the 12px label it carries.
+   *
+   * --danger-strong is the LETTERING. The old value read 3.98:1 on a card and
+   * 3.6:1 on a hovered row — the same failure --muted and --faint were each
+   * corrected for, left standing in the one colour that reports a problem.
+   * 4.7:1 on the quietest surface it sits on, 5.7:1 on the canvas. */
+  --danger: #c6342f;
+  --danger-strong: #be322c;
+  /* The twin of --danger-strong, for the rare place something reports that a
+   * thing is going well. Green-700, not the 500 the dots use: this carries 12px
+   * lettering, and 500 measures 2.1:1 on the surface it sits on. 4.7:1 here. */
+  --ok: #15803d;
   --overlay: rgba(15, 15, 15, 0.32);
   /* A translucent canvas for bars that float over scrolling content and blur
    * what passes under them. A token because Tailwind's `/80` cannot split a
@@ -154,7 +173,16 @@ html.dark {
   --accent-strong: var(--accent);
   --accent-soft: #1d3a57;
   --danger-soft: #4a2523;
-  --danger: #e06c66;
+  /* The accent's twin collapses in dark — a lighter blue reads on near-black
+   * either way. Danger's does not, and this is the half the split is for: the
+   * fill has to stay dark enough for the white sitting on it (5.3:1), while the
+   * lettering has to go lighter to clear a dark card, a hovered row and the
+   * danger tint (4.8:1 at worst). The old single #e06c66 did neither — 3.2:1
+   * under white, 3.9:1 on a selected row. */
+  --danger: #c6342f;
+  --danger-strong: #e28683;
+  /* A dark canvas needs the lighter step, same as the accent does. 9:1. */
+  --ok: #4ade80;
   --overlay: rgba(0, 0, 0, 0.5);
 
   /* Same washes, far more of the accent: a dark canvas swallows a light one. */
@@ -361,7 +389,8 @@ textarea:focus-visible,
   --affine-placeholder-color: var(--faint);
   --affine-link-color: var(--accent);
   --affine-quote-color: var(--muted);
-  --affine-error-color: var(--danger);
+  /* Lettering: BlockSuite paints error text with it. */
+  --affine-error-color: var(--danger-strong);
   /* The divider block is `border-top: 1px solid var(--affine-divider-color)`.
    * An unresolvable var makes the whole shorthand invalid, which computes to
    * border-style: none — so the divider drew nothing at all rather than drawing
@@ -892,7 +921,7 @@ affine-editor-container .mn-mermaid.mn-mermaid-err {
   text-align: left;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
-  color: var(--danger);
+  color: var(--danger-strong);
   background: color-mix(in srgb, var(--danger) 8%, transparent);
   border-color: color-mix(in srgb, var(--danger) 30%, var(--line));
 }

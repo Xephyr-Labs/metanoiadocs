@@ -199,7 +199,7 @@ export function SelectValue({
                           type="button"
                           aria-label={`Delete option ${o.label}`}
                           onClick={() => remove(o.id)}
-                          className="flex h-5 w-5 items-center justify-center rounded text-faint hover:bg-hover hover:text-danger"
+                          className="flex h-5 w-5 items-center justify-center rounded text-faint hover:bg-hover hover:text-danger-strong"
                         >
                           <Trash2 size={12} />
                         </button>

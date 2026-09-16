@@ -30,7 +30,7 @@ export function FormulaEditor({ prop, onPatch }: {
       <div className="flex items-center gap-2">
         <Sigma size={14} className="shrink-0 text-faint" />
         <input
-          className={cn(field, 'font-mono text-xs', error && 'ring-danger focus:ring-danger')}
+          className={cn(field, 'font-mono text-xs', error && 'ring-danger-strong focus:ring-danger-strong')}
           placeholder='prop("Points") * 2'
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
@@ -40,7 +40,7 @@ export function FormulaEditor({ prop, onPatch }: {
         />
       </div>
       {error ? (
-        <p className="flex items-center gap-1.5 pl-6 text-2xs text-danger">
+        <p className="flex items-center gap-1.5 pl-6 text-2xs text-danger-strong">
           <AlertCircle size={11} className="shrink-0" /> {error}
         </p>
       ) : (

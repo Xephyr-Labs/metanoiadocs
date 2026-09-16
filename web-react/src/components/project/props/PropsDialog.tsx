@@ -192,7 +192,7 @@ export function PropsDialog({ open, onOpenChange, props, projects, onCreate, onP
           )}
           <Button variant="primary" size="sm" leftIcon={<Plus size={14} />} onClick={add}>Add</Button>
         </div>
-        {error && <p className="text-sm text-danger">{error}</p>}
+        {error && <p className="text-sm text-danger-strong">{error}</p>}
       </div>
     </Modal>
   );

@@ -17,9 +17,15 @@ export interface BoardGroup {
   dot: string;
 }
 
-/** The status palette the board has always drawn, kept so an ungrouped-by-
- *  anything-else board looks exactly as it did. */
-const STATUS_DOT: Record<string, string> = {
+/**
+ * The status palette the board has always drawn, kept so a board nobody has
+ * repainted looks exactly as it did.
+ *
+ * Exported because `TasksView` draws the same four states across projects, and
+ * this used to be two identical private copies — one here, one in Board.tsx,
+ * whose own comment predicted they would drift within a week.
+ */
+export const STATUS_DOT: Record<string, string> = {
   todo: 'bg-line-strong',
   doing: 'bg-accent',
   review: 'bg-amber-400',
@@ -51,7 +57,12 @@ export function groupsFor(field: FilterField, colors: Record<string, string> = {
   const groups = (field.options ?? []).map((o) => ({
     value: o.value,
     label: o.label,
-    dot: STATUS_DOT[o.value] ?? (colors[o.value] ? swatch(colors[o.value]).dot : 'bg-line-strong'),
+    // The project's own choice first, the built-in palette only as the fallback.
+    // These were the other way round, so a project that repainted Review to
+    // purple got purple in its status property and in the peek — and a yellow
+    // dot on the board column, because the hard-coded map short-circuited the
+    // `??` before the repaint was ever consulted.
+    dot: colors[o.value] ? swatch(colors[o.value]).dot : (STATUS_DOT[o.value] ?? 'bg-line-strong'),
   }));
   // Status is the one field where "not set" cannot happen — every task has one
   // of the four — so it alone gets no empty column.

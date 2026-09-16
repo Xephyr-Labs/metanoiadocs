@@ -57,7 +57,7 @@ function DateValue({ value, danger, onChange }: {
       className={[
         'relative flex h-7 cursor-pointer items-center rounded px-2.5 text-sm ring-1 ring-inset ring-transparent',
         'transition-shadow hover:ring-line focus-within:ring-2 focus-within:ring-accent',
-        danger ? 'text-danger' : iso ? 'text-ink' : 'text-faint',
+        danger ? 'text-danger-strong' : iso ? 'text-ink' : 'text-faint',
       ].join(' ')}
     >
       <span className="block truncate">{label || '—'}</span>
@@ -221,7 +221,7 @@ export function PropertyValue({ prop, users, value, onChange, onEditOptions, dan
       return (
         <span
           title={broken ? shown : `${prop.label} is computed`}
-          className={cn('flex h-7 items-center truncate px-2.5 text-sm tabular-nums', broken ? 'text-danger' : 'text-muted')}
+          className={cn('flex h-7 items-center truncate px-2.5 text-sm tabular-nums', broken ? 'text-danger-strong' : 'text-muted')}
         >
           {shown}
         </span>

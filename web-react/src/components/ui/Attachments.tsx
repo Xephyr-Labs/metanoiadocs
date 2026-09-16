@@ -148,7 +148,7 @@ export function Attachments({
                     type="button"
                     aria-label={`Remove ${f.name}`}
                     onClick={() => remove(f)}
-                    className="shrink-0 text-faint hover:text-danger"
+                    className="shrink-0 text-faint hover:text-danger-strong"
                   >
                     <X size={11} />
                   </button>
@@ -158,7 +158,7 @@ export function Attachments({
           </>
         )}
         {addButton}
-        {error && <p className="w-full text-2xs text-danger">{error}</p>}
+        {error && <p className="w-full text-2xs text-danger-strong">{error}</p>}
       </div>
     );
   }
@@ -200,7 +200,7 @@ export function Attachments({
                   type="button"
                   aria-label={`Remove ${f.name}`}
                   onClick={() => remove(f)}
-                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-faint transition-colors hover:bg-hover hover:text-danger"
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-faint transition-colors hover:bg-hover hover:text-danger-strong"
                 >
                   <X size={14} />
                 </button>
@@ -214,7 +214,7 @@ export function Attachments({
         <p className="px-1 pb-1 text-2xs text-faint">Drop a file here, or</p>
       )}
       {addButton}
-      {error && <p className="mt-1 px-1 text-2xs text-danger">{error}</p>}
+      {error && <p className="mt-1 px-1 text-2xs text-danger-strong">{error}</p>}
     </div>
   );
 }

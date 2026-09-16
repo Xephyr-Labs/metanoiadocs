@@ -163,7 +163,7 @@ export function TasksView() {
 
       <div className="scrollarea min-h-0 flex-1 overflow-y-auto px-4">
         <div className="mx-auto w-full max-w-[1100px]">
-        {error && <p className="py-3 text-sm text-danger">{error}</p>}
+        {error && <p className="py-3 text-sm text-danger-strong">{error}</p>}
         {!data ? (
           <div className="space-y-2 py-4">
             <Skeleton className="h-9 w-full" />
@@ -202,7 +202,7 @@ export function TasksView() {
                     <span className="w-[8.5rem] shrink-0 truncate text-2xs text-muted">
                       {t.assignees?.length ? t.assignees.map((a) => a.name).join(', ') : 'Unassigned'}
                     </span>
-                    <span className={cn('w-[4.5rem] shrink-0 text-right text-2xs tabular-nums', overdue ? 'font-medium text-danger' : 'text-faint')}>
+                    <span className={cn('w-[4.5rem] shrink-0 text-right text-2xs tabular-nums', overdue ? 'font-medium text-danger-strong' : 'text-faint')}>
                       {t.due_at ? dueLabel(t.due_at) : '—'}
                     </span>
                   </button>

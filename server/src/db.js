@@ -674,6 +674,35 @@ export async function initSchema() {
       created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
     );
     CREATE INDEX IF NOT EXISTS automations_project_idx ON automations(project_id, position);
+
+    -- Which tasks a rule applies to, as the same {id, field, op, value} filter
+    -- array saved views already store. Empty = every task, which is what a rule
+    -- written before this column meant, so the default is the old behaviour.
+    --
+    -- A quick action without this is a button that does its thing to whatever
+    -- you pressed it on; with it, "Send to review" can refuse to touch a task
+    -- that is already there.
+    ALTER TABLE automations ADD COLUMN IF NOT EXISTS condition JSONB NOT NULL DEFAULT '[]';
+
+    -- ── webhook delivery, made durable ──────────────────────────────────────
+    -- A hook whose endpoint has been dead for a while is a hook the worker
+    -- should stop dialling. Reset to 0 by any delivery that lands, so a blip
+    -- costs nothing and a decommissioned endpoint eventually switches itself
+    -- off rather than occupying a retry slot forever.
+    ALTER TABLE webhooks ADD COLUMN IF NOT EXISTS consecutive_failures INT NOT NULL DEFAULT 0;
+
+    -- webhook_deliveries started as a log written after the fact. It is the
+    -- queue as well now: emit inserts a 'queued' row and returns, and a
+    -- worker delivers it. That is what makes a delivery survive a restart —
+    -- the old code held the retry schedule in a setTimeout, so anything still
+    -- retrying when the process died was simply lost.
+    --
+    -- Existing rows default to 'done' so the historical log stays a log.
+    ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'done';
+    ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS attempt_at TIMESTAMPTZ NOT NULL DEFAULT now();
+    -- The worker's claim query: due rows, oldest first.
+    CREATE INDEX IF NOT EXISTS webhook_deliveries_due_idx
+      ON webhook_deliveries(attempt_at) WHERE status = 'queued';
   `);
 
   await normalizeLegacyFolderImport();

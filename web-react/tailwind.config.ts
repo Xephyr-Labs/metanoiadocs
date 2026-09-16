@@ -32,6 +32,8 @@ export default {
         'accent-soft': 'var(--accent-soft)',
         'danger-soft': 'var(--danger-soft)',
         danger: 'var(--danger)',
+        'danger-strong': 'var(--danger-strong)',
+        ok: 'var(--ok)',
         overlay: 'var(--overlay)',
         glass: 'var(--glass)',
         comment: 'var(--comment)',

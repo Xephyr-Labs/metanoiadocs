@@ -263,7 +263,7 @@ function HistoryPanel({ docId }: { docId: string }) {
               </div>
 
               <div className="scrollarea min-h-0 flex-1 overflow-y-auto">
-                {err && !loadingState && <p className="mt-6 px-6 text-sm text-danger">{err}</p>}
+                {err && !loadingState && <p className="mt-6 px-6 text-sm text-danger-strong">{err}</p>}
                 {loadingState || !state ? (
                   !err && <div className="px-6 pt-8"><PageSkeleton /></div>
                 ) : (

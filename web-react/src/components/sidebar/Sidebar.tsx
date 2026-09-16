@@ -1,3 +1,14 @@
+/* Hallmark · component: the workspace rail — an icon strip and the panel it
+ *              switches · genre: modern-minimal
+ * pre-emit critique: P5 H4 E4 S5 R4 V4
+ * theme: project tokens (index.css)
+ * states: default · hover · focus-visible · active (section showing) ·
+ *         section folded · section capped ("N more") · empty section ·
+ *         collapsed sidebar · mobile drawer · resizing
+ * contrast: pass (40-41)
+ * note: the rail narrows the sidebar, it does not gate it — `Everything` is
+ *       first and is the default, so nobody's navigation moves on upgrade.
+ */
 import {
   Archive,
   CheckSquare,
@@ -10,19 +21,23 @@ import {
   Link2,
   Inbox,
   KanbanSquare,
+  LayoutList,
+  LayoutTemplate,
   LogOut,
   MoreHorizontal,
   PanelLeftClose,
   Plus,
   Settings,
+  Shapes,
   Star,
   Table2,
   Tag as TagIcon,
   Trash2,
   Upload,
 } from 'lucide-react';
-import { useMemo, useRef, useState, type ReactNode } from 'react';
+import { Children, useMemo, useRef, useState, type ReactNode } from 'react';
 import { cn } from '../../lib/cn';
+import { SECTION_LIMIT, collapsedSections, railSection, setRailSection, toggleSection, type RailSection } from '../../lib/sidebarPrefs';
 import { copyLink } from '../../lib/clipboard';
 import { dbUrl } from '../../lib/route';
 import { pickImportFiles } from '../../lib/docFiles';
@@ -80,21 +95,74 @@ function SectionLabel({ children, action }: { children: ReactNode; action?: Reac
   );
 }
 
-/** A section label that toggles its body — used to fold Templates away when the
- *  document tree is long, so the tree isn't buried under a wall of items. */
-function CollapsibleSection({ label, defaultOpen, children }: { label: string; defaultOpen: boolean; children: ReactNode }) {
-  const [open, setOpen] = useState(defaultOpen);
+/**
+ * A section label that folds its body away, and remembers that you folded it.
+ *
+ * It used to hold `open` in component state seeded from a prop, so every reload
+ * re-opened what you had just put away — the sidebar forgot the one thing you
+ * had told it. The set now lives once, up in `Sidebar`, because the rail also
+ * has to open a section: clicking Templates in the rail when Templates is
+ * folded has to show you templates, and it cannot do that if each section
+ * keeps a private copy of the answer.
+ *
+ * `count` and `action` exist so a folded section still says how much is inside
+ * it and still offers its "+" — a fold that hides the count turns "collapse"
+ * into "forget", and you stop folding things.
+ */
+function CollapsibleSection({ sectionKey, label, collapsed, onToggle, count, action, children }: {
+  sectionKey: string;
+  label: string;
+  collapsed: Set<string>;
+  onToggle: (key: string) => void;
+  count?: number;
+  action?: ReactNode;
+  children: ReactNode;
+}) {
+  const open = !collapsed.has(sectionKey);
+
   return (
     <>
+      <div className="mt-3 flex h-6 items-center gap-1 pr-2 first:mt-0">
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => onToggle(sectionKey)}
+          className="mn-side-label group flex h-6 min-w-0 flex-1 items-center gap-1 px-2 text-2xs font-semibold uppercase text-muted hover:text-ink"
+        >
+          <ChevronRight size={12} className={cn('shrink-0 transition-transform duration-180', open && 'rotate-90')} />
+          <span className="truncate">{label}</span>
+          {/* Only while folded: an expanded section is already showing them. */}
+          {!open && count ? <span className="ml-1 shrink-0 tabular-nums text-faint">{count}</span> : null}
+        </button>
+        {action}
+      </div>
+      {open && <div className="mt-0.5">{children}</div>}
+    </>
+  );
+}
+
+/**
+ * A list that shows the first few and offers the rest behind a click.
+ *
+ * Not a scrollbar: a list that scrolls inside a sidebar that also scrolls is two
+ * scrollbars answering the same gesture, and neither one tells you how much you
+ * have not seen. A count does.
+ */
+function Capped({ limit = SECTION_LIMIT, children }: { limit?: number; children: ReactNode }) {
+  const [all, setAll] = useState(false);
+  const items = Children.toArray(children);
+  if (items.length <= limit) return <>{items}</>;
+  return (
+    <>
+      {all ? items : items.slice(0, limit)}
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="mn-side-label group mt-3 flex h-6 w-full items-center gap-1 px-2 text-2xs font-semibold uppercase text-muted hover:text-ink"
+        onClick={() => setAll((v) => !v)}
+        className="flex h-6 w-full items-center gap-1 rounded-md px-2 text-2xs text-faint
+                   transition-colors duration-120 hover:bg-hover hover:text-muted"
       >
-        <ChevronRight size={12} className={cn('transition-transform duration-180', open && 'rotate-90')} />
-        {label}
+        {all ? 'Show fewer' : `${items.length - limit} more`}
       </button>
-      {open && <div className="mt-0.5">{children}</div>}
     </>
   );
 }
@@ -159,7 +227,7 @@ function ProjectRows({
                 <span className="text-md leading-none">{p.icon}</span>
                 <span className="block h-5 min-w-0 flex-1 !self-center truncate leading-5 text-left">{p.name}</span>
                 {Number(p.overdue) > 0 ? (
-                  <span className="shrink-0 text-2xs font-semibold text-danger">{p.overdue}</span>
+                  <span className="shrink-0 text-2xs font-semibold text-danger-strong">{p.overdue}</span>
                 ) : open > 0 ? (
                   // muted, not faint: this count is information. Faint is for
                   // affordances — hover chevrons and the like.
@@ -343,6 +411,55 @@ function FavoriteFolderRow({ id }: { id: string }) {
   );
 }
 
+/**
+ * The icon rail.
+ *
+ * The sidebar's problem is not that it holds too much, it is that it holds all
+ * of it at once: a real workspace stacks Recent, Pinned, Favorites, Projects,
+ * Designs, Folders, Private, Public, Shared, Tags and Templates down one
+ * column, and by the fourth section you are scrolling to navigate the thing
+ * that exists so you do not have to navigate. The rail turns that stack into a
+ * choice — one group in the panel, the rest one click away.
+ *
+ * `Everything` stays first and stays the default: the rail is a way to narrow
+ * the sidebar, not a wall put in front of it, and nobody's navigation should
+ * move under them on upgrade.
+ *
+ * Six fixed destinations, so there is no overflow menu and no compact mode —
+ * VS Code needs both because extensions add icons to its rail; nothing here
+ * adds one. Icon-only, but every button is tooltip-labelled and carries its
+ * name to a screen reader, which is what `IconButton` was already doing for
+ * the top bar.
+ */
+const RAIL: { key: RailSection; icon: ReactNode; label: string }[] = [
+  { key: 'all', icon: <LayoutList size={16} />, label: 'Everything' },
+  { key: 'docs', icon: <Files size={16} />, label: 'Documents' },
+  { key: 'projects', icon: <KanbanSquare size={16} />, label: 'Projects' },
+  { key: 'designs', icon: <Shapes size={16} />, label: 'Designs' },
+  { key: 'tags', icon: <TagIcon size={16} />, label: 'Tags' },
+  { key: 'templates', icon: <LayoutTemplate size={16} />, label: 'Templates' },
+];
+
+function Rail({ section, onPick }: { section: RailSection; onPick: (s: RailSection) => void }) {
+  return (
+    // The rail's first icon lines up with the panel's first nav row: the header
+    // height plus that row's own top padding. Both read --mn-head-h, so neither
+    // drifts when the header does.
+    <div className="flex w-11 shrink-0 flex-col items-center gap-0.5 border-r border-line pt-[calc(var(--mn-head-h)+0.5rem)]">
+      {RAIL.map((r) => (
+        <IconButton
+          key={r.key}
+          icon={r.icon}
+          label={r.label}
+          side="right"
+          active={section === r.key}
+          onClick={() => onPick(r.key)}
+        />
+      ))}
+    </div>
+  );
+}
+
 export function Sidebar() {
   const ws = useWorkspace();
   const auth = useAuth();
@@ -350,6 +467,22 @@ export function Sidebar() {
   const av = avatarFor(auth.user?.name || auth.user?.username || 'You');
   const dragging = useRef(false);
   const [, force] = useState(0);
+
+  // Which rail section is showing, and which sections are folded. Both live
+  // here rather than in the sections themselves because picking a rail section
+  // has to be able to unfold it — see `pickSection`.
+  const [section, setSection] = useState<RailSection>(railSection);
+  const [collapsed, setCollapsed] = useState<Set<string>>(collapsedSections);
+  /** `all` shows every group, which is what the sidebar has always done. */
+  const shows = (s: RailSection) => section === 'all' || section === s;
+  const pickSection = (s: RailSection) => {
+    setSection(s);
+    setRailSection(s);
+    // Clicking Templates in the rail and landing on a folded Templates header
+    // would read as a broken button. Asking for a section opens it.
+    if (s !== 'all' && collapsed.has(s)) setCollapsed(toggleSection(s));
+  };
+  const toggle = (key: string) => setCollapsed(toggleSection(key));
 
   // The name is typed in the tree itself. `namingParent` is which row shows
   // that input: undefined = none, null = new top-level database, a string =
@@ -423,7 +556,8 @@ export function Sidebar() {
     const startW = ws.sidebarWidth;
     const onMove = (ev: MouseEvent) => {
       if (!dragging.current) return;
-      ws.setSidebarWidth(Math.min(420, Math.max(220, startW + ev.clientX - startX)));
+      // +44 for the rail, so the panel beside it still ranges 220–420.
+      ws.setSidebarWidth(Math.min(464, Math.max(264, startW + ev.clientX - startX)));
       force((n) => n + 1);
     };
     const onUp = () => {
@@ -436,12 +570,14 @@ export function Sidebar() {
   };
 
   return (
-    <aside className="mn-side relative flex h-full shrink-0 flex-col bg-canvas" style={{ width: ws.sidebarWidth }}>
+    <aside className="mn-side relative flex h-full shrink-0 bg-canvas" style={{ width: ws.sidebarWidth, maxWidth: '100%' }}>
+      <Rail section={section} onPick={pickSection} />
+      <div className="flex min-w-0 flex-1 flex-col">
       {/* workspace switcher, and the way to put the rail away. The « shows on
           hover like Notion's — the row is the first thing the eye lands on, so
           a control that lived here permanently would be the loudest thing in
           the rail. Always visible where there is no hover (touch). */}
-      <div className="group/head flex h-[45px] shrink-0 items-center gap-1 px-2">
+      <div className="group/head flex h-[var(--mn-head-h)] shrink-0 items-center gap-1 px-2">
         <Menu
           width={248}
           items={[
@@ -502,34 +638,44 @@ export function Sidebar() {
 
       {/* scroll region */}
       <div className="scrollarea mt-4 flex-1 overflow-y-auto px-2 pb-2">
-        {ws.recentIds.length > 0 && (
+        {shows('docs') && ws.recentIds.length > 0 && (
           <section className="mb-5">
-            <SectionLabel>Recent</SectionLabel>
-            <div className="space-y-px">{ws.recentIds.map((id) => <DocRow key={id} id={id} />)}</div>
+            <CollapsibleSection collapsed={collapsed} onToggle={toggle} sectionKey="recent" label="Recent" count={ws.recentIds.length}>
+              <div className="space-y-px">
+                <Capped limit={5}>{ws.recentIds.map((id) => <DocRow key={id} id={id} />)}</Capped>
+              </div>
+            </CollapsibleSection>
           </section>
         )}
 
         {/* Above Favorites on purpose: the team's shelf outranks your own. */}
-        {(ws.pinnedFolderIds.length > 0 || ws.pinnedIds.length > 0) && (
+        {shows('docs') && (ws.pinnedFolderIds.length > 0 || ws.pinnedIds.length > 0) && (
           <section className="mb-5">
-            <SectionLabel>Pinned</SectionLabel>
+            <CollapsibleSection collapsed={collapsed} onToggle={toggle} sectionKey="pinned" label="Pinned" count={ws.pinnedFolderIds.length + ws.pinnedIds.length}>
             <div className="space-y-px">
-              {ws.pinnedFolderIds.map((id) => <FavoriteFolderRow key={id} id={id} />)}
-              {ws.pinnedIds.map((id) => <DocRow key={id} id={id} />)}
+              <Capped>
+                {[...ws.pinnedFolderIds.map((id) => <FavoriteFolderRow key={`f${id}`} id={id} />),
+                  ...ws.pinnedIds.map((id) => <DocRow key={id} id={id} />)]}
+              </Capped>
             </div>
+            </CollapsibleSection>
           </section>
         )}
 
-        {(ws.favoriteFolderIds.length > 0 || ws.favoriteIds.length > 0) && (
+        {shows('docs') && (ws.favoriteFolderIds.length > 0 || ws.favoriteIds.length > 0) && (
           <section className="mb-5">
-            <SectionLabel>Favorites</SectionLabel>
+            <CollapsibleSection collapsed={collapsed} onToggle={toggle} sectionKey="favorites" label="Favorites" count={ws.favoriteFolderIds.length + ws.favoriteIds.length}>
             <div className="space-y-px">
-              {ws.favoriteFolderIds.map((id) => <FavoriteFolderRow key={id} id={id} />)}
-              {ws.favoriteIds.map((id) => <DocRow key={id} id={id} />)}
+              <Capped>
+                {[...ws.favoriteFolderIds.map((id) => <FavoriteFolderRow key={`f${id}`} id={id} />),
+                  ...ws.favoriteIds.map((id) => <DocRow key={id} id={id} />)]}
+              </Capped>
             </div>
+            </CollapsibleSection>
           </section>
         )}
 
+        {shows('projects') && (
         <section className="mb-5">
           <SectionLabel
             action={
@@ -570,10 +716,12 @@ export function Sidebar() {
             </button>
           )}
         </section>
+        )}
 
         {/* Designs are documents that open on the canvas, so they also show up
             in folders and search — this section is the shortcut to them, not
             their only home. */}
+        {shows('designs') && (
         <section className="mb-5">
           <SectionLabel
             action={
@@ -592,7 +740,9 @@ export function Sidebar() {
             </button>
           )}
         </section>
+        )}
 
+        {shows('docs') && (
         <section className="mb-5">
             <SectionLabel
             action={
@@ -611,39 +761,49 @@ export function Sidebar() {
             </button>
           )}
         </section>
+        )}
 
-        {ws.privateRootIds.length > 0 && (
+        {shows('docs') && ws.privateRootIds.length > 0 && (
           <section className="mb-5">
-            <SectionLabel>Private</SectionLabel>
-            <PageTree roots={ws.privateRootIds} />
+            <CollapsibleSection collapsed={collapsed} onToggle={toggle} sectionKey="private" label="Private" count={ws.privateRootIds.length}>
+              <PageTree roots={ws.privateRootIds} />
+            </CollapsibleSection>
           </section>
         )}
 
-        {ws.sharedRootIds.length > 0 && (
+        {shows('docs') && ws.sharedRootIds.length > 0 && (
           <section className="mb-5">
-            <SectionLabel>Public links</SectionLabel>
-            <div className="space-y-px">{ws.sharedRootIds.map((id) => <DocRow key={id} id={id} />)}</div>
+            <CollapsibleSection collapsed={collapsed} onToggle={toggle} sectionKey="public" label="Public links" count={ws.sharedRootIds.length}>
+              <div className="space-y-px">
+                <Capped>{ws.sharedRootIds.map((id) => <DocRow key={id} id={id} />)}</Capped>
+              </div>
+            </CollapsibleSection>
           </section>
         )}
 
-        {ws.libraryRootIds.length > 0 && (
+        {shows('docs') && ws.libraryRootIds.length > 0 && (
           <section className="mb-5">
-            <SectionLabel>Shared with me</SectionLabel>
-            <PageTree roots={ws.libraryRootIds} />
+            <CollapsibleSection collapsed={collapsed} onToggle={toggle} sectionKey="shared" label="Shared with me" count={ws.libraryRootIds.length}>
+              <PageTree roots={ws.libraryRootIds} />
+            </CollapsibleSection>
           </section>
         )}
 
-        {ws.allTags.length > 0 && (
+        {shows('tags') && ws.allTags.length > 0 && (
           <section className="mb-5">
-            <SectionLabel>Tags</SectionLabel>
-            <div className="space-y-px">
-              {ws.allTags.map((t) => <TagRow key={t.id} tag={t} />)}
-            </div>
+            <CollapsibleSection collapsed={collapsed} onToggle={toggle} sectionKey="tags" label="Tags" count={ws.allTags.length}>
+              <div className="space-y-px">
+                {/* Tags grow one per label anyone invents — the list most
+                    likely to run past a screen on a real workspace. */}
+                <Capped limit={10}>{ws.allTags.map((t) => <TagRow key={t.id} tag={t} />)}</Capped>
+              </div>
+            </CollapsibleSection>
           </section>
         )}
 
+        {shows('templates') && (
         <section className="mb-1 mt-2">
-          <CollapsibleSection label="Templates" defaultOpen={ws.workspaceRootIds.length <= 8}>
+          <CollapsibleSection collapsed={collapsed} onToggle={toggle} sectionKey="templates" label="Templates" count={templates.length}>
           <div className="space-y-px">
             {templates.map((t) => (
               <button
@@ -660,6 +820,7 @@ export function Sidebar() {
           </div>
           </CollapsibleSection>
         </section>
+        )}
       </div>
 
       {/* footer */}
@@ -673,10 +834,11 @@ export function Sidebar() {
             <p className="truncate text-sm font-medium text-ink">{auth.user?.name ?? 'User'}</p>
             <p className="truncate text-2xs text-faint">{auth.user?.role === 'admin' ? 'Admin' : `@${auth.user?.username ?? 'you'}`}</p>
           </div>
-          <button type="button" onClick={() => auth.logout()} className="flex h-6 w-6 items-center justify-center rounded text-faint hover:bg-hover hover:text-danger" aria-label="Log out">
+          <button type="button" onClick={() => auth.logout()} className="flex h-6 w-6 items-center justify-center rounded text-faint hover:bg-hover hover:text-danger-strong" aria-label="Log out">
             <LogOut size={16} />
           </button>
         </div>
+      </div>
       </div>
 
       <div onMouseDown={onResizeStart} className="group absolute right-0 top-0 h-full w-1 cursor-col-resize" role="separator" aria-label="Resize sidebar">

@@ -271,7 +271,7 @@ export function TaskPeek({
                   <div key={d} className="flex items-center gap-2 rounded-md border border-line px-2 py-1 text-sm text-ink">
                     <Link2 size={13} className="shrink-0 text-faint" />
                     <span className="min-w-0 flex-1 truncate">{byId.get(d)?.title || 'Untitled'}</span>
-                    <button type="button" onClick={() => onRemoveDep(task.id, d)} className="shrink-0 text-faint hover:text-danger" aria-label="Remove dependency">
+                    <button type="button" onClick={() => onRemoveDep(task.id, d)} className="shrink-0 text-faint hover:text-danger-strong" aria-label="Remove dependency">
                       <X size={13} />
                     </button>
                   </div>
@@ -412,7 +412,7 @@ export function TaskPeek({
         <button
           type="button"
           onClick={() => { onDelete(task.id); onClose(); }}
-          className="flex items-center gap-1.5 rounded-md px-2 py-1 text-sm text-faint transition-colors hover:bg-hover hover:text-danger"
+          className="flex items-center gap-1.5 rounded-md px-2 py-1 text-sm text-faint transition-colors hover:bg-hover hover:text-danger-strong"
         >
           <Trash2 size={14} /> Delete task
         </button>

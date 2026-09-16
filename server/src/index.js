@@ -50,7 +50,7 @@ import { registerHomeRoutes } from './home.js';
 import { registerPushRoutes, sendPush } from './push.js';
 import { linkFor } from './push-rules.js';
 import { registerFolderRoutes, visibleFolder } from './folders-routes.js';
-import { registerWebhookRoutes, emit } from './webhooks.js';
+import { registerWebhookRoutes, emit, startWebhookWorker } from './webhooks.js';
 import { registerAgentRoutes, enqueueRun } from './agent-runs.js';
 import { registerAutomationRoutes } from './automations.js';
 import { TRASH_RETENTION_DAYS, startTrashSweeper } from './retention.js';
@@ -2410,6 +2410,8 @@ registerHomeRoutes(app, { requireUser, wrap });
 registerPushRoutes(app, { requireUser, wrap });
 registerFolderRoutes(app, { requireUser, wrap });
 registerWebhookRoutes(app, { requireUser, requireAdmin, wrap });
+// Deliveries are rows now, so something has to drain them.
+startWebhookWorker();
 registerAgentRoutes(app, { requireUser, wrap, createDocRow });
 registerAutomationRoutes(app, { requireUser, wrap });
 

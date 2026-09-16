@@ -7,9 +7,10 @@
  *       set progress to 100". A form that reads as a sentence needs no legend.
  */
 import { useEffect, useState } from 'react';
-import { Plus, Trash2, Zap } from 'lucide-react';
+import { Filter, Plus, Trash2, Zap } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import type { UserRow } from '../../lib/docsApi';
+import type { Filter as FilterClause, FilterOp } from '../../lib/taskFilter';
 import {
   STATUSES,
   STATUS_LABEL,
@@ -24,7 +25,7 @@ import { Button } from '../ui/Button';
 import { IconButton } from '../ui/IconButton';
 import { Modal } from '../ui/Modal';
 import { Switch } from '../ui/Switch';
-import { field, selectField } from '../ui/styles';
+import { field as fieldStyle, selectField } from '../ui/styles';
 
 interface Props {
   open: boolean;
@@ -126,7 +127,7 @@ function ActionRow({ action, kinds, sprints, users, onChange, onRemove }: {
         <input
           type="number"
           aria-label={ACTION_LABEL[action.type]}
-          className={cn(field, 'h-7 flex-1 text-xs tabular-nums')}
+          className={cn(fieldStyle, 'h-7 flex-1 text-xs tabular-nums')}
           min={action.type === 'progress' ? 0 : undefined}
           max={action.type === 'progress' ? 100 : undefined}
           value={action.value ?? ''}
@@ -139,18 +140,116 @@ function ActionRow({ action, kinds, sprints, users, onChange, onRemove }: {
   );
 }
 
+/** The columns a rule can gate on, and the operators each one accepts. Mirrors
+ *  fieldValue() in server/src/automations.js — a field the server cannot read
+ *  never matches, so offering one here would be offering a broken rule. */
+const CONDITION_FIELDS: { key: string; label: string; ops: FilterOp[] }[] = [
+  { key: 'status',   label: 'Status',   ops: ['is', 'is_not', 'is_any_of', 'is_none_of'] },
+  { key: 'kind',     label: 'Type',     ops: ['is', 'is_not', 'is_any_of', 'is_none_of'] },
+  { key: 'title',    label: 'Title',    ops: ['contains', 'is', 'is_not'] },
+  { key: 'priority', label: 'Priority', ops: ['is', 'gt', 'lt'] },
+  { key: 'points',   label: 'Points',   ops: ['is', 'gt', 'lt', 'is_empty', 'is_not_empty'] },
+  { key: 'progress', label: 'Progress', ops: ['is', 'gt', 'lt'] },
+  { key: 'assignee', label: 'Assignee', ops: ['is', 'is_not', 'is_empty', 'is_not_empty'] },
+  { key: 'sprint',   label: 'Sprint',   ops: ['is', 'is_not', 'is_empty', 'is_not_empty'] },
+  { key: 'due_at',   label: 'Due',      ops: ['on', 'before', 'after', 'is_empty', 'is_not_empty'] },
+];
+
+const OP_TEXT: Partial<Record<FilterOp, string>> = {
+  is: 'is', is_not: 'is not', is_any_of: 'is any of', is_none_of: 'is none of',
+  contains: 'contains', is_empty: 'is empty', is_not_empty: 'is not empty',
+  on: 'on', before: 'before', after: 'after', gt: 'more than', lt: 'less than',
+};
+
+/** Ops that need no value — rendering a box beside them invites typing into
+ *  something that is ignored. */
+const NO_VALUE: FilterOp[] = ['is_empty', 'is_not_empty'];
+
+function ConditionRow({ clause, kinds, sprints, users, onChange, onRemove }: {
+  clause: FilterClause;
+  kinds: TaskKindRow[];
+  sprints: SprintRow[];
+  users: UserRow[];
+  onChange: (c: FilterClause) => void;
+  onRemove: () => void;
+}) {
+  const field = CONDITION_FIELDS.find((f) => f.key === clause.field) ?? CONDITION_FIELDS[0];
+  const needsValue = !NO_VALUE.includes(clause.op);
+
+  // The value control follows the field: a status is a list, a priority is a
+  // number, a title is free text. A single text box for all of them is how you
+  // get rules that quietly never match.
+  const options =
+    field.key === 'status' ? STATUSES.map((v) => ({ value: v, label: STATUS_LABEL[v] }))
+    : field.key === 'kind' ? kinds.map((k) => ({ value: k.key, label: k.label }))
+    : field.key === 'sprint' ? sprints.map((sp) => ({ value: sp.id, label: sp.name }))
+    : field.key === 'assignee' ? users.map((u) => ({ value: u.id, label: u.name || u.email }))
+    : null;
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="w-[104px] shrink-0 text-right text-xs text-muted">only when</span>
+      <select
+        aria-label="Condition field"
+        className={cn(selectField, 'h-7 w-[104px] shrink-0 text-xs')}
+        value={field.key}
+        onChange={(e) => {
+          const next = CONDITION_FIELDS.find((f) => f.key === e.target.value)!;
+          onChange({ ...clause, field: next.key, op: next.ops[0], value: '' });
+        }}
+      >
+        {CONDITION_FIELDS.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
+      </select>
+      <select
+        aria-label="Condition operator"
+        className={cn(selectField, 'h-7 w-[104px] shrink-0 text-xs')}
+        value={clause.op}
+        onChange={(e) => onChange({ ...clause, op: e.target.value as FilterOp })}
+      >
+        {field.ops.map((op) => <option key={op} value={op}>{OP_TEXT[op] ?? op}</option>)}
+      </select>
+
+      {needsValue && (options
+        ? (
+          <select
+            aria-label="Condition value"
+            className={cn(selectField, 'h-7 flex-1 text-xs')}
+            value={clause.value}
+            onChange={(e) => onChange({ ...clause, value: e.target.value })}
+          >
+            <option value="">choose…</option>
+            {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        ) : (
+          <input
+            aria-label="Condition value"
+            type={['priority', 'points', 'progress'].includes(field.key) ? 'number' : 'text'}
+            className={cn(fieldStyle, 'h-7 flex-1 text-xs tabular-nums')}
+            value={clause.value}
+            onChange={(e) => onChange({ ...clause, value: e.target.value })}
+          />
+        ))}
+      {!needsValue && <span className="flex-1" />}
+
+      <IconButton icon={<Trash2 size={14} />} label="Remove this condition" onClick={onRemove} />
+    </div>
+  );
+}
+
 function RuleCard({ rule, kinds, sprints, users, onSave, onDelete }: {
   rule: AutomationRow;
   kinds: TaskKindRow[];
   sprints: SprintRow[];
   users: UserRow[];
-  onSave: (b: Partial<AutomationRow> & { actions?: AutomationAction[]; value?: string | null }) => void;
+  onSave: (b: Partial<AutomationRow> & { actions?: AutomationAction[]; condition?: FilterClause[]; value?: string | null }) => void;
   onDelete: () => void;
 }) {
   const [confirming, setConfirming] = useState(false);
   const [adding, setAdding] = useState(false);
 
   const setActions = (actions: AutomationAction[]) => onSave({ actions });
+  const setCondition = (condition: FilterClause[]) => onSave({ condition });
+  const condition = rule.condition ?? [];
 
   return (
     <div className={cn('rounded-lg bg-surface p-3 ring-1 ring-inset ring-line', !rule.active && 'opacity-60')}>
@@ -161,7 +260,7 @@ function RuleCard({ rule, kinds, sprints, users, onSave, onDelete }: {
           placeholder="Name this rule"
           // Commit on blur rather than per keystroke: one rule is one PATCH.
           onBlur={(e) => e.target.value !== rule.name && onSave({ name: e.target.value })}
-          className={cn(field, 'h-7 flex-1 text-xs font-medium')}
+          className={cn(fieldStyle, 'h-7 flex-1 text-xs font-medium')}
         />
         <Switch on={rule.active} label={`${rule.name || 'Rule'} enabled`} onChange={(v) => onSave({ active: v })} />
       </div>
@@ -184,6 +283,17 @@ function RuleCard({ rule, kinds, sprints, users, onSave, onDelete }: {
       </div>
 
       <div className="mt-1.5 space-y-1.5">
+        {condition.map((c, i) => (
+          <ConditionRow
+            key={c.id ?? i}
+            clause={c}
+            kinds={kinds}
+            sprints={sprints}
+            users={users}
+            onChange={(next) => setCondition(condition.map((x, j) => (j === i ? next : x)))}
+            onRemove={() => setCondition(condition.filter((_, j) => j !== i))}
+          />
+        ))}
         {rule.actions.map((a, i) => (
           <ActionRow
             key={`${a.type}-${i}`}
@@ -216,9 +326,22 @@ function RuleCard({ rule, kinds, sprints, users, onSave, onDelete }: {
             ))}
           </select>
         ) : (
-          <Button size="sm" variant="ghost" leftIcon={<Plus size={14} />} onClick={() => setAdding(true)}>
-            Action
-          </Button>
+          <>
+            <Button size="sm" variant="ghost" leftIcon={<Plus size={14} />} onClick={() => setAdding(true)}>
+              Action
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              leftIcon={<Filter size={14} />}
+              onClick={() => setCondition([
+                ...condition,
+                { id: crypto.randomUUID(), field: 'kind', op: 'is', value: '' },
+              ])}
+            >
+              Condition
+            </Button>
+          </>
         )}
 
         {confirming ? (
@@ -239,7 +362,7 @@ function RuleCard({ rule, kinds, sprints, users, onSave, onDelete }: {
         ) : (
           <button
             onClick={() => setConfirming(true)}
-            className="ml-auto rounded-md px-2 py-1 text-xs text-danger transition-colors duration-120 hover:bg-danger-soft"
+            className="ml-auto rounded-md px-2 py-1 text-xs text-danger-strong transition-colors duration-120 hover:bg-danger-soft"
           >
             Delete
           </button>
@@ -276,7 +399,8 @@ export function AutomationsDialog({ open, onOpenChange, projectId, kinds, sprint
         <p className="pb-1 text-2xs leading-4 text-faint">
           Rules run when someone moves a task into a status — never on each other, so two
           rules cannot loop. A rule set to “run by hand” does nothing on its own and shows
-          up on a task as a button.
+          up on a task as a button. Add conditions to narrow which tasks a rule may touch;
+          with none, it applies to all of them.
         </p>
 
         {rows === null ? (

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cleanActions } from './automations.js';
+import { cleanActions, cleanCondition, matchesCondition } from './automations.js';
 
 test('an unknown action type is dropped rather than stored', () => {
   assert.deepEqual(cleanActions([{ type: 'launch_missiles' }, { type: 'status', value: 'done' }]),
@@ -61,4 +61,53 @@ test('every module that changes assignees also tells somebody', async () => {
     if (!/\bnotifyAssignees(ById)?\s*\(/.test(src)) guilty.push(file);
   }
   assert.deepEqual(guilty, [], `calls setAssignees without notifying anyone: ${guilty.join(', ')}`);
+});
+
+/* ── conditions: which tasks a rule is allowed to touch ────────────────── */
+
+const task = {
+  status: 'doing', kind: 'bug', title: 'Fix the date picker',
+  priority: 5, points: 3, progress: 40, milestone: false,
+  sprint_id: 'sp1', assignee_id: 'u1', due_at: '2026-10-06', start_at: null,
+};
+
+test('an empty condition means every task — what every rule meant before', () => {
+  assert.equal(matchesCondition(task, []), true);
+  assert.equal(matchesCondition(task, null), true);
+  assert.equal(matchesCondition(task, 'nonsense'), true);
+});
+
+test('clauses are ANDed — every one has to hold', () => {
+  const holds = [{ field: 'status', op: 'is', value: 'doing' }, { field: 'kind', op: 'is', value: 'bug' }];
+  assert.equal(matchesCondition(task, holds), true);
+  const oneFails = [...holds, { field: 'priority', op: 'lt', value: '2' }];
+  assert.equal(matchesCondition(task, oneFails), false);
+});
+
+test('the operators behave', () => {
+  const m = (field, op, value) => matchesCondition(task, [{ field, op, value }]);
+  assert.equal(m('status', 'is_not', 'done'), true);
+  assert.equal(m('kind', 'is_any_of', 'bug, story'), true);
+  assert.equal(m('kind', 'is_none_of', 'bug, story'), false);
+  assert.equal(m('title', 'contains', 'DATE'), true);       // case-insensitive
+  assert.equal(m('priority', 'gt', '3'), true);
+  assert.equal(m('priority', 'lt', '3'), false);
+  assert.equal(m('start_at', 'is_empty', ''), true);
+  assert.equal(m('due_at', 'is_not_empty', ''), true);
+  assert.equal(m('due_at', 'before', '2026-11-01'), true);
+  assert.equal(m('due_at', 'after', '2026-11-01'), false);
+  assert.equal(m('due_at', 'on', '2026-10-06'), true);
+});
+
+test('an unknown field fails closed — a typo disables the rule, never widens it', () => {
+  assert.equal(matchesCondition(task, [{ field: 'nope', op: 'is', value: 'x' }]), false);
+  // …and an unknown operator is dropped by the cleaner, so it cannot sneak past.
+  assert.deepEqual(cleanCondition([{ field: 'status', op: 'regex', value: '.*' }]), []);
+});
+
+test('a condition round-trips as strings and is bounded', () => {
+  const [c] = cleanCondition([{ field: 'priority', op: 'gt', value: 3 }]);
+  assert.equal(c.value, '3');
+  assert.ok(c.id);
+  assert.equal(cleanCondition(Array.from({ length: 50 }, () => ({ field: 'status', op: 'is', value: 'x' }))).length, 10);
 });

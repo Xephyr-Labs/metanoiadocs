@@ -97,7 +97,7 @@ function ToolSteps({ steps }: { steps: AiToolStep[] }) {
               <Loader2 size={12} className="shrink-0 animate-spin text-faint" />
             )}
             <span className="truncate">{stepLabel(s)}</span>
-            {s.error && <span className="shrink-0 text-danger">· failed</span>}
+            {s.error && <span className="shrink-0 text-danger-strong">· failed</span>}
           </div>
         );
       })}
@@ -306,7 +306,7 @@ export function AIChat() {
           ),
         )}
 
-        {err && <div className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger">{err}</div>}
+        {err && <div className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger-strong">{err}</div>}
         <div ref={endRef} />
       </div>
 

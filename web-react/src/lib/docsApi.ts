@@ -206,6 +206,9 @@ export interface WebhookRow {
   /** How the most recent delivery went — null when nothing has been sent yet. */
   last_ok?: boolean | null;
   last_at?: string | null;
+  /** Deliveries that have failed in a row. Past the server's threshold the hook
+   *  switches itself off, which otherwise looks identical to an admin doing it. */
+  consecutive_failures?: number;
 }
 
 export interface DeliveryRow {

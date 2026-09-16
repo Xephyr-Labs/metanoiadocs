@@ -8,12 +8,14 @@
 import crypto from 'node:crypto';
 import { pool } from './db.js';
 
-export const VIEW_KINDS = ['backlog', 'board', 'table', 'gantt', 'calendar', 'gallery'];
+export const VIEW_KINDS = ['backlog', 'board', 'table', 'gantt', 'calendar', 'gallery', 'dashboard'];
 
 /** The views a database starts with: the six tabs it has always shown, now as
  *  real rows so each can be filtered, sorted and grouped on its own. A data
  *  database has no status, people or schedule, so three of them would be
  *  empty furniture. */
+// Dashboard is a kind, not a seeded tab: a database's first screen should be
+// its rows, and a new one has nothing to chart. It is one click from the "+".
 const SEED = {
   tasks: ['backlog', 'board', 'table', 'gantt', 'calendar', 'gallery'],
   data: ['table', 'calendar', 'gallery'],
@@ -26,6 +28,7 @@ const LABEL = {
   gantt: 'Gantt',
   calendar: 'Calendar',
   gallery: 'Gallery',
+  dashboard: 'Dashboard',
 };
 
 const isKind = (k) => VIEW_KINDS.includes(k);

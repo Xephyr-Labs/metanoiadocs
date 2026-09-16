@@ -38,7 +38,7 @@ export function StatTile({ label, value, tone }: { label: string; value: number;
       <p
         className={cn(
           'font-display text-3xl font-semibold leading-8 tracking-[-0.03em] tabular-nums',
-          tone === 'danger' && value > 0 ? 'text-danger' : tone === 'accent' ? 'text-accent-strong' : 'text-ink',
+          tone === 'danger' && value > 0 ? 'text-danger-strong' : tone === 'accent' ? 'text-accent-strong' : 'text-ink',
         )}
       >
         {value}
@@ -89,7 +89,7 @@ export function ProjectCard({ project, onOpen }: { project: ProjectRow; onOpen: 
         <span className="block truncate text-sm font-medium text-ink">{project.name}</span>
         <span className="mt-0.5 block text-xs text-muted">
           {done}/{total} done
-          {overdue > 0 && <span className="text-danger"> · {overdue} overdue</span>}
+          {overdue > 0 && <span className="text-danger-strong"> · {overdue} overdue</span>}
         </span>
       </span>
       <ProgressRing pct={pct} />
@@ -149,13 +149,13 @@ export function TaskLine({ task, onOpen }: { task: MyTask; onOpen: () => void })
       <span
         className={cn(
           'h-1.5 w-1.5 shrink-0 rounded-full',
-          task.bucket === 'overdue' ? 'bg-danger' : task.status === 'doing' ? 'bg-accent' : 'bg-line-strong',
+          task.bucket === 'overdue' ? 'bg-danger-strong' : task.status === 'doing' ? 'bg-accent' : 'bg-line-strong',
         )}
       />
       <span className="min-w-0 flex-1 truncate text-sm text-ink">{task.title || 'Untitled task'}</span>
       <span className="shrink-0 truncate text-2xs text-faint">{task.project_name}</span>
       {task.due_at && (
-        <span className={cn('shrink-0 text-2xs', task.bucket === 'overdue' ? 'text-danger' : 'text-faint')}>
+        <span className={cn('shrink-0 text-2xs', task.bucket === 'overdue' ? 'text-danger-strong' : 'text-faint')}>
           {new Date(`${task.due_at.slice(0, 10)}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
         </span>
       )}
@@ -171,7 +171,7 @@ export function TaskBucket({ bucket, tasks, onOpen }: {
   if (!tasks.length) return null;
   return (
     <div className="mb-3 last:mb-0">
-      <p className={cn('mb-1 px-2 text-2xs font-semibold', bucket === 'overdue' ? 'text-danger' : 'text-muted')}>
+      <p className={cn('mb-1 px-2 text-2xs font-semibold', bucket === 'overdue' ? 'text-danger-strong' : 'text-muted')}>
         {BUCKET_LABEL[bucket]}
       </p>
       <div className="space-y-px">

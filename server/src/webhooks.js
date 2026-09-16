@@ -1,9 +1,10 @@
 // Outgoing webhooks: the workspace telling something else that a thing
 // happened, instead of that something else asking every thirty seconds.
 //
-// Every emit is fire-and-forget. A task must save when the receiving end is
-// down, slow, or gone, so nothing here is ever awaited by the route that
-// triggered it and nothing here throws at its caller.
+// A task must save when the receiving end is down, slow, or gone, so emit()
+// only writes a queued row and returns — the worker at the bottom of this file
+// does the HTTP, on its own schedule, out of the request's way. Nothing here is
+// awaited by the route that triggered it and nothing here throws at its caller.
 import crypto from 'node:crypto';
 import { pool } from './db.js';
 
@@ -23,10 +24,6 @@ export const WEBHOOK_EVENTS = [
   'run.finished',
 ];
 
-/** Attempt delays. Three tries over half a minute: long enough to ride out a
- *  deploy on the other end, short enough that nobody waits on a queue we do
- *  not have. */
-const BACKOFF_MS = [0, 2_000, 15_000];
 const TIMEOUT_MS = 10_000;
 /** Deliveries kept per hook. The log answers "is this still working", which
  *  needs the recent past, not all of it. */
@@ -71,10 +68,11 @@ export function subscribes(hook, event) {
 
 async function logDelivery(row) {
   await pool.query(
-    `INSERT INTO webhook_deliveries (id, webhook_id, event, payload, status_code, error, attempts, ok)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+    `INSERT INTO webhook_deliveries (id, webhook_id, event, payload, status_code, error, attempts, ok, status)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
     [crypto.randomUUID(), row.webhookId, row.event, JSON.stringify(row.payload),
-     row.statusCode ?? null, row.error ?? null, row.attempts, row.ok]
+     row.statusCode ?? null, row.error ?? null, row.attempts, row.ok,
+     row.ok ? 'done' : 'failed']
   );
   // Trim in the same breath as the insert: a sweeper is a second moving part
   // for a table that only ever grows at the rate we write to it.
@@ -89,51 +87,36 @@ async function logDelivery(row) {
   );
 }
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
 /**
- * Deliver one event to one hook, retrying a failure a couple of times.
+ * POST one event to one hook, once.
  *
- * Resolves with the outcome rather than rejecting: the only caller is the
- * detached fan-out below, and a rejected promise there would be an
- * unhandledRejection for something that is already logged.
+ * Exactly one attempt: the worker owns the retry schedule now, because a
+ * schedule held in this function's stack dies with the process. Resolves with
+ * the outcome rather than rejecting — a rejected promise in the worker loop
+ * would be an unhandledRejection for something already recorded.
  */
 export async function deliver(hook, event, payload, { fetchImpl = fetch } = {}) {
   const body = JSON.stringify({ event, at: new Date().toISOString(), data: payload });
-  let statusCode = null;
-  let error = null;
-
-  for (let attempt = 1; attempt <= BACKOFF_MS.length; attempt++) {
-    if (BACKOFF_MS[attempt - 1]) await sleep(BACKOFF_MS[attempt - 1]);
-    const timestamp = Math.floor(Date.now() / 1000);
-    try {
-      const res = await fetchImpl(hook.url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'User-Agent': 'MetanoiaDocs-Webhook/1',
-          'X-Metanoia-Event': event,
-          'X-Metanoia-Delivery': crypto.randomUUID(),
-          'X-Metanoia-Timestamp': String(timestamp),
-          'X-Metanoia-Signature': signPayload(hook.secret, timestamp, body),
-        },
-        body,
-        signal: AbortSignal.timeout(TIMEOUT_MS),
-      });
-      statusCode = res.status;
-      error = null;
-      // Anything 2xx is taken as delivered. A 4xx is the receiver telling us it
-      // did not like the payload; retrying an identical one is pointless, so
-      // only 5xx and network failures go round again.
-      if (res.ok) return { ok: true, statusCode, attempts: attempt };
-      if (res.status < 500) return { ok: false, statusCode, attempts: attempt, error: `HTTP ${res.status}` };
-      error = `HTTP ${res.status}`;
-    } catch (e) {
-      statusCode = null;
-      error = e?.message || String(e);
-    }
+  const timestamp = Math.floor(Date.now() / 1000);
+  try {
+    const res = await fetchImpl(hook.url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'MetanoiaDocs-Webhook/1',
+        'X-Metanoia-Event': event,
+        'X-Metanoia-Delivery': crypto.randomUUID(),
+        'X-Metanoia-Timestamp': String(timestamp),
+        'X-Metanoia-Signature': signPayload(hook.secret, timestamp, body),
+      },
+      body,
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+    if (res.ok) return { ok: true, statusCode: res.status, attempts: 1 };
+    return { ok: false, statusCode: res.status, attempts: 1, error: `HTTP ${res.status}` };
+  } catch (e) {
+    return { ok: false, statusCode: null, attempts: 1, error: e?.message || String(e) };
   }
-  return { ok: false, statusCode, attempts: BACKOFF_MS.length, error };
 }
 
 /**
@@ -158,27 +141,135 @@ async function activeHooks() {
 }
 
 /**
- * Tell every subscribed hook that `event` happened. Never awaited by callers —
- * call it and move on.
+ * Record that `event` happened, for every hook subscribed to it.
  *
- * Deliveries to different hooks run in parallel; a hook that times out cannot
- * hold up the one next to it.
+ * This writes rows and returns; the worker below does the HTTP. That split is
+ * the point. The first version delivered inline and held its retry schedule in
+ * a setTimeout, so a restart during the back-off — a deploy, a crash, a
+ * `docker compose up` — dropped the delivery with no trace that it had ever
+ * been owed. A queued row survives all three.
+ *
+ * ponytail: enqueued just after the domain write, not inside its transaction.
+ * A true outbox would make the two atomic, but the writes this fires on are
+ * single auto-committed statements, so there is no transaction to join without
+ * restructuring every route. The window this leaves is the microseconds between
+ * the UPDATE committing and this INSERT; what it removes is the seconds-long
+ * window the retry loop used to own. Pass a client through the call sites the
+ * day that is not good enough.
  */
 export function emit(event, payload) {
   (async () => {
     const hooks = (await activeHooks()).filter((h) => subscribes(h, event));
     if (!hooks.length) return;
-    await Promise.all(hooks.map(async (hook) => {
-      const out = await deliver(hook, event, payload);
-      await logDelivery({ webhookId: hook.id, event, payload, ...out });
-    }));
-  })().catch((e) => console.error('[webhook] emit failed:', e.message));
+    await pool.query(
+      `INSERT INTO webhook_deliveries (id, webhook_id, event, payload, status, attempt_at)
+       SELECT gen_random_uuid()::text, h, $2, $3, 'queued', now()
+         FROM unnest($1::text[]) AS h`,
+      [hooks.map((h) => h.id), event, JSON.stringify(payload)]
+    );
+  })().catch((e) => console.error('[webhook] enqueue failed:', e.message));
+}
+
+/** Attempts before a delivery is given up on, and how long to wait after each.
+ *  Minutes rather than seconds now that a restart cannot lose the schedule —
+ *  an endpoint that is down is usually down for longer than fifteen seconds. */
+const RETRY_AFTER_S = [0, 30, 120, 600, 1800];
+/** Consecutive failed deliveries before a hook switches itself off, so one
+ *  decommissioned endpoint cannot occupy the worker forever. */
+const DISABLE_AFTER = 10;
+const WORKER_TICK_MS = Number(process.env.WEBHOOK_TICK_MS || 5_000);
+
+/**
+ * Deliver one queued row. Claimed with SKIP LOCKED so several instances — or
+ * several ticks overlapping — never send the same delivery twice.
+ */
+async function drainOne({ fetchImpl = fetch } = {}) {
+  const { rows } = await pool.query(
+    `UPDATE webhook_deliveries SET status = 'delivering'
+      WHERE id = (
+        SELECT d.id FROM webhook_deliveries d
+          JOIN webhooks w ON w.id = d.webhook_id
+         WHERE d.status = 'queued' AND d.attempt_at <= now() AND w.active = true
+         ORDER BY d.attempt_at
+         LIMIT 1 FOR UPDATE OF d SKIP LOCKED
+      )
+      RETURNING *`);
+  const row = rows[0];
+  if (!row) return false;
+
+  const { rows: hook } = await pool.query('SELECT * FROM webhooks WHERE id = $1', [row.webhook_id]);
+  if (!hook[0]) {
+    await pool.query(`UPDATE webhook_deliveries SET status = 'failed' WHERE id = $1`, [row.id]);
+    return true;
+  }
+
+  const attempt = row.attempts + 1;
+  const out = await deliver(hook[0], row.event, row.payload, { fetchImpl });
+
+  if (out.ok) {
+    await pool.query(
+      `UPDATE webhook_deliveries
+          SET status = 'done', ok = true, status_code = $2, error = NULL, attempts = $3
+        WHERE id = $1`,
+      [row.id, out.statusCode, attempt]);
+    await pool.query('UPDATE webhooks SET consecutive_failures = 0 WHERE id = $1', [row.webhook_id]);
+    return true;
+  }
+
+  // A 4xx is the receiver refusing this payload; sending it again changes
+  // nothing. Only 5xx and network failures are worth another go.
+  const retryable = out.statusCode === null || out.statusCode >= 500;
+  const more = retryable && attempt < RETRY_AFTER_S.length;
+  await pool.query(
+    `UPDATE webhook_deliveries
+        SET status = $4, ok = false, status_code = $2, error = $5, attempts = $3,
+            attempt_at = now() + ($6 || ' seconds')::interval
+      WHERE id = $1`,
+    [row.id, out.statusCode, attempt, more ? 'queued' : 'failed', out.error,
+     String(more ? RETRY_AFTER_S[attempt] : 0)]);
+
+  if (!more) {
+    const { rows: w } = await pool.query(
+      `UPDATE webhooks SET consecutive_failures = consecutive_failures + 1
+        WHERE id = $1 RETURNING consecutive_failures`, [row.webhook_id]);
+    if ((w[0]?.consecutive_failures ?? 0) >= DISABLE_AFTER) {
+      await pool.query('UPDATE webhooks SET active = false WHERE id = $1', [row.webhook_id]);
+      forgetHooks();
+      console.warn(`[webhook] ${row.webhook_id} disabled after ${DISABLE_AFTER} consecutive failures`);
+    }
+  }
+  return true;
+}
+
+/** Drain whatever is due, newest tick wins. Exported for the tests. */
+export async function drainWebhooks(opts = {}) {
+  let sent = 0;
+  // Bounded so one tick cannot monopolise the pool on a large backlog.
+  while (sent < 20 && await drainOne(opts)) sent++;
+  return sent;
+}
+
+/** Start the delivery worker. Called once at boot. */
+export function startWebhookWorker() {
+  // Anything left 'delivering' belongs to a process that is gone — a crash
+  // mid-flight. Put it back on the queue rather than stranding it.
+  pool.query(`UPDATE webhook_deliveries SET status = 'queued' WHERE status = 'delivering'`)
+    .catch((e) => console.error('[webhook] requeue on boot:', e.message));
+  const timer = setInterval(
+    () => drainWebhooks().catch((e) => console.error('[webhook] worker:', e.message)),
+    WORKER_TICK_MS);
+  timer.unref?.();
+  return timer;
 }
 
 /** What a hook looks like to the settings screen. The secret goes out once, at
  *  creation, and never again — the same rule the API tokens screen follows. */
 const publicHook = (h) => ({
   id: h.id, url: h.url, events: h.events, active: h.active, created_at: h.created_at,
+  // How many deliveries in a row have failed. The settings screen says so when
+  // it is non-zero, because a hook that turned itself off looks identical to
+  // one an admin switched off on purpose.
+  consecutive_failures: h.consecutive_failures ?? 0,
 });
 
 export function registerWebhookRoutes(app, { requireUser, requireAdmin, wrap }) {
@@ -230,7 +321,12 @@ export function registerWebhookRoutes(app, { requireUser, requireAdmin, wrap }) 
         ? req.body.events.filter((e) => WEBHOOK_EVENTS.includes(e))
         : []);
     }
-    if (req.body?.active !== undefined) set('active', !!req.body.active);
+    if (req.body?.active !== undefined) {
+      set('active', !!req.body.active);
+      // Switching a disabled hook back on starts its count over. Without this it
+      // carries ten strikes and the very next failure switches it off again.
+      if (req.body.active) set('consecutive_failures', 0);
+    }
     if (!sets.length) return res.json({ ok: true });
     vals.push(req.params.id);
     const { rows } = await pool.query(
@@ -261,8 +357,13 @@ export function registerWebhookRoutes(app, { requireUser, requireAdmin, wrap }) 
     const { rows } = await pool.query('SELECT * FROM webhooks WHERE id = $1', [req.params.id]);
     if (!rows[0]) return res.status(404).json({ error: 'not found' });
     const payload = { message: 'Test delivery from MetanoiaDocs.', by: req.user.id };
+    // One shot, answered inline: the person is sitting there waiting for it.
+    // A queued row would tell them nothing until the worker got to it.
     const out = await deliver(rows[0], 'ping', payload);
     await logDelivery({ webhookId: rows[0].id, event: 'ping', payload, ...out });
+    // A working test clears the strikes — an endpoint that answers is not dead,
+    // whatever the last ten automatic deliveries thought.
+    if (out.ok) await pool.query('UPDATE webhooks SET consecutive_failures = 0 WHERE id = $1', [rows[0].id]);
     res.json(out);
   }));
 

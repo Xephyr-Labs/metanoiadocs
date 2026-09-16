@@ -8,7 +8,7 @@ import { createElement } from 'react';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import {
   CalendarDays, Columns3, ExternalLink, GanttChartSquare, KanbanSquare, LayoutGrid,
-  ListTodo, Maximize2, Minimize2, MoreHorizontal, Table2,
+  ListTodo, Maximize2, Minimize2, MoreHorizontal, PieChart, Table2,
 } from 'lucide-react';
 import { requestOpenProject } from '../../lib/navSignal';
 import { addDays } from '../../lib/gantt';
@@ -23,6 +23,7 @@ import { Backlog } from './Backlog';
 import { Board } from './Board';
 import { Calendar } from './Calendar';
 import { FilterBar } from './FilterBar';
+import { Dashboard } from './Dashboard';
 import { Gallery } from './Gallery';
 import { Gantt } from './Gantt';
 import { GroupBy } from './GroupBy';
@@ -37,6 +38,7 @@ import { useViews } from './useViews';
 const VIEW_ICON: Record<ViewKind, typeof Table2> = {
   backlog: ListTodo, board: KanbanSquare, table: Table2,
   gantt: GanttChartSquare, calendar: CalendarDays, gallery: LayoutGrid,
+  dashboard: PieChart,
 };
 
 interface Props {
@@ -335,6 +337,8 @@ export function EmbeddedDatabase({
               onOpen={() => requestOpenProject(projectId)}
               onAdd={() => p.create({ title: '' })}
             />
+          ) : d.kind === 'dashboard' ? (
+            <Dashboard tasks={d.tasks} sprints={p.sprints} scope={d.scope} statusColors={d.statusColors} />
           ) : d.kind === 'calendar' ? (
             <Calendar
               tasks={d.tasks}

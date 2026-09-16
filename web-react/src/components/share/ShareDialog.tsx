@@ -96,7 +96,7 @@ export function ShareDialog() {
           <Button variant="primary" onClick={invite} disabled={inviting} leftIcon={inviting ? <Loader2 size={14} className="animate-spin" /> : undefined}>Invite</Button>
         </div>
         {msg && (
-          <p className={cn('mt-2 flex items-center gap-1.5 text-xs', msg.ok ? 'text-accent-strong' : 'text-danger')}>
+          <p className={cn('mt-2 flex items-center gap-1.5 text-xs', msg.ok ? 'text-accent-strong' : 'text-danger-strong')}>
             {msg.ok ? <Check size={14} /> : <AlertCircle size={14} />}{msg.text}
           </p>
         )}

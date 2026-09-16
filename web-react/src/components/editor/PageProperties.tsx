@@ -81,7 +81,7 @@ function NewProperty({ pageId, onDone }: { pageId: string; onDone: () => void })
       <button type="button" onClick={onDone} className="h-7 rounded-md px-2 text-xs text-muted hover:bg-hover">
         Cancel
       </button>
-      {error && <span className="text-xs text-danger">{error}</span>}
+      {error && <span className="text-xs text-danger-strong">{error}</span>}
     </div>
   );
 }

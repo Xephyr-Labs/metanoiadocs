@@ -78,10 +78,10 @@ export function RowInput({ icon, defaultValue = '', placeholder, label, depth = 
             if (e.key === 'Escape') { e.stopPropagation(); cancel(); }
           }}
           onBlur={(e) => commit(e.target.value)}
-          className={cn(field, 'h-7 min-w-0 flex-1 px-1.5 text-base', error && 'ring-danger focus:ring-danger')}
+          className={cn(field, 'h-7 min-w-0 flex-1 px-1.5 text-base', error && 'ring-danger-strong focus:ring-danger-strong')}
         />
       </div>
-      {error && <p role="alert" className="pb-1 pl-7 text-2xs text-danger">{error}</p>}
+      {error && <p role="alert" className="pb-1 pl-7 text-2xs text-danger-strong">{error}</p>}
     </div>
   );
 }

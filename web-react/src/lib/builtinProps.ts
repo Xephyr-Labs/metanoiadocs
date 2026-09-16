@@ -31,8 +31,11 @@ export const BUILTIN_PREFIX = 'sys:';
 
 export const isBuiltinProp = (id: string) => id.startsWith(BUILTIN_PREFIX);
 
-/** The colour each state carries everywhere else in the app (Board's DOT). */
-const STATUS_COLOR: Record<string, string> = {
+/** The colour each state carries everywhere else in the app (Board's DOT).
+ *  Exported because a project can repaint any of them (`projects.status_colors`)
+ *  and anything drawing a status has to fall back to the same default — two
+ *  copies of this map is two answers to what colour "In progress" is. */
+export const STATUS_COLOR: Record<string, string> = {
   todo: 'gray',
   doing: 'blue',
   review: 'yellow',

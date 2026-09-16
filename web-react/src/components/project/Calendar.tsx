@@ -477,7 +477,7 @@ function Card({
         <span
           className={cn(
             'w-full truncate text-2xs font-semibold',
-            done ? 'text-muted line-through' : overdue ? 'text-danger' : 'text-ink',
+            done ? 'text-muted line-through' : overdue ? 'text-danger-strong' : 'text-ink',
           )}
         >
           {/* A continuation card repeats the title only when it starts the row

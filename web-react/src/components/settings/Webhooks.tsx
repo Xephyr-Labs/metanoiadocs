@@ -26,7 +26,7 @@ function StatusDot({ ok }: { ok: boolean | null | undefined }) {
       aria-hidden
       className={cn(
         'h-1.5 w-1.5 shrink-0 rounded-full',
-        ok == null ? 'ring-1 ring-line-strong' : ok ? 'bg-accent-strong' : 'bg-danger',
+        ok == null ? 'ring-1 ring-line-strong' : ok ? 'bg-accent-strong' : 'bg-danger-strong',
       )}
     />
   );
@@ -163,6 +163,18 @@ function HookRow({ hook, events, onChanged }: {
               {chosen.length ? `${chosen.length} events` : 'All events'}
               {hook.last_at ? ` · last sent ${relativeTime(hook.last_at)}` : ' · never sent'}
             </span>
+            {/* A hook the server switched off looks exactly like one an admin
+                switched off, unless it says which. */}
+            {!hook.active && (hook.consecutive_failures ?? 0) > 0 ? (
+              <span className="block truncate text-xs text-danger-strong">
+                Switched off after {hook.consecutive_failures} deliveries failed in a row. Turn it
+                back on to retry.
+              </span>
+            ) : (hook.consecutive_failures ?? 0) > 0 ? (
+              <span className="block truncate text-xs text-danger-strong">
+                {hook.consecutive_failures} failed in a row — it switches itself off at 10.
+              </span>
+            ) : null}
           </span>
         </button>
         <Switch
@@ -224,7 +236,7 @@ function HookRow({ hook, events, onChanged }: {
             ) : (
               <button
                 onClick={() => setConfirming(true)}
-                className="ml-auto rounded-md px-2 py-1 text-xs text-danger transition-colors duration-120 hover:bg-danger-soft"
+                className="ml-auto rounded-md px-2 py-1 text-xs text-danger-strong transition-colors duration-120 hover:bg-danger-soft"
               >
                 Delete
               </button>
@@ -302,7 +314,7 @@ export function Webhooks() {
             Add
           </Button>
         </div>
-        {error && <p className="mt-2 text-xs text-danger">{error}</p>}
+        {error && <p className="mt-2 text-xs text-danger-strong">{error}</p>}
         {fresh && <SecretOnce secret={fresh} />}
       </div>
 
@@ -310,7 +322,7 @@ export function Webhooks() {
         {rows === null ? (
           <div className="flex justify-center py-8"><Loader2 size={16} className="animate-spin text-faint" /></div>
         ) : loadError ? (
-          <p className="py-8 text-center text-sm text-danger">{loadError}</p>
+          <p className="py-8 text-center text-sm text-danger-strong">{loadError}</p>
         ) : rows.length === 0 ? (
           <p className="flex flex-col items-center gap-2 py-8 text-center text-sm text-faint">
             <Webhook size={20} className="opacity-60" />
