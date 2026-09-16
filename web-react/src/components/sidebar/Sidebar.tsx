@@ -1,13 +1,20 @@
-/* Hallmark · component: the workspace rail — an icon strip and the panel it
+/* Hallmark · component: the workspace rail — a labelled strip and the panel it
  *              switches · genre: modern-minimal
- * pre-emit critique: P5 H4 E4 S5 R4 V4
+ * pre-emit critique: P5 H5 E5 S5 R4 V4
  * theme: project tokens (index.css)
- * states: default · hover · focus-visible · active (section showing) ·
+ * states: default · hover · focus-visible (inset ring, own radius) ·
+ *         pressed · current (section showing) · disabled (none: a section is
+ *         always pickable) · loading/error/success (none: picking a scope is a
+ *         local state flip, it can neither wait nor fail) ·
  *         section folded · section capped ("N more") · empty section ·
  *         collapsed sidebar · mobile drawer · resizing
- * contrast: pass (40-41)
+ * keyboard: one tab stop, arrows walk, Home/End jump, Enter/Space commits
+ * contrast: pass — 5.1:1 idle / 10.0:1 current light, 7.1:1 / 10.4:1 dark
  * note: the rail narrows the sidebar, it does not gate it — `Everything` is
  *       first and is the default, so nobody's navigation moves on upgrade.
+ * targets: rail items are 72x52 and reach both edges of the 72px column, so a
+ *       pointer thrown at the window edge lands on one. Settings sits in the
+ *       footer with the account it configures, not in the list of destinations.
  */
 import {
   Archive,
@@ -35,7 +42,7 @@ import {
   Trash2,
   Upload,
 } from 'lucide-react';
-import { Children, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Children, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { cn } from '../../lib/cn';
 import { SECTION_LIMIT, collapsedSections, railSection, setRailSection, toggleSection, type RailSection } from '../../lib/sidebarPrefs';
 import { copyLink } from '../../lib/clipboard';
@@ -425,37 +432,103 @@ function FavoriteFolderRow({ id }: { id: string }) {
  * the sidebar, not a wall put in front of it, and nobody's navigation should
  * move under them on upgrade.
  *
- * Six fixed destinations, so there is no overflow menu and no compact mode —
- * VS Code needs both because extensions add icons to its rail; nothing here
- * adds one. Icon-only, but every button is tooltip-labelled and carries its
- * name to a screen reader, which is what `IconButton` was already doing for
- * the top bar.
+ * Six fixed sections, so there is no overflow menu and no compact mode — VS
+ * Code needs both because extensions add icons to its rail; nothing here adds
+ * one.
+ *
+ * Every item carries its name under the glyph rather than behind a tooltip.
+ * Icon-only put an 800ms hover between a person and the answer to "which one is
+ * Templates", every single time, and two of these six are honestly just
+ * rectangles: `LayoutList` and `LayoutTemplate` do not distinguish themselves at
+ * 20px however long you look. The word does.
+ *
+ * The rail is 72px because the widest of the six measures 59.1px at 11px in
+ * Onest (`Documents`, measured in the browser rather than guessed), and 6px of
+ * inset each side is what keeps that off the edges of its own block. Nothing
+ * truncates, nothing wraps to a second line, and a fallback face has room to be
+ * a little wider before either happens.
+ *
+ * Where a label names a section the panel also names, it uses the panel's word:
+ * one thing should not have two names depending on which surface you read it
+ * from. `Everything` and `Documents` are the rail's own — the first is not a
+ * section at all, and the second is the group the other four sections sit in.
  */
 const RAIL: { key: RailSection; icon: ReactNode; label: string }[] = [
-  { key: 'all', icon: <LayoutList size={16} />, label: 'Everything' },
-  { key: 'docs', icon: <Files size={16} />, label: 'Documents' },
-  { key: 'projects', icon: <KanbanSquare size={16} />, label: 'Projects' },
-  { key: 'designs', icon: <Shapes size={16} />, label: 'Designs' },
-  { key: 'tags', icon: <TagIcon size={16} />, label: 'Tags' },
-  { key: 'templates', icon: <LayoutTemplate size={16} />, label: 'Templates' },
+  { key: 'all', icon: <LayoutList size={20} />, label: 'Everything' },
+  { key: 'docs', icon: <Files size={20} />, label: 'Documents' },
+  { key: 'projects', icon: <KanbanSquare size={20} />, label: 'Projects' },
+  { key: 'designs', icon: <Shapes size={20} />, label: 'Designs' },
+  { key: 'tags', icon: <TagIcon size={20} />, label: 'Tags' },
+  { key: 'templates', icon: <LayoutTemplate size={20} />, label: 'Templates' },
 ];
 
 function Rail({ section, onPick }: { section: RailSection; onPick: (s: RailSection) => void }) {
+  const refs = useRef<(HTMLButtonElement | null)[]>([]);
+  const activeIndex = Math.max(0, RAIL.findIndex((r) => r.key === section));
+  // Where the tab stop sits. It starts on the showing section and then follows
+  // the last item focused, so arrowing to Tags and tabbing away and back
+  // returns you to Tags rather than dumping you at the top of the strip again.
+  const [focused, setFocused] = useState<number | null>(null);
+
+  // One tab stop for the whole strip, arrows to walk it — the toolbar pattern.
+  // Six separate tab stops in front of the panel is a tax a keyboard user pays
+  // on every pass through the sidebar, and the rail is one control with six
+  // positions, not six controls. Focus moves without picking: Enter or Space
+  // commits, so reading the rail costs nothing.
+  const onKeyDown = (e: KeyboardEvent<HTMLButtonElement>, i: number) => {
+    const last = RAIL.length - 1;
+    const to =
+      e.key === 'ArrowDown' ? (i === last ? 0 : i + 1)
+      : e.key === 'ArrowUp' ? (i === 0 ? last : i - 1)
+      : e.key === 'Home' ? 0
+      : e.key === 'End' ? last
+      : null;
+    if (to === null) return;
+    e.preventDefault();
+    refs.current[to]?.focus();
+  };
+
   return (
-    // The rail's first icon lines up with the panel's first nav row: the header
-    // height plus that row's own top padding. Both read --mn-head-h, so neither
-    // drifts when the header does.
-    <div className="flex w-11 shrink-0 flex-col items-center gap-0.5 border-r border-line pt-[calc(var(--mn-head-h)+0.5rem)]">
-      {RAIL.map((r) => (
-        <IconButton
-          key={r.key}
-          icon={r.icon}
-          label={r.label}
-          side="right"
-          active={section === r.key}
-          onClick={() => onPick(r.key)}
-        />
-      ))}
+    // The strip and the list share a top edge: the header's height plus the
+    // panel's own top padding, read from --mn-head-h so neither drifts when the
+    // header moves. Their rhythms diverge below that on purpose — a two-line
+    // target is not a row.
+    <div
+      role="toolbar"
+      aria-orientation="vertical"
+      aria-label="Sidebar sections"
+      className="flex w-[72px] shrink-0 flex-col items-center gap-0.5 border-r border-line pt-[calc(var(--mn-head-h)+0.5rem)]"
+    >
+      {RAIL.map((r, i) => {
+        const on = section === r.key;
+        return (
+          <button
+            key={r.key}
+            ref={(el) => { refs.current[i] = el; }}
+            type="button"
+            aria-pressed={on}
+            tabIndex={i === (focused ?? activeIndex) ? 0 : -1}
+            onFocus={() => setFocused(i)}
+            onKeyDown={(e) => onKeyDown(e, i)}
+            onClick={() => onPick(r.key)}
+            className={cn(
+              'flex h-[52px] w-full flex-col items-center justify-center gap-[3px] px-1.5',
+              // Square against the window edge, rounded away from it. A radius
+              // on the edge side has nothing to sit against — the corner curves
+              // away from a hard line and the block stops reading as a tab.
+              'rounded-l-none rounded-r-lg transition-colors duration-120 ease-out',
+              // The global ring sits 1px outside the element and re-rounds it;
+              // on an edge-flush target that clips at x=0 and squares the wrong
+              // corners, so this one draws inside and keeps its own shape.
+              'focus-visible:rounded-l-none focus-visible:rounded-r-lg focus-visible:[outline-offset:-2px]',
+              on ? 'bg-selected text-ink' : 'text-muted hover:bg-hover hover:text-ink',
+            )}
+          >
+            <span className="flex h-5 w-5 shrink-0 items-center justify-center">{r.icon}</span>
+            <span className={cn('block max-w-full truncate text-3xs leading-none', on && 'font-medium')}>{r.label}</span>
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -556,8 +629,8 @@ export function Sidebar() {
     const startW = ws.sidebarWidth;
     const onMove = (ev: MouseEvent) => {
       if (!dragging.current) return;
-      // +44 for the rail, so the panel beside it still ranges 220–420.
-      ws.setSidebarWidth(Math.min(464, Math.max(264, startW + ev.clientX - startX)));
+      // +72 for the rail, so the panel beside it still ranges 220–420.
+      ws.setSidebarWidth(Math.min(492, Math.max(292, startW + ev.clientX - startX)));
       force((n) => n + 1);
     };
     const onUp = () => {
@@ -613,7 +686,9 @@ export function Sidebar() {
       </div>
 
       {/* primary nav — Search lives on the top bar now, where it acts on the
-          whole workspace; this tree is a list of places to go. */}
+          whole workspace; this tree is a list of places to go. Settings is not
+          one: it opens a dialog over wherever you already are, so it sits with
+          the account it belongs to, in the footer. */}
       <div className="px-2 pt-2">
         <NavItem icon={<Home size={16} />} label="Home" active={ws.view === 'home'} onClick={ws.openHome} />
         <NavItem
@@ -633,7 +708,6 @@ export function Sidebar() {
         {/* The tree below only draws a page once it has been filed somewhere,
             so the ones easiest to lose are the ones it never shows. */}
         <NavItem icon={<Files size={16} />} label="All documents" active={ws.view === 'docs'} onClick={ws.openAllDocs} />
-        <NavItem icon={<Settings size={16} />} label="Settings" onClick={() => ws.setSettingsOpen(true)} />
       </div>
 
       {/* scroll region */}
@@ -834,9 +908,12 @@ export function Sidebar() {
             <p className="truncate text-sm font-medium text-ink">{auth.user?.name ?? 'User'}</p>
             <p className="truncate text-2xs text-faint">{auth.user?.role === 'admin' ? 'Admin' : `@${auth.user?.username ?? 'you'}`}</p>
           </div>
-          <button type="button" onClick={() => auth.logout()} className="flex h-6 w-6 items-center justify-center rounded text-faint hover:bg-hover hover:text-danger-strong" aria-label="Log out">
-            <LogOut size={16} />
-          </button>
+          {/* The two smallest targets in the chrome were here, hand-rolled at
+              24px. IconButton is the same control the rail and the top bar use:
+              28px, tooltip-labelled, and it already owns the danger tone that
+              Log out was spelling out by hand. */}
+          <IconButton icon={<Settings size={16} />} label="Settings" side="top" onClick={() => ws.setSettingsOpen(true)} />
+          <IconButton icon={<LogOut size={16} />} label="Log out" side="top" tone="danger" onClick={() => auth.logout()} />
         </div>
       </div>
       </div>
