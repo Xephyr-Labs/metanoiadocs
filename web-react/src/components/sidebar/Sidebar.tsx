@@ -613,7 +613,9 @@ export function Sidebar() {
       </div>
 
       {/* primary nav — Search lives on the top bar now, where it acts on the
-          whole workspace; this tree is a list of places to go. */}
+          whole workspace; this tree is a list of places to go. Settings is not
+          one: it opens a dialog over wherever you already are, so it sits with
+          the account it belongs to, in the footer. */}
       <div className="px-2 pt-2">
         <NavItem icon={<Home size={16} />} label="Home" active={ws.view === 'home'} onClick={ws.openHome} />
         <NavItem
@@ -633,7 +635,6 @@ export function Sidebar() {
         {/* The tree below only draws a page once it has been filed somewhere,
             so the ones easiest to lose are the ones it never shows. */}
         <NavItem icon={<Files size={16} />} label="All documents" active={ws.view === 'docs'} onClick={ws.openAllDocs} />
-        <NavItem icon={<Settings size={16} />} label="Settings" onClick={() => ws.setSettingsOpen(true)} />
       </div>
 
       {/* scroll region */}
@@ -834,6 +835,9 @@ export function Sidebar() {
             <p className="truncate text-sm font-medium text-ink">{auth.user?.name ?? 'User'}</p>
             <p className="truncate text-2xs text-faint">{auth.user?.role === 'admin' ? 'Admin' : `@${auth.user?.username ?? 'you'}`}</p>
           </div>
+          <button type="button" onClick={() => ws.setSettingsOpen(true)} className="flex h-6 w-6 items-center justify-center rounded text-faint hover:bg-hover hover:text-ink" aria-label="Settings">
+            <Settings size={16} />
+          </button>
           <button type="button" onClick={() => auth.logout()} className="flex h-6 w-6 items-center justify-center rounded text-faint hover:bg-hover hover:text-danger-strong" aria-label="Log out">
             <LogOut size={16} />
           </button>
