@@ -317,6 +317,59 @@ export interface HomePayload {
   projects: ProjectRow[];
 }
 
+/* ---- automations ------------------------------------------------------ */
+
+export type AutomationTrigger = 'status' | 'manual';
+
+/** One thing a rule does. `assign` carries a list; everything else carries one
+ *  value, and `null` means "clear it" — a rule that empties the sprint moves a
+ *  task to the backlog, which is a real thing to want. */
+export type AutomationAction =
+  | { type: 'assign'; userIds: string[] }
+  | { type: 'status'; value: TaskStatus }
+  | { type: 'kind'; value: string }
+  /** A sprint id, `'active'` for whichever sprint is running, or null for the backlog. */
+  | { type: 'sprint'; value: string | null }
+  | { type: 'priority'; value: number }
+  | { type: 'points'; value: number | null }
+  | { type: 'progress'; value: number };
+
+export interface AutomationRow {
+  id: string;
+  project_id: string;
+  name: string;
+  trigger_kind: AutomationTrigger;
+  /** The status a task has to enter, for a `status` rule. Null for a manual one. */
+  trigger_value: string | null;
+  actions: AutomationAction[];
+  active: boolean;
+  position: number;
+}
+
+/* ---- agent runs -------------------------------------------------------- */
+
+export interface AgentRow {
+  id: string;
+  name: string;
+  username: string | null;
+  email: string;
+}
+
+export type RunStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled';
+
+export interface AgentRunRow {
+  id: string;
+  agent_id: string;
+  agent_name: string | null;
+  task_id: string | null;
+  trigger: 'assign' | 'mention' | 'manual';
+  status: RunStatus;
+  result: string;
+  error: string | null;
+  created_at: string;
+  finished_at: string | null;
+}
+
 export const tasksApi = {
   home: (): Promise<HomePayload> => req('/home'),
 
@@ -394,4 +447,20 @@ export const tasksApi = {
     req(`/tasks/${id}/deps`, { method: 'POST', ...body({ dependsOn }) }),
   removeDep: (id: string, dependsOn: string) =>
     req(`/tasks/${id}/deps/${dependsOn}`, { method: 'DELETE' }),
+
+  automations: (projectId: string): Promise<AutomationRow[]> => req(`/projects/${projectId}/automations`),
+  createAutomation: (projectId: string, b: { name?: string; trigger?: AutomationTrigger; value?: string | null; actions?: AutomationAction[] }): Promise<AutomationRow> =>
+    req(`/projects/${projectId}/automations`, { method: 'POST', ...body(b) }),
+  patchAutomation: (id: string, b: Partial<{ name: string; trigger: AutomationTrigger; value: string | null; actions: AutomationAction[]; active: boolean; position: number }>): Promise<AutomationRow> =>
+    req(`/automations/${id}`, { method: 'PATCH', ...body(b) }),
+  deleteAutomation: (id: string) => req(`/automations/${id}`, { method: 'DELETE' }),
+  /** Fire a rule on one task by hand — what makes a rule a quick action. */
+  runAutomation: (taskId: string, automationId: string): Promise<{ ok: true; applied: unknown[] }> =>
+    req(`/tasks/${taskId}/automations/${automationId}/run`, { method: 'POST' }),
+
+  agents: (): Promise<AgentRow[]> => req('/agents'),
+  taskRuns: (taskId: string): Promise<AgentRunRow[]> => req(`/tasks/${taskId}/runs`),
+  startRun: (taskId: string, agentId: string): Promise<AgentRunRow> =>
+    req(`/tasks/${taskId}/runs`, { method: 'POST', ...body({ agentId }) }),
+  cancelRun: (id: string): Promise<AgentRunRow> => req(`/agent/runs/${id}/cancel`, { method: 'POST' }),
 };

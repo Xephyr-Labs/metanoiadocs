@@ -55,6 +55,7 @@ services:
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASS: ${SMTP_PASS:-}
       SMTP_FROM: ${SMTP_FROM:-MetanoiaDocs <no-reply@example.com>}
+      AGENT_RUN_STALE_MIN: ${AGENT_RUN_STALE_MIN:-30}
     ports:
       - "${HTTP_PORT:-8092}:3000"
     depends_on:

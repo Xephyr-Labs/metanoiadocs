@@ -44,14 +44,6 @@ export async function initSchema() {
     -- account exactly as it was.
     ALTER TABLE users ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'person';
 
-    -- Was the last write typed, or made by the copilot on the person's behalf?
-    --
-    -- users.kind answers "which account"; this answers "which hand". Ask AI
-    -- runs inside a person's own session, so there is no second account to
-    -- mark — without this its edits are indistinguishable from their typing.
-    -- 'human' for everything that already exists, which is what it was.
-    ALTER TABLE docs ADD COLUMN IF NOT EXISTS updated_via TEXT NOT NULL DEFAULT 'human';
-    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS updated_via TEXT NOT NULL DEFAULT 'human';
     CREATE UNIQUE INDEX IF NOT EXISTS users_username_idx
       ON users(username) WHERE username IS NOT NULL;
 
@@ -574,6 +566,114 @@ export async function initSchema() {
     -- repainted here, never renamed or invented. Missing keys fall back to the
     -- palette the app has always drawn (web-react/src/lib/builtinProps.ts).
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS status_colors JSONB NOT NULL DEFAULT '{}';
+
+    -- Was the last write typed, or made by the copilot on the person's behalf?
+    --
+    -- users.kind answers "which account"; this answers "which hand". Ask AI
+    -- runs inside a person's own session, so there is no second account to
+    -- mark — without this its edits are indistinguishable from their typing.
+    -- 'human' for everything that already exists, which is what it was.
+    --
+    -- Down here rather than up beside users.kind, where it read better: this is
+    -- one statement list executed in order, and on a database that does not
+    -- exist yet neither docs nor tasks has been created at that point. A single
+    -- failed statement rolls the whole thing back, so an ALTER above its own
+    -- CREATE is a first boot that never finishes.
+    ALTER TABLE docs ADD COLUMN IF NOT EXISTS updated_via TEXT NOT NULL DEFAULT 'human';
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS updated_via TEXT NOT NULL DEFAULT 'human';
+
+    -- ── webhooks ────────────────────────────────────────────────────────────
+    -- An outgoing HTTP POST per workspace event, so the things that live
+    -- outside this database — CI, a chat channel, someone's script — hear about
+    -- a change without polling for it.
+    --
+    -- The secret is stored in plaintext on purpose, unlike an API token: both
+    -- ends have to compute the same HMAC, so a one-way hash would leave us
+    -- unable to sign. It is shown only to an admin, and it grants nothing on
+    -- its own — it proves a payload came from here, and nothing else.
+    CREATE TABLE IF NOT EXISTS webhooks (
+      id         TEXT PRIMARY KEY,
+      url        TEXT NOT NULL,
+      secret     TEXT NOT NULL,
+      events     TEXT[] NOT NULL DEFAULT '{}',
+      active     BOOLEAN NOT NULL DEFAULT true,
+      created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+
+    -- What we sent and what came back. Without it a webhook that silently
+    -- stopped working looks exactly like one nothing has happened on — which is
+    -- the whole question an operator asks. Trimmed to the newest rows per hook
+    -- as they are written, so a busy workspace cannot grow this without bound.
+    CREATE TABLE IF NOT EXISTS webhook_deliveries (
+      id          TEXT PRIMARY KEY,
+      webhook_id  TEXT NOT NULL REFERENCES webhooks(id) ON DELETE CASCADE,
+      event       TEXT NOT NULL,
+      payload     JSONB NOT NULL DEFAULT '{}',
+      status_code INT,
+      error       TEXT,
+      attempts    INT NOT NULL DEFAULT 0,
+      ok          BOOLEAN NOT NULL DEFAULT false,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS webhook_deliveries_hook_idx
+      ON webhook_deliveries(webhook_id, created_at DESC);
+
+    -- ── agent runs ──────────────────────────────────────────────────────────
+    -- The queue an external coding agent polls.
+    --
+    -- MCP is the pull half of letting machines in: the agent asks, the
+    -- workspace answers. This is the push half — a task assigned to an agent
+    -- account, or a comment that @-mentions one, becomes a row here, and the
+    -- runner on someone's own machine claims it and does the work. The
+    -- workspace never reaches out to the agent, so nothing has to be reachable
+    -- from here: an agent behind a laptop firewall works exactly as well.
+    --
+    -- 'trigger' is a reserved word in SQL, hence trigger_kind.
+    CREATE TABLE IF NOT EXISTS agent_runs (
+      id           TEXT PRIMARY KEY,
+      agent_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      task_id      TEXT REFERENCES tasks(id) ON DELETE CASCADE,
+      doc_id       TEXT REFERENCES docs(id) ON DELETE SET NULL,
+      trigger_kind TEXT NOT NULL DEFAULT 'manual',  -- assign | mention | manual
+      status       TEXT NOT NULL DEFAULT 'queued',  -- queued | running | done | failed | cancelled
+      prompt       TEXT NOT NULL DEFAULT '',
+      result       TEXT NOT NULL DEFAULT '',
+      error        TEXT,
+      requested_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+      started_at   TIMESTAMPTZ,
+      finished_at  TIMESTAMPTZ
+    );
+    CREATE INDEX IF NOT EXISTS agent_runs_queue_idx
+      ON agent_runs(agent_id, created_at) WHERE status = 'queued';
+    CREATE INDEX IF NOT EXISTS agent_runs_task_idx
+      ON agent_runs(task_id, created_at DESC);
+    -- One open run per agent per task. Re-assigning a task the agent is already
+    -- working on is the same ask, not a second one — without this a board drag
+    -- that touches assignees twice queues the work twice. A run with no task
+    -- (a mention on a plain page) is exempt: NULLs are distinct here, which is
+    -- what we want, since each mention really is its own ask.
+    CREATE UNIQUE INDEX IF NOT EXISTS agent_runs_one_open_idx
+      ON agent_runs(agent_id, task_id) WHERE status IN ('queued', 'running');
+
+    -- ── automations ─────────────────────────────────────────────────────────
+    -- "When a task enters this status, do these things." Also the storage for a
+    -- quick action, which is the same list of actions with nobody firing it
+    -- automatically — the difference is trigger_kind, not a second table.
+    CREATE TABLE IF NOT EXISTS automations (
+      id            TEXT PRIMARY KEY,
+      project_id    TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      name          TEXT NOT NULL DEFAULT '',
+      trigger_kind  TEXT NOT NULL DEFAULT 'status',  -- status | manual
+      trigger_value TEXT,                            -- the status entered, for 'status'
+      actions       JSONB NOT NULL DEFAULT '[]',
+      active        BOOLEAN NOT NULL DEFAULT true,
+      position      INT NOT NULL DEFAULT 0,
+      created_by    TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS automations_project_idx ON automations(project_id, position);
   `);
 
   await normalizeLegacyFolderImport();

@@ -1,0 +1,47 @@
+MetanoiaDocs is starting.
+
+{{- if .Values.ingress.enabled }}
+
+  Open  http{{ if .Values.ingress.tls.enabled }}s{{ end }}://{{ .Values.ingress.host }}
+{{- else if eq .Values.service.type "ClusterIP" }}
+
+  No ingress yet. To look at it now:
+
+    kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "metanoiadocs.fullname" . }} 8092:{{ .Values.service.port }}
+
+  then open http://localhost:8092
+{{- end }}
+
+{{- if .Values.admin.email }}
+
+The admin account {{ .Values.admin.email }} is created on first boot.
+{{- else }}
+
+The first visit shows a setup screen. The account you create there is the admin;
+everyone else joins by invitation.
+{{- end }}
+
+{{- if ne .Values.baseUrl (printf "http%s://%s" (ternary "s" "" .Values.ingress.tls.enabled) .Values.ingress.host) }}
+{{- if .Values.ingress.enabled }}
+
+WARNING: baseUrl is {{ .Values.baseUrl }}, but the ingress serves
+{{ .Values.ingress.host }}. Emailed sign-in links and push notifications are
+built from baseUrl, so they will point somewhere nobody can reach. Set
+`baseUrl` to the address people actually type.
+{{- end }}
+{{- end }}
+
+{{- if .Values.mail.devMode }}
+
+AUTH_DEV_MODE is on: sign-in and invite links are printed to the pod log instead
+of being emailed. Anyone who can read the log can sign in as anyone — set
+`mail.devMode: false` and fill in `mail.host` before real people use this.
+
+  kubectl -n {{ .Release.Namespace }} logs -f deploy/{{ include "metanoiadocs.fullname" . }}
+{{- end }}
+
+{{- if and .Values.postgres.enabled (not .Values.postgres.persistence.enabled) }}
+
+WARNING: the bundled Postgres has persistence off. Everything is lost when the
+pod restarts.
+{{- end }}

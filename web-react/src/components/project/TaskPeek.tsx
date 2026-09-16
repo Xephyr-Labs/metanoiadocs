@@ -24,6 +24,7 @@ import { SearchSelect } from '../ui/SearchSelect';
 import { useKinds } from './kinds';
 import { KindBadge } from './TaskChip';
 import { PropertyCell } from './props/PropertyCell';
+import { TaskAgents } from './TaskAgents';
 
 interface Props {
   task: TaskRow | null;
@@ -334,6 +335,19 @@ export function TaskPeek({
             <Plus size={13} /> Add a property
           </button>
         </section>
+
+        {/* A data database's rows are records, not work — nothing to hand over
+            and no status for a rule to fire on. */}
+        {mode !== 'data' && (
+          <TaskAgents
+            taskId={task.id}
+            projectId={task.project_id}
+            // A quick action writes the row on the server, so the list has to
+            // be re-read rather than patched locally — the same "something
+            // changed this row from outside" refresh a page tag needs.
+            onChanged={() => onTagsChanged?.()}
+          />
+        )}
 
         {!!detail?.backlinks.length && (
           <section className="px-4 py-3">

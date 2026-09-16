@@ -1,0 +1,68 @@
+name: metanoiadocs
+
+# Coolify deploy. Add this repository as a Docker Compose resource and point
+# Coolify at this file — it reads the magic variables below and fills them in
+# itself:
+#
+#   SERVICE_FQDN_SERVER_3000  the domain it routes to the server's port 3000,
+#                             which is also what BASE_URL has to be
+#   SERVICE_PASSWORD_DB       a generated Postgres password, the same value in
+#                             both places it appears
+#
+# Everything else has a working default. Set SMTP_* and AUTH_DEV_MODE=false in
+# Coolify's environment editor once you want real emails.
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: metanoia
+      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_DB}
+      POSTGRES_DB: metanoiadocs
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U metanoia -d metanoiadocs"]
+      interval: 5s
+      retries: 20
+
+  server:
+    image: hmsajjad/metanoiadocs:latest
+    restart: unless-stopped
+    environment:
+      # Coolify generates the domain and injects it here. It is also the address
+      # emailed sign-in links and Web Push are built from, so the two must be
+      # the same string — hence one variable, used twice.
+      - SERVICE_FQDN_SERVER_3000
+      - BASE_URL=${SERVICE_FQDN_SERVER_3000}
+      - PORT=3000
+      - DATABASE_URL=postgresql://metanoia:${SERVICE_PASSWORD_DB}@db:5432/metanoiadocs
+      # Optional: create the admin without the setup screen. Both must be set,
+      # and they only apply while the instance has no accounts at all.
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
+      # true = print sign-in links to the container log instead of emailing
+      # them. Turn it off as soon as SMTP is filled in: while it is on, anyone
+      # who can read the log can sign in as anyone.
+      - AUTH_DEV_MODE=${AUTH_DEV_MODE:-true}
+      - ALLOWED_EMAIL_DOMAINS=${ALLOWED_EMAIL_DOMAINS:-*}
+      - TRASH_RETENTION_DAYS=${TRASH_RETENTION_DAYS:-30}
+      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_SECURE=${SMTP_SECURE:-false}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASS=${SMTP_PASS:-}
+      - SMTP_FROM=${SMTP_FROM:-MetanoiaDocs <no-reply@example.com>}
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  db_data:

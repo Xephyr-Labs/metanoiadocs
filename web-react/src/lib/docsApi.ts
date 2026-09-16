@@ -194,6 +194,30 @@ export interface MyDocRow {
   updated_at: string;
 }
 
+/** An outgoing webhook, as the settings screen sees it. The secret is absent on
+ *  purpose: it comes back once, from create or rotate, and never again. */
+export interface WebhookRow {
+  id: string;
+  url: string;
+  /** Empty means every event. */
+  events: string[];
+  active: boolean;
+  created_at: string;
+  /** How the most recent delivery went — null when nothing has been sent yet. */
+  last_ok?: boolean | null;
+  last_at?: string | null;
+}
+
+export interface DeliveryRow {
+  id: string;
+  event: string;
+  status_code: number | null;
+  error: string | null;
+  attempts: number;
+  ok: boolean;
+  created_at: string;
+}
+
 export const docsApi = {
   list: (): Promise<DocRow[]> => req('/docs'),
   myDocs: (offset: number, limit = 8): Promise<{ total: number; rows: MyDocRow[] }> =>
@@ -332,6 +356,20 @@ export const docsApi = {
     req(`/docs/${id}/versions/${vid}/restore`, { method: 'POST' }),
   snapshot: (id: string, label: string) =>
     req(`/docs/${id}/versions`, { method: 'POST', body: JSON.stringify({ label }) }),
+
+  webhooks: (): Promise<WebhookRow[]> => req('/webhooks'),
+  webhookEvents: (): Promise<string[]> => req('/webhooks/events'),
+  /** The one response carrying the secret. It is not recoverable afterwards. */
+  createWebhook: (b: { url: string; events: string[] }): Promise<WebhookRow & { secret: string }> =>
+    req('/webhooks', { method: 'POST', body: JSON.stringify(b) }),
+  patchWebhook: (id: string, b: Partial<{ url: string; events: string[]; active: boolean }>): Promise<WebhookRow> =>
+    req(`/webhooks/${id}`, { method: 'PATCH', body: JSON.stringify(b) }),
+  rotateWebhook: (id: string): Promise<WebhookRow & { secret: string }> =>
+    req(`/webhooks/${id}/rotate`, { method: 'POST' }),
+  deleteWebhook: (id: string) => req(`/webhooks/${id}`, { method: 'DELETE' }),
+  testWebhook: (id: string): Promise<{ ok: boolean; statusCode: number | null; attempts: number; error?: string }> =>
+    req(`/webhooks/${id}/test`, { method: 'POST' }),
+  webhookDeliveries: (id: string): Promise<DeliveryRow[]> => req(`/webhooks/${id}/deliveries`),
 
   aiConfig: (): Promise<{ baseUrl: string; model: string; enabled: boolean; keySet: boolean }> =>
     req('/settings/ai'),

@@ -1,0 +1,97 @@
+# MetanoiaDocs — one Deployment, one Service, optionally one Postgres.
+#
+# The only value you must set is `baseUrl`: emailed sign-in links and Web Push
+# notifications are both built from it, so a value that does not match the
+# address people actually type produces links that go nowhere.
+
+image:
+  repository: hmsajjad/metanoiadocs
+  tag: ""           # defaults to .Chart.AppVersion
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+replicaCount: 1
+
+## The public URL, with the scheme and no trailing slash. Required.
+baseUrl: "http://localhost:8092"
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  host: docs.example.com
+  path: /
+  pathType: Prefix
+  tls:
+    enabled: false
+    secretName: metanoiadocs-tls
+
+## The bundled Postgres. Fine for a small team; turn it off and use
+## `externalDatabase` for anything you would be upset to lose.
+postgres:
+  enabled: true
+  image: postgres:16-alpine
+  user: metanoia
+  database: metanoiadocs
+  ## Leave empty and the chart generates one on first install and keeps it
+  ## across upgrades — a regenerated password would lock the app out of its own
+  ## database.
+  password: ""
+  persistence:
+    enabled: true
+    size: 10Gi
+    storageClass: ""
+  resources: {}
+
+## Point at a Postgres you already run. Takes precedence over the bundled one.
+externalDatabase:
+  ## postgresql://user:password@host:5432/database
+  url: ""
+  ## Or read it from a secret you manage yourself, which keeps it out of values.
+  existingSecret: ""
+  existingSecretKey: DATABASE_URL
+
+## Skip the browser setup screen. Both are needed, and they only apply while the
+## instance has no accounts at all.
+admin:
+  email: ""
+  password: ""
+  name: Admin
+  username: admin
+
+## Sign-in, invites and notifications.
+mail:
+  ## true prints sign-in links to the pod log instead of emailing them. Handy
+  ## before SMTP exists; anyone who can read the log can then sign in as anyone.
+  devMode: true
+  host: ""
+  port: 587
+  secure: false
+  user: ""
+  password: ""
+  from: "MetanoiaDocs <no-reply@example.com>"
+  ## Use a secret you manage rather than putting SMTP_PASS in values.
+  existingSecret: ""
+  existingSecretKey: SMTP_PASS
+
+## Who may sign in. "*" = any invited address, empty = deny everything.
+allowedEmailDomains: "*"
+trashRetentionDays: 30
+staleMonths: 6
+
+## Anything else from .env.example, verbatim.
+extraEnv: []
+#  - name: AGENT_RUN_STALE_MIN
+#    value: "30"
+
+resources: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+podAnnotations: {}
+podSecurityContext: {}
+securityContext: {}

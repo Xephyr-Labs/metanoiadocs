@@ -43,6 +43,13 @@ jobs:
         working-directory: web-react
         run: npm test
 
+      # The runner has no dependencies at all, so there is nothing to install —
+      # but its prompt builder decides what every agent is actually told, which
+      # is worth a test run.
+      - name: Runner tests
+        working-directory: runner
+        run: npm test
+
       # `vite build` does not typecheck, so without this a type error only shows
       # up in an editor. Scoped to our own sources: BlockSuite ships .ts in its
       # published packages and several of them do not compile under our config.

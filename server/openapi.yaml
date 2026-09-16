@@ -1,0 +1,1071 @@
+openapi: 3.1.0
+
+# The REST API a script, an integration or an agent actually uses.
+#
+# Not every route the SPA calls — the browser talks to plenty of endpoints that
+# exist to draw a screen, and pinning those down as a contract would freeze the
+# UI's internals. What is here is the stable surface: sign in, read and write
+# pages, run a board, subscribe to events, work an agent queue.
+#
+# Served from a running instance at /api/openapi.yaml.
+
+info:
+  title: MetanoiaDocs API
+  version: '0.1'
+  description: |
+    Everything here is same-origin with the app. Two ways to authenticate:
+
+    - **A session cookie** (`md_session`), which is what the browser uses.
+    - **A personal access token** as `Authorization: Bearer <token>`, which is
+      what everything else uses. Make one in Settings → API tokens. A token
+      carries exactly the access of the person who made it — there are no
+      scopes, because there is nothing a token should be able to do that its
+      owner cannot.
+
+    Times are ISO-8601. Dates on tasks are `YYYY-MM-DD` — a due date is a day,
+    not an instant. Errors are `{ "error": "<sentence>" }` with a 4xx or 5xx
+    status; the sentence is written to be shown to a person.
+  license:
+    name: MIT
+    url: https://github.com/Xephyr-Labs/metanoiadocs/blob/main/LICENSE
+
+servers:
+  - url: http://localhost:8092
+    description: A local instance from the quick start
+  - url: https://docs.example.com
+    description: Your instance
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Auth
+  - name: People
+  - name: Pages
+  - name: Comments
+  - name: Databases
+  - name: Tasks
+  - name: Automations
+  - name: Agents
+  - name: Webhooks
+
+paths:
+  /health:
+    get:
+      tags: [Auth]
+      summary: Liveness and readiness
+      description: Round-trips the database. No authentication.
+      security: []
+      responses:
+        '200':
+          description: Serving
+          content:
+            application/json:
+              schema: { type: object, properties: { ok: { const: true } } }
+        '503': { description: The database is unreachable }
+
+  /api/auth/login:
+    post:
+      tags: [Auth]
+      summary: Sign in with a username or email and a password
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: { type: string, description: Username or email address }
+                password: { type: string }
+      responses:
+        '200':
+          description: Signed in; the session cookie is set
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Error' }
+        '429':
+          description: Too many failures — the account is locked out briefly
+
+  /api/auth/logout:
+    post:
+      tags: [Auth]
+      summary: End this session
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  /api/me:
+    get:
+      tags: [People]
+      summary: Who this request is
+      responses:
+        '200':
+          description: The signed-in account
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Error' }
+
+  /api/users:
+    get:
+      tags: [People]
+      summary: Workspace members
+      description: Everyone who can be @-mentioned, assigned or shared with.
+      responses:
+        '200':
+          description: Members
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/User' } }
+
+  /api/tokens:
+    get:
+      tags: [Auth]
+      summary: Your personal access tokens
+      responses:
+        '200':
+          description: Tokens, without their plaintext
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Token' } }
+    post:
+      tags: [Auth]
+      summary: Mint a token
+      description: The plaintext is in this response and nowhere else, ever again.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: { name: { type: string } }
+      responses:
+        '200':
+          description: The new token
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: '#/components/schemas/Token' }
+                  - type: object
+                    properties: { token: { type: string, description: Shown once } }
+
+  /api/tokens/{id}:
+    delete:
+      tags: [Auth]
+      summary: Revoke a token
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  /api/docs:
+    get:
+      tags: [Pages]
+      summary: Pages you can see
+      responses:
+        '200':
+          description: Pages
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Doc' } }
+    post:
+      tags: [Pages]
+      summary: Create a page
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: { type: string }
+                icon: { type: string }
+                folderId: { type: [string, 'null'] }
+                visibility: { type: string, enum: [team, private] }
+                kind:
+                  type: string
+                  enum: [doc, design]
+                  description: A row's page is minted by its row, never here.
+                content:
+                  type: string
+                  description: |
+                    Optional Markdown body. Headings, lists, to-dos, quotes,
+                    code and dividers become real blocks, so the page opens
+                    with content rather than with text pasted into one block.
+      responses:
+        '200':
+          description: The new page
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Doc' }
+
+  /api/docs/{id}:
+    patch:
+      tags: [Pages]
+      summary: Rename, re-icon or re-file a page
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: { type: string }
+                icon: { type: string }
+                folderId: { type: [string, 'null'] }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+        '403': { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [Pages]
+      summary: Move a page to the trash
+      description: Recoverable until the retention sweeper destroys it.
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  /api/docs/{id}/text:
+    get:
+      tags: [Pages]
+      summary: A page as plain text
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200':
+          description: Title and body
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string }
+                  title: { type: string }
+                  text: { type: string }
+    put:
+      tags: [Pages]
+      summary: Replace a page's searchable text
+      description: |
+        This writes the **plain-text index** of a page, not its blocks. The
+        editor owns the document itself over the `/sync` WebSocket (Yjs) and
+        calls this alongside each save so search, the related-pages signals and
+        the text an agent is handed all keep up.
+
+        Writing here does not change what the page renders. To create a page
+        with real blocks from Markdown, pass `content` to `POST /api/docs`; to
+        append Markdown to an existing one, use the MCP server's `write_doc`.
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text: { type: string, description: The page as plain text }
+                links:
+                  type: array
+                  items: { type: string }
+                  description: |
+                    Ids of the pages this one @-references, replacing the stored
+                    set. Omit it entirely to leave the existing links alone —
+                    an empty array means the page genuinely has none now.
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+        '403': { $ref: '#/components/responses/Error' }
+
+  /api/docs/{id}/export.md:
+    get:
+      tags: [Pages]
+      summary: A page as a Markdown file
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200':
+          description: Markdown
+          content:
+            text/markdown: { schema: { type: string } }
+
+  /api/docs/{id}/comments:
+    get:
+      tags: [Comments]
+      summary: A page's comments
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200':
+          description: Comments, oldest first
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Comment' } }
+    post:
+      tags: [Comments]
+      summary: Comment on a page
+      description: |
+        `@username` in the body notifies that member. An `@` naming an **agent**
+        account queues an agent run carrying this comment instead — see Agents.
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body]
+              properties:
+                body: { type: string }
+                parentId: { type: [string, 'null'], description: Reply to this comment }
+                blockId: { type: [string, 'null'] }
+                quote: { type: string }
+      responses:
+        '200':
+          description: The new comment's id
+          content:
+            application/json:
+              schema: { type: object, properties: { id: { type: string } } }
+
+  /api/search:
+    get:
+      tags: [Pages]
+      summary: Search pages
+      description: Hybrid full-text and fuzzy, over titles and bodies.
+      parameters:
+        - { name: q, in: query, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Matches, best first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: { type: string }
+                    title: { type: string }
+                    snippet: { type: string }
+
+  /api/projects:
+    get:
+      tags: [Databases]
+      summary: Databases
+      description: A project is a database; a board and a table are views of one.
+      responses:
+        '200':
+          description: Databases
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Project' } }
+    post:
+      tags: [Databases]
+      summary: Create a database
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                icon: { type: string }
+                color: { type: string }
+                mode: { type: string, enum: [tasks, data] }
+      responses:
+        '200':
+          description: The new database
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Project' }
+
+  /api/projects/{id}/tasks:
+    get:
+      tags: [Tasks]
+      summary: A database's rows
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200':
+          description: Rows
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Task' } }
+
+  /api/tasks:
+    get:
+      tags: [Tasks]
+      summary: Every live task in the workspace
+      responses:
+        '200':
+          description: Tasks, plus the union of the types the databases define
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tasks: { type: array, items: { $ref: '#/components/schemas/Task' } }
+                  kinds:
+                    type: array
+                    items:
+                      type: object
+                      properties: { key: { type: string }, label: { type: string } }
+    post:
+      tags: [Tasks]
+      summary: Create a task
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - type: object
+                  required: [projectId]
+                  properties:
+                    projectId: { type: string }
+                    title: { type: string }
+                - { $ref: '#/components/schemas/TaskPatch' }
+      responses:
+        '200':
+          description: The new task
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Task' }
+
+  /api/tasks/{id}:
+    patch:
+      tags: [Tasks]
+      summary: Change a task
+      description: |
+        Every view writes through this one route. Moving a task into a status
+        may fire that database's automations, which can change other fields in
+        the same request — the response is the row as it ended up.
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TaskPatch' }
+      responses:
+        '200':
+          description: The task
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Task' }
+        '404': { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [Tasks]
+      summary: Delete a task
+      description: Its row page goes to the trash with it.
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  /api/tasks/{id}/page:
+    post:
+      tags: [Tasks]
+      summary: The page a task is written on, made if it does not exist
+      description: Idempotent — a second call returns the page the first one made.
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200':
+          description: The page's id
+          content:
+            application/json:
+              schema: { type: object, properties: { docId: { type: string } } }
+
+  /api/projects/{id}/sprints:
+    get:
+      tags: [Tasks]
+      summary: A database's sprints, with their rollups
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200':
+          description: Sprints
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Sprint' } }
+    post:
+      tags: [Tasks]
+      summary: Create a sprint
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                startAt: { type: [string, 'null'], format: date }
+                endAt: { type: [string, 'null'], format: date }
+      responses:
+        '200':
+          description: The new sprint
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Sprint' }
+
+  /api/projects/{id}/automations:
+    get:
+      tags: [Automations]
+      summary: A database's rules
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200':
+          description: Rules, in the order they run
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Automation' } }
+    post:
+      tags: [Automations]
+      summary: Create a rule
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                trigger: { type: string, enum: [status, manual], default: status }
+                value:
+                  type: [string, 'null']
+                  description: The status a task has to enter, for a `status` rule.
+                actions:
+                  type: array
+                  items: { $ref: '#/components/schemas/Action' }
+      responses:
+        '200':
+          description: The new rule
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Automation' }
+
+  /api/automations/{id}:
+    patch:
+      tags: [Automations]
+      summary: Change a rule
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                trigger: { type: string, enum: [status, manual] }
+                value: { type: [string, 'null'] }
+                actions: { type: array, items: { $ref: '#/components/schemas/Action' } }
+                active: { type: boolean }
+                position: { type: integer }
+      responses:
+        '200':
+          description: The rule
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Automation' }
+    delete:
+      tags: [Automations]
+      summary: Delete a rule
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  /api/tasks/{id}/automations/{automationId}/run:
+    post:
+      tags: [Automations]
+      summary: Run a rule on one task, now
+      description: What makes a rule a quick action. Works for either trigger kind.
+      parameters:
+        - { $ref: '#/components/parameters/Id' }
+        - { name: automationId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: What actually changed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { const: true }
+                  applied: { type: array, items: { type: object } }
+
+  /api/agents:
+    get:
+      tags: [Agents]
+      summary: The agent accounts work can be given to
+      responses:
+        '200':
+          description: Agent accounts
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/User' } }
+
+  /api/agent/runs/next:
+    get:
+      tags: [Agents]
+      summary: Claim the next queued run
+      description: |
+        The runner's poll. Requires the token of an **agent** account — a
+        person's token gets a 403 saying so, because a runner configured with
+        the wrong token otherwise looks exactly like an empty queue.
+
+        Claiming is atomic and skips locked rows, so several runners on one
+        account each take a different run rather than queueing on a lock. A
+        claimed run nobody reports on within `AGENT_RUN_STALE_MIN` minutes
+        (default 30) goes back on the queue.
+      responses:
+        '200':
+          description: A run, with everything needed to do it
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Run' }
+        '204': { description: Nothing queued }
+        '403': { $ref: '#/components/responses/Error' }
+
+  /api/agent/runs/{id}/result:
+    post:
+      tags: [Agents]
+      summary: Report what happened
+      description: |
+        Posts the result as a comment on the task's page, making that page if
+        the task had none, and notifies whoever triggered the run.
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ok: { type: boolean, default: true }
+                result: { type: string, description: "Markdown, posted as the comment" }
+                error: { type: [string, 'null'] }
+                comment:
+                  type: boolean
+                  default: true
+                  description: false to record the run without commenting.
+      responses:
+        '200':
+          description: Recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { const: true }
+                  docId: { type: [string, 'null'] }
+        '404': { $ref: '#/components/responses/Error' }
+
+  /api/tasks/{id}/runs:
+    get:
+      tags: [Agents]
+      summary: A task's recent runs
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200':
+          description: Runs, newest first
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/RunRow' } }
+    post:
+      tags: [Agents]
+      summary: Hand a task to an agent without assigning it
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [agentId]
+              properties:
+                agentId: { type: string }
+                prompt: { type: string, description: Defaults to the task's title }
+      responses:
+        '200':
+          description: The queued run
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RunRow' }
+        '409': { description: That agent already has an open run on this task }
+
+  /api/agent/runs/{id}/cancel:
+    post:
+      tags: [Agents]
+      summary: Cancel a queued or running run
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200':
+          description: The cancelled run
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RunRow' }
+
+  /api/webhooks:
+    get:
+      tags: [Webhooks]
+      summary: Subscriptions
+      description: Admin only.
+      responses:
+        '200':
+          description: Hooks, without their secrets
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Webhook' } }
+        '403': { $ref: '#/components/responses/Error' }
+    post:
+      tags: [Webhooks]
+      summary: Subscribe a URL
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url]
+              properties:
+                url: { type: string, format: uri }
+                events:
+                  type: array
+                  items: { type: string }
+                  description: Empty means every event.
+      responses:
+        '200':
+          description: The hook, with the one and only copy of its secret
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: '#/components/schemas/Webhook' }
+                  - type: object
+                    properties: { secret: { type: string } }
+
+  /api/webhooks/events:
+    get:
+      tags: [Webhooks]
+      summary: The events a hook can subscribe to
+      responses:
+        '200':
+          description: Event names
+          content:
+            application/json:
+              schema: { type: array, items: { type: string } }
+
+  /api/webhooks/{id}:
+    patch:
+      tags: [Webhooks]
+      summary: Change a hook
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                url: { type: string, format: uri }
+                events: { type: array, items: { type: string } }
+                active: { type: boolean }
+      responses:
+        '200':
+          description: The hook
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Webhook' }
+    delete:
+      tags: [Webhooks]
+      summary: Delete a hook
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  /api/webhooks/{id}/rotate:
+    post:
+      tags: [Webhooks]
+      summary: Issue a new signing secret
+      description: The old one stops verifying immediately.
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200':
+          description: The hook and its new secret
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: '#/components/schemas/Webhook' }
+                  - type: object
+                    properties: { secret: { type: string } }
+
+  /api/webhooks/{id}/test:
+    post:
+      tags: [Webhooks]
+      summary: Send a `ping` now and say what came back
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200':
+          description: The outcome
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  statusCode: { type: [integer, 'null'] }
+                  attempts: { type: integer }
+                  error: { type: [string, 'null'] }
+
+  /api/webhooks/{id}/deliveries:
+    get:
+      tags: [Webhooks]
+      summary: What this hook has been sent lately
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200':
+          description: The 50 most recent deliveries
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Delivery' } }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: A personal access token from Settings → API tokens.
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: md_session
+
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+
+  responses:
+    Ok:
+      description: Done
+      content:
+        application/json:
+          schema: { type: object, properties: { ok: { const: true } } }
+    Error:
+      description: A sentence saying what went wrong
+      content:
+        application/json:
+          schema:
+            type: object
+            properties: { error: { type: string } }
+
+  schemas:
+    User:
+      type: object
+      properties:
+        id: { type: string }
+        email: { type: string }
+        name: { type: string }
+        username: { type: [string, 'null'] }
+        role: { type: string, enum: [admin, collaborator] }
+        kind:
+          type: string
+          enum: [person, agent]
+          description: |
+            Which account, not which hand. An agent signs in with a token and
+            writes as a normal user, so this is the only thing that tells the
+            activity feed a machine made the edit. Only an admin sets it.
+
+    Token:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        created_at: { type: string, format: date-time }
+        last_used_at: { type: [string, 'null'], format: date-time }
+
+    Doc:
+      type: object
+      properties:
+        id: { type: string }
+        title: { type: string }
+        icon: { type: string }
+        parent_id: { type: [string, 'null'] }
+        folder_id: { type: [string, 'null'] }
+        visibility: { type: string, enum: [team, private] }
+        kind:
+          type: string
+          enum: [doc, design, task]
+          description: '`task` is a row''s page, reachable only through its row.'
+        updated_at: { type: string, format: date-time }
+        updated_by_name: { type: [string, 'null'] }
+        updated_via:
+          type: string
+          enum: [human, ai]
+          description: Which hand — typed, or made by the copilot for someone.
+        tags: { type: array, items: { type: object } }
+
+    Comment:
+      type: object
+      properties:
+        id: { type: string }
+        doc_id: { type: string }
+        body: { type: string }
+        author_id: { type: [string, 'null'] }
+        author_name: { type: [string, 'null'] }
+        parent_id: { type: [string, 'null'] }
+        resolved: { type: boolean }
+        created_at: { type: string, format: date-time }
+
+    Project:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        icon: { type: string }
+        color: { type: string }
+        mode:
+          type: string
+          enum: [tasks, data]
+          description: A board of work, or a plain table of rows.
+        doc_id: { type: [string, 'null'] }
+        archived_at: { type: [string, 'null'], format: date-time }
+
+    Task:
+      type: object
+      properties:
+        id: { type: string }
+        project_id: { type: string }
+        title: { type: string }
+        status: { type: string, enum: [todo, doing, review, done] }
+        kind: { type: string, description: A key from the database's own type list }
+        assignee_id: { type: [string, 'null'], description: The first of `assignees` }
+        assignees: { type: array, items: { type: object } }
+        sprint_id: { type: [string, 'null'] }
+        parent_id: { type: [string, 'null'] }
+        doc_id: { type: [string, 'null'] }
+        start_at: { type: [string, 'null'], format: date }
+        due_at: { type: [string, 'null'], format: date }
+        priority: { type: integer, description: Higher is more urgent }
+        points: { type: [integer, 'null'] }
+        progress: { type: integer, minimum: 0, maximum: 100 }
+        milestone: { type: boolean }
+        props: { type: object, description: "The database's own properties, by id" }
+        updated_via: { type: string, enum: [human, ai] }
+        done_at: { type: [string, 'null'], format: date-time }
+
+    TaskPatch:
+      type: object
+      properties:
+        title: { type: string }
+        status: { type: string, enum: [todo, doing, review, done] }
+        kind: { type: string }
+        assigneeIds:
+          type: array
+          items: { type: string }
+          description: The whole list. Anyone new on it is notified once.
+        assigneeId: { type: [string, 'null'], description: The older single-value form }
+        sprintId: { type: [string, 'null'] }
+        parentId: { type: [string, 'null'] }
+        docId: { type: [string, 'null'] }
+        startAt: { type: [string, 'null'], format: date }
+        dueAt: { type: [string, 'null'], format: date }
+        priority: { type: integer }
+        points: { type: [integer, 'null'] }
+        progress: { type: integer }
+        milestone: { type: boolean }
+        position: { type: integer }
+        props: { type: object, description: "Merged, not replaced" }
+
+    Sprint:
+      type: object
+      properties:
+        id: { type: string }
+        project_id: { type: string }
+        name: { type: string }
+        start_at: { type: [string, 'null'], format: date }
+        end_at: { type: [string, 'null'], format: date }
+        state: { type: string, enum: [planned, active, done] }
+        total: { type: string, description: Postgres aggregates arrive as strings }
+        done: { type: string }
+        points: { type: string }
+        points_done: { type: string }
+
+    Action:
+      type: object
+      description: One thing a rule does.
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [assign, status, kind, sprint, priority, points, progress]
+        userIds:
+          type: array
+          items: { type: string }
+          description: For `assign` only.
+        value:
+          description: |
+            For everything but `assign`. A sprint action takes a sprint id,
+            `"active"` for whichever sprint is running, or null for the backlog.
+
+    Automation:
+      type: object
+      properties:
+        id: { type: string }
+        project_id: { type: string }
+        name: { type: string }
+        trigger_kind: { type: string, enum: [status, manual] }
+        trigger_value: { type: [string, 'null'] }
+        actions: { type: array, items: { $ref: '#/components/schemas/Action' } }
+        active: { type: boolean }
+        position: { type: integer }
+
+    Run:
+      type: object
+      description: A claimed run, with its context read fresh at claim time.
+      properties:
+        id: { type: string }
+        trigger: { type: string, enum: [assign, mention, manual] }
+        prompt: { type: string, description: "What was asked — a comment's text, or the title" }
+        createdAt: { type: string, format: date-time }
+        task:
+          type: [object, 'null']
+          description: Null for a run on a page that is not a task's.
+        page:
+          type: [object, 'null']
+          properties:
+            id: { type: string }
+            title: { type: string }
+            text: { type: string }
+        requestedBy: { type: [object, 'null'] }
+
+    RunRow:
+      type: object
+      properties:
+        id: { type: string }
+        agent_id: { type: string }
+        agent_name: { type: [string, 'null'] }
+        task_id: { type: [string, 'null'] }
+        doc_id: { type: [string, 'null'] }
+        trigger: { type: string, enum: [assign, mention, manual] }
+        status: { type: string, enum: [queued, running, done, failed, cancelled] }
+        result: { type: string }
+        error: { type: [string, 'null'] }
+        created_at: { type: string, format: date-time }
+        started_at: { type: [string, 'null'], format: date-time }
+        finished_at: { type: [string, 'null'], format: date-time }
+
+    Webhook:
+      type: object
+      properties:
+        id: { type: string }
+        url: { type: string, format: uri }
+        events: { type: array, items: { type: string }, description: Empty means all }
+        active: { type: boolean }
+        created_at: { type: string, format: date-time }
+        last_ok: { type: [boolean, 'null'] }
+        last_at: { type: [string, 'null'], format: date-time }
+
+    Delivery:
+      type: object
+      properties:
+        id: { type: string }
+        event: { type: string }
+        status_code: { type: [integer, 'null'] }
+        error: { type: [string, 'null'] }
+        attempts: { type: integer }
+        ok: { type: boolean }
+        created_at: { type: string, format: date-time }

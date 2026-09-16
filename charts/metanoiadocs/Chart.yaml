@@ -1,0 +1,16 @@
+apiVersion: v2
+name: metanoiadocs
+description: The docs and project workspace you run yourself — one container, one Postgres.
+type: application
+# The chart's own version. appVersion tracks the image tag, and release-please
+# bumps neither: a chart change and an app release are different events.
+version: 0.1.0
+appVersion: "latest"
+home: https://github.com/Xephyr-Labs/metanoiadocs
+sources:
+  - https://github.com/Xephyr-Labs/metanoiadocs
+icon: https://raw.githubusercontent.com/Xephyr-Labs/metanoiadocs/main/assets/logo.svg
+keywords: [docs, wiki, notion, collaboration, self-hosted, blocksuite, yjs]
+maintainers:
+  - name: Xephyr Labs
+    url: https://github.com/Xephyr-Labs

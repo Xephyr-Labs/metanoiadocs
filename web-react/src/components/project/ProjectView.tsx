@@ -7,7 +7,7 @@
  *       hairline so navigation and chrome are not one undifferentiated field.
  */
 import { useEffect, useState } from 'react';
-import { Columns3, FolderOpen, MoreHorizontal, Plus, Tags } from 'lucide-react';
+import { Columns3, FolderOpen, MoreHorizontal, Plus, Tags, Zap } from 'lucide-react';
 import { useWorkspace } from '../../store/workspace';
 import { showDatabase } from '../../lib/route';
 import { VIEW_KINDS, type TaskRow, type TaskStatus, type ViewKind } from '../../lib/tasksApi';
@@ -32,6 +32,7 @@ import { PropsDialog } from './props/PropsDialog';
 import { PropertyVisibility } from './props/PropertyVisibility';
 import { ViewTabs } from './ViewTabs';
 import { TaskPeek } from './TaskPeek';
+import { AutomationsDialog } from './AutomationsDialog';
 import { TaskKindsDialog } from './TaskKindsDialog';
 import { TaskTable } from './TaskTable';
 import { useDatabaseView } from './useDatabaseView';
@@ -53,6 +54,7 @@ export function ProjectView() {
   const [open, setOpen] = useState<TaskRow | null>(null);
   const [kindsOpen, setKindsOpen] = useState(false);
   const [propsOpen, setPropsOpen] = useState(false);
+  const [autoOpen, setAutoOpen] = useState(false);
   // Status colours live on the project row, so a repaint has to refresh the
   // list the sidebar and this screen both read.
   const p = useProject(ws.activeProjectId, ws.refreshProjects);
@@ -165,6 +167,7 @@ export function ProjectView() {
               items={[
                 { icon: Tags, label: 'Task types…', onSelect: () => setKindsOpen(true) },
                 { icon: Columns3, label: 'Properties…', onSelect: () => setPropsOpen(true) },
+                { icon: Zap, label: 'Automations…', onSelect: () => setAutoOpen(true) },
               ]}
             />
           </div>
@@ -323,6 +326,15 @@ export function ProjectView() {
         onCreate={p.createKind}
         onPatch={p.patchKind}
         onDelete={p.deleteKind}
+      />
+
+      <AutomationsDialog
+        open={autoOpen}
+        onOpenChange={setAutoOpen}
+        projectId={project.id}
+        kinds={p.kinds}
+        sprints={p.sprints}
+        users={p.users}
       />
 
       <PropsDialog

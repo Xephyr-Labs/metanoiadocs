@@ -50,6 +50,9 @@ import { registerHomeRoutes } from './home.js';
 import { registerPushRoutes, sendPush } from './push.js';
 import { linkFor } from './push-rules.js';
 import { registerFolderRoutes, visibleFolder } from './folders-routes.js';
+import { registerWebhookRoutes, emit } from './webhooks.js';
+import { registerAgentRoutes, enqueueRun } from './agent-runs.js';
+import { registerAutomationRoutes } from './automations.js';
 import { TRASH_RETENTION_DAYS, startTrashSweeper } from './retention.js';
 import OpenAI from 'openai';
 
@@ -117,6 +120,13 @@ app.use(express.json());
 // write without requireUser would otherwise put NULL into a NOT NULL column.
 // Unforgeable — see actorVia.
 app.use((req, _res, next) => { req.via = actorVia(req); next(); });
+
+// The REST API's own description, served by the thing that implements it — a
+// spec you have to go and find in a repository is a spec that drifts. No auth:
+// it is documentation, and it carries no workspace data.
+app.get('/api/openapi.yaml', (_req, res) => {
+  res.type('text/yaml').sendFile(path.resolve(__dirname, '../openapi.yaml'));
+});
 
 // Liveness + readiness probe (no auth). Checks the DB round-trips.
 app.get('/health', async (_req, res) => {
@@ -607,7 +617,7 @@ app.post('/api/docs', requireUser, async (req, res) => {
   if (folderId && !(await visibleFolder(folderId, req.user.id))) {
     return res.status(403).json({ error: 'folder not accessible' });
   }
-  res.json(await createDocRow({
+  const doc = await createDocRow({
     title: String(req.body?.title || 'Untitled').slice(0, 200),
     icon: String(req.body?.icon || '📄').slice(0, 8),
     userId: req.user.id,
@@ -620,7 +630,9 @@ app.post('/api/docs', requireUser, async (req, res) => {
     // Optional markdown body (used by the MCP server / API clients). Built into
     // a BlockSuite Yjs state so the doc opens with real content.
     content: typeof req.body?.content === 'string' ? req.body.content : null,
-  }));
+  });
+  emit('doc.created', { id: doc.id, title: doc.title, kind: doc.kind, by: req.user.id });
+  res.json(doc);
 });
 
 const IMAGE_MIME = {
@@ -1118,6 +1130,7 @@ app.patch('/api/docs/:id', requireUser, async (req, res) => {
       [req.body.title.slice(0, 500), req.params.id]
     );
   }
+  emit('doc.updated', { id: req.params.id, by: req.user.id, via: req.via });
   res.json({ ok: true });
 });
 
@@ -1250,6 +1263,7 @@ app.delete('/api/docs/:id', requireUser, async (req, res) => {
   } finally {
     client.release();
   }
+  emit('doc.deleted', { id: req.params.id, by: req.user.id });
   res.json({ ok: true });
 });
 
@@ -2194,6 +2208,7 @@ app.post('/api/docs/:id/comments', requireUser, async (req, res) => {
   // Fan out notifications for this comment (best-effort; never fails the comment).
   createCommentNotifications({ commentId: id, docId: req.params.id, body, actor: req.user })
     .catch((e) => console.error('[notify] fanout failed', e.message));
+  emit('comment.created', { id, doc_id: req.params.id, body, author_id: req.user.id });
   res.json({ id });
 });
 
@@ -2211,13 +2226,35 @@ async function createCommentNotifications({ commentId, docId, body, actor }) {
     // A member can be @-mentioned if they can access the doc: an explicit grant,
     // or the doc is team-visible (any member).
     const { rows } = await pool.query(
-      `SELECT u.id, u.email FROM users u
+      `SELECT u.id, u.email, u.kind AS account FROM users u
         WHERE lower(u.username) = ANY($2)
           AND (EXISTS (SELECT 1 FROM doc_access a WHERE a.user_id = u.id AND a.doc_id = $1)
                OR EXISTS (SELECT 1 FROM docs d WHERE d.id = $1 AND d.visibility = 'team'))`,
       [docId, handles]
     );
-    for (const r of rows) recipients.set(r.id, { kind: 'mention', email: r.email });
+    // An agent account is not notified, it is asked: @-mentioning one queues a
+    // run carrying what was actually said, which the runner on someone's own
+    // machine claims. Mailing a machine and leaving the request unanswered is
+    // the failure this branch exists to prevent.
+    const agents = rows.filter((r) => r.account === 'agent');
+    if (agents.length) {
+      const { rows: task } = await pool.query(
+        'SELECT id FROM tasks WHERE doc_id = $1 AND deleted_at IS NULL LIMIT 1', [docId]);
+      for (const agent of agents) {
+        await enqueueRun({
+          agentId: agent.id,
+          taskId: task[0]?.id ?? null,
+          docId,
+          triggerKind: 'mention',
+          prompt: body,
+          requestedBy: actor.id,
+        }).catch((e) => console.error('[agent] enqueue mention:', e.message));
+      }
+    }
+    for (const r of rows) {
+      if (r.account === 'agent') continue;
+      recipients.set(r.id, { kind: 'mention', email: r.email });
+    }
   }
   // Doc owner also hears about any comment (unless they wrote it / already mentioned).
   const owner = await pool.query(
@@ -2372,6 +2409,9 @@ registerDocPropRoutes(app, { requireUser, wrap, grantOn });
 registerHomeRoutes(app, { requireUser, wrap });
 registerPushRoutes(app, { requireUser, wrap });
 registerFolderRoutes(app, { requireUser, wrap });
+registerWebhookRoutes(app, { requireUser, requireAdmin, wrap });
+registerAgentRoutes(app, { requireUser, wrap, createDocRow });
+registerAutomationRoutes(app, { requireUser, wrap });
 
 // A build's files are content-hashed and the previous build's are gone, so a tab
 // that has been open across a deploy asks for chunk names that no longer exist.

@@ -1,4 +1,3 @@
-import { motion } from 'framer-motion';
 import {
   Bot,
   Copy,
@@ -15,6 +14,7 @@ import {
   User,
   UserMinus,
   Users,
+  Webhook,
   X,
   Check,
   AlertCircle,
@@ -40,6 +40,8 @@ import { LogoMark } from '../brand/Logo';
 import { Menu } from '../ui/Menu';
 import { Modal } from '../ui/Modal';
 import { SegmentedControl } from '../ui/SegmentedControl';
+import { Switch } from '../ui/Switch';
+import { Webhooks } from './Webhooks';
 import { copyText } from '../../lib/clipboard';
 import { toast } from '../../lib/toast';
 
@@ -52,7 +54,14 @@ function Avatar({ name, size = 32 }: { name: string; size?: number }) {
   );
 }
 
-type SectionId = 'account' | 'preferences' | 'tokens' | 'members' | 'ai' | 'about';
+type SectionId = 'account' | 'preferences' | 'tokens' | 'members' | 'ai' | 'webhooks' | 'about';
+
+/** A section only an admin may open at all. Everything else is shown to
+ *  everyone — the AI panel, for instance, is readable by all and editable by
+ *  admins, which is why it is not in here. Webhooks are different: a
+ *  collaborator cannot even list them, so offering the screen would answer a
+ *  403 with an empty list and tell them the workspace has none. */
+const ADMIN_ONLY: ReadonlySet<SectionId> = new Set(['webhooks']);
 
 const NAV: { group: string; items: { id: SectionId; label: string; icon: typeof Settings2 }[] }[] = [
   {
@@ -68,31 +77,13 @@ const NAV: { group: string; items: { id: SectionId; label: string; icon: typeof 
     items: [
       { id: 'members', label: 'Members', icon: Users },
       { id: 'ai', label: 'AI', icon: Sparkles },
+      { id: 'webhooks', label: 'Webhooks', icon: Webhook },
       { id: 'about', label: 'About', icon: Info },
     ],
   },
 ];
 
 /* ---- small controls -------------------------------------------------- */
-
-function Switch({ on, onChange, disabled }: { on: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={on}
-      disabled={disabled}
-      onClick={() => onChange(!on)}
-      className={cn('relative h-[22px] w-[38px] shrink-0 rounded-full transition-colors duration-180 disabled:opacity-60', on ? 'bg-accent' : 'bg-line-strong')}
-    >
-      <motion.span
-        layout
-        transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-        className={cn('absolute top-[3px] h-4 w-4 rounded-full bg-white shadow', on ? 'left-[19px]' : 'left-[3px]')}
-      />
-    </button>
-  );
-}
 
 function Row({ title, desc, control }: { title: string; desc?: string; control: ReactNode }) {
   // Stack title/desc above the control on phones so neither gets crushed into a
@@ -828,6 +819,7 @@ const BODIES: Record<SectionId, () => JSX.Element> = {
   tokens: Tokens,
   members: Members,
   ai: AiSettings,
+  webhooks: Webhooks,
   about: About,
 };
 
@@ -835,8 +827,17 @@ const BODIES: Record<SectionId, () => JSX.Element> = {
 
 export function SettingsDialog() {
   const ws = useWorkspace();
+  const { user } = useAuth();
   const [section, setSection] = useState<SectionId>('account');
-  const Body = BODIES[section];
+  const isAdmin = user?.role === 'admin';
+  const nav = isAdmin
+    ? NAV
+    : NAV.map((g) => ({ ...g, items: g.items.filter((it) => !ADMIN_ONLY.has(it.id)) }))
+        .filter((g) => g.items.length);
+  // Someone demoted while the dialog is open is still looking at the section
+  // they had; fall back rather than render a body that can only 403.
+  const current = !isAdmin && ADMIN_ONLY.has(section) ? 'account' : section;
+  const Body = BODIES[current];
 
   return (
     <Modal
@@ -853,7 +854,7 @@ export function SettingsDialog() {
           <LogoMark size={20} />
           <span className="text-sm font-semibold text-ink">{workspaces[0].name}</span>
         </div>
-        {NAV.map((g) => (
+        {nav.map((g) => (
           <div key={g.group} className="flex shrink-0 items-center gap-1 md:block">
             <p className="hidden px-2 pb-1 text-2xs font-semibold uppercase tracking-wide text-faint md:block">{g.group}</p>
             <div className="flex gap-1 md:block md:space-y-0.5">
@@ -864,7 +865,7 @@ export function SettingsDialog() {
                   onClick={() => setSection(it.id)}
                   className={cn(
                     'flex h-8 shrink-0 items-center gap-2.5 whitespace-nowrap rounded-md px-2.5 text-sm transition-colors duration-120 md:w-full md:px-2',
-                    section === it.id ? 'bg-selected font-medium text-ink' : 'text-muted hover:bg-hover',
+                    current === it.id ? 'bg-selected font-medium text-ink' : 'text-muted hover:bg-hover',
                   )}
                 >
                   <it.icon size={16} className="shrink-0 opacity-80" />

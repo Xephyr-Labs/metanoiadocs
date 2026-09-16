@@ -1,0 +1,125 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "metanoiadocs.fullname" . }}
+  labels:
+    {{- include "metanoiadocs.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  # Recreate, not RollingUpdate. The /sync WebSocket carries live Yjs state and
+  # the schema migrates itself on boot; two versions of the server sharing one
+  # database mid-rollout is not a situation worth supporting for a workspace
+  # that fits on one pod.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "metanoiadocs.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "metanoiadocs.selectorLabels" . | nindent 8 }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: server
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: 3000
+          env:
+            - name: PORT
+              value: "3000"
+            - name: BASE_URL
+              value: {{ .Values.baseUrl | quote }}
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.externalDatabase.existingSecret | default (include "metanoiadocs.fullname" .) }}
+                  key: {{ ternary .Values.externalDatabase.existingSecretKey "DATABASE_URL" (ne .Values.externalDatabase.existingSecret "") }}
+            - name: AUTH_DEV_MODE
+              value: {{ .Values.mail.devMode | quote }}
+            - name: ALLOWED_EMAIL_DOMAINS
+              value: {{ .Values.allowedEmailDomains | quote }}
+            - name: TRASH_RETENTION_DAYS
+              value: {{ .Values.trashRetentionDays | quote }}
+            - name: STALE_MONTHS
+              value: {{ .Values.staleMonths | quote }}
+            {{- if .Values.admin.email }}
+            - name: ADMIN_EMAIL
+              value: {{ .Values.admin.email | quote }}
+            - name: ADMIN_NAME
+              value: {{ .Values.admin.name | quote }}
+            - name: ADMIN_USERNAME
+              value: {{ .Values.admin.username | quote }}
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "metanoiadocs.fullname" . }}
+                  key: ADMIN_PASSWORD
+            {{- end }}
+            {{- if .Values.mail.host }}
+            - name: SMTP_HOST
+              value: {{ .Values.mail.host | quote }}
+            - name: SMTP_PORT
+              value: {{ .Values.mail.port | quote }}
+            - name: SMTP_SECURE
+              value: {{ .Values.mail.secure | quote }}
+            - name: SMTP_USER
+              value: {{ .Values.mail.user | quote }}
+            - name: SMTP_FROM
+              value: {{ .Values.mail.from | quote }}
+            {{- if or .Values.mail.password .Values.mail.existingSecret }}
+            - name: SMTP_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.mail.existingSecret | default (include "metanoiadocs.fullname" .) }}
+                  key: {{ ternary .Values.mail.existingSecretKey "SMTP_PASS" (ne .Values.mail.existingSecret "") }}
+            {{- end }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          # /health round-trips the database, so readiness means "can actually
+          # serve a request" rather than "the process started".
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 6
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

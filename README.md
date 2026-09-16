@@ -1,36 +1,39 @@
 <div align="center">
-  <img src="assets/logo.svg" width="88" height="88" alt="MetanoiaDocs logo" />
-  <h1>MetanoiaDocs</h1>
-  <p>
-    <b>The docs and project workspace you run yourself.</b><br/>
-    Real-time collaborative pages · boards, tables, gantt and calendars · comments, mentions and push alerts ·
-    <b>free, unlimited members, forever</b>.
-  </p>
-  <p>
-    <a href="https://github.com/Xephyr-Labs/metanoiadocs/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Xephyr-Labs/metanoiadocs/actions/workflows/ci.yml/badge.svg"></a>
-    <a href="https://hub.docker.com/r/hmsajjad/metanoiadocs"><img alt="Docker pulls" src="https://img.shields.io/docker/pulls/hmsajjad/metanoiadocs?logo=docker&label=docker%20pulls"></a>
-    <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-blue.svg"></a>
-    <img alt="Self-hosted" src="https://img.shields.io/badge/self--hosted-one%20container-brightgreen.svg">
-    <img alt="No seat limits" src="https://img.shields.io/badge/seat%20limits-none-blueviolet.svg">
-  </p>
+
+<img src="assets/logo.svg" width="76" height="76" alt="" />
+
+# MetanoiaDocs
+
+**The docs and project workspace you run yourself.**
+
+Real-time collaborative pages · boards, tables, gantt and calendars · comments that reach people ·<br/>an API and an agent queue for the machines. **Free, unlimited members, forever.**
+
+<a href="https://github.com/Xephyr-Labs/metanoiadocs/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Xephyr-Labs/metanoiadocs/actions/workflows/ci.yml/badge.svg"></a> <a href="https://hub.docker.com/r/hmsajjad/metanoiadocs"><img alt="Docker pulls" src="https://img.shields.io/docker/pulls/hmsajjad/metanoiadocs?logo=docker&label=docker%20pulls"></a> <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a> <img alt="Self-hosted" src="https://img.shields.io/badge/self--hosted-one%20container-brightgreen.svg"> <img alt="Seat limits: none" src="https://img.shields.io/badge/seat%20limits-none-blueviolet.svg">
+
+<a href="https://railway.com/new/template?template=https%3A%2F%2Fgithub.com%2FXephyr-Labs%2Fmetanoiadocs"><img src="https://railway.com/button.svg" alt="Deploy on Railway" height="40" /></a> <a href="docs/coolify.md"><img src="assets/coolify-button.svg" alt="Deploy on Coolify" height="40" /></a> <a href="docs/helm.md"><img src="assets/kubernetes-button.svg" alt="Deploy on Kubernetes" height="40" /></a> <a href="#-quick-start"><img src="assets/docker-button.svg" alt="Self-host with Docker" height="40" /></a>
+
+<sub><a href="#-quick-start">Quick start</a> · <a href="#%EF%B8%8F-deploy-it-somewhere">Deploy</a> · <a href="#-whats-in-the-box">Features</a> · <a href="server/openapi.yaml">API</a> · <a href="CONTRIBUTING.md">Contributing</a></sub>
+
 </div>
+
+<br/>
 
 <p align="center">
   <img src="assets/screenshots/doc-comments.png" alt="A launch plan open in MetanoiaDocs, with a comment thread in the side panel" width="1000" />
 </p>
 
-MetanoiaDocs is an open-source alternative to Notion and AFFiNE that you host on
-your own machine. It pairs the [BlockSuite](https://github.com/toeverything/blocksuite)
+MetanoiaDocs is an open-source alternative to Notion and AFFiNE that runs on your
+own machine. It pairs the [BlockSuite](https://github.com/toeverything/blocksuite)
 block editor with an original Node + Postgres backend: live multi-cursor editing,
-projects with real task views, comments that reach people, and an MCP server so
-your AI agents can read and write the workspace — with **no proprietary server
-code and no per-seat pricing, ever**.
+projects with real task views, comments that reach people, and an MCP server and
+run queue so your AI agents can work in the same place your team does — with **no
+proprietary server code and no per-seat pricing, ever**.
 
 One image, one Postgres, one port. `docker compose up -d` and invite the team.
 
 ---
 
-## A look around
+## 👀 A look around
 
 <table>
   <tr>
@@ -80,7 +83,18 @@ One image, one Postgres, one port. `docker compose up -d` and invite the team.
 
 ## ✨ What's in the box
 
-**Write together**
+| Area | What you get |
+|---|---|
+| **Write together** | Live multi-cursor pages over Yjs · a full block editor · threaded comments and @-mentions · version history you can restore from · a design canvas that files and searches like a document |
+| **Plan the work** | Kanban, backlog, table, gantt, calendar and gallery over one set of tasks · sprints, points, dependencies, milestones · every project is a database and every row is a page · automations and quick actions |
+| **Find and organise** | Nested pages, folders, tags, favorites and pins · hybrid full-text and fuzzy search behind ⌘K · related pages and extracted tasks computed in Postgres, with no LLM and no external calls |
+| **Let the machines in** | An MCP server · a REST API with an OpenAPI description · signed webhooks · an agent run queue your own machine works · provenance on every write, so you can see which edits a machine made |
+| **Run it yourself** | One container and one Postgres · a schema that migrates itself on boot · invite-only auth · Web Push · import and export · public read-only share links |
+
+<details>
+<summary><b>Write together</b> — the full list</summary>
+
+<br/>
 
 - **Real-time collaboration** — live multi-cursor editing and presence over Yjs (Hocuspocus). Open a page and you see where everyone already is, not just where they move next. No save button.
 - **Rich block editor** — headings, lists, to-dos, tables, databases, code, LaTeX, images, embeds, toggles, columns, callouts, mermaid.
@@ -89,37 +103,60 @@ One image, one Postgres, one port. `docker compose up -d` and invite the team.
 - **Version history** — automatic snapshots as you write; browse them rendered, restore in place (the restore is itself undoable), or open any version as a copy.
 - **Designs** — a canvas beside the docs: shapes, connectors, frames, freehand, images, PNG export. A design *is* a document, so it shares, files, searches and versions like one.
 
-**Plan the work**
+</details>
+
+<details>
+<summary><b>Plan the work</b> — the full list</summary>
+
+<br/>
 
 - **Projects** — kanban, backlog, table, gantt, calendar and gallery over one set of tasks; sprints, epics/stories/bugs, points, dependencies, milestones, several assignees per task.
 - **Tasks across projects** — one view of everything assigned to you, or anyone, filtered by project, status, kind, or the focus areas tagged on a task's page. Filters are chips; saved per view.
 - **Databases** — a project is a database and every row is a page. Add columns (text, number, select, date, checkbox, person, URL, file, relation) and embed a live view of one in any document with `/database`.
+- **Automations** — "when a task enters Done, set progress to 100 and move it to the active sprint". Rules run on a move a person made, never on each other, so two rules cannot loop. A rule set to run by hand is a quick action, offered as a button on every task.
 - **Task ↔ page linking** — a task can link to the page that specifies it, and a page shows the tasks that point at it.
 
-**Find and organise**
+</details>
+
+<details>
+<summary><b>Find and organise</b> — the full list</summary>
+
+<br/>
 
 - **Sidebar** — nested pages, folders (each with its own page and link), colored tags, favorites, and team-wide pins.
 - **Search** — hybrid full-text + fuzzy search, and a ⌘K palette for pages and commands.
 - **Ambient intelligence** — per-doc related pages, tag and link suggestions, extracted tasks / decisions / deadlines, duplicate and stale detection. Computed in Postgres on save. **No LLM, no external calls.**
-
-**Get things in and out**
-
 - **Import** — drop in `.md` or `.docx` (front matter, nested lists, tables, inline marks and images survive).
 - **Export** — any page as **Markdown**, **Word** or **PDF**; any canvas as **PNG**.
 - **Public share links** — publish any page read-only, enforced by the server.
 
-**Let the machines in**
+</details>
+
+<details>
+<summary><b>Let the machines in</b> — the full list</summary>
+
+<br/>
 
 - **MCP server** — Claude Desktop/Code, Cursor and friends can search, read and write your docs *as you* over the [Model Context Protocol](https://modelcontextprotocol.io), stdio or remote HTTP. See [`mcp/`](mcp/).
+- **Agents that take tasks** — assign a task to an agent account, or `@mention` one in a comment, and the work goes on a queue. [`runner/`](runner/) polls that queue on *your* machine and hands each run to Claude Code, Codex, opencode, Copilot CLI or any command of yours; the reply comes back as a comment. Nothing here reaches into your machine — the runner reaches out.
+- **Webhooks** — POST every workspace event to a URL you control, signed with HMAC-SHA256 over a timestamped payload, retried, with a delivery log that says whether a hook quietly stopped working.
+- **REST API** — the whole surface above, described in [`server/openapi.yaml`](server/openapi.yaml) and served by a running instance at `/api/openapi.yaml`.
 - **AI governance** — every change records whether a person, an agent account, or the copilot made it, and the workspace shows which. See [AI governance](#-ai-governance).
 - **AI assist** — optional OpenAI-compatible copilot with page context and tools, configured in Settings. Bring your own key; it is off by default.
 
-**Run it yourself**
+</details>
+
+<details>
+<summary><b>Run it yourself</b> — the full list</summary>
+
+<br/>
 
 - **Invite-only auth** — username/password or magic link; admins invite by email.
 - **One container** — serves the UI, the REST API and the `/sync` WebSocket from one origin. Postgres is the only dependency.
 - **Idempotent schema** — created and migrated on every boot; there are no migration steps.
 - **Web Push** — VAPID keys generate themselves on first use and live in the database.
+
+</details>
 
 ## 🤖 AI governance
 
@@ -218,6 +255,27 @@ To invite teammates: **Settings → Members → Invite** by email. With
 For production, put a TLS reverse proxy (Caddy, nginx, Traefik) in front of `:8092`
 and set `BASE_URL` to your `https://` domain. Push notifications need HTTPS.
 
+## ☁️ Deploy it somewhere
+
+<div align="center">
+
+<a href="https://railway.com/new/template?template=https%3A%2F%2Fgithub.com%2FXephyr-Labs%2Fmetanoiadocs"><img src="https://railway.com/button.svg" alt="Deploy on Railway" height="40" /></a> <a href="docs/coolify.md"><img src="assets/coolify-button.svg" alt="Deploy on Coolify" height="40" /></a> <a href="docs/helm.md"><img src="assets/kubernetes-button.svg" alt="Deploy on Kubernetes" height="40" /></a> <a href="#-quick-start"><img src="assets/docker-button.svg" alt="Self-host with Docker" height="40" /></a>
+
+</div>
+
+<br/>
+
+| Host | What you get | Guide |
+|---|---|---|
+| **Railway** | Railway builds the Dockerfile and runs it. Add a Postgres, point `DATABASE_URL` and `BASE_URL` at it, and there is no server to maintain. | [docs/railway.md](docs/railway.md) |
+| **Coolify** | The same two containers on a box you own. Coolify generates the domain, the TLS certificate and the database password. | [docs/coolify.md](docs/coolify.md) |
+| **Kubernetes** | One Deployment, one Service, optionally one Postgres — the chart in [`charts/metanoiadocs`](charts/metanoiadocs). | [docs/helm.md](docs/helm.md) |
+| **Docker** | The quick start above. One image, one Postgres, one port. | [above](#-quick-start) |
+
+Whichever you pick, set **`BASE_URL`** to the address people actually type. Emailed
+sign-in links and Web Push notifications are both built from it, so a value that
+does not match produces links that go nowhere.
+
 ## ⚙️ Configuration
 
 Everything is an environment variable (see [`.env.example`](.env.example)):
@@ -233,6 +291,7 @@ Everything is an environment variable (see [`.env.example`](.env.example)):
 | `STALE_MONTHS` | `6` | A doc untouched this long gets a "stale" badge in the intelligence rail. |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | generated | Bring your own Web Push keys; otherwise a pair is made on first use and stored in the database. |
 | `SMTP_HOST` … `SMTP_FROM` | — | SMTP for real emails, needed once `AUTH_DEV_MODE=false`. |
+| `AGENT_RUN_STALE_MIN` | `30` | Minutes before a claimed agent run nobody reported on goes back on the queue. |
 
 ## 🧱 Architecture
 
@@ -250,6 +309,8 @@ Browser ── HTTPS ─┤  Express — REST API  ·  Hocuspocus /sync (Yjs)  �
 | `web-react/` | React 18 + Vite + TypeScript + Tailwind + Radix; BlockSuite 0.22.4 editor; PWA with a push-capable service worker. |
 | `server/` | Express + Postgres + Hocuspocus (Yjs) sync; magic-link/password auth; the intelligence layer (`intelligence.js`), search, exports, notifications and Web Push. |
 | `mcp/` | Stdio MCP server exposing the workspace to AI agents via personal API tokens. The same tools are served over HTTP at `/mcp`. |
+| `runner/` | Zero-dependency CLI that runs an agent account's queued work on your own machine. `npx metanoiadocs-runner`. |
+| `charts/` | Helm chart — one Deployment, one Service, optionally one Postgres. |
 | `docker-compose.yaml` | `db` + `server`, building the image from source. |
 | `docker-compose.deploy.yml` | The same stack pulling the published [`hmsajjad/metanoiadocs`](https://hub.docker.com/r/hmsajjad/metanoiadocs) image — the one-command deploy above. |
 
@@ -284,8 +345,13 @@ web-only, so a React Native port isn't practical.)
 
 ## 🤝 Contributing
 
-Issues and PRs are welcome. Keep changes focused, run the tests, and describe
-the user-facing change in the PR.
+Issues and PRs are welcome — bug fixes, features, docs, all of it.
+[CONTRIBUTING.md](CONTRIBUTING.md) covers the setup, what the code looks like
+and how a change gets merged. Be kind; we follow a
+[Code of Conduct](CODE_OF_CONDUCT.md).
+
+Found a vulnerability? Report it privately — see [SECURITY.md](SECURITY.md), not
+a public issue.
 
 ## 📄 License
 

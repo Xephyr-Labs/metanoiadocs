@@ -1,0 +1,22 @@
+name: Release
+
+# Keeps a release pull request open against main, rewriting it as commits land:
+# the next version number and the changelog entries, both read from the
+# Conventional Commit prefixes. Merging that PR tags the release, and the tag is
+# what makes ci.yml build and push the versioned image.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v4
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json

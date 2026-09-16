@@ -1,0 +1,98 @@
+{{/*
+The bundled Postgres.
+
+A StatefulSet rather than a subchart: one database, one volume, no dependency to
+vendor and nothing to keep in step with an upstream chart. Turn it off and set
+`externalDatabase.url` for anything you would be upset to lose — a managed
+Postgres with real backups is worth more than this template's convenience.
+*/}}
+{{- if and .Values.postgres.enabled (not .Values.externalDatabase.url) }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "metanoiadocs.fullname" . }}-db
+  labels:
+    {{- include "metanoiadocs.labels" . | nindent 4 }}
+spec:
+  # Headless: the app reaches it by name, and nothing outside the cluster
+  # should be able to reach it at all.
+  clusterIP: None
+  ports:
+    - port: 5432
+      targetPort: postgres
+      name: postgres
+  selector:
+    {{- include "metanoiadocs.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "metanoiadocs.fullname" . }}-db
+  labels:
+    {{- include "metanoiadocs.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "metanoiadocs.fullname" . }}-db
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "metanoiadocs.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: postgres
+  template:
+    metadata:
+      labels:
+        {{- include "metanoiadocs.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: {{ .Values.postgres.image }}
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: {{ .Values.postgres.user | quote }}
+            - name: POSTGRES_DB
+              value: {{ .Values.postgres.database | quote }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "metanoiadocs.fullname" . }}-db
+                  key: password
+            # The image only initialises a fresh directory, and it refuses a
+            # volume that already has a lost+found in it — so the data lives in
+            # a subdirectory rather than at the mount point.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", {{ .Values.postgres.user | quote }}, "-d", {{ .Values.postgres.database | quote }}]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          {{- with .Values.postgres.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- if not .Values.postgres.persistence.enabled }}
+      volumes:
+        - name: data
+          emptyDir: {}
+      {{- end }}
+  {{- if .Values.postgres.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- with .Values.postgres.persistence.storageClass }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.postgres.persistence.size }}
+  {{- end }}
+{{- end }}

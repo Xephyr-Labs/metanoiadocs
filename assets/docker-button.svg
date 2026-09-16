@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="214" height="40" viewBox="0 0 214 40" fill="none" role="img" aria-label="Self-host with Docker">
+  <title>Self-host with Docker</title>
+  <rect width="214" height="40" rx="6" fill="#1d63ed"/>
+  <g transform="translate(14, 11)" fill="none" stroke="#ffffff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 10.5h15c0 2.5-2 4.5-4.5 4.5H6a4.5 4.5 0 0 1-4.5-4.5Z" fill="#ffffff" stroke="none"/><rect x="4" y="6.2" width="3" height="3" rx="0.5"/><rect x="7.6" y="6.2" width="3" height="3" rx="0.5"/><rect x="11.2" y="6.2" width="3" height="3" rx="0.5"/><rect x="7.6" y="2.8" width="3" height="3" rx="0.5"/></g>
+  <text x="42" y="25" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#ffffff">Self-host with Docker</text>
+</svg>
