@@ -8,6 +8,9 @@
  * contrast: pass (40-41)
  * note: the rail narrows the sidebar, it does not gate it — `Everything` is
  *       first and is the default, so nobody's navigation moves on upgrade.
+ * targets: rail items are 48x40 and reach both edges of the 48px column, so a
+ *       pointer thrown at the window edge lands on one. Settings sits in the
+ *       footer with the account it configures, not in the list of destinations.
  */
 import {
   Archive,
@@ -432,20 +435,23 @@ function FavoriteFolderRow({ id }: { id: string }) {
  * the top bar.
  */
 const RAIL: { key: RailSection; icon: ReactNode; label: string }[] = [
-  { key: 'all', icon: <LayoutList size={16} />, label: 'Everything' },
-  { key: 'docs', icon: <Files size={16} />, label: 'Documents' },
-  { key: 'projects', icon: <KanbanSquare size={16} />, label: 'Projects' },
-  { key: 'designs', icon: <Shapes size={16} />, label: 'Designs' },
-  { key: 'tags', icon: <TagIcon size={16} />, label: 'Tags' },
-  { key: 'templates', icon: <LayoutTemplate size={16} />, label: 'Templates' },
+  { key: 'all', icon: <LayoutList size={18} />, label: 'Everything' },
+  { key: 'docs', icon: <Files size={18} />, label: 'Documents' },
+  { key: 'projects', icon: <KanbanSquare size={18} />, label: 'Projects' },
+  { key: 'designs', icon: <Shapes size={18} />, label: 'Designs' },
+  { key: 'tags', icon: <TagIcon size={18} />, label: 'Tags' },
+  { key: 'templates', icon: <LayoutTemplate size={18} />, label: 'Templates' },
 ];
 
 function Rail({ section, onPick }: { section: RailSection; onPick: (s: RailSection) => void }) {
   return (
-    // The rail's first icon lines up with the panel's first nav row: the header
-    // height plus that row's own top padding. Both read --mn-head-h, so neither
-    // drifts when the header does.
-    <div className="flex w-11 shrink-0 flex-col items-center gap-0.5 border-r border-line pt-[calc(var(--mn-head-h)+0.5rem)]">
+    // The first icon's centre lines up with the centre of the panel's first nav
+    // row: the header height, plus that row's 8px of top padding, less the 6px
+    // by which a 40px rail item is taller than a 28px nav row. It reads
+    // --mn-head-h like the header does, so neither drifts when the header moves.
+    // Past the first item the two rhythms diverge on purpose — the rail is a
+    // column of targets, not a second copy of the list beside it.
+    <div className="flex w-12 shrink-0 flex-col items-center gap-1 border-r border-line pt-[calc(var(--mn-head-h)+0.125rem)]">
       {RAIL.map((r) => (
         <IconButton
           key={r.key}
@@ -454,6 +460,13 @@ function Rail({ section, onPick }: { section: RailSection; onPick: (s: RailSecti
           side="right"
           active={section === r.key}
           onClick={() => onPick(r.key)}
+          // Full-width, and taller than a toolbar button. A strip pinned to the
+          // window's left edge is the easiest thing on screen to hit — you throw
+          // the pointer at the edge and it stops — but only if the target
+          // reaches the edge. A 28px button centred in the column left 8px of
+          // dead rail down each side, so the flick landed on nothing and the
+          // icons read as dropped pins rather than controls.
+          className="h-10 w-full"
         />
       ))}
     </div>
@@ -556,8 +569,8 @@ export function Sidebar() {
     const startW = ws.sidebarWidth;
     const onMove = (ev: MouseEvent) => {
       if (!dragging.current) return;
-      // +44 for the rail, so the panel beside it still ranges 220–420.
-      ws.setSidebarWidth(Math.min(464, Math.max(264, startW + ev.clientX - startX)));
+      // +48 for the rail, so the panel beside it still ranges 220–420.
+      ws.setSidebarWidth(Math.min(468, Math.max(268, startW + ev.clientX - startX)));
       force((n) => n + 1);
     };
     const onUp = () => {

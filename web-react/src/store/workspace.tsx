@@ -248,7 +248,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [projects, setProjects] = useState<ProjectRow[]>([]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   // 44 for the icon rail plus the 260 the panel beside it has always had.
-  const [sidebarWidth, setSidebarWidth] = useState(304);
+  // 308 = a 260px panel beside the 48px rail. The number counts the rail, so it
+  // moves with it: at 304 the wider rail would have taken its 4px out of the
+  // panel instead.
+  const [sidebarWidth, setSidebarWidth] = useState(308);
   const [mobileDrawerOpen, setMobileDrawer] = useState(false);
   const [rightPanel, setRightPanel] = useState<RightTab | null>(null);
   const [activeFolderId, setActiveFolderId] = useState<string | null>(null);
