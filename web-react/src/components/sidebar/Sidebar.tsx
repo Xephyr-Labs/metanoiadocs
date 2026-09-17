@@ -109,10 +109,47 @@ function NavItem({ icon, label, onClick, trailing, active, alert }: { icon: Reac
  * its label lands in their text column. A header indented to some third
  * position of its own aligns with nothing, which is what a 12px slot did.
  */
-function SectionLabel({ children, action }: { children: ReactNode; action?: ReactNode }) {
+/**
+ * A quiet colour per section, carried by the mark in the gutter and nothing
+ * else.
+ *
+ * The rail's own rule is that the accent is spent on `alert` and nowhere else
+ * — a column that tints things for decoration has nothing left to say when
+ * something genuinely wants attention. So these are not the accent: they are
+ * the tag palette, already tuned for both themes, applied to a 12px glyph in
+ * the column the labels do not use. Twelve headers in twelve colours would be
+ * a rainbow; the assignment below groups what belongs together (your own
+ * shelves warm, the places work lives cool) and only guarantees that no two
+ * ADJACENT sections share a hue, which is all "tell them apart" needs.
+ *
+ * The label stays `text-muted` throughout. Colouring 11px uppercase text as
+ * well reads as a warning, not as a category.
+ */
+const SECTION_TINT: Record<string, string> = {
+  recent: 'text-blue-500',
+  pinned: 'text-orange-500',
+  favorites: 'text-yellow-600 dark:text-yellow-500',
+  projects: 'text-purple-500',
+  designs: 'text-pink-500',
+  folders: 'text-teal-500',
+  private: 'text-gray-400',
+  public: 'text-green-500',
+  shared: 'text-blue-500',
+  tags: 'text-green-600 dark:text-green-500',
+  templates: 'text-gray-400',
+};
+
+const tintOf = (key: string) => SECTION_TINT[key] ?? 'text-faint';
+
+function SectionLabel({ sectionKey, children, action }: { sectionKey: string; children: ReactNode; action?: ReactNode }) {
   return (
-    <div className="mt-3 flex h-6 items-center gap-2 px-2 first:mt-0">
-      <span aria-hidden className="w-5 shrink-0" />
+    <div className="mn-side-section mt-2 flex h-6 items-center gap-2 px-2 pt-2">
+      {/* The slot a folding section puts its chevron in. Here it carries the
+          section's colour instead, so a rail of headers is told apart by the
+          same column whether or not the section folds. */}
+      <span aria-hidden className="flex w-5 shrink-0 items-center justify-center">
+        <span className={cn('h-1.5 w-1.5 rounded-full bg-current', tintOf(sectionKey))} />
+      </span>
       <span className="mn-side-label min-w-0 flex-1 truncate text-2xs font-semibold uppercase text-muted">
         {children}
       </span>
@@ -148,14 +185,14 @@ function CollapsibleSection({ sectionKey, label, collapsed, onToggle, count, act
 
   return (
     <>
-      <div className="mt-3 flex h-6 items-center gap-1 pr-2 first:mt-0">
+      <div className="mn-side-section mt-2 flex h-6 items-center gap-1 pr-2 pt-2">
         <button
           type="button"
           aria-expanded={open}
           onClick={() => onToggle(sectionKey)}
           className="mn-side-label group flex h-6 min-w-0 flex-1 items-center gap-2 px-2 text-2xs font-semibold uppercase text-muted hover:text-ink"
         >
-          <span aria-hidden className="flex w-5 shrink-0 items-center justify-center">
+          <span aria-hidden className={cn('flex w-5 shrink-0 items-center justify-center', tintOf(sectionKey))}>
             <ChevronRight size={12} className={cn('transition-transform duration-180', open && 'rotate-90')} />
           </span>
           <span className="min-w-0 flex-1 truncate text-left">{label}</span>
@@ -782,6 +819,7 @@ export function Sidebar() {
         {shows('projects') && (
         <section className="mb-5">
           <SectionLabel
+            sectionKey="projects"
             action={
               <Menu
                 align="end"
@@ -828,6 +866,7 @@ export function Sidebar() {
         {shows('designs') && (
         <section className="mb-5">
           <SectionLabel
+            sectionKey="designs"
             action={
               <button type="button" onClick={() => { ws.createDesign(); }} className={rowAction} aria-label="New design">
                 <Plus size={14} />
@@ -849,6 +888,7 @@ export function Sidebar() {
         {shows('docs') && (
         <section className="mb-5">
             <SectionLabel
+            sectionKey="folders"
             action={
               <button type="button" onClick={() => ws.createFolder(null)} className={rowAction} aria-label="New folder">
                 <Plus size={14} />
