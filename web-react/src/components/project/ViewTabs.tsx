@@ -162,9 +162,28 @@ export function ViewTabs({
  * difference between "aligned" and "slightly off" without anyone being able to
  * say why.
  */
+/**
+ * The icon, in a box that centres on whole pixels.
+ *
+ * It used to be a bare 13px glyph with `-translate-y-px` for optical balance.
+ * Both halves of that were the bug: 13 is odd, so centring it in a 28px row
+ * put its top edge on x.5, and the nudge moved it to another half pixel rather
+ * than off one. Where a half pixel lands depends on where the strip itself
+ * starts, and that moves the moment the task panel opens and the column
+ * narrows — so the icons looked aligned, then didn't, for no reason anyone
+ * could see from the markup.
+ *
+ * A 14px glyph in a fixed 14px box divides into the row evenly, and the
+ * optical correction, if it is ever wanted again, belongs on the box as a
+ * whole-pixel margin — never on a transform.
+ */
 function TabIcon({ kind }: { kind: ViewKind }) {
   const Icon = ICON[kind] ?? Table2;
-  return <Icon size={13} aria-hidden className="shrink-0 -translate-y-px" />;
+  return (
+    <span aria-hidden className="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
+      <Icon size={14} />
+    </span>
+  );
 }
 
 /** Renaming in place. Escape abandons, Enter and blur commit — the same three

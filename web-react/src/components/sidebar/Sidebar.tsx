@@ -93,10 +93,24 @@ function NavItem({ icon, label, onClick, trailing, active, alert }: { icon: Reac
   );
 }
 
+/**
+ * A section label that does not fold.
+ *
+ * It reserves the chevron's slot anyway. Half the sections in this rail fold
+ * and half do not, and when only the folding ones carried the 12px mark their
+ * labels started 16px further right — six headers, two left edges, in one
+ * column. The empty slot costs nothing and buys the column its edge back; it
+ * is the same reasoning as the always-drawn chevron in the view tabs, where a
+ * control that appears and disappears is a control that moves everything
+ * around it.
+ */
 function SectionLabel({ children, action }: { children: ReactNode; action?: ReactNode }) {
   return (
-    <div className="mt-3 flex h-6 items-center justify-between px-2 first:mt-0">
-      <span className="mn-side-label text-2xs font-semibold uppercase text-muted">{children}</span>
+    <div className="mt-3 flex h-6 items-center gap-1 px-2 first:mt-0">
+      <span aria-hidden className="w-3 shrink-0" />
+      <span className="mn-side-label min-w-0 flex-1 truncate text-2xs font-semibold uppercase text-muted">
+        {children}
+      </span>
       {action}
     </div>
   );
@@ -136,10 +150,14 @@ function CollapsibleSection({ sectionKey, label, collapsed, onToggle, count, act
           onClick={() => onToggle(sectionKey)}
           className="mn-side-label group flex h-6 min-w-0 flex-1 items-center gap-1 px-2 text-2xs font-semibold uppercase text-muted hover:text-ink"
         >
-          <ChevronRight size={12} className={cn('shrink-0 transition-transform duration-180', open && 'rotate-90')} />
-          <span className="truncate">{label}</span>
-          {/* Only while folded: an expanded section is already showing them. */}
-          {!open && count ? <span className="ml-1 shrink-0 tabular-nums text-faint">{count}</span> : null}
+          <ChevronRight size={12} className={cn('w-3 shrink-0 transition-transform duration-180', open && 'rotate-90')} />
+          <span className="min-w-0 flex-1 truncate text-left">{label}</span>
+          {/* Only while folded: an expanded section is already showing them.
+              `ml-auto` and not `ml-1`: glued to the label the number landed at
+              a different x in every section, and a column of counts that never
+              lines up reads as debris rather than as data. Pushed to the end
+              of the button it shares one right edge with every other count. */}
+          {!open && count ? <span className="ml-auto shrink-0 pl-2 tabular-nums text-faint">{count}</span> : null}
         </button>
         {action}
       </div>

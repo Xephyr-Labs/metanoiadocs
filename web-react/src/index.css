@@ -694,10 +694,22 @@ html.dark .mn-toc .outline-viewer-indicator {
 
 /* A control that only shows on hover must also show when a keyboard lands on
  * it — otherwise Tab walks through buttons nobody can see. Class + pseudo-class
- * outranks the bare `.opacity-0` utility, so no !important is needed. */
+ * outranks the bare `.opacity-0` utility, so no !important is needed.
+ *
+ * `.mn-stay-hidden` opts out, and the opt-out is not a loophole: some controls
+ * are invisible because a styled element is drawn in their place, not because
+ * they are waiting for a hover. A native date field sits under its own
+ * formatted label — reveal it on focus and the browser paints `09/18/2026`
+ * across the `Sep 18` beneath it, which is two dates and no way to read
+ * either. Such a control still has to ANSWER the keyboard; it just must not
+ * become visible, so its wrapper draws the focus ring instead. */
 .opacity-0:focus-within,
 .opacity-0:focus-visible {
   opacity: 1;
+}
+.opacity-0.mn-stay-hidden:focus-within,
+.opacity-0.mn-stay-hidden:focus-visible {
+  opacity: 0;
 }
 
 /* A row's page inside the task panel: the panel owns the title, so the
@@ -724,6 +736,17 @@ input[type='radio'] {
   height: 14px;
   accent-color: var(--accent);
   cursor: pointer;
+}
+
+/* The other half of the same bare rule, and the more expensive half. `flex:
+ * 1 1 0` also sets flex-basis: 0%, and in a COLUMN flex container basis beats
+ * height — so every `h-7` search field inside a popover rendered at 15px
+ * instead of 28 and read as a broken control. `shrink-0` does not rescue it:
+ * that pins flex-shrink, and the 0% basis is what does the damage. Restoring
+ * basis alone leaves grow and shrink where BlockSuite wanted them, so their
+ * own toolbars are untouched. */
+input:not([type='checkbox']):not([type='radio']) {
+  flex-basis: auto;
 }
 
 /* One select look, everywhere. The OS widget is dropped and the chevron drawn

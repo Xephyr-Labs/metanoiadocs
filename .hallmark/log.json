@@ -1,30 +1,37 @@
 [
   {
+    "date": "2026-09-17",
+    "macrostructure": "Workbench (app chrome \u2014 rail + page menu), unchanged",
+    "theme": "project tokens (preserved) \u00b7 fix pass: 2 critical + 3 major \u2014 the a11y reveal un-hiding the date overlay, BlockSuite's flex-basis collapsing every popover field, two left edges in the sidebar rail, half-pixel view-tab icons, and a date control with no affordance",
+    "enrichment": "none \u2014 typography only",
+    "brief": "metanoiadocs \u00b7 hallmark audit of the task peek + sidebar rail (measured live at 1280 against a local instance), then fix all five"
+  },
+  {
     "date": "2026-09-15",
-    "macrostructure": "Workbench (app chrome — rail + page menu), unchanged",
-    "theme": "project tokens (preserved) · density pass: one 10px value rail across the grid and the peek, one popover picker replacing the native <select> on every database surface, assignee chips + \"+\"",
-    "enrichment": "none — typography only",
-    "brief": "metanoiadocs · database table + row peek: thin assignee dropdown, a peek that scrolled 1588px of mostly-empty sections, per-column text misalignment, OS-drawn dropdowns"
+    "macrostructure": "Workbench (app chrome \u2014 rail + page menu), unchanged",
+    "theme": "project tokens (preserved) \u00b7 density pass: one 10px value rail across the grid and the peek, one popover picker replacing the native <select> on every database surface, assignee chips + \"+\"",
+    "enrichment": "none \u2014 typography only",
+    "brief": "metanoiadocs \u00b7 database table + row peek: thin assignee dropdown, a peek that scrolled 1588px of mostly-empty sections, per-column text misalignment, OS-drawn dropdowns"
   },
   {
     "date": "2026-09-13",
-    "macrostructure": "Workbench (app chrome — rail + page menu), unchanged",
-    "theme": "project tokens (preserved) · audit pass: 27 findings fixed — dead opacity modifiers, stale filters, right panel scope, activity feed, auth orb, home eyebrows, table dates/status/assignee, gallery covers, mobile header, breadcrumb root, drawer a11y, accent lettering, tooltip timing, radii",
-    "enrichment": "none — typography only",
-    "brief": "metanoiadocs · hallmark audit of every surface (built + walked live at 1280/768/375, light + dark), then fix all"
+    "macrostructure": "Workbench (app chrome \u2014 rail + page menu), unchanged",
+    "theme": "project tokens (preserved) \u00b7 audit pass: 27 findings fixed \u2014 dead opacity modifiers, stale filters, right panel scope, activity feed, auth orb, home eyebrows, table dates/status/assignee, gallery covers, mobile header, breadcrumb root, drawer a11y, accent lettering, tooltip timing, radii",
+    "enrichment": "none \u2014 typography only",
+    "brief": "metanoiadocs \u00b7 hallmark audit of every surface (built + walked live at 1280/768/375, light + dark), then fix all"
   },
   {
     "date": "2026-09-13",
-    "macrostructure": "Workbench (app chrome — rail + page menu), unchanged",
-    "theme": "project tokens (preserved) · legibility pass: 450 weight, subpixel rendering, +1 rung on the bottom of the scale",
-    "enrichment": "none — typography only",
-    "brief": "metanoiadocs · sidebar type read faded and small next to Notion's; plus Notion-parity reading controls (font, small text, full width, import) in the page menu"
+    "macrostructure": "Workbench (app chrome \u2014 rail + page menu), unchanged",
+    "theme": "project tokens (preserved) \u00b7 legibility pass: 450 weight, subpixel rendering, +1 rung on the bottom of the scale",
+    "enrichment": "none \u2014 typography only",
+    "brief": "metanoiadocs \u00b7 sidebar type read faded and small next to Notion's; plus Notion-parity reading controls (font, small text, full width, import) in the page menu"
   },
   {
     "date": "2026-09-10",
-    "macrostructure": "Workbench (app chrome — path bar + rail + canvas)",
-    "theme": "project tokens (preserved) · Onest single-face type system",
-    "enrichment": "none — typography only",
-    "brief": "metanoiadocs · redesign the chrome: one type family, Latitude-style path bar, de-duplicated headers"
+    "macrostructure": "Workbench (app chrome \u2014 path bar + rail + canvas)",
+    "theme": "project tokens (preserved) \u00b7 Onest single-face type system",
+    "enrichment": "none \u2014 typography only",
+    "brief": "metanoiadocs \u00b7 redesign the chrome: one type family, Latitude-style path bar, de-duplicated headers"
   }
 ]
