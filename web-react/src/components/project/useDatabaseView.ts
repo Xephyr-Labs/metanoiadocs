@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { UserRow } from '../../lib/docsApi';
-import { builtinProps, defaultPropIds, defaultTableProps } from '../../lib/builtinProps';
+import { builtinProps, visibleProps, defaultPropIds, defaultTableProps } from '../../lib/builtinProps';
 import { canGroupBy, groupOf, groupsFor, type BoardGroup } from '../../lib/grouping';
 import { withComputed } from '../../lib/computed';
 import { applyFilters, fieldsFor, pruneUnresolvable, type Filter, type FilterField } from '../../lib/taskFilter';
@@ -57,12 +57,16 @@ export function useDatabaseView({
     () => builtinProps(mode, source.kinds, source.sprints, project?.status_colors),
     [mode, source.kinds, source.sprints, project?.status_colors],
   );
-  const allProps = useMemo(() => [...builtins, ...source.props], [builtins, source.props]);
+  // Machine-owned properties (`_`-prefixed) never reach a card, a column, a
+  // filter or the peek — see isSystemProp. They are still stored, still
+  // readable through the API, and still listed in the properties dialog.
+  const readable = useMemo(() => visibleProps(source.props), [source.props]);
+  const allProps = useMemo(() => [...builtins, ...readable], [builtins, readable]);
 
   const fields = useMemo(
     () => fieldsFor({
       mode,
-      props: source.props,
+      props: readable,
       users: source.users,
       kinds: source.kinds,
       sprints: source.sprints,

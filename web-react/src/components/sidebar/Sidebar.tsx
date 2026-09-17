@@ -93,10 +93,66 @@ function NavItem({ icon, label, onClick, trailing, active, alert }: { icon: Reac
   );
 }
 
-function SectionLabel({ children, action }: { children: ReactNode; action?: ReactNode }) {
+/**
+ * A section label that does not fold.
+ *
+ * It reserves the chevron's slot anyway. Half the sections in this rail fold
+ * and half do not, and when only the folding ones carried the mark their
+ * labels started 16px further right — six headers, two left edges, in one
+ * column. The empty slot costs nothing and buys the column its edge back; it
+ * is the same reasoning as the always-drawn chevron in the view tabs, where a
+ * control that appears and disappears is a control that moves everything
+ * around it.
+ *
+ * The slot is the width of an item's icon (20px) and the gap is the item's
+ * gap, so a header's mark lands in the icon column of the rows it captions and
+ * its label lands in their text column. A header indented to some third
+ * position of its own aligns with nothing, which is what a 12px slot did.
+ */
+/**
+ * A quiet colour per section, carried by the mark in the gutter and nothing
+ * else.
+ *
+ * The rail's own rule is that the accent is spent on `alert` and nowhere else
+ * — a column that tints things for decoration has nothing left to say when
+ * something genuinely wants attention. So these are not the accent: they are
+ * the tag palette, already tuned for both themes, applied to a 12px glyph in
+ * the column the labels do not use. Twelve headers in twelve colours would be
+ * a rainbow; the assignment below groups what belongs together (your own
+ * shelves warm, the places work lives cool) and only guarantees that no two
+ * ADJACENT sections share a hue, which is all "tell them apart" needs.
+ *
+ * The label stays `text-muted` throughout. Colouring 11px uppercase text as
+ * well reads as a warning, not as a category.
+ */
+const SECTION_TINT: Record<string, string> = {
+  recent: 'text-blue-500',
+  pinned: 'text-orange-500',
+  favorites: 'text-yellow-600 dark:text-yellow-500',
+  projects: 'text-purple-500',
+  designs: 'text-pink-500',
+  folders: 'text-teal-500',
+  private: 'text-gray-400',
+  public: 'text-green-500',
+  shared: 'text-blue-500',
+  tags: 'text-green-600 dark:text-green-500',
+  templates: 'text-gray-400',
+};
+
+const tintOf = (key: string) => SECTION_TINT[key] ?? 'text-faint';
+
+function SectionLabel({ sectionKey, children, action }: { sectionKey: string; children: ReactNode; action?: ReactNode }) {
   return (
-    <div className="mt-3 flex h-6 items-center justify-between px-2 first:mt-0">
-      <span className="mn-side-label text-2xs font-semibold uppercase text-muted">{children}</span>
+    <div className="mn-side-section mt-2 flex h-6 items-center gap-2 px-2 pt-2">
+      {/* The slot a folding section puts its chevron in. Here it carries the
+          section's colour instead, so a rail of headers is told apart by the
+          same column whether or not the section folds. */}
+      <span aria-hidden className="flex w-5 shrink-0 items-center justify-center">
+        <span className={cn('h-1.5 w-1.5 rounded-full bg-current', tintOf(sectionKey))} />
+      </span>
+      <span className="mn-side-label min-w-0 flex-1 truncate text-2xs font-semibold uppercase text-muted">
+        {children}
+      </span>
       {action}
     </div>
   );
@@ -129,17 +185,28 @@ function CollapsibleSection({ sectionKey, label, collapsed, onToggle, count, act
 
   return (
     <>
-      <div className="mt-3 flex h-6 items-center gap-1 pr-2 first:mt-0">
+      <div className="mn-side-section mt-2 flex h-6 items-center gap-1 pr-2 pt-2">
         <button
           type="button"
           aria-expanded={open}
           onClick={() => onToggle(sectionKey)}
-          className="mn-side-label group flex h-6 min-w-0 flex-1 items-center gap-1 px-2 text-2xs font-semibold uppercase text-muted hover:text-ink"
+          className="mn-side-label group flex h-6 min-w-0 flex-1 items-center gap-2 px-2 text-2xs font-semibold uppercase text-muted hover:text-ink"
         >
-          <ChevronRight size={12} className={cn('shrink-0 transition-transform duration-180', open && 'rotate-90')} />
-          <span className="truncate">{label}</span>
-          {/* Only while folded: an expanded section is already showing them. */}
-          {!open && count ? <span className="ml-1 shrink-0 tabular-nums text-faint">{count}</span> : null}
+          <span aria-hidden className={cn('flex w-5 shrink-0 items-center justify-center', tintOf(sectionKey))}>
+            <ChevronRight size={12} className={cn('transition-transform duration-180', open && 'rotate-90')} />
+          </span>
+          <span className="min-w-0 flex-1 truncate text-left">{label}</span>
+          {/* Only while folded: an expanded section is already showing them.
+              `ml-auto` and not `ml-1`: glued to the label the number landed at
+              a different x in every section, and a column of counts that never
+              lines up reads as debris rather than as data. Pushed to the end
+              of the button it shares one right edge with every other count. */}
+          {!open && count ? (
+            // `tracking-normal` because .mn-side-label opens the header's
+            // letters to 0.07em, which is right for a word in caps and wrong
+            // for a number: "12" came out reading as "1 2".
+            <span className="ml-auto shrink-0 pl-2 tabular-nums tracking-normal text-faint">{count}</span>
+          ) : null}
         </button>
         {action}
       </div>
@@ -227,11 +294,11 @@ function ProjectRows({
                 onClick={() => ws.openProject(p.id)}
                 style={{ paddingLeft: 8 + depth * 16 }}
                 className={cn(
-                  'flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md pr-2 text-sm leading-5 transition-colors duration-120',
+                  'flex h-7 min-w-0 flex-1 items-center gap-2 rounded-md pr-2 text-sm leading-5 transition-colors duration-120',
                   ws.view === 'project' && ws.activeProjectId === p.id ? 'bg-selected font-medium text-ink' : 'text-ink hover:bg-hover',
                 )}
               >
-                <span className="text-md leading-none">{p.icon}</span>
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center text-md leading-none">{p.icon}</span>
                 <span className="block h-5 min-w-0 flex-1 !self-center truncate leading-5 text-left">{p.name}</span>
                 {Number(p.overdue) > 0 ? (
                   <span className="shrink-0 text-2xs font-semibold text-danger-strong">{p.overdue}</span>
@@ -303,7 +370,7 @@ function ProjectRows({
       })}
       {naming && (
         <RowInput
-          icon={<span className="text-md leading-none">📋</span>}
+          icon={<span className="flex h-5 w-5 shrink-0 items-center justify-center text-md leading-none">📋</span>}
           placeholder="Database name…"
           label="New database name"
           depth={depth}
@@ -752,6 +819,7 @@ export function Sidebar() {
         {shows('projects') && (
         <section className="mb-5">
           <SectionLabel
+            sectionKey="projects"
             action={
               <Menu
                 align="end"
@@ -798,6 +866,7 @@ export function Sidebar() {
         {shows('designs') && (
         <section className="mb-5">
           <SectionLabel
+            sectionKey="designs"
             action={
               <button type="button" onClick={() => { ws.createDesign(); }} className={rowAction} aria-label="New design">
                 <Plus size={14} />
@@ -819,6 +888,7 @@ export function Sidebar() {
         {shows('docs') && (
         <section className="mb-5">
             <SectionLabel
+            sectionKey="folders"
             action={
               <button type="button" onClick={() => ws.createFolder(null)} className={rowAction} aria-label="New folder">
                 <Plus size={14} />
@@ -884,9 +954,9 @@ export function Sidebar() {
                 key={t.id}
                 type="button"
                 onClick={() => ws.createFromTemplate(t)}
-                className="flex h-7 w-full items-center gap-1.5 rounded-md px-2 text-sm leading-5 text-ink transition-colors duration-120 hover:bg-hover"
+                className="flex h-7 w-full items-center gap-2 rounded-md px-2 text-sm leading-5 text-ink transition-colors duration-120 hover:bg-hover"
               >
-                <span className="text-md leading-none">{t.icon}</span>
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center text-md leading-none">{t.icon}</span>
                 <span className="block h-5 min-w-0 flex-1 !self-center truncate leading-5 text-left">{t.name}</span>
                 <Plus size={14} className="shrink-0 text-faint" />
               </button>

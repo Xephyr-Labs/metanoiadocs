@@ -25,7 +25,10 @@ interface Props {
    *  turns it back into a status, an assignee or a property write. */
   onMove: (id: string, value: string, position: number) => void;
   onOpen: (t: TaskRow) => void;
-  onAdd: (value: string) => void;
+  /** Absent where a column has nowhere to put a new row — a board drawn over
+   *  tasks from several projects has no project to add one to. The control is
+   *  then not drawn at all, rather than drawn and inert. */
+  onAdd?: (value: string) => void;
 }
 
 /** One dot per column, so the four headers are told apart before they are read.
@@ -77,14 +80,16 @@ export function Board({ tasks, groups, groupOf, cardProps, users, onMove, onOpen
                   {column.length}
                 </span>
               </span>
-              <button
-                type="button"
-                onClick={() => onAdd(group.value)}
-                className="flex h-5 w-5 items-center justify-center rounded text-faint hover:bg-hover hover:text-muted"
-                aria-label={`Add to ${group.label}`}
-              >
-                <Plus size={14} />
-              </button>
+              {onAdd && (
+                <button
+                  type="button"
+                  onClick={() => onAdd(group.value)}
+                  className="flex h-5 w-5 items-center justify-center rounded text-faint hover:bg-hover hover:text-muted"
+                  aria-label={`Add to ${group.label}`}
+                >
+                  <Plus size={14} />
+                </button>
+              )}
             </header>
 
             <div className="scrollarea flex-1 space-y-1.5 overflow-y-auto p-0.5">

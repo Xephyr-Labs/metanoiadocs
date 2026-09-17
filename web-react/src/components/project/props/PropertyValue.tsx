@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { cn } from '../../../lib/cn';
-import { ExternalLink } from 'lucide-react';
+import { CalendarDays, ExternalLink } from 'lucide-react';
 import type { UserRow } from '../../../lib/docsApi';
 import type { StoredFile } from '../../../lib/uploads';
 import type { PropOption, PropRow } from '../../../lib/tasksApi';
@@ -55,16 +55,43 @@ function DateValue({ value, danger, onChange }: {
   return (
     <label
       className={[
-        'relative flex h-7 cursor-pointer items-center rounded px-2.5 text-sm ring-1 ring-inset ring-transparent',
-        'transition-shadow hover:ring-line focus-within:ring-2 focus-within:ring-accent',
+        // One shape on every surface. The control fills its container, because
+        // that is what the nine property controls beside it in the peek do
+        // (status, assignees, points, progress, sprint, milestone, focus area
+        // — all 100% of the value column) and because in a grid the control IS
+        // the cell: people click the cell, not the four characters in it. An
+        // earlier pass gave it two shapes and the empty cells lost 57% of
+        // their click target; a control that changes shape by context is a
+        // discrepancy the eye notices long before anyone can name it.
+        'group/date relative flex h-7 w-full cursor-pointer items-center gap-1.5 rounded px-2.5 text-sm',
+        'ring-1 ring-inset ring-transparent transition-shadow',
+        'hover:ring-line focus-within:ring-2 focus-within:ring-accent',
         danger ? 'text-danger-strong' : iso ? 'text-ink' : 'text-faint',
       ].join(' ')}
     >
-      <span className="block truncate">{label || '—'}</span>
+      <span className="min-w-0 flex-1 truncate text-left tabular-nums">{label || '—'}</span>
+      {/* The affordance the control never had. A date that looks like text is
+          text until you happen to hover it; a calendar mark says what the row
+          does before you touch it. It recedes until the row is under the
+          pointer or holds focus, so a column of dates stays a column of dates
+          rather than a column of icons. */}
+      <CalendarDays
+        size={13}
+        aria-hidden
+        className={[
+          'shrink-0 transition-opacity duration-120',
+          'opacity-0 group-hover/date:opacity-60 group-focus-within/date:opacity-60',
+        ].join(' ')}
+      />
+      {/* Deliberately invisible, and it must STAY invisible while focused —
+          see `.mn-stay-hidden` in index.css. The native control is kept
+          because it is the accessible one and it brings the platform picker;
+          what it must not do is paint `09/18/2026` over the `Sep 18` this
+          label already draws. The ring above is how focus is shown instead. */}
       <input
         type="date"
         aria-label={danger ? 'Date (overdue)' : 'Date'}
-        className="absolute inset-0 w-full cursor-pointer opacity-0"
+        className="mn-stay-hidden absolute inset-0 h-full w-full cursor-pointer opacity-0"
         value={iso}
         onChange={(e) => onChange(e.target.value || null)}
       />

@@ -27,6 +27,28 @@ import {
   type TaskRow,
 } from './tasksApi';
 
+/**
+ * A property whose key starts with `_` is the app's, not the reader's.
+ *
+ * Borrowed from Tolaria, which hides `_pinned_properties`, `_icon`, `_order`
+ * and the like from its properties panel, its search and its filters while
+ * leaving them in the file. The need here is the same and getting sharper: an
+ * agent writing to a board wants somewhere to keep provenance, a confidence,
+ * a last-verified date — facts about the row that are true and that nobody
+ * wants as a column. Without a convention those land beside "Owner" and
+ * "Due", and the board becomes unreadable one useful field at a time.
+ *
+ * Hidden means hidden from the surfaces people read: cards, table columns,
+ * the peek's property rows, filters, sort and group-by. It stays visible in
+ * the properties dialog, so a property that exists can always be found and
+ * deleted — an invisible field nobody can reach is a worse problem than a
+ * visible one nobody wants.
+ */
+export const isSystemProp = (p: { key?: string }) => !!p.key && p.key.startsWith('_');
+
+/** The properties a reader should see, in the order they were given. */
+export const visibleProps = <T extends { key?: string }>(props: T[]) => props.filter((x) => !isSystemProp(x));
+
 export const BUILTIN_PREFIX = 'sys:';
 
 export const isBuiltinProp = (id: string) => id.startsWith(BUILTIN_PREFIX);

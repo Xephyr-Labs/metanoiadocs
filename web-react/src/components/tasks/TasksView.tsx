@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CheckSquare, RefreshCw } from 'lucide-react';
+import { CalendarRange, CheckSquare, KanbanSquare, List, RefreshCw } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { docsApi, type UserRow } from '../../lib/docsApi';
 import { swatch } from '../../lib/tagColors';
@@ -10,13 +10,37 @@ import { useWorkspace } from '../../store/workspace';
 import { EmptyState } from '../ui/EmptyState';
 import { IconButton } from '../ui/IconButton';
 import { Skeleton } from '../ui/Skeleton';
-import { DOT } from '../project/Board';
+import { Board, DOT } from '../project/Board';
 import { FilterBar } from '../project/FilterBar';
+import { Gantt } from '../project/Gantt';
 import { TagFilter } from '../project/TagFilter';
+import { SegmentedControl } from '../ui/SegmentedControl';
+import { groupOf, groupsFor } from '../../lib/grouping';
 
 /** One saved filter set for the whole workspace, per browser — the same
  *  arrangement each project's board already uses for its own. */
 const FILTER_KEY = 'mn-filters-all';
+
+/**
+ * How this collection is drawn, remembered per browser.
+ *
+ * The filters above decide WHICH tasks; this decides how they are shown. They
+ * were welded together — the workspace list could only ever be a list, so
+ * "everything tagged posthog-incident, as a board" was a question the app held
+ * all the data to answer and had no way to ask. Separating the two is the
+ * whole change: any filter set, any presentation.
+ */
+const SHAPE_KEY = 'mn-shape-all';
+type Shape = 'list' | 'board' | 'timeline';
+
+function readShape(): Shape {
+  try {
+    const v = localStorage.getItem(SHAPE_KEY);
+    return v === 'board' || v === 'timeline' ? v : 'list';
+  } catch {
+    return 'list';
+  }
+}
 
 /** null when this browser has never had a set here, which is not the same as
  *  having deliberately cleared one: only the first opens with a starting view. */
@@ -65,6 +89,7 @@ export function TasksView() {
   const [users, setUsers] = useState<UserRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [filters, setFilters] = useState<Filter[]>(() => readFilters() ?? []);
+  const [shape, setShape] = useState<Shape>(readShape);
   const seeded = useRef(readFilters() !== null);
 
   const load = () => {
@@ -128,6 +153,12 @@ export function TasksView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, users, fields]);
   const visible = data ? applyFilters(data.tasks, pruneUnresolvable(filters, fields), fields) : [];
+  // The board's columns are the status field the filter bar already describes,
+  // so the two never disagree about what the statuses are or what they are
+  // called. Status is built-in, which is why a board over several projects can
+  // be grouped by it at all — a custom property could not.
+  const statusField = useMemo(() => fields.find((f) => f.key === 'status'), [fields]);
+  const boardGroups = useMemo(() => (statusField ? groupsFor(statusField) : []), [statusField]);
   const now = today();
 
   return (
@@ -155,14 +186,28 @@ export function TasksView() {
             <TagFilter tags={ws.allTags} filters={filters} onChange={save} />
             <FilterBar fields={fields} filters={filters} onChange={save} />
           </div>
-          <div className="order-2 ml-auto sm:order-3 sm:ml-0">
+          <div className="order-2 ml-auto flex items-center gap-2 sm:order-3 sm:ml-0">
+            <SegmentedControl
+              aria-label="How to show these tasks"
+              value={shape}
+              onChange={(v) => {
+                const next = v as Shape;
+                setShape(next);
+                try { localStorage.setItem(SHAPE_KEY, next); } catch { /* private mode */ }
+              }}
+              segments={[
+                { value: 'list', label: 'List', icon: <List size={13} /> },
+                { value: 'board', label: 'Board', icon: <KanbanSquare size={13} /> },
+                { value: 'timeline', label: 'Timeline', icon: <CalendarRange size={13} /> },
+              ]}
+            />
             <IconButton icon={<RefreshCw size={16} />} label="Refresh" onClick={load} />
           </div>
         </div>
       </header>
 
-      <div className="scrollarea min-h-0 flex-1 overflow-y-auto px-4">
-        <div className="mx-auto w-full max-w-[1100px]">
+      <div className={cn('min-h-0 flex-1', shape === 'list' ? 'scrollarea overflow-y-auto px-4' : 'flex flex-col overflow-hidden p-3')}>
+        <div className={cn(shape === 'list' ? 'mx-auto w-full max-w-[1100px]' : 'flex min-h-0 flex-1 flex-col')}>
         {error && <p className="py-3 text-sm text-danger-strong">{error}</p>}
         {!data ? (
           <div className="space-y-2 py-4">
@@ -176,6 +221,23 @@ export function TasksView() {
             title={data.tasks.length ? 'Nothing matches these filters' : 'No tasks yet'}
             hint={data.tasks.length ? 'Drop a chip above to widen the list.' : 'Tasks from every project land here.'}
           />
+        ) : shape === 'board' ? (
+          <Board
+            tasks={visible}
+            groups={boardGroups}
+            groupOf={(t) => (statusField ? groupOf(t, statusField) : '')}
+            users={users}
+            onOpen={(t) => ws.openProject((t as AnyTaskRow).project_id, t.id)}
+            // No `onAdd`: a column here spans every project, so there is no
+            // project a new row would belong to. Board draws no "+" without it.
+            onMove={(id, value) => {
+              tasksApi.patchTask(id, { status: value as AnyTaskRow['status'] }).then(load).catch(() => load());
+            }}
+          />
+        ) : shape === 'timeline' ? (
+          <div className="scrollarea min-h-0 flex-1 overflow-auto">
+            <Gantt tasks={visible} users={users} onOpen={(t) => ws.openProject((t as AnyTaskRow).project_id, t.id)} />
+          </div>
         ) : (
           <ul className="py-1.5">
             {visible.map((t) => {
