@@ -749,6 +749,23 @@ input:not([type='checkbox']):not([type='radio']) {
   flex-basis: auto;
 }
 
+/* BlockSuite ships a `.truncate` of its own and injects it into the document
+ * the first time an editor mounts. It is the same class name Tailwind gives us,
+ * at the same specificity, and it arrives later — so from the first task peek or
+ * document open onwards, every truncating label in the app inherited their
+ * `align-self: stretch`. A label that stretches fills its row instead of
+ * centring in it, which puts the text at the top of the box and leaves the icon
+ * beside it looking a pixel or two low. That is why the view tabs came apart
+ * only once the task panel had been opened, and why closing it again did not
+ * put them back: the injected rule stays for the rest of the session.
+ *
+ * `:root` costs nothing and buys the specificity to outrank an injection we do
+ * not control. Their own components live in shadow roots, where a document rule
+ * cannot reach them, so this only takes the stretch off ours. */
+:root .truncate {
+  align-self: auto;
+}
+
 /* One select look, everywhere. The OS widget is dropped and the chevron drawn
  * here, so light and dark agree and the control keeps the field's own metrics
  * instead of whatever the platform decides a <select> is this year. */
