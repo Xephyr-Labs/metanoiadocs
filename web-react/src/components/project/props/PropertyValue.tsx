@@ -40,6 +40,23 @@ interface Props {
  * data. This lived in TaskTable, which is why only the table's two built-in
  * date columns got it and every date *property* stayed raw.
  */
+/** Chromium, Edge and Safari 16+. Checked once, not per render. */
+const CAN_PICK =
+  typeof HTMLInputElement !== 'undefined' && 'showPicker' in HTMLInputElement.prototype;
+
+/** Opening the picker is a user gesture, so this only ever runs from an event.
+ *  `showPicker` throws if the browser declines — a second call while one is
+ *  already open, for instance — and there is nothing useful to do about that. */
+function openPicker(e: { currentTarget: HTMLInputElement; preventDefault: () => void }) {
+  if (!CAN_PICK) return;
+  e.preventDefault();
+  try {
+    e.currentTarget.showPicker();
+  } catch {
+    /* already open, or refused; the field still takes typing */
+  }
+}
+
 function DateValue({ value, danger, onChange }: {
   value: string | null;
   danger?: boolean;
@@ -83,16 +100,29 @@ function DateValue({ value, danger, onChange }: {
           'opacity-0 group-hover/date:opacity-60 group-focus-within/date:opacity-60',
         ].join(' ')}
       />
-      {/* Deliberately invisible, and it must STAY invisible while focused —
-          see `.mn-stay-hidden` in index.css. The native control is kept
-          because it is the accessible one and it brings the platform picker;
-          what it must not do is paint `09/18/2026` over the `Sep 18` this
-          label already draws. The ring above is how focus is shown instead. */}
+      {/* Invisible, and it must STAY invisible while focused — otherwise the
+          browser paints `09/18/2026` across the `Sep 18` this label already
+          draws. `.mn-stay-hidden` is what holds it down; the ring above is how
+          focus is shown instead.
+ 
+          Hiding it costs the click, though, and that cost is easy to miss: a
+          date field only opens its calendar when the click lands on the small
+          indicator the browser draws INSIDE it, and an invisible field has no
+          visible indicator to aim at. The picker used to open only because the
+          field became visible on focus — the same reveal that caused the
+          overlap. So the click is put back explicitly, and on the whole field
+          rather than on a 16px target.
+ 
+          Where `showPicker` does not exist (older Safari), the field is not
+          hidden at all: the old overlap is ugly, and a control that cannot be
+          opened is broken. Ugly beats broken. */}
       <input
         type="date"
         aria-label={danger ? 'Date (overdue)' : 'Date'}
-        className="mn-stay-hidden absolute inset-0 h-full w-full cursor-pointer opacity-0"
+        className={cn('absolute inset-0 h-full w-full cursor-pointer opacity-0', CAN_PICK && 'mn-stay-hidden')}
         value={iso}
+        onClick={openPicker}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') openPicker(e); }}
         onChange={(e) => onChange(e.target.value || null)}
       />
     </label>
