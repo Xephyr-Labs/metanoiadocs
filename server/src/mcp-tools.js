@@ -340,6 +340,522 @@ export function createMetanoiaMcpServer({ base, headers = {} }) {
     }
   );
 
+  // Public origin, for links a person can click.
+  const PUBLIC = process.env.BASE_URL || '';
+
+  // ── the task board ────────────────────────────────────────────────────────
+  // Boards ("projects") live in the same workspace as the documents, and a task
+  // usually has a page behind it (`doc_id`) — which is why a task links to its
+  // page when it has one and to the board when it does not.
+  //
+  // Everything here goes through the same REST routes the app uses, so a tool
+  // can never reach further than the caller's own token already does.
+
+  const STATUSES = ['todo', 'doing', 'review', 'done'];
+  const SPRINT_STATES = ['planned', 'active', 'done'];
+  const DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+  const dayOf = (d) => d.toISOString().slice(0, 10);
+  const dueDay = (t) => (t.due_at ? String(t.due_at).slice(0, 10) : null);
+
+  // A task due today is NOT overdue. That is how the board counts it
+  // (`due_at < current_date`), and a tool that disagreed with the page it links
+  // to would turn every number into an argument.
+  const isOverdue = (t, today) => {
+    const d = dueDay(t);
+    return d !== null && d < today;
+  };
+  const isDueWithin = (t, days, today) => {
+    const d = dueDay(t);
+    if (d === null) return false;
+    const edge = new Date(`${today}T00:00:00Z`);
+    edge.setUTCDate(edge.getUTCDate() + days);
+    return d <= dayOf(edge);
+  };
+
+  const checkDate = (label, value) => {
+    if (value && !DATE.test(value)) throw new Error(`${label} must be YYYY-MM-DD, got "${value}"`);
+  };
+
+  const taskUrl = (t) => (t.doc_id ? `${PUBLIC}/d/${t.doc_id}` : `${PUBLIC}/db/${t.project_id}`);
+
+  const taskRow = (t) => ({
+    id: t.id,
+    title: t.title,
+    status: t.status,
+    kind: t.kind,
+    project: t.project_name,
+    assignees: (t.assignees || []).map((a) => a.name).filter(Boolean),
+    due: dueDay(t),
+    points: t.points,
+    sprintId: t.sprint_id,
+    blockedBy: t.deps || [],
+    url: taskUrl(t),
+  });
+
+  /**
+   * Find a member by whatever the caller had to hand — id, email, username or
+   * name. An ambiguous match is an error rather than a guess: assigning work to
+   * the wrong person is worse than asking again.
+   */
+  function findPerson(all, who) {
+    const q = String(who).trim().toLowerCase();
+    const exact = all.find(
+      (u) => u.id === who || (u.email || '').toLowerCase() === q || (u.username || '').toLowerCase() === q,
+    );
+    if (exact) return exact;
+    const named = all.filter((u) => (u.name || '').toLowerCase().includes(q));
+    if (named.length === 1) return named[0];
+    if (named.length > 1) {
+      throw new Error(`"${who}" matches ${named.map((u) => u.email).join(', ')} — use one of those emails.`);
+    }
+    throw new Error(`No workspace member matches "${who}". Use list_members to see them.`);
+  }
+
+  function pickBoard(all, which) {
+    const q = String(which).trim().toLowerCase();
+    const byId = all.find((p) => p.id === which);
+    if (byId) return byId;
+    const named = all.filter((p) => (p.name || '').toLowerCase().includes(q));
+    if (named.length === 1) return named[0];
+    if (named.length > 1) throw new Error(`"${which}" matches ${named.map((p) => p.name).join(', ')}.`);
+    throw new Error(`No board called "${which}". Known boards: ${all.map((p) => p.name).join(', ')}.`);
+  }
+
+  /**
+   * The board, refusing the one kind that cannot hold work.
+   *
+   * Archived boards need no check here: /api/projects leaves them out, so
+   * findBoard cannot return one in the first place.
+   */
+  function workBoard(project) {
+    if (project.mode === 'data') {
+      throw new Error(`"${project.name}" is a data table, not a work board — a task there would never appear in list_tasks.`);
+    }
+    return project;
+  }
+
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+  const findBoard = async (which) => pickBoard(await api('/projects'), which);
+
+  /** Resolve people-ish strings to ids, for assigning a task. */
+  async function assigneeIds(who) {
+    if (who === undefined) return undefined;
+    const all = await api('/users');
+    return who.map((w) => findPerson(all, w).id);
+  }
+
+  server.registerTool(
+    'list_boards',
+    {
+      title: 'List task boards',
+      description:
+        'The task boards, with how many tasks each holds, how many are done and how many are overdue. Archived boards are left out. Every task tool accepts a board by name, so this is mostly for "what boards are there".',
+      inputSchema: {},
+    },
+    async () => {
+      try {
+        // The route already leaves archived boards out.
+        const rows = await api('/projects');
+        return ok(
+          rows.map((p) => ({
+            id: p.id,
+            name: p.name,
+            mode: p.mode,
+            tasks: p.total,
+            done: p.done,
+            overdue: p.overdue,
+            url: `${PUBLIC}/db/${p.id}`,
+          })),
+        );
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    'create_board',
+    {
+      title: 'Create a task board',
+      description:
+        'Create a board. mode=tasks (default) is a board of work; mode=data is a plain table of rows and never appears in list_tasks.',
+      inputSchema: {
+        name: z.string(),
+        icon: z.string().optional().describe('A single emoji; defaults to 📋'),
+        mode: z.enum(['tasks', 'data']).optional(),
+      },
+    },
+    async ({ name, icon, mode }) => {
+      try {
+        const p = await api('/projects', { method: 'POST', body: { name, icon, mode } });
+        return ok({ id: p.id, name: p.name, mode: p.mode, url: `${PUBLIC}/db/${p.id}` });
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    'archive_board',
+    {
+      title: 'Archive or restore a board',
+      description:
+        'Archive a board, or bring one back. Archiving hides it and its work without deleting anything — there is no hard delete for a board. Archiving takes a name or an id; RESTORING takes the id, because an archived board is not listed anywhere to be found by name. Its id is the last part of its /db/<id> address.',
+      inputSchema: {
+        board: z.string().describe('Board name or id — an id is required to restore'),
+        archived: z.boolean().optional().describe('Default true; false restores it'),
+      },
+    },
+    async ({ board, archived }) => {
+      try {
+        // /api/projects returns only live boards, so an archived one cannot be
+        // looked up by name at all — a bare id is passed straight through.
+        const found = UUID.test(board) ? null : pickBoard(await api('/projects'), board);
+        const id = found ? found.id : board;
+        await api(`/projects/${encodeURIComponent(id)}`, {
+          method: 'PATCH',
+          body: { archived: archived !== false },
+        });
+        const label = found ? `"${found.name}"` : id;
+        return ok(archived === false ? `Restored ${label}.` : `Archived ${label}.`);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    'list_tasks',
+    {
+      title: 'List tasks',
+      description:
+        "The team's work. Every filter is optional and they combine; by default you get everything that is not done, earliest deadline first. `assignee` takes a name, username or email (or \"unassigned\"); `board` takes a board name or id. Each row carries the id that update_task needs.",
+      inputSchema: {
+        assignee: z.string().optional().describe('Name, username or email — or "unassigned"'),
+        board: z.string().optional().describe('Board name or id'),
+        status: z.enum(STATUSES).optional(),
+        includeDone: z.boolean().optional().describe('Default false — done work is left out'),
+        overdue: z.boolean().optional().describe('Only tasks whose due date has passed'),
+        dueWithinDays: z.number().optional().describe('Only tasks due within this many days; late ones count'),
+        search: z.string().optional().describe('Match against the title'),
+        limit: z.number().optional().describe('Default 50'),
+      },
+    },
+    async ({ assignee, board, status, includeDone, overdue, dueWithinDays, search, limit }) => {
+      try {
+        // The query parameters this route documents are unreachable — a second
+        // handler for GET /api/tasks is registered ahead of them and answers
+        // first — so the filtering happens here. That route also caps at 1000
+        // rows, which is the real ceiling on this approach.
+        const { tasks } = await api('/tasks');
+        let rows = tasks;
+
+        if (assignee) {
+          if (assignee.trim().toLowerCase() === 'unassigned') {
+            rows = rows.filter((t) => !(t.assignees || []).length);
+          } else {
+            const who = findPerson(await api('/users'), assignee);
+            rows = rows.filter((t) => (t.assignees || []).some((a) => a.id === who.id));
+          }
+        }
+        if (board) {
+          const found = await findBoard(board);
+          rows = rows.filter((t) => t.project_id === found.id);
+        }
+        if (status) rows = rows.filter((t) => t.status === status);
+        else if (!includeDone) rows = rows.filter((t) => t.status !== 'done');
+
+        if (search) {
+          const q = search.toLowerCase();
+          rows = rows.filter((t) => (t.title || '').toLowerCase().includes(q));
+        }
+
+        const today = dayOf(new Date());
+        if (dueWithinDays !== undefined) rows = rows.filter((t) => isDueWithin(t, dueWithinDays, today));
+        if (overdue) rows = rows.filter((t) => isOverdue(t, today));
+
+        rows = [...rows].sort((a, b) => (dueDay(a) || '9999').localeCompare(dueDay(b) || '9999'));
+        return ok({ count: rows.length, tasks: rows.slice(0, limit ?? 50).map(taskRow) });
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    'create_task',
+    {
+      title: 'Create a task',
+      description:
+        'Add a task to a board. `board` is a board name or id; `assignees` are names, usernames or emails, and everyone named is notified. Dates are YYYY-MM-DD.',
+      inputSchema: {
+        board: z.string().describe('Board name or id'),
+        title: z.string(),
+        assignees: z.array(z.string()).optional().describe('Names, usernames or emails'),
+        status: z.enum(STATUSES).optional().describe('Default todo'),
+        dueAt: z.string().optional().describe('YYYY-MM-DD'),
+        startAt: z.string().optional().describe('YYYY-MM-DD'),
+        points: z.number().optional(),
+        priority: z.number().optional(),
+        milestone: z.boolean().optional(),
+        sprintId: z.string().optional().describe('From list_sprints; must be a sprint on this board'),
+        docId: z.string().optional().describe('Write the task on an existing page'),
+      },
+    },
+    async (args) => {
+      try {
+        checkDate('dueAt', args.dueAt);
+        checkDate('startAt', args.startAt);
+        const board = workBoard(await findBoard(args.board));
+        const created = await api('/tasks', {
+          method: 'POST',
+          body: {
+            projectId: board.id,
+            title: args.title,
+            status: args.status,
+            dueAt: args.dueAt,
+            startAt: args.startAt,
+            points: args.points,
+            priority: args.priority,
+            milestone: args.milestone,
+            sprintId: args.sprintId,
+            docId: args.docId,
+            assigneeIds: await assigneeIds(args.assignees),
+          },
+        });
+        return ok({ ...taskRow(created), board: board.name });
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    'update_task',
+    {
+      title: 'Update a task',
+      description:
+        'Change a task: move it between todo/doing/review/done, retitle it, reassign it, set or clear a date, record progress, move it into a sprint. Only the fields you pass change. Pass assignees: [] to unassign everyone, dueAt: null to clear the date, sprintId: null to send it back to the backlog.',
+      inputSchema: {
+        id: z.string().describe('Task id from list_tasks'),
+        title: z.string().optional(),
+        status: z.enum(STATUSES).optional(),
+        assignees: z.array(z.string()).optional().describe('Replaces the current set; [] unassigns'),
+        dueAt: z.string().nullable().optional().describe('YYYY-MM-DD, or null to clear'),
+        startAt: z.string().nullable().optional().describe('YYYY-MM-DD, or null to clear'),
+        progress: z.number().optional().describe('0-100'),
+        points: z.number().nullable().optional(),
+        priority: z.number().optional(),
+        milestone: z.boolean().optional(),
+        sprintId: z.string().nullable().optional().describe('null returns it to the backlog'),
+      },
+    },
+    async (args) => {
+      try {
+        checkDate('dueAt', args.dueAt);
+        checkDate('startAt', args.startAt);
+        // Only send what was asked for: the route treats an absent key as "leave
+        // it alone" and a null as "clear it".
+        const body = {};
+        for (const key of ['title', 'status', 'dueAt', 'startAt', 'progress', 'points', 'priority', 'milestone', 'sprintId']) {
+          if (args[key] !== undefined) body[key] = args[key];
+        }
+        if (args.assignees !== undefined) body.assigneeIds = await assigneeIds(args.assignees);
+        if (!Object.keys(body).length) throw new Error('Nothing to change — pass at least one field.');
+        return ok(taskRow(await api(`/tasks/${encodeURIComponent(args.id)}`, { method: 'PATCH', body })));
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    'delete_task',
+    {
+      title: 'Delete a task',
+      description:
+        "Move a task to the trash, along with the page it was written on. It is recoverable from the workspace's trash, but this tool cannot bring it back — say what you are deleting before you do.",
+      inputSchema: { id: z.string().describe('Task id from list_tasks') },
+    },
+    async ({ id }) => {
+      try {
+        await api(`/tasks/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        return ok('Moved to the trash.');
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    'list_sprints',
+    {
+      title: "List a board's sprints",
+      description:
+        'The sprints on a board, newest state first, each with its task and point totals. A sprint is planned, active or done; a board has at most one active sprint.',
+      inputSchema: { board: z.string().describe('Board name or id') },
+    },
+    async ({ board }) => {
+      try {
+        const found = await findBoard(board);
+        const rows = await api(`/projects/${encodeURIComponent(found.id)}/sprints`);
+        return ok(
+          rows.map((s) => ({
+            id: s.id,
+            name: s.name,
+            state: s.state,
+            start: s.start_at ? String(s.start_at).slice(0, 10) : null,
+            end: s.end_at ? String(s.end_at).slice(0, 10) : null,
+            tasks: s.total,
+            done: s.done,
+            points: s.points,
+            pointsDone: s.points_done,
+          })),
+        );
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    'create_sprint',
+    {
+      title: 'Create a sprint',
+      description: 'Add a sprint to a board. It starts in the planned state; use update_sprint to begin it.',
+      inputSchema: {
+        board: z.string().describe('Board name or id'),
+        name: z.string(),
+        startAt: z.string().optional().describe('YYYY-MM-DD'),
+        endAt: z.string().optional().describe('YYYY-MM-DD'),
+      },
+    },
+    async ({ board, name, startAt, endAt }) => {
+      try {
+        checkDate('startAt', startAt);
+        checkDate('endAt', endAt);
+        const found = workBoard(await findBoard(board));
+        const s = await api(`/projects/${encodeURIComponent(found.id)}/sprints`, {
+          method: 'POST',
+          body: { name, startAt, endAt },
+        });
+        return ok({ id: s.id, name: s.name, state: s.state, board: found.name });
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    'update_sprint',
+    {
+      title: 'Update a sprint',
+      description:
+        "Rename a sprint, move its dates, or change its state. Starting one (state: active) parks whichever sprint on that board was active. Completing one (state: done) returns its unfinished work to the backlog — that is the app's behaviour, not this tool's, and it cannot be undone by setting the state back.",
+      inputSchema: {
+        id: z.string().describe('Sprint id from list_sprints'),
+        name: z.string().optional(),
+        startAt: z.string().optional().describe('YYYY-MM-DD'),
+        endAt: z.string().optional().describe('YYYY-MM-DD'),
+        state: z.enum(SPRINT_STATES).optional(),
+      },
+    },
+    async ({ id, name, startAt, endAt, state }) => {
+      try {
+        checkDate('startAt', startAt);
+        checkDate('endAt', endAt);
+        const body = {};
+        if (name !== undefined) body.name = name;
+        if (startAt !== undefined) body.startAt = startAt;
+        if (endAt !== undefined) body.endAt = endAt;
+        if (state !== undefined) body.state = state;
+        if (!Object.keys(body).length) throw new Error('Nothing to change — pass at least one field.');
+        const s = await api(`/sprints/${encodeURIComponent(id)}`, { method: 'PATCH', body });
+        return ok({ id: s.id, name: s.name, state: s.state });
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    'delete_sprint',
+    {
+      title: 'Delete a sprint',
+      description:
+        'Remove a sprint. Its tasks are not deleted — they return to the backlog. Unlike a task, a sprint does not go to the trash, so this one is final.',
+      inputSchema: { id: z.string().describe('Sprint id from list_sprints') },
+    },
+    async ({ id }) => {
+      try {
+        await api(`/sprints/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        return ok('Deleted; its tasks went back to the backlog.');
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    'add_task_dependency',
+    {
+      title: 'Make one task wait for another',
+      description:
+        'Record that a task is blocked by another one. A dependency that would close a loop is refused by the server. Both ids come from list_tasks.',
+      inputSchema: {
+        id: z.string().describe('The task that waits'),
+        dependsOn: z.string().describe('The task it waits for'),
+      },
+    },
+    async ({ id, dependsOn }) => {
+      try {
+        await api(`/tasks/${encodeURIComponent(id)}/deps`, { method: 'POST', body: { dependsOn } });
+        return ok('Linked.');
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    'remove_task_dependency',
+    {
+      title: 'Remove a dependency',
+      description: 'Drop the link that made one task wait for another.',
+      inputSchema: {
+        id: z.string().describe('The task that was waiting'),
+        dependsOn: z.string().describe('The task it was waiting for'),
+      },
+    },
+    async ({ id, dependsOn }) => {
+      try {
+        await api(`/tasks/${encodeURIComponent(id)}/deps/${encodeURIComponent(dependsOn)}`, { method: 'DELETE' });
+        return ok('Unlinked.');
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    'workspace_overview',
+    {
+      title: 'Workspace overview',
+      description:
+        "The home dashboard as data: counts across the workspace, the caller's own tasks bucketed by urgency, recently touched documents, recent activity and the boards. One call when the question is \"what is going on\" rather than a specific lookup.",
+      inputSchema: {},
+    },
+    async () => {
+      try {
+        return ok(await api('/home'));
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
   return server;
 }
 
@@ -358,4 +874,18 @@ export const MCP_TOOL_NAMES = [
   'move_doc',
   'link_docs',
   'share_doc',
+  'list_boards',
+  'create_board',
+  'archive_board',
+  'list_tasks',
+  'create_task',
+  'update_task',
+  'delete_task',
+  'list_sprints',
+  'create_sprint',
+  'update_sprint',
+  'delete_sprint',
+  'add_task_dependency',
+  'remove_task_dependency',
+  'workspace_overview',
 ];
