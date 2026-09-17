@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { builtinProps, defaultCardProps, defaultPropIds, isBuiltinProp, readBuiltin, DEFAULT_CARD_PROPS } from './builtinProps';
+import { builtinProps, defaultCardProps, defaultPropIds, isBuiltinProp, isSystemProp, readBuiltin, visibleProps, DEFAULT_CARD_PROPS } from './builtinProps';
 import type { PropRow, TaskKindRow, TaskRow } from './tasksApi';
 
 const task = (over: Partial<TaskRow> = {}): TaskRow => ({
@@ -184,5 +184,24 @@ describe('defaultPropIds', () => {
   it('is stable when the project has no properties of its own', () => {
     expect(defaultPropIds('board', builtinProps('tasks', kinds), []))
       .toEqual(DEFAULT_CARD_PROPS.board);
+  });
+});
+
+describe('system properties', () => {
+  const p = (key: string) => ({ key, label: key });
+
+  it('treats a leading underscore as the app\'s own', () => {
+    expect(isSystemProp(p('_agent_source'))).toBe(true);
+    expect(isSystemProp(p('_pinned'))).toBe(true);
+    expect(isSystemProp(p('owner'))).toBe(false);
+    // Not a prefix match anywhere but the front: a human may well want a
+    // property called "spend_usd".
+    expect(isSystemProp(p('spend_usd'))).toBe(false);
+    expect(isSystemProp({})).toBe(false);
+  });
+
+  it('keeps the readable ones in their given order', () => {
+    const list = [p('owner'), p('_agent_source'), p('due'), p('_confidence')];
+    expect(visibleProps(list).map((x) => x.key)).toEqual(['owner', 'due']);
   });
 });

@@ -8,9 +8,10 @@ import { ExternalLink, Link2, MoreHorizontal, Plus, Settings2, Trash2, X } from 
 import { useEffect, useMemo, useState } from 'react';
 import type { UserRow } from '../../lib/docsApi';
 import { cn } from '../../lib/cn';
+import { STATUS_DOT } from '../../lib/grouping';
 import { useAuth } from '../../store/auth';
 import { useWorkspace } from '../../store/workspace';
-import { builtinProps, isAuditProp } from '../../lib/builtinProps';
+import { builtinProps, isAuditProp, visibleProps } from '../../lib/builtinProps';
 import {
   tasksApi,
   type ProjectMode, type PropOption, type PropRow, type RelatedRow, type SprintRow, type TaskDetail, type TaskPatch, type TaskRow,
@@ -101,6 +102,28 @@ function Row({ name, note, action, children }: {
  * peek and the grid drift apart: a date read `09/14/2026` in one and `Sep 14`
  * in the other, a status was a native select here and a coloured chip there.
  */
+/**
+ * One neighbouring row, as a link rather than a control.
+ *
+ * Carries its status dot so a list of blocked rows says at a glance whether
+ * anything is actually moving, and strikes the done ones out the same way
+ * every other list in the app does.
+ */
+function EdgeLink({ task, onOpen }: { task: TaskRow; onOpen: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="flex w-full items-center gap-2 rounded-md border border-line px-2 py-1 text-left text-sm transition-colors duration-120 hover:bg-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+    >
+      <span aria-hidden className={cn('h-1.5 w-1.5 shrink-0 rounded-full', STATUS_DOT[task.status] ?? 'bg-line-strong')} />
+      <span className={cn('min-w-0 flex-1 truncate', task.status === 'done' ? 'text-muted line-through' : 'text-ink')}>
+        {task.title || 'Untitled'}
+      </span>
+    </button>
+  );
+}
+
 export function TaskPeek({
   task, mode, tasks, props, sprints, users, statusColors, onClose, onPatch, onSetProp, onDelete, onAddDep, onRemoveDep,
   onManageKinds, onManageProps, onEditOptions, onTagsChanged,
@@ -124,7 +147,10 @@ export function TaskPeek({
   // of its default: worth having, not worth four rows before anyone asks.
   const fields = useMemo(() => {
     const builtins = builtinProps(mode, kinds, sprints, statusColors).filter((p) => !isAuditProp(p.id));
-    return [...builtins, ...props];
+    // `_`-prefixed properties are the app's own — provenance, agent notes,
+    // anything written about the row rather than by its owner. They stay out
+    // of the panel for the same reason the audit columns do.
+    return [...builtins, ...visibleProps(props)];
   }, [mode, kinds, sprints, statusColors, props]);
 
   // Labels carried by more than one property — a database may define its own
@@ -164,6 +190,13 @@ export function TaskPeek({
   if (!task) return null;
 
   const candidates = tasks.filter((t) => t.id !== task.id && !task.deps.includes(t.id));
+  // The other half of every edge this panel already draws. A task knows what
+  // it waits for and what it hangs under; it has never been able to say what
+  // waits for IT, which is the half that decides whether this row matters
+  // today. Derived here rather than fetched: the whole database is already in
+  // `tasks`, and an edge is the same edge read backwards.
+  const blocking = tasks.filter((t) => t.id !== task.id && t.deps.includes(task.id));
+  const children = tasks.filter((t) => t.parent_id === task.id);
   const byId = new Map(tasks.map((t) => [t.id, t]));
   // Pages a task can be moved onto: ordinary documents, not other tasks' pages
   // (which belong to a row already) and not designs.
@@ -286,6 +319,31 @@ export function TaskPeek({
                   options={candidates.map((t) => ({ value: t.id, label: t.title || 'Untitled' }))}
                   onChange={(id) => { onAddDep(task.id, id); setDepPick(''); }}
                 />
+              </div>
+            </Row>
+          )}
+
+          {/* Read-only, and only when there is something to read. The rows
+              above are edges you set; these are edges other rows set at you,
+              and there is nothing to pick — following one is the only useful
+              thing to do with it. Empty they would be two more "None"s in a
+              panel that already has enough. */}
+          {mode !== 'data' && blocking.length > 0 && (
+            <Row name="Blocks">
+              <div className="space-y-1">
+                {blocking.map((t) => (
+                  <EdgeLink key={t.id} task={t} onOpen={() => ws.openProject(t.project_id, t.id)} />
+                ))}
+              </div>
+            </Row>
+          )}
+
+          {mode !== 'data' && children.length > 0 && (
+            <Row name={`Children ${children.length}`}>
+              <div className="space-y-1">
+                {children.map((t) => (
+                  <EdgeLink key={t.id} task={t} onOpen={() => ws.openProject(t.project_id, t.id)} />
+                ))}
               </div>
             </Row>
           )}
