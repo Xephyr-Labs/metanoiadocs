@@ -2,7 +2,8 @@
 
 Exposes your MetanoiaDocs workspace to AI agents (Claude Desktop, Claude Code, Cursor, …)
 over the [Model Context Protocol](https://modelcontextprotocol.io). The agent can search,
-read, create, and edit your docs — **as you**, respecting team/private access.
+read, create, and edit your docs **and work the task boards** — **as you**, respecting
+team/private access.
 
 ## Tools
 
@@ -21,6 +22,29 @@ read, create, and edit your docs — **as you**, respecting team/private access.
 | `set_visibility` | Switch a doc between team / private (owner only) |
 | `add_tag` | Tag a doc |
 | `list_members` | Workspace members (for @-mentions and `share_doc`) |
+
+### Task boards
+
+| Tool | What it does |
+|---|---|
+| `list_boards` | The boards, with task / done / overdue counts |
+| `create_board` | New board — `mode: tasks` (work) or `data` (a plain table) |
+| `archive_board` | Archive a board, or restore one by id |
+| `list_tasks` | Filter by assignee, board, status, overdue, due window, title |
+| `create_task` | Add a task and assign it (assignees are notified) |
+| `update_task` | Status, assignees, title, dates, progress, points, sprint |
+| `delete_task` | Move a task and its page to the trash |
+| `list_sprints` | A board's sprints, with task and point totals |
+| `create_sprint` | Add a sprint (starts `planned`) |
+| `update_sprint` | Rename, move dates, or set `planned` / `active` / `done` |
+| `delete_sprint` | Remove a sprint; its tasks return to the backlog |
+| `add_task_dependency` | Mark a task as blocked by another |
+| `remove_task_dependency` | Drop that link |
+| `workspace_overview` | The home dashboard as data — stats, your tasks, activity |
+
+People and boards are named the way you would say them: `assignee: "sam"`, a
+username, an email, or `board: "Lattu"`. An ambiguous name is refused rather
+than guessed. Dates are `YYYY-MM-DD`, and a task due **today** is not overdue.
 
 ## Setup
 
