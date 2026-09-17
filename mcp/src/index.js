@@ -134,6 +134,34 @@ server.registerTool(
 );
 
 server.registerTool(
+  'read_comments',
+  {
+    title: 'Read a doc\'s comments',
+    description:
+      'The comment threads on a doc, oldest first. Each row carries the author, the body, the quoted text it is anchored to, whether it is resolved, and `parentId` — null for a thread root, otherwise the comment it replies to. Reach for this whenever you are told you were mentioned on a doc: the notification only says which doc, so the request itself lives here.',
+    inputSchema: {
+      id: z.string().describe('Document id'),
+      includeResolved: z.boolean().optional().describe('Include resolved threads too (default false — resolved means handled)'),
+    },
+  },
+  async ({ id, includeResolved }) => {
+    try {
+      const rows = await api(`/docs/${encodeURIComponent(id)}/comments`);
+      const kept = (rows || []).filter((c) => includeResolved || !c.resolved);
+      return ok(kept.map((c) => ({
+        id: c.id,
+        author: c.author_name,
+        body: c.body,
+        quote: c.quote || null,
+        parentId: c.parent_id,
+        resolved: c.resolved,
+        createdAt: c.created_at,
+      })));
+    } catch (e) { return fail(e); }
+  },
+);
+
+server.registerTool(
   'set_visibility',
   {
     title: 'Set doc visibility',
