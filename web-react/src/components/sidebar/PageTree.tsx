@@ -63,7 +63,7 @@ function Row({ id, depth }: { id: PageId; depth: number }) {
             chevron overlays the icon on hover/select. Keeps every top-level row's
             icon in the SAME column as the nav + Recent icons above, instead of a
             reserved chevron slot pushing the whole tree ~20px to the right. */}
-        <span className="relative mr-1.5 flex h-5 w-5 shrink-0 items-center justify-center">
+        <span className="relative mr-2 flex h-5 w-5 shrink-0 items-center justify-center">
           <span
             className={cn(
               'flex items-center justify-center transition-opacity',

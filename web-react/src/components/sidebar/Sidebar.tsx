@@ -97,17 +97,22 @@ function NavItem({ icon, label, onClick, trailing, active, alert }: { icon: Reac
  * A section label that does not fold.
  *
  * It reserves the chevron's slot anyway. Half the sections in this rail fold
- * and half do not, and when only the folding ones carried the 12px mark their
+ * and half do not, and when only the folding ones carried the mark their
  * labels started 16px further right — six headers, two left edges, in one
  * column. The empty slot costs nothing and buys the column its edge back; it
  * is the same reasoning as the always-drawn chevron in the view tabs, where a
  * control that appears and disappears is a control that moves everything
  * around it.
+ *
+ * The slot is the width of an item's icon (20px) and the gap is the item's
+ * gap, so a header's mark lands in the icon column of the rows it captions and
+ * its label lands in their text column. A header indented to some third
+ * position of its own aligns with nothing, which is what a 12px slot did.
  */
 function SectionLabel({ children, action }: { children: ReactNode; action?: ReactNode }) {
   return (
-    <div className="mt-3 flex h-6 items-center gap-1 px-2 first:mt-0">
-      <span aria-hidden className="w-3 shrink-0" />
+    <div className="mt-3 flex h-6 items-center gap-2 px-2 first:mt-0">
+      <span aria-hidden className="w-5 shrink-0" />
       <span className="mn-side-label min-w-0 flex-1 truncate text-2xs font-semibold uppercase text-muted">
         {children}
       </span>
@@ -148,16 +153,23 @@ function CollapsibleSection({ sectionKey, label, collapsed, onToggle, count, act
           type="button"
           aria-expanded={open}
           onClick={() => onToggle(sectionKey)}
-          className="mn-side-label group flex h-6 min-w-0 flex-1 items-center gap-1 px-2 text-2xs font-semibold uppercase text-muted hover:text-ink"
+          className="mn-side-label group flex h-6 min-w-0 flex-1 items-center gap-2 px-2 text-2xs font-semibold uppercase text-muted hover:text-ink"
         >
-          <ChevronRight size={12} className={cn('w-3 shrink-0 transition-transform duration-180', open && 'rotate-90')} />
+          <span aria-hidden className="flex w-5 shrink-0 items-center justify-center">
+            <ChevronRight size={12} className={cn('transition-transform duration-180', open && 'rotate-90')} />
+          </span>
           <span className="min-w-0 flex-1 truncate text-left">{label}</span>
           {/* Only while folded: an expanded section is already showing them.
               `ml-auto` and not `ml-1`: glued to the label the number landed at
               a different x in every section, and a column of counts that never
               lines up reads as debris rather than as data. Pushed to the end
               of the button it shares one right edge with every other count. */}
-          {!open && count ? <span className="ml-auto shrink-0 pl-2 tabular-nums text-faint">{count}</span> : null}
+          {!open && count ? (
+            // `tracking-normal` because .mn-side-label opens the header's
+            // letters to 0.07em, which is right for a word in caps and wrong
+            // for a number: "12" came out reading as "1 2".
+            <span className="ml-auto shrink-0 pl-2 tabular-nums tracking-normal text-faint">{count}</span>
+          ) : null}
         </button>
         {action}
       </div>
@@ -245,11 +257,11 @@ function ProjectRows({
                 onClick={() => ws.openProject(p.id)}
                 style={{ paddingLeft: 8 + depth * 16 }}
                 className={cn(
-                  'flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md pr-2 text-sm leading-5 transition-colors duration-120',
+                  'flex h-7 min-w-0 flex-1 items-center gap-2 rounded-md pr-2 text-sm leading-5 transition-colors duration-120',
                   ws.view === 'project' && ws.activeProjectId === p.id ? 'bg-selected font-medium text-ink' : 'text-ink hover:bg-hover',
                 )}
               >
-                <span className="text-md leading-none">{p.icon}</span>
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center text-md leading-none">{p.icon}</span>
                 <span className="block h-5 min-w-0 flex-1 !self-center truncate leading-5 text-left">{p.name}</span>
                 {Number(p.overdue) > 0 ? (
                   <span className="shrink-0 text-2xs font-semibold text-danger-strong">{p.overdue}</span>
@@ -321,7 +333,7 @@ function ProjectRows({
       })}
       {naming && (
         <RowInput
-          icon={<span className="text-md leading-none">📋</span>}
+          icon={<span className="flex h-5 w-5 shrink-0 items-center justify-center text-md leading-none">📋</span>}
           placeholder="Database name…"
           label="New database name"
           depth={depth}
@@ -902,9 +914,9 @@ export function Sidebar() {
                 key={t.id}
                 type="button"
                 onClick={() => ws.createFromTemplate(t)}
-                className="flex h-7 w-full items-center gap-1.5 rounded-md px-2 text-sm leading-5 text-ink transition-colors duration-120 hover:bg-hover"
+                className="flex h-7 w-full items-center gap-2 rounded-md px-2 text-sm leading-5 text-ink transition-colors duration-120 hover:bg-hover"
               >
-                <span className="text-md leading-none">{t.icon}</span>
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center text-md leading-none">{t.icon}</span>
                 <span className="block h-5 min-w-0 flex-1 !self-center truncate leading-5 text-left">{t.name}</span>
                 <Plus size={14} className="shrink-0 text-faint" />
               </button>

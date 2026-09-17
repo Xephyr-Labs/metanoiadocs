@@ -91,13 +91,13 @@ function DocumentRow({ id, depth }: { id: PageId; depth: number }) {
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); ws.toggleExpand(id); }}
-          className={cn('mr-1.5 flex h-5 w-5 shrink-0 items-center justify-center rounded hover:bg-hover', selected ? 'text-ink' : 'text-muted')}
+          className={cn('mr-2 flex h-5 w-5 shrink-0 items-center justify-center rounded hover:bg-hover', selected ? 'text-ink' : 'text-muted')}
           aria-label={page.expanded ? `Collapse ${page.title}` : `Expand ${page.title}`}
         >
           <ChevronRight size={14} className={cn('text-muted transition-transform duration-180', page.expanded && 'rotate-90')} />
         </button>
       ) : (
-        <span className={cn('mr-1.5 flex h-5 w-5 shrink-0 items-center justify-center', selected ? 'text-ink' : 'text-muted')}>
+        <span className={cn('mr-2 flex h-5 w-5 shrink-0 items-center justify-center', selected ? 'text-ink' : 'text-muted')}>
           <PageIcon icon={page.icon} size={16} className={selected ? 'shrink-0 text-ink' : 'shrink-0 text-muted'} />
         </span>
       )}
@@ -196,7 +196,7 @@ function FolderRow({ id, depth }: { id: string; depth: number }) {
         )}
         {/* One w-5 slot shared with doc rows so names line up: folder icon at
             rest, chevron while hovering the row. */}
-        <button type="button" onClick={() => ws.toggleFolder(id)} className="mr-1.5 flex h-5 w-5 shrink-0 items-center justify-center rounded hover:bg-hover" aria-label={folder.expanded ? 'Collapse folder' : 'Expand folder'}>
+        <button type="button" onClick={() => ws.toggleFolder(id)} className="mr-2 flex h-5 w-5 shrink-0 items-center justify-center rounded hover:bg-hover" aria-label={folder.expanded ? 'Collapse folder' : 'Expand folder'}>
           {hover && hasChildren ? (
             <ChevronRight size={14} className={cn('text-muted transition-transform duration-180', folder.expanded && 'rotate-90')} />
           ) : folder.expanded ? (

@@ -40,10 +40,9 @@ interface Props {
  * data. This lived in TaskTable, which is why only the table's two built-in
  * date columns got it and every date *property* stayed raw.
  */
-function DateValue({ value, danger, dense, onChange }: {
+function DateValue({ value, danger, onChange }: {
   value: string | null;
   danger?: boolean;
-  dense?: boolean;
   onChange: (v: string | null) => void;
 }) {
   const iso = value?.slice(0, 10) ?? '';
@@ -56,22 +55,21 @@ function DateValue({ value, danger, dense, onChange }: {
   return (
     <label
       className={[
-        // In a grid the control IS the cell: people click the cell, not the
-        // four characters inside it. Hugging its content there left 57% of an
-        // empty date cell dead to the pointer. In the peek it is one field in
-        // a column of fields, and hugging reads as a value rather than as an
-        // input box, so the two shapes are deliberate.
-        dense
-          ? 'group/date relative flex h-7 w-full cursor-pointer items-center gap-1.5 rounded px-2.5 text-sm'
-          : 'group/date relative inline-flex h-7 max-w-full cursor-pointer items-center gap-1.5 rounded px-2.5 text-sm',
+        // One shape on every surface. The control fills its container, because
+        // that is what the nine property controls beside it in the peek do
+        // (status, assignees, points, progress, sprint, milestone, focus area
+        // — all 100% of the value column) and because in a grid the control IS
+        // the cell: people click the cell, not the four characters in it. An
+        // earlier pass gave it two shapes and the empty cells lost 57% of
+        // their click target; a control that changes shape by context is a
+        // discrepancy the eye notices long before anyone can name it.
+        'group/date relative flex h-7 w-full cursor-pointer items-center gap-1.5 rounded px-2.5 text-sm',
         'ring-1 ring-inset ring-transparent transition-shadow',
         'hover:ring-line focus-within:ring-2 focus-within:ring-accent',
         danger ? 'text-danger-strong' : iso ? 'text-ink' : 'text-faint',
       ].join(' ')}
     >
-      <span className={cn('truncate tabular-nums', dense ? 'min-w-0 flex-1 text-left' : 'block')}>
-        {label || '—'}
-      </span>
+      <span className="min-w-0 flex-1 truncate text-left tabular-nums">{label || '—'}</span>
       {/* The affordance the control never had. A date that looks like text is
           text until you happen to hover it; a calendar mark says what the row
           does before you touch it. It recedes until the row is under the
@@ -205,7 +203,7 @@ export function PropertyValue({ prop, users, value, onChange, onEditOptions, dan
         </label>
       );
     case 'date':
-      return <DateValue value={typeof value === 'string' ? value : null} danger={danger} dense={dense} onChange={onChange} />;
+      return <DateValue value={typeof value === 'string' ? value : null} danger={danger} onChange={onChange} />;
     // The same picker the built-in Assignees column uses: chips, a search, a
     // "+". A native select here was the one control in the grid the platform
     // drew, so it agreed with nothing around it in either theme.
