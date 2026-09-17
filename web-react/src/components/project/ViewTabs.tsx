@@ -180,7 +180,20 @@ export function ViewTabs({
 function TabIcon({ kind }: { kind: ViewKind }) {
   const Icon = ICON[kind] ?? Table2;
   return (
-    <span aria-hidden className="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
+    // The box is the full row height, so the glyph centres against the same
+    // 28px the label's line box occupies, and `pb-0.5` lifts it one pixel off
+    // that centre. The lift is real and not taste: a 12px label in a 28px line
+    // box carries its ink above the box's middle, because the descender space
+    // below it is empty, so a geometrically centred icon reads low. That is
+    // what the old `-translate-y-px` was for.
+    //
+    // It is done with padding rather than a transform because the arithmetic
+    // has to land on whole pixels. 28 minus 2 is 26, and a 14px glyph centred
+    // in 26 sits at 6 — an integer, at every strip position. The transform
+    // moved a glyph that was already on a half pixel to another half pixel,
+    // which is why the icons looked aligned until the task panel opened and
+    // then did not.
+    <span aria-hidden className="flex h-7 w-3.5 shrink-0 items-center justify-center pb-0.5">
       <Icon size={14} />
     </span>
   );

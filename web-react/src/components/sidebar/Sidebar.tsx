@@ -127,7 +127,7 @@ function NavItem({ icon, label, onClick, trailing, active, alert }: { icon: Reac
  */
 const SECTION_TINT: Record<string, string> = {
   recent: 'text-blue-500',
-  pinned: 'text-orange-500',
+  pinned: 'text-amber-500',
   favorites: 'text-yellow-600 dark:text-yellow-500',
   projects: 'text-purple-500',
   designs: 'text-pink-500',
@@ -139,18 +139,43 @@ const SECTION_TINT: Record<string, string> = {
   templates: 'text-gray-400',
 };
 
+/**
+ * The same hue, at the weight text can carry.
+ *
+ * Two values and not one for the same reason the tag palette has both a `dot`
+ * and a `chip`: the 500s are drawn for a glyph beside a label, and measured on
+ * the light surface they run under the contrast floor for something you have
+ * to READ. 700 in light and 400 in dark are the pairs the chips already use,
+ * so a section header is tinted to the same standard as every other coloured
+ * word in the app rather than to a new one.
+ */
+const SECTION_TEXT_TINT: Record<string, string> = {
+  recent: 'text-blue-700 dark:text-blue-400',
+  pinned: 'text-amber-700 dark:text-amber-400',
+  favorites: 'text-yellow-800 dark:text-yellow-400',
+  projects: 'text-purple-700 dark:text-purple-400',
+  designs: 'text-pink-700 dark:text-pink-400',
+  folders: 'text-teal-800 dark:text-teal-400',
+  private: 'text-gray-700 dark:text-gray-300',
+  public: 'text-green-800 dark:text-green-400',
+  shared: 'text-blue-700 dark:text-blue-400',
+  tags: 'text-green-800 dark:text-green-400',
+  templates: 'text-gray-700 dark:text-gray-300',
+};
+
 const tintOf = (key: string) => SECTION_TINT[key] ?? 'text-faint';
+const textTintOf = (key: string) => SECTION_TEXT_TINT[key] ?? 'text-muted';
 
 function SectionLabel({ sectionKey, children, action }: { sectionKey: string; children: ReactNode; action?: ReactNode }) {
   return (
-    <div className="mn-side-section mt-2 flex h-6 items-center gap-2 px-2 pt-2">
+    <div className="mt-3 flex h-6 items-center gap-2 px-2 first:mt-0">
       {/* The slot a folding section puts its chevron in. Here it carries the
           section's colour instead, so a rail of headers is told apart by the
           same column whether or not the section folds. */}
       <span aria-hidden className="flex w-5 shrink-0 items-center justify-center">
         <span className={cn('h-1.5 w-1.5 rounded-full bg-current', tintOf(sectionKey))} />
       </span>
-      <span className="mn-side-label min-w-0 flex-1 truncate text-2xs font-semibold uppercase text-muted">
+      <span className={cn('mn-side-label min-w-0 flex-1 truncate text-2xs font-semibold uppercase', textTintOf(sectionKey))}>
         {children}
       </span>
       {action}
@@ -185,12 +210,12 @@ function CollapsibleSection({ sectionKey, label, collapsed, onToggle, count, act
 
   return (
     <>
-      <div className="mn-side-section mt-2 flex h-6 items-center gap-1 pr-2 pt-2">
+      <div className="mt-3 flex h-6 items-center gap-1 pr-2 first:mt-0">
         <button
           type="button"
           aria-expanded={open}
           onClick={() => onToggle(sectionKey)}
-          className="mn-side-label group flex h-6 min-w-0 flex-1 items-center gap-2 px-2 text-2xs font-semibold uppercase text-muted hover:text-ink"
+          className={cn('mn-side-label group flex h-6 min-w-0 flex-1 items-center gap-2 px-2 text-2xs font-semibold uppercase', textTintOf(sectionKey))}
         >
           <span aria-hidden className={cn('flex w-5 shrink-0 items-center justify-center', tintOf(sectionKey))}>
             <ChevronRight size={12} className={cn('transition-transform duration-180', open && 'rotate-90')} />

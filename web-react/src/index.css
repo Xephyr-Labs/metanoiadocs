@@ -685,25 +685,6 @@ html.dark .mn-toc .outline-viewer-indicator {
   letter-spacing: 0.07em;
 }
 
-/* A hairline between sections, and none above the first.
- *
- * Spacing alone was carrying the division — mt-3 and nothing else — which
- * works until a section's last row and the next section's header are both
- * short, and then the rail reads as one long list with some words in caps in
- * it. The rule is `--line`, the same hairline every other edge in the app
- * draws, so it divides without becoming a feature: at a glance you see
- * sections, not a table.
- *
- * Every header carries one, the topmost included: above it sits the fixed nav
- * — Home, Inbox, Tasks, All documents — which is a different kind of thing
- * from a section and wants dividing from them just as much. There is no
- * `:first-child` exception because there cannot be a useful one: each header
- * is the first element inside its own wrapper, so the selector matches all
- * seven and would switch the rules off entirely. */
-.mn-side-section {
-  border-top: 1px solid var(--line);
-}
-
 /* Hover-revealed controls have no hover to wait for on a touch screen. */
 @media (hover: none) {
   .mn-hover-reveal {
