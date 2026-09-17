@@ -389,6 +389,7 @@ export function createMetanoiaMcpServer({ base, headers = {} }) {
     due: dueDay(t),
     kind: t.kind,
     docId: t.doc_id,
+    tags: t.tags || [],
     points: t.points,
     sprintId: t.sprint_id,
     blockedBy: t.deps || [],
@@ -568,10 +569,11 @@ export function createMetanoiaMcpServer({ base, headers = {} }) {
         overdue: z.boolean().optional().describe('Only tasks whose due date has passed'),
         dueWithinDays: z.number().optional().describe('Only tasks due within this many days; late ones count'),
         search: z.string().optional().describe('Match against the title'),
+        tag: z.string().optional().describe("Only tasks carrying this tag — a task's tags are the tags on its page"),
         limit: z.number().optional().describe('Default 50'),
       },
     },
-    async ({ assignee, board, status, includeDone, overdue, dueWithinDays, search, limit }) => {
+    async ({ assignee, board, status, includeDone, overdue, dueWithinDays, search, tag, limit }) => {
       try {
         // The query parameters this route documents are unreachable — a second
         // handler for GET /api/tasks is registered ahead of them and answers
@@ -599,6 +601,10 @@ export function createMetanoiaMcpServer({ base, headers = {} }) {
           const q = search.toLowerCase();
           rows = rows.filter((t) => (t.title || '').toLowerCase().includes(q));
         }
+        if (tag) {
+          const q = tag.toLowerCase();
+          rows = rows.filter((t) => (t.tags || []).some((x) => String(x).toLowerCase() === q));
+        }
 
         const today = dayOf(new Date());
         if (dueWithinDays !== undefined) rows = rows.filter((t) => isDueWithin(t, dueWithinDays, today));
@@ -617,7 +623,7 @@ export function createMetanoiaMcpServer({ base, headers = {} }) {
     {
       title: 'Create a task',
       description:
-        'Add a task to a board. `board` is a board name or id; `assignees` are names, usernames or emails, and everyone named is notified. Dates are YYYY-MM-DD.',
+        'Add a task to a board. `board` is a board name or id; `assignees` are names, usernames or emails, and everyone named is notified. Dates are YYYY-MM-DD. To tag it, call add_tag with the `docId` this returns — a task carries the tags of its own page rather than a second set of its own, and list_tasks can then filter on `tag`.',
       inputSchema: {
         board: z.string().describe('Board name or id'),
         title: z.string(),
