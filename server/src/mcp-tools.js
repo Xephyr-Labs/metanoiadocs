@@ -387,6 +387,8 @@ export function createMetanoiaMcpServer({ base, headers = {} }) {
     project: t.project_name,
     assignees: (t.assignees || []).map((a) => a.name).filter(Boolean),
     due: dueDay(t),
+    kind: t.kind,
+    docId: t.doc_id,
     points: t.points,
     sprintId: t.sprint_id,
     blockedBy: t.deps || [],
@@ -438,6 +440,32 @@ export function createMetanoiaMcpServer({ base, headers = {} }) {
   const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
   const findBoard = async (which) => pickBoard(await api('/projects'), which);
+
+  /**
+   * Task types are per board. An unknown one is silently replaced with 'task' by
+   * the server, so a bug filed with a typo would quietly become an ordinary task
+   * and nobody would know to look for it.
+   */
+  async function checkKind(board, kind) {
+    const kinds = await api(`/projects/${encodeURIComponent(board.id)}/kinds`);
+    if (!kinds.some((k) => k.key === kind)) {
+      throw new Error(`"${board.name}" has no task type "${kind}". It has: ${kinds.map((k) => k.key).join(', ')}.`);
+    }
+  }
+
+  /**
+   * A task carries its detail on a page of its own, not in a description column.
+   * The page is created on demand and hidden from the sidebar — it belongs to
+   * the row and is reached through it.
+   */
+  async function writeTaskPage(task, markdown) {
+    const { docId } = await api(`/tasks/${encodeURIComponent(task.id)}/page`, { method: 'POST' });
+    await api(`/docs/${encodeURIComponent(docId)}/content`, {
+      method: 'POST',
+      body: { markdown, mode: 'replace' },
+    });
+    return docId;
+  }
 
   /** Resolve people-ish strings to ids, for assigning a task. */
   async function assigneeIds(who) {
@@ -600,8 +628,10 @@ export function createMetanoiaMcpServer({ base, headers = {} }) {
         points: z.number().optional(),
         priority: z.number().optional(),
         milestone: z.boolean().optional(),
+        kind: z.string().optional().describe("Task type — 'task' (default), 'bug', 'story', 'epic'; see list_task_kinds"),
+        body: z.string().optional().describe('Markdown written onto the task\'s own page — where the detail goes, since a task has no description field'),
         sprintId: z.string().optional().describe('From list_sprints; must be a sprint on this board'),
-        docId: z.string().optional().describe('Write the task on an existing page'),
+        docId: z.string().optional().describe('Write the task on an existing page instead of a new one'),
       },
     },
     async (args) => {
@@ -609,6 +639,7 @@ export function createMetanoiaMcpServer({ base, headers = {} }) {
         checkDate('dueAt', args.dueAt);
         checkDate('startAt', args.startAt);
         const board = workBoard(await findBoard(args.board));
+        if (args.kind) await checkKind(board, args.kind);
         const created = await api('/tasks', {
           method: 'POST',
           body: {
@@ -620,12 +651,14 @@ export function createMetanoiaMcpServer({ base, headers = {} }) {
             points: args.points,
             priority: args.priority,
             milestone: args.milestone,
+            kind: args.kind,
             sprintId: args.sprintId,
             docId: args.docId,
             assigneeIds: await assigneeIds(args.assignees),
           },
         });
-        return ok({ ...taskRow(created), board: board.name });
+        const docId = args.body ? await writeTaskPage(created, args.body) : created.doc_id;
+        return ok({ ...taskRow(created), docId, board: board.name });
       } catch (e) {
         return fail(e);
       }
@@ -649,6 +682,7 @@ export function createMetanoiaMcpServer({ base, headers = {} }) {
         points: z.number().nullable().optional(),
         priority: z.number().optional(),
         milestone: z.boolean().optional(),
+        kind: z.string().optional().describe("Task type — 'task', 'bug', 'story', 'epic'; see list_task_kinds"),
         sprintId: z.string().nullable().optional().describe('null returns it to the backlog'),
       },
     },
@@ -659,7 +693,7 @@ export function createMetanoiaMcpServer({ base, headers = {} }) {
         // Only send what was asked for: the route treats an absent key as "leave
         // it alone" and a null as "clear it".
         const body = {};
-        for (const key of ['title', 'status', 'dueAt', 'startAt', 'progress', 'points', 'priority', 'milestone', 'sprintId']) {
+        for (const key of ['title', 'status', 'dueAt', 'startAt', 'progress', 'points', 'priority', 'milestone', 'kind', 'sprintId']) {
           if (args[key] !== undefined) body[key] = args[key];
         }
         if (args.assignees !== undefined) body.assigneeIds = await assigneeIds(args.assignees);
@@ -683,6 +717,25 @@ export function createMetanoiaMcpServer({ base, headers = {} }) {
       try {
         await api(`/tasks/${encodeURIComponent(id)}`, { method: 'DELETE' });
         return ok('Moved to the trash.');
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    'list_task_kinds',
+    {
+      title: "List a board's task types",
+      description:
+        "The task types a board accepts — task, bug, story, epic by default, but they are per board and can be renamed or added to. These are the keys create_task and update_task take as `kind`.",
+      inputSchema: { board: z.string().describe('Board name or id') },
+    },
+    async ({ board }) => {
+      try {
+        const found = await findBoard(board);
+        const kinds = await api(`/projects/${encodeURIComponent(found.id)}/kinds`);
+        return ok(kinds.map((k) => ({ key: k.key, label: k.label, isGroup: k.is_group })));
       } catch (e) {
         return fail(e);
       }
@@ -881,6 +934,7 @@ export const MCP_TOOL_NAMES = [
   'create_task',
   'update_task',
   'delete_task',
+  'list_task_kinds',
   'list_sprints',
   'create_sprint',
   'update_sprint',
