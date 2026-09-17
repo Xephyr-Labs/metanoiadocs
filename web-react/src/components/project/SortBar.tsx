@@ -102,7 +102,7 @@ export function SortBar({ fields, sort, onChange }: Props) {
             sort.length ? 'text-muted hover:bg-hover hover:text-ink' : 'text-faint hover:bg-hover hover:text-ink',
           )}
         >
-          {sort.length ? <Plus size={13} /> : <ArrowUpDown size={13} />}
+          {sort.length ? <Plus size={14} /> : <ArrowUpDown size={14} />}
           Sort
           {sort.length > 0 && <span className="tabular-nums text-faint">{sort.length}</span>}
         </button>

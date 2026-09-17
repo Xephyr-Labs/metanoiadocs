@@ -103,7 +103,7 @@ export function Attachments({
         compact ? cn('h-7 shrink-0 px-1.5', !files.length && '-ml-1.5') : 'h-8 px-2',
       )}
     >
-      <Upload size={13} /> {busy ? 'Uploading…' : files.length ? 'Add another' : label}
+      <Upload size={14} /> {busy ? 'Uploading…' : files.length ? 'Add another' : label}
     </button>
   );
 
@@ -150,7 +150,7 @@ export function Attachments({
                     onClick={() => remove(f)}
                     className="shrink-0 text-faint hover:text-danger-strong"
                   >
-                    <X size={11} />
+                    <X size={12} />
                   </button>
                 )}
               </span>

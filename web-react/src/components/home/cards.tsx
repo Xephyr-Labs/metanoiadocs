@@ -109,11 +109,14 @@ export function DocCard({ doc, onOpen }: {
       <button
         type="button"
         onClick={onOpen}
-        className="flex h-full w-full items-center gap-2.5 rounded-lg border border-line bg-canvas p-3 pr-8 text-left transition-colors duration-120 hover:border-line-strong hover:bg-hover"
+        className="flex h-full w-full items-start gap-2.5 rounded-lg border border-line bg-canvas p-3 pr-8 text-left transition-colors duration-120 hover:border-line-strong hover:bg-hover"
       >
         {/* Icon inline with the name, not floating above it: a 132px-tall box
-            holding one line of text and an emoji was mostly empty space. */}
-        <span className="shrink-0 text-base leading-none">{doc.icon || '📄'}</span>
+            holding one line of text and an emoji was mostly empty space. It
+            sits on the title's first line (`leading-5` matches the title's
+            line box) rather than centring on the whole card, so a two-line
+            title beside a one-line one keeps the icon at the same height. */}
+        <span className="shrink-0 text-base leading-5">{doc.icon || '📄'}</span>
         <span className="min-w-0 flex-1">
           <span className="line-clamp-2 text-sm font-medium leading-5 text-ink">{doc.title || 'Untitled'}</span>
           <span className="mt-0.5 block truncate text-2xs text-faint">
@@ -125,7 +128,7 @@ export function DocCard({ doc, onOpen }: {
         <Menu
           align="end"
           items={menu}
-          trigger={<span><IconButton icon={<MoreHorizontal size={15} />} label={`Actions for ${doc.title || 'Untitled'}`} /></span>}
+          trigger={<span><IconButton icon={<MoreHorizontal size={16} />} label={`Actions for ${doc.title || 'Untitled'}`} /></span>}
         />
       </span>
     </div>

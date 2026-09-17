@@ -169,7 +169,7 @@ function DocRow({ page }: { page: Page }) {
         <Menu
           align="end"
           items={menu}
-          trigger={<span><IconButton icon={<MoreHorizontal size={15} />} label={`Actions for ${page.title || 'Untitled'}`} /></span>}
+          trigger={<span><IconButton icon={<MoreHorizontal size={16} />} label={`Actions for ${page.title || 'Untitled'}`} /></span>}
         />
       </span>
     </div>

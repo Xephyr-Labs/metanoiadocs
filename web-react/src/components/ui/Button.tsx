@@ -13,7 +13,7 @@ interface Props extends ButtonHTMLAttributes<HTMLButtonElement> {
 // Flat, single-accent. No gradients — hover shifts brightness only.
 const variants: Record<Variant, string> = {
   primary:
-    'bg-accent text-white hover:brightness-[0.94] active:brightness-90 shadow-[0_1px_2px_rgba(15,15,15,0.08)]',
+    'bg-accent-fill text-white hover:brightness-[0.94] active:brightness-90 shadow-[0_1px_2px_rgba(15,15,15,0.08)]',
   secondary:
     'bg-transparent text-ink ring-1 ring-inset ring-line-strong hover:bg-hover active:bg-selected',
   ghost: 'bg-transparent text-muted hover:bg-hover hover:text-ink active:bg-selected',

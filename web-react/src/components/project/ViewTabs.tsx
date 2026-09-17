@@ -65,7 +65,10 @@ export function ViewTabs({
     // gap-2 between tabs against gap-1.5 inside one: proximity has to say that
     // an icon belongs to the label beside it and not to the tab after it.
     // At 2px they read as a single run of words.
-    <div className="scrollarea flex min-w-0 items-center gap-2 overflow-x-auto pr-1">
+    // `no-scrollbar`, not `scrollarea`: once the column is narrow enough for
+    // the strip to overflow, a drawn scrollbar takes 10px out of the row and
+    // the tabs sit 5px high with a bar under them. The strip still scrolls.
+    <div className="no-scrollbar flex min-w-0 items-center gap-2 overflow-x-auto pr-1">
       {views.map((view) => {
         const active = view.id === activeId;
 

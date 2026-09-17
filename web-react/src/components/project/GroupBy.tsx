@@ -40,7 +40,7 @@ export function GroupBy({ fields, value, onChange }: {
             'text-muted hover:bg-hover hover:text-ink',
           )}
         >
-          <Columns3 size={13} />
+          <Columns3 size={14} />
           {/* The field's name, not the word "Group": the answer is more useful
               on a toolbar than the question. */}
           {current ? current.label : 'Group'}

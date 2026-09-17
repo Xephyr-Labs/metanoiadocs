@@ -117,7 +117,7 @@ function ContextChip({ icon, title, onRemove }: { icon: string; title: string; o
         aria-label="Remove this page from the chat"
         className="shrink-0 rounded p-0.5 text-faint transition-colors hover:bg-hover hover:text-ink"
       >
-        <X size={11} />
+        <X size={12} />
       </button>
     </span>
   );
@@ -147,7 +147,7 @@ function Answer({ m, streaming }: { m: Msg; streaming: boolean }) {
           onClick={copy}
           className="mt-1.5 flex items-center gap-1 text-2xs text-faint opacity-0 transition-opacity duration-120 hover:text-ink focus-visible:opacity-100 group-hover/answer:opacity-100"
         >
-          {copied ? <Check size={11} /> : <Copy size={11} />}
+          {copied ? <Check size={12} /> : <Copy size={12} />}
           {copied ? 'Copied' : 'Copy'}
         </button>
       )}
@@ -349,12 +349,12 @@ export function AIChat() {
                   aria-label="Attach this page"
                   className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-faint transition-colors hover:bg-hover hover:text-ink"
                 >
-                  <FileText size={15} />
+                  <FileText size={16} />
                 </button>
               </Tooltip>
             )}
             {busy ? (
-              <IconButton icon={<Square size={13} className="fill-current" />} label="Stop" onClick={() => abortRef.current?.abort()} />
+              <IconButton icon={<Square size={14} className="fill-current" />} label="Stop" onClick={() => abortRef.current?.abort()} />
             ) : (
               <button
                 type="button"
@@ -363,10 +363,10 @@ export function AIChat() {
                 aria-label="Send"
                 className={cn(
                   'flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors duration-120',
-                  input.trim() ? 'bg-accent text-white hover:brightness-[0.94]' : 'bg-surface text-faint',
+                  input.trim() ? 'bg-accent-fill text-white hover:brightness-[0.94]' : 'bg-surface text-faint',
                 )}
               >
-                <ArrowUp size={15} />
+                <ArrowUp size={16} />
               </button>
             )}
           </div>

@@ -57,7 +57,7 @@ function Row({ icon, name, meta, onOpen, actions }: {
           <Menu
             align="end"
             items={actions}
-            trigger={<span><IconButton icon={<MoreHorizontal size={15} />} label={`Actions for ${name}`} /></span>}
+            trigger={<span><IconButton icon={<MoreHorizontal size={16} />} label={`Actions for ${name}`} /></span>}
           />
         </span>
       )}

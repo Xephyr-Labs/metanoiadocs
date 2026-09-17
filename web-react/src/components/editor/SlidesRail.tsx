@@ -144,7 +144,7 @@ export function SlidesRail({ editor }: Props) {
                   <IconButton
                     size="sm"
                     tone="danger"
-                    icon={<Trash2 size={13} />}
+                    icon={<Trash2 size={14} />}
                     label={`Delete slide ${i + 1}`}
                     onClick={() => onDelete(s.id)}
                   />

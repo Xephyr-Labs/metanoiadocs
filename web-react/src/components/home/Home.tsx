@@ -46,7 +46,7 @@ function MyDocRow({ doc, onOpen }: { doc: MyDocRow; onOpen: () => void }) {
         <Menu
           align="end"
           items={menu}
-          trigger={<span><IconButton icon={<MoreHorizontal size={15} />} label={`Actions for ${doc.title || 'Untitled'}`} /></span>}
+          trigger={<span><IconButton icon={<MoreHorizontal size={16} />} label={`Actions for ${doc.title || 'Untitled'}`} /></span>}
         />
       </span>
     </div>

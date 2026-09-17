@@ -160,7 +160,7 @@ export function SearchSelect({
                 {o.lead}
                 <span className="min-w-0 flex-1 truncate text-xs text-ink">{o.label}</span>
                 {o.hint && <span className="shrink-0 truncate text-2xs text-faint">{o.hint}</span>}
-                {o.value === value && <Check size={13} className="shrink-0 text-accent-strong" />}
+                {o.value === value && <Check size={14} className="shrink-0 text-accent-strong" />}
               </button>
             ))}
             {!matches.length && (

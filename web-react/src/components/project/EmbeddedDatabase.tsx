@@ -259,7 +259,7 @@ export function EmbeddedDatabase({
       />
       <Menu
         align="end"
-        trigger={<span><IconButton icon={<MoreHorizontal size={15} />} label="Database settings" /></span>}
+        trigger={<span><IconButton icon={<MoreHorizontal size={16} />} label="Database settings" /></span>}
         items={settings}
       />
     </>

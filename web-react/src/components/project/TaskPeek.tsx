@@ -210,7 +210,11 @@ export function TaskPeek({
 
   return (
     <aside className="fixed right-0 top-0 z-40 flex h-full w-full max-w-[560px] flex-col border-l border-line bg-canvas shadow-modal">
-      <header className="flex shrink-0 items-center gap-2.5 border-b border-line px-4 py-3">
+      {/* A fixed 53px: the 1px rule plus a 52px box, which centres the two
+          28px buttons on whole pixels. Sized by its content the header came
+          out at 54 — the title input's line box is 29 — and that put the
+          buttons at y=12.5 and their icons on a half pixel. */}
+      <header className="flex h-[53px] shrink-0 items-center gap-2.5 border-b border-line px-4">
         {mode !== 'data' && <KindBadge kind={task.kind} />}
         {/* Same reason as the table's title cell: uncontrolled, so it is keyed
             on the title to pick up a change made in the document body. */}
@@ -302,10 +306,10 @@ export function TaskPeek({
               <div className="space-y-1">
                 {task.deps.map((d) => (
                   <div key={d} className="flex items-center gap-2 rounded-md border border-line px-2 py-1 text-sm text-ink">
-                    <Link2 size={13} className="shrink-0 text-faint" />
+                    <Link2 size={14} className="shrink-0 text-faint" />
                     <span className="min-w-0 flex-1 truncate">{byId.get(d)?.title || 'Untitled'}</span>
                     <button type="button" onClick={() => onRemoveDep(task.id, d)} className="shrink-0 text-faint hover:text-danger-strong" aria-label="Remove dependency">
-                      <X size={13} />
+                      <X size={14} />
                     </button>
                   </div>
                 ))}
@@ -390,7 +394,7 @@ export function TaskPeek({
             onClick={onManageProps}
             className="flex items-center gap-1.5 rounded-md py-1 pl-0.5 pr-2 text-xs font-medium text-faint transition-colors hover:bg-hover hover:text-ink"
           >
-            <Plus size={13} /> Add a property
+            <Plus size={14} /> Add a property
           </button>
         </section>
 
@@ -426,7 +430,7 @@ export function TaskPeek({
                     }}
                     className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-sm text-ink transition-colors hover:bg-hover"
                   >
-                    <Link2 size={13} className="shrink-0 text-faint" />
+                    <Link2 size={14} className="shrink-0 text-faint" />
                     <span className="shrink-0 text-faint">{r.project_name}</span>
                     <span className="min-w-0 flex-1 truncate">{r.title || 'Untitled'}</span>
                   </button>

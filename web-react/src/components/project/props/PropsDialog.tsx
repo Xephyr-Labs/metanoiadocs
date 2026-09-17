@@ -117,13 +117,13 @@ export function PropsDialog({ open, onOpenChange, props, projects, onCreate, onP
             <div className="flex items-center gap-2">
               <div className="flex shrink-0 flex-col">
                 <IconButton
-                  icon={<ChevronUp size={13} />}
+                  icon={<ChevronUp size={14} />}
                   label={`Move ${p.label} up`}
                   disabled={i === 0}
                   onClick={() => onReorder(p.id, -1)}
                 />
                 <IconButton
-                  icon={<ChevronDown size={13} />}
+                  icon={<ChevronDown size={14} />}
                   label={`Move ${p.label} down`}
                   disabled={i === props.length - 1}
                   onClick={() => onReorder(p.id, 1)}

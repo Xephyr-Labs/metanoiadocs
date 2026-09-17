@@ -172,7 +172,7 @@ export function TagsCell({ task, onChanged }: { task: TaskRow; onChanged?: () =>
                   <span className={cn('h-2.5 w-2.5 shrink-0 rounded-full', swatch(t.color).dot)} />
                   <span className="min-w-0 flex-1 truncate text-xs text-ink">{t.name}</span>
                   {t.count ? <span className="shrink-0 text-2xs text-faint">{t.count}</span> : null}
-                  {chosen && <Check size={13} className="shrink-0 text-accent-strong" />}
+                  {chosen && <Check size={14} className="shrink-0 text-accent-strong" />}
                 </button>
               );
             })}
@@ -182,7 +182,7 @@ export function TagsCell({ task, onChanged }: { task: TaskRow; onChanged?: () =>
                 onClick={create}
                 className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1.5 text-left text-xs text-ink hover:bg-hover"
               >
-                <Plus size={13} className="shrink-0 text-faint" /> Create
+                <Plus size={14} className="shrink-0 text-faint" /> Create
                 <span className={cn('rounded px-1.5 py-0.5 text-2xs', swatch(TAG_COLORS[tags.length % TAG_COLORS.length]).chip)}>{q}</span>
               </button>
             )}
