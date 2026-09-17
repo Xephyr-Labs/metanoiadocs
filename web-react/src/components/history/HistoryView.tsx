@@ -65,7 +65,7 @@ function RailRow({ version, selected, onSelect }: { version: VersionRow; selecte
           </span>
         ) : (
           <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-surface text-faint ring-1 ring-inset ring-line">
-            <History size={9} />
+            <History size={10} />
           </span>
         )}
         <span className="min-w-0 truncate text-2xs text-faint">{who ?? labelOf(version)}</span>
@@ -323,7 +323,7 @@ function HistoryPanel({ docId }: { docId: string }) {
                         aria-label="Dismiss"
                         className="-mr-1 -mt-1 rounded p-0.5 text-faint transition-colors duration-120 hover:bg-hover hover:text-ink"
                       >
-                        <X size={13} />
+                        <X size={14} />
                       </button>
                     </div>
                     <p className="mt-1.5 text-2xs leading-relaxed text-muted">
@@ -387,7 +387,7 @@ function HistoryPanel({ docId }: { docId: string }) {
                   exit={{ opacity: 0 }}
                   className="flex items-center gap-1 truncate text-2xs text-accent-strong"
                 >
-                  <Check size={13} /> {done}
+                  <Check size={14} /> {done}
                 </motion.span>
               )}
             </AnimatePresence>

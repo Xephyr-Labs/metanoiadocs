@@ -239,7 +239,7 @@ function Media({ files }: { files: StoredFile[] }) {
             key={f.key}
             className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-line bg-surface text-faint"
           >
-            <Paperclip size={11} />
+            <Paperclip size={12} />
           </span>
         ),
       )}

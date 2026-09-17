@@ -109,7 +109,7 @@ export function PropertyVisibility({
           visible.length ? 'text-muted hover:bg-hover hover:text-ink' : 'text-faint hover:bg-hover hover:text-ink',
         )}
       >
-        <SlidersHorizontal size={13} />
+        <SlidersHorizontal size={14} />
         Properties
         {visible.length > 0 && <span className="tabular-nums text-faint">{visible.length}</span>}
       </button>
@@ -237,7 +237,7 @@ function Row({
       ) : (
         <span className="w-4 shrink-0" />
       )}
-      <Icon size={13} className="shrink-0 text-faint" />
+      <Icon size={14} className="shrink-0 text-faint" />
       <span className="min-w-0 flex-1 truncate text-xs text-ink">
         {prop.label}
         {ambiguous && (
@@ -252,7 +252,7 @@ function Row({
         aria-label={`${shown ? 'Hide' : 'Show'} ${prop.label}`}
         className="shrink-0 rounded p-0.5 text-faint transition-colors hover:bg-hover hover:text-ink"
       >
-        {shown ? <Eye size={13} /> : <EyeOff size={13} />}
+        {shown ? <Eye size={14} /> : <EyeOff size={14} />}
       </button>
     </div>
   );

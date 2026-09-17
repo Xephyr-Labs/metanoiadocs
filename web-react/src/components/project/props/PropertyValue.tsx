@@ -93,7 +93,7 @@ function DateValue({ value, danger, onChange }: {
           pointer or holds focus, so a column of dates stays a column of dates
           rather than a column of icons. */}
       <CalendarDays
-        size={13}
+        size={14}
         aria-hidden
         className={[
           'shrink-0 transition-opacity duration-120',
@@ -166,7 +166,7 @@ function UrlValue({ value, scheme, dense, onChange }: {
           aria-label="Open in a new tab"
           className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-faint transition-colors hover:bg-hover hover:text-ink"
         >
-          <ExternalLink size={13} />
+          <ExternalLink size={14} />
         </a>
       </span>
     );

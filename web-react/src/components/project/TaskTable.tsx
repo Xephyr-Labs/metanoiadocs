@@ -234,7 +234,7 @@ function TitleCell({ value, wrap, onCommit, onOpen }: {
         'transition-opacity hover:text-ink focus-visible:opacity-100 group-hover:opacity-100',
       )}
     >
-      <Maximize2 size={11} /> Open
+      <Maximize2 size={12} /> Open
     </button>
   );
 

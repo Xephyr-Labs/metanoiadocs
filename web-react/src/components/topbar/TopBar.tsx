@@ -166,8 +166,12 @@ export function TopBar() {
   const chooseFont = (f: prefs.DocFont) => { prefs.setDocFont(f); bump(); };
   const toggleSmall = () => { prefs.setSmallText(!small); bump(); };
 
+  // The rule under the bar is an inset shadow, not a border: a border sits
+  // inside `h-11` and leaves a 43px content box, which puts every 28px control
+  // at y=7.5 and every icon in it on a half pixel. The shadow draws the same
+  // line without touching the box.
   return (
-    <header className="sticky top-0 z-30 flex h-11 shrink-0 items-center gap-1 border-b border-line bg-canvas px-2.5">
+    <header className="sticky top-0 z-30 flex h-11 shrink-0 items-center gap-1 bg-canvas px-2.5 shadow-[inset_0_-1px_0_var(--line)]">
       {(isMobile || ws.sidebarCollapsed) && (
         <IconButton
           icon={<PanelLeft size={16} />}

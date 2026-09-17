@@ -69,7 +69,7 @@ export function ActorMark({
         className,
       )}
     >
-      {isAi ? <Sparkles size={11} aria-hidden /> : <Bot size={11} aria-hidden />}
+      {isAi ? <Sparkles size={12} aria-hidden /> : <Bot size={12} aria-hidden />}
     </span>
   );
 }

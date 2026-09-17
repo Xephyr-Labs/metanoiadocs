@@ -16,7 +16,7 @@
   /* The sidebar's header row. A token because the icon rail beside it has to
    * start its first icon on the same line as the first nav row, and a second
    * hand-typed 45 would drift the moment either one moved. */
-  --mn-head-h: 45px;
+  --mn-head-h: 44px;
   --canvas: #ffffff;
   --surface: #f7f7f5;
   --surface-2: #fbfbfa;
@@ -45,6 +45,10 @@
    * lighter accent already reads 6.5:1 on the near-black canvas. */
   --accent-strong: #1a6fc4;
   --accent-soft: #eaf3fc;
+  /* A filled surface carrying white text. Same blue as --accent in light;
+     in dark, --accent is lifted so link text reads on the canvas, and white
+     on that lifted blue is 2.9:1. This one stays deep enough for 4.6:1. */
+  --accent-fill: #2383e2;
   /* The danger twin of accent-soft — a late gantt bar had no tint to sit in,
      so it rendered as a hollow outline and read as a rendering fault. */
   --danger-soft: #fbeceb;
@@ -172,6 +176,7 @@ html.dark {
   --accent: #4a9eea;
   --accent-strong: var(--accent);
   --accent-soft: #1d3a57;
+  --accent-fill: #2276cf;
   --danger-soft: #4a2523;
   /* The accent's twin collapses in dark — a lighter blue reads on near-black
    * either way. Danger's does not, and this is the half the split is for: the
@@ -747,6 +752,36 @@ input[type='radio'] {
  * own toolbars are untouched. */
 input:not([type='checkbox']):not([type='radio']) {
   flex-basis: auto;
+}
+
+/* BlockSuite ships a `.truncate` of its own and injects it into the document
+ * the first time an editor mounts. It is the same class name Tailwind gives us,
+ * at the same specificity, and it arrives later — so from the first task peek or
+ * document open onwards, every truncating label in the app inherited their
+ * `align-self: stretch`. A label that stretches fills its row instead of
+ * centring in it, which puts the text at the top of the box and leaves the icon
+ * beside it looking a pixel or two low. That is why the view tabs came apart
+ * only once the task panel had been opened, and why closing it again did not
+ * put them back: the injected rule stays for the rest of the session.
+ *
+ * `:root` costs nothing and buys the specificity to outrank an injection we do
+ * not control. Their own components live in shadow roots, where a document rule
+ * cannot reach them, so this only takes the stretch off ours. */
+:root .truncate {
+  align-self: auto;
+}
+
+/* A menu's trigger is often `<span><IconButton/></span>` — the span exists so
+ * Radix has a plain element to hang the trigger props on. Left inline it gets
+ * a line box, and an inline-block button on a baseline carries descender space
+ * under it: the span comes out 29px for a 28px button, and wherever that span
+ * is centred — a header, a hover-revealed row action — the button lands on a
+ * half pixel. `flex`, not `inline-flex`: an inline-flex trigger still leaves a
+ * strut in the wrapper around it, and that wrapper is the thing being centred.
+ * Radix marks the element with aria-haspopup, so one rule covers every call
+ * site rather than each of the nine. */
+span[aria-haspopup='menu'] {
+  display: flex;
 }
 
 /* One select look, everywhere. The OS widget is dropped and the chevron drawn

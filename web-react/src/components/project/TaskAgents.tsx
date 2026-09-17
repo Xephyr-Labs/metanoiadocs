@@ -136,7 +136,7 @@ export function TaskAgents({ taskId, projectId, onChanged }: {
               key={a.id}
               size="sm"
               variant="subtle"
-              leftIcon={<Zap size={13} />}
+              leftIcon={<Zap size={14} />}
               onClick={async () => {
                 await tasksApi.runAutomation(taskId, a.id).catch(() => toast('That action did not run'));
                 onChanged();
@@ -167,7 +167,7 @@ export function TaskAgents({ taskId, projectId, onChanged }: {
           {/* An icon at rest as well as while running — a button that grows
               when you press it is a button that moves out from under you. */}
           <Button size="sm" variant="secondary" disabled={!pick || busy}
-            leftIcon={busy ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
+            leftIcon={busy ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
             onClick={hand}>
             Run
           </Button>

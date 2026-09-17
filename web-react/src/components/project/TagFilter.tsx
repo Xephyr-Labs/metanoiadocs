@@ -51,7 +51,7 @@ export function TagFilter({ tags, filters, onChange }: {
             : 'text-muted hover:bg-hover hover:text-ink',
         )}
       >
-        <Tag size={13} />
+        <Tag size={14} />
         {chosen.length === 1 ? chosen[0] : chosen.length ? `${chosen.length} tags` : 'Tag'}
       </button>
       {open && (

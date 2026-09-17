@@ -182,7 +182,7 @@ export function SelectValue({
                     ) : (
                       <span className="min-w-0 flex-1 truncate text-xs text-ink">{o.label}</span>
                     )}
-                    {chosenIds.has(o.id) && <Check size={13} className="shrink-0 text-accent-strong" />}
+                    {chosenIds.has(o.id) && <Check size={14} className="shrink-0 text-accent-strong" />}
                   </button>
                   {onEditOptions && (
                     <span className="flex shrink-0 items-center opacity-0 transition-opacity group-hover/opt:opacity-100 focus-within:opacity-100">
@@ -236,7 +236,7 @@ export function SelectValue({
                 onClick={create}
                 className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1.5 text-left text-xs text-ink hover:bg-hover"
               >
-                <Plus size={13} className="shrink-0 text-faint" />
+                <Plus size={14} className="shrink-0 text-faint" />
                 Create
                 <span className={cn('rounded px-1.5 py-0.5 text-2xs', swatch(nextColor(prop.options)).chip)}>{q}</span>
               </button>

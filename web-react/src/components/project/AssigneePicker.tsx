@@ -111,7 +111,7 @@ export function AssigneePicker({ assignees, users, onChange }: Props) {
                 >
                   <Avatar name={name} />
                   <span className="min-w-0 flex-1 truncate text-xs text-ink">{name}</span>
-                  {chosen.has(u.id) && <Check size={13} className="shrink-0 text-accent-strong" />}
+                  {chosen.has(u.id) && <Check size={14} className="shrink-0 text-accent-strong" />}
                 </button>
               );
             })}

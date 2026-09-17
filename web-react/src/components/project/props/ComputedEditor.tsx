@@ -41,7 +41,7 @@ export function FormulaEditor({ prop, onPatch }: {
       </div>
       {error ? (
         <p className="flex items-center gap-1.5 pl-6 text-2xs text-danger-strong">
-          <AlertCircle size={11} className="shrink-0" /> {error}
+          <AlertCircle size={12} className="shrink-0" /> {error}
         </p>
       ) : (
         <p className="pl-6 text-2xs text-faint">

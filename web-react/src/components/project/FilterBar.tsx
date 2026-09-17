@@ -151,7 +151,7 @@ export function FilterBar({ fields, filters, onChange }: Props) {
         onClick={add}
         className="flex h-7 items-center gap-1 rounded-md px-2 text-xs text-muted transition-colors hover:bg-hover hover:text-ink"
       >
-        <Plus size={13} /> Filter
+        <Plus size={14} /> Filter
       </button>
     );
   }

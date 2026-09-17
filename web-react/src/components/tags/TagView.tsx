@@ -70,7 +70,7 @@ export function TagView() {
               onClick={() => toggle(t.id)}
               className="rounded-sm opacity-60 hover:opacity-100"
             >
-              <X size={11} />
+              <X size={12} />
             </button>
           </span>
         ))}

@@ -168,7 +168,7 @@ export function PageProperties({ editor, page }: { editor: Element | null; page:
                   aria-label={`Options for ${prop.label}`}
                   className={cn(rowAction, 'mt-1.5 opacity-0 group-hover/prop:opacity-100')}
                 >
-                  <X size={13} />
+                  <X size={14} />
                 </button>
               }
               items={[
@@ -200,7 +200,7 @@ export function PageProperties({ editor, page }: { editor: Element | null; page:
               type="button"
               className="flex h-7 items-center gap-1 rounded-md px-1.5 text-xs text-faint transition-colors hover:bg-hover hover:text-ink"
             >
-              <Plus size={13} /> Add a property
+              <Plus size={14} /> Add a property
             </button>
           }
           items={[

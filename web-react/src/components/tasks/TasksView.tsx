@@ -196,9 +196,9 @@ export function TasksView() {
                 try { localStorage.setItem(SHAPE_KEY, next); } catch { /* private mode */ }
               }}
               segments={[
-                { value: 'list', label: 'List', icon: <List size={13} /> },
-                { value: 'board', label: 'Board', icon: <KanbanSquare size={13} /> },
-                { value: 'timeline', label: 'Timeline', icon: <CalendarRange size={13} /> },
+                { value: 'list', label: 'List', icon: <List size={14} /> },
+                { value: 'board', label: 'Board', icon: <KanbanSquare size={14} /> },
+                { value: 'timeline', label: 'Timeline', icon: <CalendarRange size={14} /> },
               ]}
             />
             <IconButton icon={<RefreshCw size={16} />} label="Refresh" onClick={load} />

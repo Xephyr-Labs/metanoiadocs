@@ -30,6 +30,7 @@ export default {
         accent: 'var(--accent)',
         'accent-strong': 'var(--accent-strong)',
         'accent-soft': 'var(--accent-soft)',
+        'accent-fill': 'var(--accent-fill)',
         'danger-soft': 'var(--danger-soft)',
         danger: 'var(--danger)',
         'danger-strong': 'var(--danger-strong)',
