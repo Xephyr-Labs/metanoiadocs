@@ -43,7 +43,8 @@ const ctx = (over: Partial<ComputeContext> = {}): ComputeContext => ({
   users: [],
   linkedRows: new Map(),
   linkedProps: new Map(),
-  now: () => new Date('2026-09-15T00:00:00Z'),
+  // Local midnight — `now()` reads as the reader's calendar day (see formula.test).
+  now: () => new Date(2026, 8, 15),
   ...over,
 });
 

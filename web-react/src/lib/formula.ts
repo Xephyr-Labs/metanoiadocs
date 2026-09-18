@@ -185,6 +185,13 @@ const asDate = (v: Value): Date | null => {
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 
+/** `today()` and `now()` are about the reader's calendar, not UTC's — a formula
+ *  that says a task is due tomorrow must agree with the badge beside it. Every
+ *  other date in here came from a YYYY-MM-DD string parsed at UTC midnight, so
+ *  those keep `iso` and round-trip exactly. */
+const localIso = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
 function call(name: string, args: Value[], scope: Scope): Value {
   const a = args[0] ?? null;
   const b = args[1] ?? null;
@@ -206,8 +213,8 @@ function call(name: string, args: Value[], scope: Scope): Value {
     case 'abs': return Math.abs(num(a));
     case 'min': return Math.min(...args.map(num));
     case 'max': return Math.max(...args.map(num));
-    case 'now': return iso(scope.now());
-    case 'today': return iso(scope.now());
+    case 'now': return localIso(scope.now());
+    case 'today': return localIso(scope.now());
     case 'datediff': {
       // Whole days from a to b, so "due minus today" reads as days remaining.
       const x = asDate(a);
