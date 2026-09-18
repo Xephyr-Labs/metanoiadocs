@@ -27,11 +27,6 @@ export function dayOf(value) {
   return /^\d{4}-\d{2}-\d{2}/.test(text) ? text.slice(0, 10) : null;
 }
 
-/** Today, in the server's own day. */
-export function today(now = new Date()) {
-  return dayOf(now);
-}
-
 /** Whole days from `todayIso` to `dueIso`. Negative means the day has passed. */
 export function daysUntil(dueIso, todayIso) {
   return Math.round(

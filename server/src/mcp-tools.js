@@ -11,6 +11,7 @@
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
+import { DEFAULT_ZONE, dayIn } from './timezone.js';
 
 const ok = (obj) => ({
   content: [{ type: 'text', text: typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2) }],
@@ -22,7 +23,7 @@ const fail = (e) => ({ isError: true, content: [{ type: 'text', text: `Error: ${
  * @param {string} opts.base      Origin to call, no trailing slash (e.g. http://127.0.0.1:3000).
  * @param {Record<string,string>} opts.headers  Auth headers forwarded on every call.
  */
-export function createMetanoiaMcpServer({ base, headers = {} }) {
+export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZONE }) {
   const origin = String(base || '').replace(/\/+$/, '');
 
   async function api(path, { method = 'GET', body } = {}) {
@@ -641,7 +642,10 @@ export function createMetanoiaMcpServer({ base, headers = {} }) {
           rows = rows.filter((t) => (t.tags || []).some((x) => String(x).toLowerCase() === q));
         }
 
-        const today = dayOf(new Date());
+        // The caller's today, not the server's: "overdue" is a claim about
+        // somebody's calendar, and a tool that answers from the container's
+        // zone disagrees with the board the answer links to.
+        const today = dayIn(zone);
         if (dueWithinDays !== undefined) rows = rows.filter((t) => isDueWithin(t, dueWithinDays, today));
         if (overdue) rows = rows.filter((t) => isOverdue(t, today));
 

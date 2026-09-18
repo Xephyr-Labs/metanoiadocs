@@ -7,6 +7,7 @@ import { propsFor } from './props-routes.js';
 import { wouldProjectCycle } from './project-tree.js';
 import { MAX_ASSIGNEES, ensureTaskPage, setAssignees } from './task-writes.js';
 import { notifyAssignees } from './assignees.js';
+import { dayIn, zoneOf } from './timezone.js';
 import { applyAutomations } from './automations.js';
 import { emit } from './webhooks.js';
 
@@ -236,18 +237,23 @@ const ALL_TASKS_SQL = `
 
 export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
   // ── projects ────────────────────────────────────────────────────────────
-  app.get('/api/projects', requireUser, wrap(async (_req, res) => {
+  app.get('/api/projects', requireUser, wrap(async (req, res) => {
     const { rows } = await pool.query(
+      // $1, not current_date: how many are overdue depends on what day it is
+      // where the caller is, and Postgres only knows what day it is where the
+      // server is. The same count is a different number either side of
+      // midnight, and the sidebar badge has to agree with the board.
       `SELECT p.*,
               count(t.id) FILTER (WHERE t.deleted_at IS NULL) AS total,
               count(t.id) FILTER (WHERE t.deleted_at IS NULL AND t.status = 'done') AS done,
               count(t.id) FILTER (WHERE t.deleted_at IS NULL AND t.status <> 'done'
-                                    AND t.due_at < current_date) AS overdue
+                                    AND t.due_at < $1::date) AS overdue
          FROM projects p
          LEFT JOIN tasks t ON t.project_id = p.id
         WHERE p.archived_at IS NULL
         GROUP BY p.id
-        ORDER BY p.parent_id NULLS FIRST, p.position ASC, p.created_at ASC`
+        ORDER BY p.parent_id NULLS FIRST, p.position ASC, p.created_at ASC`,
+      [dayIn(zoneOf(req.user))]
     );
     res.json(rows);
   }));
@@ -493,8 +499,14 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
       where.push(`t.status = $${vals.length}`);
     }
     if (req.query.open === '1') where.push(`t.status <> 'done'`);
-    if (req.query.due === 'week') where.push(`t.due_at <= current_date + 7`);
-    if (req.query.due === 'overdue') where.push(`t.due_at < current_date AND t.status <> 'done'`);
+    // "This week" and "overdue" are asked from a calendar, and the caller's is
+    // the only one that matters — see the projects count above.
+    if (req.query.due === 'week' || req.query.due === 'overdue') {
+      vals.push(dayIn(zoneOf(req.user)));
+      where.push(req.query.due === 'week'
+        ? `t.due_at <= $${vals.length}::date + 7`
+        : `t.due_at < $${vals.length}::date AND t.status <> 'done'`);
+    }
     const { rows } = await pool.query(
       `${TASK_SELECT} JOIN projects p ON p.id = t.project_id
         WHERE ${where.join(' AND ')}

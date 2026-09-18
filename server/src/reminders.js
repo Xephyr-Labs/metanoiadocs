@@ -4,11 +4,13 @@ import { sendNotificationEmail } from './auth.js';
 import { sendPush } from './push.js';
 import { linkFor } from './push-rules.js';
 import {
-  dayOf, digestLine, isUrgent, reminderFor, reminderText, reminderTitle, today,
+  dayOf, digestLine, isUrgent, reminderFor, reminderText, reminderTitle,
 } from './reminder-rules.js';
+import { dayIn, hourIn, zoneOf } from './timezone.js';
 
-/** The hour a working day starts, in the server's own clock. Nothing is sent
- *  before it: a reminder that arrives at 3am is read at 9 with fourteen others. */
+/** The hour a working day starts, in the reader's OWN clock — 8am in Dhaka for
+ *  whoever is in Dhaka. Nothing is sent before it: a reminder that arrives at
+ *  3am is read at 9 with fourteen others. */
 const REMINDER_HOUR = Math.min(23, Math.max(0, Number(process.env.REMINDER_HOUR) || 8));
 
 /** How often the sweep wakes up to check whether that hour has arrived. */
@@ -25,7 +27,7 @@ const KEEP_DAYS = 30;
  *  table only appears in the column. */
 const ASSIGNED = `
   SELECT t.id, t.title, t.due_at, t.priority, t.doc_id, t.project_id,
-         e.user_id, u.name, u.email
+         e.user_id, u.name, u.email, u.timezone
     FROM tasks t
     JOIN projects p ON p.id = t.project_id AND p.archived_at IS NULL AND p.mode <> 'data'
     JOIN (
@@ -41,16 +43,11 @@ const ASSIGNED = `
  *  assignor, and the only one that survives the task being reassigned. */
 const CREATED = `
   SELECT t.id, t.title, t.due_at, t.priority, t.doc_id, t.project_id,
-         u.id AS user_id, u.name, u.email
+         u.id AS user_id, u.name, u.email, u.timezone
     FROM tasks t
     JOIN projects p ON p.id = t.project_id AND p.archived_at IS NULL AND p.mode <> 'data'
     JOIN users u ON u.id = t.created_by AND u.kind <> 'agent'
    WHERE t.deleted_at IS NULL AND t.status <> 'done'`;
-
-/** Local midnight, which is where a day starts for the person reading this. */
-function startOfDay(now) {
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
-}
 
 /**
  * Everyone with open work, and what each of them is carrying.
@@ -59,7 +56,7 @@ function startOfDay(now) {
  * assignee side wins, so they are reminded about the deadline they are actually
  * holding rather than told twice about the same thing in two voices.
  */
-export async function pendingByUser(now = new Date()) {
+export async function pendingByUser() {
   const [assigned, created] = await Promise.all([
     pool.query(ASSIGNED),
     pool.query(CREATED),
@@ -74,7 +71,8 @@ export async function pendingByUser(now = new Date()) {
 
   const people = new Map();
   const put = (row, role) => {
-    const person = people.get(row.user_id) ?? { email: row.email, tasks: new Map() };
+    const person = people.get(row.user_id)
+      ?? { email: row.email, zone: zoneOf(row), tasks: new Map() };
     // Assignee beats owner for the same task — see the doc comment.
     if (!(role === 'owner' && person.tasks.has(row.id))) {
       person.tasks.set(row.id, {
@@ -92,11 +90,16 @@ export async function pendingByUser(now = new Date()) {
   for (const row of assigned.rows) put(row, 'assignee');
   for (const row of created.rows) put(row, 'owner');
 
-  return { people, names, todayIso: today(now) };
+  return { people, names };
 }
 
 /**
  * Tell everyone what is on their plate, once a day.
+ *
+ * Every day boundary here is the reader's own. "Due today", "one day late" and
+ * "8am has arrived" are all questions about where a person is sitting, so each
+ * is asked in the zone their browser reported — a task due the 19th is due
+ * today in Auckland eleven hours before it is due today in London.
  *
  * Idempotent by construction: a person gets at most one summary and at most one
  * reminder per task per day, and what has already gone out today is read back
@@ -109,21 +112,33 @@ export async function pendingByUser(now = new Date()) {
  * is what carries them.
  */
 export async function sweepReminders(now = new Date()) {
-  const { people, names, todayIso } = await pendingByUser(now);
+  const { people, names } = await pendingByUser();
   if (!people.size) return { digests: 0, reminders: 0 };
 
+  // Two days of rows rather than "since midnight": midnight is a different
+  // instant for every reader, and the widest pair of zones is 26 hours apart.
+  // Which of them counts as today is then a question about each person, asked
+  // below in their own zone.
   const { rows: sent } = await pool.query(
-    `SELECT user_id, task_id, kind FROM notifications
-      WHERE kind IN ('due_soon', 'due_today', 'overdue', 'digest') AND created_at >= $1`,
-    [startOfDay(now)],
+    `SELECT user_id, task_id, kind, created_at FROM notifications
+      WHERE kind IN ('due_soon', 'due_today', 'overdue', 'digest')
+        AND created_at >= now() - interval '2 days'`,
   );
-  const already = new Set(sent.map((r) => `${r.user_id}:${r.task_id ?? ''}:${r.kind}`));
 
   const base = process.env.BASE_URL || '';
   let digests = 0;
   let reminders = 0;
 
   for (const [userId, person] of people) {
+    // 8am where they are, not where the server is. Anyone the clock has not
+    // reached yet is simply left for the next sweep, half an hour later.
+    if (hourIn(person.zone, now) < REMINDER_HOUR) continue;
+    const todayIso = dayIn(person.zone, now);
+    const already = new Set(
+      sent
+        .filter((r) => r.user_id === userId && dayIn(person.zone, r.created_at) === todayIso)
+        .map((r) => `${r.task_id ?? ''}:${r.kind}`),
+    );
     const tasks = [...person.tasks.values()];
     const urgent = tasks.filter((t) => isUrgent(t, todayIso)).length;
     const lines = [];
@@ -144,7 +159,7 @@ export async function sweepReminders(now = new Date()) {
       // only earn one of these on one day, so it dedupes exactly the same, and
       // the inbox can tell a deadline arriving from a deadline missed without
       // reading the sentence back out of the body.
-      if (already.has(`${userId}:${task.id}:${kind}`)) continue;
+      if (already.has(`${task.id}:${kind}`)) continue;
       const id = crypto.randomUUID();
       await pool.query(
         `INSERT INTO notifications (id, user_id, actor_id, actor_name, doc_id, task_id, kind, body)
@@ -161,7 +176,7 @@ export async function sweepReminders(now = new Date()) {
     }
 
     const summary = digestLine(tasks.length, urgent);
-    if (!summary || already.has(`${userId}::digest`)) continue;
+    if (!summary || already.has(':digest')) continue;
     const id = crypto.randomUUID();
     await pool.query(
       `INSERT INTO notifications (id, user_id, actor_id, actor_name, doc_id, task_id, kind, body)
@@ -193,13 +208,21 @@ export async function sweepReminders(now = new Date()) {
 
 let running = false;
 
-/** Sweep at boot and every half hour after; act only once the day has started.
- *  A failed sweep is logged, never fatal — the next one repeats it. `running`
- *  guards the case where one sweep outlives the interval: two of them at once
- *  would both read the same "already sent" set and both act on it. */
+/**
+ * Sweep at boot and every half hour after, around the clock.
+ *
+ * There is no hour at which this can be skipped: 8am is always arriving
+ * somewhere, and a workspace spread over two continents has no shared morning
+ * to wake up for. The hour is checked per person instead, inside the sweep,
+ * which is the only place that knows whose morning it is.
+ *
+ * A failed sweep is logged, never fatal — the next one repeats it. `running`
+ * guards the case where one outlives the interval: two at once would both read
+ * the same "already sent" set and both act on it.
+ */
 export function startReminders() {
   const sweep = () => {
-    if (running || new Date().getHours() < REMINDER_HOUR) return;
+    if (running) return;
     running = true;
     sweepReminders()
       .then(({ digests, reminders }) => {

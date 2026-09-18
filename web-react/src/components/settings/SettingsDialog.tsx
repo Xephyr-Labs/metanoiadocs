@@ -154,6 +154,15 @@ function Account() {
         />
         <Row title="Username" control={<span className="text-sm text-muted">@{user?.username}</span>} />
         <Row title="Email" desc="Used to sign in and for notifications." control={<span className="text-sm text-muted">{user?.email}</span>} />
+        {/* Read, not set. The browser already knows, and a picker over four
+            hundred IANA names is a worse answer than the right one by default.
+            Shown because it decides when the morning summary arrives and which
+            day a task counts as due on, and a wrong one should be visible. */}
+        <Row
+          title="Time zone"
+          desc="Detected from this browser. Dates, reminders and the daily summary follow it."
+          control={<span className="text-sm text-muted">{Intl.DateTimeFormat().resolvedOptions().timeZone}</span>}
+        />
         <PasswordRow />
       </div>
     </div>

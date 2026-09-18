@@ -44,6 +44,17 @@ export async function initSchema() {
     -- account exactly as it was.
     ALTER TABLE users ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'person';
 
+    -- The IANA zone this person's browser last reported (e.g. Asia/Dhaka).
+    --
+    -- Every day boundary in the app is a decision about somebody: whether a
+    -- task is due today, whether it is a day late, whether 8am has arrived for
+    -- the person about to be told. Postgres answers current_date in the
+    -- server's zone and Node answers new Date() in the container's, which is
+    -- the same answer for everybody — and wrong for anybody not sitting in it.
+    -- NULL until a browser says otherwise, and the server's own zone is the
+    -- fallback, which is exactly the behaviour that predates this column.
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS timezone TEXT;
+
     CREATE UNIQUE INDEX IF NOT EXISTS users_username_idx
       ON users(username) WHERE username IS NOT NULL;
 

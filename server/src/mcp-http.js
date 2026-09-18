@@ -12,6 +12,7 @@
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 
 import { createMetanoiaMcpServer } from './mcp-tools.js';
+import { zoneOf } from './timezone.js';
 
 export function registerMcpRoute(app, { requireUser, port }) {
   const base = `http://127.0.0.1:${port}`;
@@ -25,7 +26,7 @@ export function registerMcpRoute(app, { requireUser, port }) {
     if (req.headers.authorization) headers.Authorization = req.headers.authorization;
     if (req.headers.cookie) headers.Cookie = req.headers.cookie;
 
-    const server = createMetanoiaMcpServer({ base, headers });
+    const server = createMetanoiaMcpServer({ base, headers, zone: zoneOf(req.user) });
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     // Close both when the client hangs up, or a long-lived SSE reply leaks the
     // server object for as long as the process lives.
