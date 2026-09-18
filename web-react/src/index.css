@@ -745,9 +745,9 @@ html.dark .mn-toc .outline-viewer-indicator {
   display: none;
 }
 @media (hover: none) {
-  .mn-rail {
-    width: 72px;
-  }
+  /* The width is set from JS (useRailWidth), because the app shell has to
+     animate the column down to the same number when the panel is put away and
+     a media query cannot tell it what that number is. */
   .mn-rail-item {
     height: 52px;
     flex-direction: column;

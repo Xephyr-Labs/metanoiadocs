@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { collapsedSections, railSection, setRailSection, toggleSection } from './sidebarPrefs';
+import { collapsedSections, panelClosed, railSection, setPanelClosed, setRailSection, toggleSection } from './sidebarPrefs';
 
 // The suite runs in node, and nothing else here needs a DOM. Six lines of Map
 // is cheaper than pulling jsdom in to store two keys.
@@ -32,6 +32,27 @@ describe('collapsed sections', () => {
     // one section people actually open kept closing itself again.
     toggleSection('templates');
     expect(collapsedSections().has('templates')).toBe(false);
+  });
+});
+
+describe('the panel beside the rail', () => {
+  it('is open until someone puts it away', () => {
+    expect(panelClosed()).toBe(false);
+  });
+
+  it('remembers being put away, and does not take the rest of the prefs with it', () => {
+    toggleSection('tags');
+    setRailSection('projects');
+    setPanelClosed(true);
+    expect(panelClosed()).toBe(true);
+    expect(railSection()).toBe('projects');
+    expect(collapsedSections().has('tags')).toBe(true);
+  });
+
+  it('opens again', () => {
+    setPanelClosed(true);
+    setPanelClosed(false);
+    expect(panelClosed()).toBe(false);
   });
 });
 

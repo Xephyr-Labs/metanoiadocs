@@ -2,6 +2,13 @@
   {
     "date": "2026-09-18",
     "macrostructure": "Workbench (app chrome \u2014 rail + page menu), unchanged",
+    "theme": "project tokens (preserved) \u00b7 a third width for the sidebar column: gone, the rail on its own, or the rail plus the panel \u2014 with the toggle in the rail, which is the half that survives the collapse",
+    "enrichment": "none \u2014 typography only",
+    "brief": "metanoiadocs \u00b7 the panel beside the icon rail had no collapsed state of its own; the only control took the whole column, rail included"
+  },
+  {
+    "date": "2026-09-18",
+    "macrostructure": "Workbench (app chrome \u2014 rail + page menu), unchanged",
     "theme": "project tokens (preserved) \u00b7 six fixes: the rail collapsed to its glyphs with the name on hover at zero delay (and printed under the icon where there is no hover), calendar cards answering the pointer, a page search under the link popup's input, and the daily task reminders drawn as system rows in the inbox",
     "enrichment": "none \u2014 typography only",
     "brief": "metanoiadocs \u00b7 a batch of six: task deadline notifications, tag deletion for everyone, the calendar's edge drag across a week boundary, hover on task cards, an icon-only section rail, and doc search when linking"
