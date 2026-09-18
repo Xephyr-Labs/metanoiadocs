@@ -63,6 +63,7 @@ import { useWorkspace } from '../../store/workspace';
 import { IconButton } from '../ui/IconButton';
 import { Menu } from '../ui/Menu';
 import { RowInput } from '../ui/RowInput';
+import { Tooltip } from '../ui/Tooltip';
 import { rowAction } from '../ui/styles';
 import { PageTree } from './PageTree';
 import { FolderTree } from './FolderTree';
@@ -528,17 +529,18 @@ function FavoriteFolderRow({ id }: { id: string }) {
  * Code needs both because extensions add icons to its rail; nothing here adds
  * one.
  *
- * Every item carries its name under the glyph rather than behind a tooltip.
- * Icon-only put an 800ms hover between a person and the answer to "which one is
- * Templates", every single time, and two of these six are honestly just
- * rectangles: `LayoutList` and `LayoutTemplate` do not distinguish themselves at
- * 20px however long you look. The word does.
+ * Collapsed to the glyph, with the name on hover and on focus. The case against
+ * icon-only was never the missing word, it was the wait in front of it — a
+ * tooltip that takes most of a second to answer "which one is Templates" is one
+ * you stop asking. So these pass `delay={0}`: the label is there the moment the
+ * pointer rests, and it arrives on keyboard focus too, which the printed label
+ * could not do anything about either way. Two of the six are honestly just
+ * rectangles — `LayoutList` and `LayoutTemplate` do not distinguish themselves
+ * at 20px however long you look — so the word still has to exist. It just no
+ * longer costs a column of chrome to keep it.
  *
- * The rail is 72px because the widest of the six measures 59.1px at 11px in
- * Onest (`Documents`, measured in the browser rather than guessed), and 6px of
- * inset each side is what keeps that off the edges of its own block. Nothing
- * truncates, nothing wraps to a second line, and a fallback face has room to be
- * a little wider before either happens.
+ * 56px rather than 72: with nothing to typeset the width is a target, not a
+ * measure, and the 16px goes back to the panel beside it.
  *
  * Where a label names a section the panel also names, it uses the panel's word:
  * one thing should not have two names depending on which surface you read it
@@ -589,36 +591,49 @@ function Rail({ section, onPick }: { section: RailSection; onPick: (s: RailSecti
       role="toolbar"
       aria-orientation="vertical"
       aria-label="Sidebar sections"
-      className="flex w-[72px] shrink-0 flex-col items-center gap-0.5 border-r border-line pt-[calc(var(--mn-head-h)+0.5rem)]"
+      className="mn-rail flex w-14 shrink-0 flex-col items-center gap-0.5 border-r border-line pt-[calc(var(--mn-head-h)+0.5rem)]"
     >
       {RAIL.map((r, i) => {
         const on = section === r.key;
         return (
-          <button
-            key={r.key}
-            ref={(el) => { refs.current[i] = el; }}
-            type="button"
-            aria-pressed={on}
-            tabIndex={i === (focused ?? activeIndex) ? 0 : -1}
-            onFocus={() => setFocused(i)}
-            onKeyDown={(e) => onKeyDown(e, i)}
-            onClick={() => onPick(r.key)}
-            className={cn(
-              'flex h-[52px] w-full flex-col items-center justify-center gap-[3px] px-1.5',
-              // Square against the window edge, rounded away from it. A radius
-              // on the edge side has nothing to sit against — the corner curves
-              // away from a hard line and the block stops reading as a tab.
-              'rounded-l-none rounded-r-lg transition-colors duration-120 ease-out',
-              // The global ring sits 1px outside the element and re-rounds it;
-              // on an edge-flush target that clips at x=0 and squares the wrong
-              // corners, so this one draws inside and keeps its own shape.
-              'focus-visible:rounded-l-none focus-visible:rounded-r-lg focus-visible:[outline-offset:-2px]',
-              on ? 'bg-selected text-ink' : 'text-muted hover:bg-hover hover:text-ink',
-            )}
-          >
-            <span className="flex h-5 w-5 shrink-0 items-center justify-center">{r.icon}</span>
-            <span className={cn('block max-w-full truncate text-3xs leading-none', on && 'font-medium')}>{r.label}</span>
-          </button>
+          // side="right": the rail is flush against the window edge, so a
+          // tooltip above or below one of these has room and a tooltip to the
+          // left does not — and to the right it points at the panel the item
+          // is about to fill.
+          <Tooltip key={r.key} label={r.label} side="right" delay={0}>
+            <button
+              ref={(el) => { refs.current[i] = el; }}
+              type="button"
+              // The glyph is not a name, so the control carries one itself.
+              // Without this a screen reader reads six unlabelled buttons —
+              // the tooltip is a description, and it only exists on hover.
+              aria-label={r.label}
+              aria-pressed={on}
+              tabIndex={i === (focused ?? activeIndex) ? 0 : -1}
+              onFocus={() => setFocused(i)}
+              onKeyDown={(e) => onKeyDown(e, i)}
+              onClick={() => onPick(r.key)}
+              className={cn(
+                'mn-rail-item flex h-11 w-full items-center justify-center',
+                // Square against the window edge, rounded away from it. A radius
+                // on the edge side has nothing to sit against — the corner curves
+                // away from a hard line and the block stops reading as a tab.
+                'rounded-l-none rounded-r-lg transition-colors duration-120 ease-out',
+                // The global ring sits 1px outside the element and re-rounds it;
+                // on an edge-flush target that clips at x=0 and squares the wrong
+                // corners, so this one draws inside and keeps its own shape.
+                'focus-visible:rounded-l-none focus-visible:rounded-r-lg focus-visible:[outline-offset:-2px]',
+                on ? 'bg-selected text-ink' : 'text-muted hover:bg-hover hover:text-ink',
+              )}
+            >
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center">{r.icon}</span>
+              {/* Printed only where there is no pointer to hover with. Drawn
+                  always and hidden in CSS rather than branched on in JS: the
+                  question is "does this input device hover", which a media
+                  query answers and a render pass cannot. */}
+              <span className={cn('mn-rail-label max-w-full truncate text-3xs leading-none', on && 'font-medium')}>{r.label}</span>
+            </button>
+          </Tooltip>
         );
       })}
     </div>
@@ -721,8 +736,8 @@ export function Sidebar() {
     const startW = ws.sidebarWidth;
     const onMove = (ev: MouseEvent) => {
       if (!dragging.current) return;
-      // +72 for the rail, so the panel beside it still ranges 220–420.
-      ws.setSidebarWidth(Math.min(492, Math.max(292, startW + ev.clientX - startX)));
+      // +56 for the rail, so the panel beside it still ranges 220–420.
+      ws.setSidebarWidth(Math.min(476, Math.max(276, startW + ev.clientX - startX)));
       force((n) => n + 1);
     };
     const onUp = () => {

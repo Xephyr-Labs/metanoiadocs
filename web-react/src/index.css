@@ -690,6 +690,28 @@ html.dark .mn-toc .outline-viewer-indicator {
   letter-spacing: 0.07em;
 }
 
+/* The section rail is collapsed to its glyphs and hands each name over on
+ * hover. A touch screen has no hover to hand it over on — and no long-press
+ * tooltip either — so there the name is printed under the icon and the column
+ * takes back the width that needs, which is what it was before it collapsed. */
+.mn-rail-label {
+  display: none;
+}
+@media (hover: none) {
+  .mn-rail {
+    width: 72px;
+  }
+  .mn-rail-item {
+    height: 52px;
+    flex-direction: column;
+    gap: 3px;
+    padding-inline: 6px;
+  }
+  .mn-rail-label {
+    display: block;
+  }
+}
+
 /* Hover-revealed controls have no hover to wait for on a touch screen. */
 @media (hover: none) {
   .mn-hover-reveal {

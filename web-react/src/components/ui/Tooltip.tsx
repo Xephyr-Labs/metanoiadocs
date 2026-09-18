@@ -6,14 +6,18 @@ interface Props {
   label: ReactNode;
   keys?: string[];
   side?: 'top' | 'right' | 'bottom' | 'left';
+  /** Override the Provider's hover delay, in ms. For a control whose label is
+   *  the only way to read it — an icon-only rail item — the wait is the whole
+   *  cost of hiding the word, so those pass 0. Left out, the Provider wins. */
+  delay?: number;
   children: ReactNode;
 }
 
 /** Compact tooltip used across chrome controls. Delay is the Provider's (App):
  *  700ms on hover so scanning a toolbar doesn't fire one per icon, 0 on focus. */
-export function Tooltip({ label, keys, side = 'bottom', children }: Props) {
+export function Tooltip({ label, keys, side = 'bottom', delay, children }: Props) {
   return (
-    <RT.Root>
+    <RT.Root delayDuration={delay}>
       <RT.Trigger asChild>{children}</RT.Trigger>
       <RT.Portal>
         <RT.Content
