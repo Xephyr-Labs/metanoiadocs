@@ -1021,9 +1021,11 @@ app.post('/api/tags', requireUser, async (req, res) => {
   res.json(rows[0]);
 });
 
-// Delete a tag globally (detaches from every doc via cascade). Admin-only: tags
-// are workspace-global, so deletion affects docs the caller may not even see.
-app.delete('/api/tags/:id', requireUser, requireAdmin, async (req, res) => {
+// Delete a tag globally (detaches from every doc via cascade). Any member can:
+// a tag is a label, not a permission, and the person who notices a duplicate or
+// a typo is whoever is filing — not an admin. Nothing is lost with it, since the
+// cascade only drops doc_tags edges and every page stays exactly where it was.
+app.delete('/api/tags/:id', requireUser, async (req, res) => {
   await pool.query('DELETE FROM tags WHERE id = $1', [req.params.id]);
   res.json({ ok: true });
 });
