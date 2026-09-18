@@ -150,7 +150,10 @@ export interface BacklinkRow {
 
 export interface InboxRow {
   id: string;
-  kind: 'mention' | 'comment' | 'assigned';
+  /** 'reminder' and 'digest' come from the daily sweep rather than from a
+   *  person, so they carry a body that already reads as a sentence and no
+   *  actor to name. See server/src/reminders.js. */
+  kind: 'mention' | 'comment' | 'assigned' | 'due_soon' | 'due_today' | 'overdue' | 'digest';
   /** The comment that triggered it — null for notifications with no thread. */
   comment_id: string | null;
   /** Null for anything the system raised rather than a person. */

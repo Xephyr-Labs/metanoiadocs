@@ -54,6 +54,7 @@ import { registerWebhookRoutes, emit, startWebhookWorker } from './webhooks.js';
 import { registerAgentRoutes, enqueueRun } from './agent-runs.js';
 import { registerAutomationRoutes } from './automations.js';
 import { TRASH_RETENTION_DAYS, startTrashSweeper } from './retention.js';
+import { startReminders } from './reminders.js';
 import OpenAI from 'openai';
 
 process.on('unhandledRejection', (e) => console.error('[proc] unhandledRejection', e?.message || e));
@@ -2553,4 +2554,5 @@ server.on('upgrade', async (request, socket, head) => {
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`MetanoiaDocs server on :${PORT}  base=${BASE_URL}`);
   startTrashSweeper();
+  startReminders();
 });

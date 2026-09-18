@@ -69,6 +69,21 @@ describe('notifyText', () => {
     const t = notifyText(row({ kind: 'comment', actor_name: '', doc_title: '' }));
     expect(t.title).toBe('Someone commented on Untitled');
   });
+
+  it('gives the daily sweep a heading and leaves its sentence alone', () => {
+    // These have no actor, so the "Someone commented on Untitled" fallback was
+    // exactly wrong for them — it named a person who does not exist and a
+    // document the reminder is not about.
+    const sweep = { actor_id: null, actor_name: 'MetanoiaDocs', doc_id: null, doc_title: '' } as const;
+    expect(notifyText(row({ ...sweep, kind: 'due_soon', body: 'Due tomorrow — Ship it (19 Sep)' })))
+      .toEqual({ title: 'Due tomorrow', body: 'Due tomorrow — Ship it (19 Sep)' });
+    expect(notifyText(row({ ...sweep, kind: 'due_today', body: 'Due today — Ship it (18 Sep)' })).title)
+      .toBe('Due today');
+    expect(notifyText(row({ ...sweep, kind: 'overdue', body: '2 days overdue — Ship it (due 16 Sep)' })).title)
+      .toBe('Overdue');
+    expect(notifyText(row({ ...sweep, kind: 'digest', body: '3 tasks pending · 1 needs attention now' })))
+      .toEqual({ title: 'Your tasks today', body: '3 tasks pending · 1 needs attention now' });
+  });
 });
 
 describe('notifyText and the reader', () => {

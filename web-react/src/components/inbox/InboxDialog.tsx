@@ -1,5 +1,6 @@
-import { Bell, Inbox, Loader2, X } from 'lucide-react';
+import { Bell, CalendarClock, Inbox, ListChecks, Loader2, TriangleAlert, X, type LucideIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { cn } from '../../lib/cn';
 import { docsApi, type InboxRow } from '../../lib/docsApi';
 import { avatarFor } from '../../lib/avatar';
 import { relativeTime } from '../../lib/time';
@@ -84,6 +85,22 @@ function NotifyNudge() {
   );
 }
 
+/**
+ * The four kinds the daily sweep raises (server/src/reminders.js).
+ *
+ * Nobody did these — they are the calendar arriving — so they are drawn as a
+ * line with a glyph rather than as "Someone did something to something", and
+ * their body is already a whole sentence. Tone is the only hierarchy in the
+ * feed: a missed deadline is the one row here about something being wrong, and
+ * it is the one row that says so in red.
+ */
+const SYSTEM: Record<string, { icon: LucideIcon; tone: string }> = {
+  due_soon: { icon: CalendarClock, tone: 'text-muted' },
+  due_today: { icon: CalendarClock, tone: 'text-accent-strong' },
+  overdue: { icon: TriangleAlert, tone: 'text-danger-strong' },
+  digest: { icon: ListChecks, tone: 'text-muted' },
+};
+
 export function InboxDialog() {
   const ws = useWorkspace();
   const auth = useAuth();
@@ -103,8 +120,20 @@ export function InboxDialog() {
   // project it lives in instead.
   const open = (it: InboxRow) => {
     ws.setInboxOpen(false);
+    // A summary is about everything at once, so it opens the list of everything
+    // rather than picking one of the tasks it counted.
+    if (it.kind === 'digest') {
+      ws.openTasks();
+      return;
+    }
     if (it.kind === 'assigned') {
       if (it.project_id) ws.openProject(it.project_id);
+      return;
+    }
+    if (SYSTEM[it.kind]) {
+      // Straight to the task the reminder names: a board with forty cards on it
+      // is not an answer to "which one was late".
+      if (it.project_id) ws.openProject(it.project_id, it.task_id ?? undefined);
       return;
     }
     if (!it.doc_id) return;
@@ -126,11 +155,29 @@ export function InboxDialog() {
         {items === null ? (
           <div className="flex justify-center py-10"><Loader2 size={18} className="animate-spin text-faint" /></div>
         ) : items.length === 0 ? (
-          <EmptyState icon={Inbox} title="You're all caught up" hint="@-mentions, comments on your pages and tasks assigned to you show up here." />
+          <EmptyState icon={Inbox} title="You're all caught up" hint="@-mentions, comments on your pages, tasks assigned to you and your daily task summary show up here." />
         ) : (
           items.map((it) => {
-            const a = avatarFor(it.actor_name);
             const unread = !it.read_at;
+            const sys = SYSTEM[it.kind];
+            if (sys) {
+              const Icon = sys.icon;
+              return (
+                <button key={it.id} onClick={() => open(it)} className="flex w-full items-start gap-2.5 rounded-md px-2 py-2.5 text-left transition-colors hover:bg-hover">
+                  <span className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-surface">
+                    <Icon size={14} className={sys.tone} />
+                    {unread && <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-canvas bg-accent" />}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className={cn('text-sm leading-snug', it.kind === 'overdue' ? 'text-danger-strong' : 'text-ink')}>
+                      {it.body}
+                    </p>
+                    <p className="mt-0.5 text-2xs text-faint">{relativeTime(it.created_at)}</p>
+                  </div>
+                </button>
+              );
+            }
+            const a = avatarFor(it.actor_name);
             // Tagging yourself is a reminder you left yourself; naming yourself
             // in the third person to do it reads like a stranger wrote it.
             const self = !!it.actor_id && it.actor_id === auth.user?.id;

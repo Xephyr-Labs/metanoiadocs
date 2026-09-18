@@ -74,8 +74,13 @@ export function useDesktopNotifications(): void {
       const seen = readSeen();
       for (const row of unseen(rows, seen)) {
         raise(row, selfId, () => {
-          if (row.kind === 'assigned') {
+          if (row.kind === 'digest') {
+            ws.openTasks();
+          } else if (row.kind === 'assigned') {
             if (row.project_id) ws.openProject(row.project_id);
+          } else if (row.task_id) {
+            // A reminder names one task, so it opens that one.
+            if (row.project_id) ws.openProject(row.project_id, row.task_id);
           } else if (row.doc_id) {
             ws.select(row.doc_id);
           }
