@@ -29,6 +29,7 @@ import { docPlainText } from './docText';
 import { attachMermaidPreviews } from './mermaidPreview';
 import { attachMarkdownPaste } from './markdownPaste';
 import { attachRefClicks, collectPageLinks, pageLinkExtensions, type LinkTarget } from './pageLinks';
+import { attachLinkSearch } from './linkSearch';
 import { missingDocMetas } from './docMetas';
 import { blockLinkExtensions } from './blockLinks';
 import { attachImageAlign } from './imageAlign';
@@ -432,6 +433,13 @@ export async function mountEditor(
   // handler would look for the doc in this collection and find nothing.
   const detachRefClicks = onOpenDoc ? attachRefClicks(editor, onOpenDoc) : null;
 
+  // Cmd+K over a selection: search the workspace's pages, not only paste a URL.
+  // Same gate as the "@" menu — without a page index there is nothing to search,
+  // and a public viewer has none.
+  const detachLinkSearch = share || snapshot || !pages
+    ? null
+    : attachLinkSearch(editor, { pages, currentId: docId });
+
   // Paint each image's stored alignment onto the DOM (see imageAlign.ts).
   const detachImageAlign = attachImageAlign({
     store: store as unknown as Parameters<typeof attachImageAlign>[0]['store'],
@@ -524,6 +532,7 @@ export async function mountEditor(
       try { detachPresence(); } catch { /* noop */ }
       try { detachComments?.(); } catch { /* noop */ }
       try { detachRefClicks?.(); } catch { /* noop */ }
+      try { detachLinkSearch?.(); } catch { /* noop */ }
       try { detachImageAlign(); } catch { /* noop */ }
       try { detachColumns(); } catch { /* noop */ }
       try { detachCalloutPanels(); } catch { /* noop */ }

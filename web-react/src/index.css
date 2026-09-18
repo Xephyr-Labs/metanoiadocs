@@ -690,6 +690,53 @@ html.dark .mn-toc .outline-viewer-indicator {
   letter-spacing: 0.07em;
 }
 
+/* Page results under the link popup's input (editor/linkSearch.ts). BlockSuite
+ * renders that popup into its own light DOM, so it is styled from here like
+ * everything else rather than through a stylesheet injected at runtime.
+ *
+ * The popover is a flex ROW (the input, then the confirm button), so a panel
+ * appended to it lands beside the input rather than under it. The class goes on
+ * from JS only when there is a list to show, which leaves the popover exactly
+ * as BlockSuite draws it for anyone pasting a URL. */
+.mn-has-doc-results {
+  flex-direction: column;
+  align-items: stretch;
+}
+.mn-doc-results {
+  border-top: 1px solid var(--line);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  max-height: 232px;
+  overflow-y: auto;
+}
+.mn-doc-result {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+.mn-doc-result:hover,
+.mn-doc-result[data-active='true'] {
+  background: var(--hover);
+}
+.mn-doc-result .mn-doc-title {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* The section rail is collapsed to its glyphs and hands each name over on
  * hover. A touch screen has no hover to hand it over on — and no long-press
  * tooltip either — so there the name is printed under the icon and the column

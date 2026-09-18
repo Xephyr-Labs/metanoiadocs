@@ -81,8 +81,10 @@ function insertMention(
   editor.setInlineRange({ index: range.index + handle.length + 1, length: 0 });
 }
 
-/** Subsequence match, the same shape BlockSuite's own `isFuzzyMatch` uses. */
-function fuzzy(title: string, query: string) {
+/** Subsequence match, the same shape BlockSuite's own `isFuzzyMatch` uses.
+ *  Exported so the link popup's page search matches what the "@" menu matches —
+ *  two doc pickers that disagree about what "lnch" finds are two features. */
+export function fuzzy(title: string, query: string) {
   if (!query) return true;
   const t = title.toLowerCase();
   const q = query.toLowerCase();
