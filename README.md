@@ -112,6 +112,7 @@ One image, one Postgres, one port. `docker compose up -d` and invite the team.
 
 - **Projects** — kanban, backlog, table, gantt, calendar and gallery over one set of tasks; sprints, epics/stories/bugs, points, dependencies, milestones, several assignees per task.
 - **Tasks across projects** — one view of everything assigned to you, or anyone, filtered by project, status, kind, or the focus areas tagged on a task's page. Filters are chips; saved per view.
+- **Deadline reminders** — a one-line summary of what is pending each morning *where you are*, then a nudge the day before something is due, on the day, and every day it stays late. Every day boundary in the app — due today, one day late, 8am — is read in the zone your browser reports, so a workspace spread over three continents has three mornings rather than the server's one. Whoever handed the work over hears about the day it lands and the days it slips, with the name of whoever is carrying it. In-app, push, and one email a day rather than one per task.
 - **Databases** — a project is a database and every row is a page. Add columns (text, number, select, date, checkbox, person, URL, file, relation) and embed a live view of one in any document with `/database`.
 - **Automations** — "when a task enters Done, set progress to 100 and move it to the active sprint". Rules run on a move a person made, never on each other, so two rules cannot loop. A rule set to run by hand is a quick action, offered as a button on every task.
 - **Task ↔ page linking** — a task can link to the page that specifies it, and a page shows the tasks that point at it.
@@ -288,6 +289,7 @@ Everything is an environment variable (see [`.env.example`](.env.example)):
 | `AUTH_DEV_MODE` | `true` | Log sign-in/invite links instead of emailing them. |
 | `ALLOWED_EMAIL_DOMAINS` | `*` | Comma-separated allowlist for sign-in; `*` = any, empty = deny-all. |
 | `TRASH_RETENTION_DAYS` | `30` | How long trashed pages are kept before they are purged. |
+| `REMINDER_HOUR` | `8` | Hour of **each person's own day** the task reminders and the daily summary go out. |
 | `STALE_MONTHS` | `6` | A doc untouched this long gets a "stale" badge in the intelligence rail. |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | generated | Bring your own Web Push keys; otherwise a pair is made on first use and stored in the database. |
 | `SMTP_HOST` … `SMTP_FROM` | — | SMTP for real emails, needed once `AUTH_DEV_MODE=false`. |

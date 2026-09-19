@@ -15,7 +15,7 @@ import { useDesktopNotifications } from './hooks/useDesktopNotifications';
 import { InboxDialog } from './components/inbox/InboxDialog';
 import { TasksView } from './components/tasks/TasksView';
 import { TagView } from './components/tags/TagView';
-import { Sidebar } from './components/sidebar/Sidebar';
+import { Sidebar, useRailWidth } from './components/sidebar/Sidebar';
 import { TopBar } from './components/topbar/TopBar';
 import { TooltipProvider } from './components/ui/Tooltip';
 import { onOpenProjectRequest } from './lib/navSignal';
@@ -45,6 +45,10 @@ export default function App() {
   useEffect(() => onOpenProjectRequest(openProject), [openProject]);
 
   const showInlineSidebar = !isMobile && !ws.sidebarCollapsed;
+  // The column animates between three widths, not two: gone, the rail on its
+  // own, and the rail plus the panel at whatever width it was dragged to.
+  const railWidth = useRailWidth();
+  const sidebarWidth = ws.panelCollapsed ? railWidth : ws.sidebarWidth;
 
   return (
     <TooltipProvider delayDuration={700} skipDelayDuration={300}>
@@ -54,7 +58,7 @@ export default function App() {
           {showInlineSidebar && (
             <motion.div
               initial={{ width: 0, opacity: 0 }}
-              animate={{ width: ws.sidebarWidth, opacity: 1 }}
+              animate={{ width: sidebarWidth, opacity: 1 }}
               exit={{ width: 0, opacity: 0 }}
               transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
               className="h-full shrink-0 overflow-hidden"

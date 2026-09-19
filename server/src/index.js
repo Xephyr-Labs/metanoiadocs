@@ -54,6 +54,8 @@ import { registerWebhookRoutes, emit, startWebhookWorker } from './webhooks.js';
 import { registerAgentRoutes, enqueueRun } from './agent-runs.js';
 import { registerAutomationRoutes } from './automations.js';
 import { TRASH_RETENTION_DAYS, startTrashSweeper } from './retention.js';
+import { startReminders } from './reminders.js';
+import { dayIn, isZone, zoneOf } from './timezone.js';
 import OpenAI from 'openai';
 
 process.on('unhandledRejection', (e) => console.error('[proc] unhandledRejection', e?.message || e));
@@ -182,7 +184,7 @@ function setSessionCookie(res, token) {
   }));
 }
 
-const publicUser = (u) => ({ id: u.id, email: u.email, name: u.name, username: u.username, role: u.role || 'collaborator', kind: u.kind || 'person' });
+const publicUser = (u) => ({ id: u.id, email: u.email, name: u.name, username: u.username, role: u.role || 'collaborator', kind: u.kind || 'person', timezone: u.timezone || null });
 
 async function requireAdmin(req, res, next) {
   if (req.user?.role !== 'admin') return res.status(403).json({ error: 'Only an admin can do that.' });
@@ -424,12 +426,35 @@ app.delete('/api/tokens/:id', requireUser, async (req, res) => {
   res.json({ ok: true });
 });
 
-// Update your own display name (the avatar is derived from it).
+// Update your own display name (the avatar is derived from it), or the zone
+// you are reading from.
+//
+// The zone is not a preference anyone sets: the browser knows it, the client
+// sends it when it differs from what is stored, and the server needs its own
+// copy because the two things that care most about it — the daily reminder
+// sweep and the emails it sends — run when nobody's browser is there to ask.
+// A name nobody sent is left alone rather than blanked, so a timezone ping
+// cannot wipe a display name.
 app.patch('/api/me', requireUser, async (req, res) => {
-  const name = String(req.body?.name || '').trim().slice(0, 80);
-  if (!name) return res.status(400).json({ error: 'name required' });
-  await pool.query('UPDATE users SET name = $1 WHERE id = $2', [name, req.user.id]);
-  res.json({ ok: true, name });
+  const sets = [];
+  const values = [];
+  if (req.body?.name !== undefined) {
+    const name = String(req.body.name || '').trim().slice(0, 80);
+    if (!name) return res.status(400).json({ error: 'name required' });
+    values.push(name);
+    sets.push(`name = $${values.length}`);
+  }
+  if (req.body?.timezone !== undefined) {
+    // An unknown zone is dropped rather than stored: it would throw inside
+    // Intl on every read afterwards, in a sweep with nobody watching.
+    if (!isZone(req.body.timezone)) return res.status(400).json({ error: 'unknown timezone' });
+    values.push(req.body.timezone);
+    sets.push(`timezone = $${values.length}`);
+  }
+  if (!sets.length) return res.status(400).json({ error: 'nothing to update' });
+  values.push(req.user.id);
+  await pool.query(`UPDATE users SET ${sets.join(', ')} WHERE id = $${values.length}`, values);
+  res.json({ ok: true });
 });
 
 // Admin: change a member's role. Guards against demoting yourself or the last admin.
@@ -854,7 +879,8 @@ app.get('/api/docs/:id/export.docx', requireUser, wrap(async (req, res) => {
   const buf = await docxFromMarkdown({
     title: out.title,
     markdown: out.markdown,
-    meta: `Last edited ${new Date(out.updated_at).toISOString().slice(0, 10)}`,
+    // Dated in the reader's own zone — they are the one downloading it.
+    meta: `Last edited ${dayIn(zoneOf(req.user), new Date(out.updated_at))}`,
     // Images live in our own blob table, so pull the bytes straight from there
     // rather than having the server make an HTTP request to itself.
     loadImage: async (url) => {
@@ -878,7 +904,8 @@ app.get('/api/docs/:id/print', requireUser, async (req, res) => {
     title: out.title,
     icon: out.icon,
     markdown: out.markdown,
-    meta: `Last edited ${new Date(out.updated_at).toISOString().slice(0, 10)}`,
+    // Dated in the reader's own zone — they are the one downloading it.
+    meta: `Last edited ${dayIn(zoneOf(req.user), new Date(out.updated_at))}`,
     // ?auto=0 opens the page without the print dialog, for checking the layout.
     auto: req.query.auto !== '0',
   }));
@@ -1021,9 +1048,11 @@ app.post('/api/tags', requireUser, async (req, res) => {
   res.json(rows[0]);
 });
 
-// Delete a tag globally (detaches from every doc via cascade). Admin-only: tags
-// are workspace-global, so deletion affects docs the caller may not even see.
-app.delete('/api/tags/:id', requireUser, requireAdmin, async (req, res) => {
+// Delete a tag globally (detaches from every doc via cascade). Any member can:
+// a tag is a label, not a permission, and the person who notices a duplicate or
+// a typo is whoever is filing — not an admin. Nothing is lost with it, since the
+// cascade only drops doc_tags edges and every page stays exactly where it was.
+app.delete('/api/tags/:id', requireUser, async (req, res) => {
   await pool.query('DELETE FROM tags WHERE id = $1', [req.params.id]);
   res.json({ ok: true });
 });
@@ -1406,6 +1435,7 @@ app.post('/api/ai', requireUser, async (req, res) => {
   // tool result that said `unauthorized`.
   const tools = aiTools({
     base: `http://127.0.0.1:${PORT}`,
+    zone: zoneOf(req.user),
     headers: {
       ...(req.headers.cookie ? { Cookie: req.headers.cookie } : {}),
       ...(req.headers.authorization ? { Authorization: req.headers.authorization } : {}),
@@ -2551,4 +2581,5 @@ server.on('upgrade', async (request, socket, head) => {
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`MetanoiaDocs server on :${PORT}  base=${BASE_URL}`);
   startTrashSweeper();
+  startReminders();
 });

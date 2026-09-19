@@ -1,6 +1,7 @@
 // The dashboard payload. One endpoint, one round trip — the home screen needs
 // five unrelated lists and five sequential fetches would show five spinners.
 import { pool } from './db.js';
+import { dayIn, zoneOf } from './timezone.js';
 
 // Docs the caller may see: team-visible, or explicitly granted.
 const VISIBLE = `(a.user_id IS NOT NULL OR d.visibility = 'team')`;
@@ -53,13 +54,18 @@ const ACTIVITY_SQL = `
 
 // Assigned to me — one of possibly several people on it — not done, bucketed
 // by how late it is.
+//
+// $2 is the reader's own today rather than `current_date`, which Postgres
+// answers in the server's zone: "overdue" and "due today" are statements about
+// the calendar the person reading is looking at, and a dashboard that disagrees
+// with the badge on the card is a dashboard nobody trusts twice.
 const MY_TASKS_SQL = `
   SELECT t.id, t.title, t.status, t.due_at, t.priority, t.progress, t.project_id,
          p.name AS project_name, p.icon AS project_icon,
-         CASE WHEN t.due_at IS NULL                THEN 'later'
-              WHEN t.due_at <  current_date        THEN 'overdue'
-              WHEN t.due_at =  current_date        THEN 'today'
-              WHEN t.due_at <= current_date + 7    THEN 'week'
+         CASE WHEN t.due_at IS NULL           THEN 'later'
+              WHEN t.due_at <  $2::date       THEN 'overdue'
+              WHEN t.due_at =  $2::date       THEN 'today'
+              WHEN t.due_at <= $2::date + 7   THEN 'week'
               ELSE 'later' END AS bucket
     FROM tasks t JOIN projects p ON p.id = t.project_id
    WHERE EXISTS (SELECT 1 FROM task_assignees ta WHERE ta.task_id = t.id AND ta.user_id = $1) AND t.status <> 'done'
@@ -70,9 +76,10 @@ const MY_TASKS_SQL = `
 export function registerHomeRoutes(app, { requireUser, wrap }) {
   app.get('/api/home', requireUser, wrap(async (req, res) => {
     const uid = req.user.id;
+    const today = dayIn(zoneOf(req.user));
     const [activity, myTasks, recentDocs, projects, stats] = await Promise.all([
       pool.query(ACTIVITY_SQL, [uid]),
-      pool.query(MY_TASKS_SQL, [uid]),
+      pool.query(MY_TASKS_SQL, [uid, today]),
       pool.query(
         `SELECT d.id, d.title, d.icon, d.updated_at, u.name AS updated_by_name
            FROM docs d ${VISIBLE_JOIN}
@@ -86,10 +93,11 @@ export function registerHomeRoutes(app, { requireUser, wrap }) {
                 count(t.id) FILTER (WHERE t.deleted_at IS NULL) AS total,
                 count(t.id) FILTER (WHERE t.deleted_at IS NULL AND t.status = 'done') AS done,
                 count(t.id) FILTER (WHERE t.deleted_at IS NULL AND t.status <> 'done'
-                                      AND t.due_at < current_date) AS overdue
+                                      AND t.due_at < $1::date) AS overdue
            FROM projects p LEFT JOIN tasks t ON t.project_id = p.id
           WHERE p.archived_at IS NULL AND p.mode <> 'data'
-          GROUP BY p.id ORDER BY p.position ASC, p.created_at ASC LIMIT 12`
+          GROUP BY p.id ORDER BY p.position ASC, p.created_at ASC LIMIT 12`,
+        [today]
       ),
       pool.query(
         `SELECT
@@ -97,16 +105,16 @@ export function registerHomeRoutes(app, { requireUser, wrap }) {
              WHERE EXISTS (SELECT 1 FROM task_assignees ta WHERE ta.task_id = t.id AND ta.user_id = $1) AND t.status <> 'done'
                AND t.deleted_at IS NULL AND p.archived_at IS NULL AND p.mode <> 'data') AS my_open,
            (SELECT count(*) FROM tasks t JOIN projects p ON p.id = t.project_id
-             WHERE EXISTS (SELECT 1 FROM task_assignees ta WHERE ta.task_id = t.id AND ta.user_id = $1) AND t.status <> 'done' AND t.due_at < current_date
+             WHERE EXISTS (SELECT 1 FROM task_assignees ta WHERE ta.task_id = t.id AND ta.user_id = $1) AND t.status <> 'done' AND t.due_at < $2::date
                AND t.deleted_at IS NULL AND p.archived_at IS NULL AND p.mode <> 'data') AS my_overdue,
            (SELECT count(*) FROM tasks t JOIN projects p ON p.id = t.project_id
              WHERE EXISTS (SELECT 1 FROM task_assignees ta WHERE ta.task_id = t.id AND ta.user_id = $1) AND t.status <> 'done'
-               AND t.due_at BETWEEN current_date AND current_date + 7
+               AND t.due_at BETWEEN $2::date AND $2::date + 7
                AND t.deleted_at IS NULL AND p.archived_at IS NULL AND p.mode <> 'data') AS my_week,
            (SELECT count(*) FROM docs d ${VISIBLE_JOIN}
              WHERE d.deleted_at IS NULL AND ${VISIBLE}
                AND d.updated_at > now() - interval '7 days') AS docs_week`,
-        [uid]
+        [uid, today]
       ),
     ]);
 

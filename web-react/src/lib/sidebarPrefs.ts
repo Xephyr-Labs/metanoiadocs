@@ -24,6 +24,8 @@ interface Prefs {
   collapsed?: string[];
   /** Which rail section is showing. */
   section?: RailSection;
+  /** The panel beside the rail is put away, leaving the icons. */
+  panelClosed?: boolean;
 }
 
 /**
@@ -69,6 +71,21 @@ export function toggleSection(key: string): Set<string> {
 
 export function railSection(): RailSection {
   return read().section ?? 'all';
+}
+
+/**
+ * Whether the tree beside the rail is put away.
+ *
+ * Remembered per browser like everything else here: it is a statement about
+ * this screen — which is where the room either is or is not — rather than about
+ * the person or the workspace.
+ */
+export function panelClosed(): boolean {
+  return read().panelClosed === true;
+}
+
+export function setPanelClosed(value: boolean) {
+  write({ ...read(), panelClosed: value });
 }
 
 export function setRailSection(section: RailSection) {

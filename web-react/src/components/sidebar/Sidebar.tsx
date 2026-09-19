@@ -20,6 +20,8 @@ import {
   Archive,
   CheckSquare,
   ChevronDown,
+  ChevronsLeft,
+  ChevronsRight,
   ChevronRight,
   ExternalLink,
   Files,
@@ -58,11 +60,13 @@ import { tasksApi, type ProjectMode, type ProjectRow } from '../../lib/tasksApi'
 import type { Tag } from '../../lib/types';
 import { workspaces } from '../../data/mock';
 import { templates } from '../../data/templates';
+import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { useAuth } from '../../store/auth';
 import { useWorkspace } from '../../store/workspace';
 import { IconButton } from '../ui/IconButton';
 import { Menu } from '../ui/Menu';
 import { RowInput } from '../ui/RowInput';
+import { Tooltip } from '../ui/Tooltip';
 import { rowAction } from '../ui/styles';
 import { PageTree } from './PageTree';
 import { FolderTree } from './FolderTree';
@@ -528,17 +532,18 @@ function FavoriteFolderRow({ id }: { id: string }) {
  * Code needs both because extensions add icons to its rail; nothing here adds
  * one.
  *
- * Every item carries its name under the glyph rather than behind a tooltip.
- * Icon-only put an 800ms hover between a person and the answer to "which one is
- * Templates", every single time, and two of these six are honestly just
- * rectangles: `LayoutList` and `LayoutTemplate` do not distinguish themselves at
- * 20px however long you look. The word does.
+ * Collapsed to the glyph, with the name on hover and on focus. The case against
+ * icon-only was never the missing word, it was the wait in front of it — a
+ * tooltip that takes most of a second to answer "which one is Templates" is one
+ * you stop asking. So these pass `delay={0}`: the label is there the moment the
+ * pointer rests, and it arrives on keyboard focus too, which the printed label
+ * could not do anything about either way. Two of the six are honestly just
+ * rectangles — `LayoutList` and `LayoutTemplate` do not distinguish themselves
+ * at 20px however long you look — so the word still has to exist. It just no
+ * longer costs a column of chrome to keep it.
  *
- * The rail is 72px because the widest of the six measures 59.1px at 11px in
- * Onest (`Documents`, measured in the browser rather than guessed), and 6px of
- * inset each side is what keeps that off the edges of its own block. Nothing
- * truncates, nothing wraps to a second line, and a fallback face has room to be
- * a little wider before either happens.
+ * 56px rather than 72: with nothing to typeset the width is a target, not a
+ * measure, and the 16px goes back to the panel beside it.
  *
  * Where a label names a section the panel also names, it uses the panel's word:
  * one thing should not have two names depending on which surface you read it
@@ -554,7 +559,29 @@ const RAIL: { key: RailSection; icon: ReactNode; label: string }[] = [
   { key: 'templates', icon: <LayoutTemplate size={20} />, label: 'Templates' },
 ];
 
-function Rail({ section, onPick }: { section: RailSection; onPick: (s: RailSection) => void }) {
+/**
+ * How wide the rail is, which two places have to agree on: the rail draws
+ * itself, and the app shell animates the column's width down to it when the
+ * panel is put away. 56 for a pointer; 72 where the labels are printed under
+ * the glyphs, because there is no hover to reveal them (see `.mn-rail-label`).
+ */
+export function useRailWidth(): number {
+  return useMediaQuery('(hover: none)') ? 72 : 56;
+}
+
+function Rail({
+  section,
+  onPick,
+  collapsed,
+  onToggle,
+}: {
+  section: RailSection;
+  onPick: (s: RailSection) => void;
+  /** The panel beside it is put away, so the toggle offers to bring it back. */
+  collapsed: boolean;
+  onToggle: () => void;
+}) {
+  const width = useRailWidth();
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
   const activeIndex = Math.max(0, RAIL.findIndex((r) => r.key === section));
   // Where the tab stop sits. It starts on the showing section and then follows
@@ -586,41 +613,82 @@ function Rail({ section, onPick }: { section: RailSection; onPick: (s: RailSecti
     // header moves. Their rhythms diverge below that on purpose — a two-line
     // target is not a row.
     <div
-      role="toolbar"
-      aria-orientation="vertical"
-      aria-label="Sidebar sections"
-      className="flex w-[72px] shrink-0 flex-col items-center gap-0.5 border-r border-line pt-[calc(var(--mn-head-h)+0.5rem)]"
+      style={{ width }}
+      className="mn-rail flex shrink-0 flex-col items-center border-r border-line pt-[calc(var(--mn-head-h)+0.5rem)]"
     >
+      <div
+        role="toolbar"
+        aria-orientation="vertical"
+        aria-label="Sidebar sections"
+        className="flex w-full flex-col items-center gap-0.5"
+      >
       {RAIL.map((r, i) => {
         const on = section === r.key;
         return (
-          <button
-            key={r.key}
-            ref={(el) => { refs.current[i] = el; }}
-            type="button"
-            aria-pressed={on}
-            tabIndex={i === (focused ?? activeIndex) ? 0 : -1}
-            onFocus={() => setFocused(i)}
-            onKeyDown={(e) => onKeyDown(e, i)}
-            onClick={() => onPick(r.key)}
-            className={cn(
-              'flex h-[52px] w-full flex-col items-center justify-center gap-[3px] px-1.5',
-              // Square against the window edge, rounded away from it. A radius
-              // on the edge side has nothing to sit against — the corner curves
-              // away from a hard line and the block stops reading as a tab.
-              'rounded-l-none rounded-r-lg transition-colors duration-120 ease-out',
-              // The global ring sits 1px outside the element and re-rounds it;
-              // on an edge-flush target that clips at x=0 and squares the wrong
-              // corners, so this one draws inside and keeps its own shape.
-              'focus-visible:rounded-l-none focus-visible:rounded-r-lg focus-visible:[outline-offset:-2px]',
-              on ? 'bg-selected text-ink' : 'text-muted hover:bg-hover hover:text-ink',
-            )}
-          >
-            <span className="flex h-5 w-5 shrink-0 items-center justify-center">{r.icon}</span>
-            <span className={cn('block max-w-full truncate text-3xs leading-none', on && 'font-medium')}>{r.label}</span>
-          </button>
+          // side="right": the rail is flush against the window edge, so a
+          // tooltip above or below one of these has room and a tooltip to the
+          // left does not — and to the right it points at the panel the item
+          // is about to fill.
+          <Tooltip key={r.key} label={r.label} side="right" delay={0}>
+            <button
+              ref={(el) => { refs.current[i] = el; }}
+              type="button"
+              // The glyph is not a name, so the control carries one itself.
+              // Without this a screen reader reads six unlabelled buttons —
+              // the tooltip is a description, and it only exists on hover.
+              aria-label={r.label}
+              aria-pressed={on}
+              tabIndex={i === (focused ?? activeIndex) ? 0 : -1}
+              onFocus={() => setFocused(i)}
+              onKeyDown={(e) => onKeyDown(e, i)}
+              onClick={() => onPick(r.key)}
+              className={cn(
+                'mn-rail-item flex h-11 w-full items-center justify-center',
+                // Square against the window edge, rounded away from it. A radius
+                // on the edge side has nothing to sit against — the corner curves
+                // away from a hard line and the block stops reading as a tab.
+                'rounded-l-none rounded-r-lg transition-colors duration-120 ease-out',
+                // The global ring sits 1px outside the element and re-rounds it;
+                // on an edge-flush target that clips at x=0 and squares the wrong
+                // corners, so this one draws inside and keeps its own shape.
+                'focus-visible:rounded-l-none focus-visible:rounded-r-lg focus-visible:[outline-offset:-2px]',
+                on ? 'bg-selected text-ink' : 'text-muted hover:bg-hover hover:text-ink',
+              )}
+            >
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center">{r.icon}</span>
+              {/* Printed only where there is no pointer to hover with. Drawn
+                  always and hidden in CSS rather than branched on in JS: the
+                  question is "does this input device hover", which a media
+                  query answers and a render pass cannot. */}
+              <span className={cn('mn-rail-label max-w-full truncate text-3xs leading-none', on && 'font-medium')}>{r.label}</span>
+            </button>
+          </Tooltip>
         );
       })}
+      </div>
+
+      {/* The only control that survives the panel being put away, which is why
+          it lives in the rail rather than in the header it would disappear
+          with. mt-auto parks it at the far end: it is not a seventh section,
+          and sitting under the six as if it were is how it would read.
+          Chevrons rather than the header's panel glyph — that one takes the
+          whole column away and this one takes half of it, and two controls a
+          few pixels apart that do different things should not be drawn the
+          same. */}
+      <Tooltip label={collapsed ? 'Expand the panel' : 'Collapse the panel'} side="right" delay={0}>
+        <button
+          type="button"
+          aria-label={collapsed ? 'Expand the panel' : 'Collapse the panel'}
+          aria-expanded={!collapsed}
+          onClick={onToggle}
+          className={cn(
+            'mb-2 mt-auto flex h-9 w-9 items-center justify-center rounded-lg',
+            'text-faint transition-colors duration-120 ease-out hover:bg-hover hover:text-ink',
+          )}
+        >
+          {collapsed ? <ChevronsRight size={16} /> : <ChevronsLeft size={16} />}
+        </button>
+      </Tooltip>
     </div>
   );
 }
@@ -636,6 +704,13 @@ export function Sidebar() {
   // Which rail section is showing, and which sections are folded. Both live
   // here rather than in the sections themselves because picking a rail section
   // has to be able to unfold it — see `pickSection`.
+  // The drawer is the sidebar at phone width, where a 56px strip of icons
+  // inside a 300px sheet is not a saving, it is a mistake — so the preference
+  // is a desktop one and the drawer always draws the panel.
+  const isMobile = useMediaQuery('(max-width: 767px)');
+  const panelAway = ws.panelCollapsed && !isMobile;
+  const railWidth = useRailWidth();
+
   const [section, setSection] = useState<RailSection>(railSection);
   const [collapsed, setCollapsed] = useState<Set<string>>(collapsedSections);
   /** `all` shows every group, which is what the sidebar has always done. */
@@ -646,6 +721,11 @@ export function Sidebar() {
     // Clicking Templates in the rail and landing on a folded Templates header
     // would read as a broken button. Asking for a section opens it.
     if (s !== 'all' && collapsed.has(s)) setCollapsed(toggleSection(s));
+    // With the panel away the rail is six ways to open it at a particular
+    // place, so asking for one is asking for the panel. A rail that answered
+    // by quietly changing which section a hidden list is scrolled to would be
+    // six dead buttons.
+    if (panelAway) ws.setPanelCollapsed(false);
   };
   const toggle = (key: string) => setCollapsed(toggleSection(key));
 
@@ -721,8 +801,8 @@ export function Sidebar() {
     const startW = ws.sidebarWidth;
     const onMove = (ev: MouseEvent) => {
       if (!dragging.current) return;
-      // +72 for the rail, so the panel beside it still ranges 220–420.
-      ws.setSidebarWidth(Math.min(492, Math.max(292, startW + ev.clientX - startX)));
+      // +56 for the rail, so the panel beside it still ranges 220–420.
+      ws.setSidebarWidth(Math.min(476, Math.max(276, startW + ev.clientX - startX)));
       force((n) => n + 1);
     };
     const onUp = () => {
@@ -735,8 +815,17 @@ export function Sidebar() {
   };
 
   return (
-    <aside className="mn-side relative flex h-full shrink-0 bg-canvas" style={{ width: ws.sidebarWidth, maxWidth: '100%' }}>
-      <Rail section={section} onPick={pickSection} />
+    <aside
+      className="mn-side relative flex h-full shrink-0 bg-canvas"
+      style={{ width: panelAway ? railWidth : ws.sidebarWidth, maxWidth: '100%' }}
+    >
+      <Rail
+        section={section}
+        onPick={pickSection}
+        collapsed={panelAway}
+        onToggle={() => ws.setPanelCollapsed(!panelAway)}
+      />
+      {!panelAway && (
       <div className="flex min-w-0 flex-1 flex-col">
       {/* workspace switcher, and the way to put the rail away. The « shows on
           hover like Notion's — the row is the first thing the eye lands on, so
@@ -1012,10 +1101,15 @@ export function Sidebar() {
         </div>
       </div>
       </div>
+      )}
 
-      <div onMouseDown={onResizeStart} className="group absolute right-0 top-0 h-full w-1 cursor-col-resize" role="separator" aria-label="Resize sidebar">
-        <div className="absolute right-0 top-0 h-full w-px bg-line transition-colors group-hover:w-0.5 group-hover:bg-accent" />
-      </div>
+      {/* Nothing to resize when the rail is all there is: its width is a
+          property of what it draws, not a preference. */}
+      {!panelAway && (
+        <div onMouseDown={onResizeStart} className="group absolute right-0 top-0 h-full w-1 cursor-col-resize" role="separator" aria-label="Resize sidebar">
+          <div className="absolute right-0 top-0 h-full w-px bg-line transition-colors group-hover:w-0.5 group-hover:bg-accent" />
+        </div>
+      )}
     </aside>
   );
 }

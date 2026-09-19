@@ -1,5 +1,27 @@
-import { describe, expect, it } from 'vitest';
-import { addDays, barFor, dayX, daysBetween, rangeFor, ticksFor, weekSegments } from './gantt';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { addDays, barFor, dayX, daysBetween, rangeFor, ticksFor, todayISO, weekSegments } from './gantt';
+
+describe('today', () => {
+  afterEach(() => vi.useRealTimers());
+
+  it('is the day on the reader\'s calendar, not the day in UTC', () => {
+    vi.useFakeTimers();
+    // 04:00 UTC: still the 14th anywhere west of Greenwich, already the 15th
+    // east of it. `toISOString().slice(0, 10)` answers "15" for everyone, which
+    // rang the wrong calendar cell and drew the wrong tasks overdue for most of
+    // the world for part of every day.
+    const at = new Date('2026-09-15T04:00:00.000Z');
+    vi.setSystemTime(at);
+    expect(Number(todayISO().slice(8, 10))).toBe(at.getDate());
+    expect(todayISO()).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it('pads a single-digit month and day', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 0, 5, 12, 0, 0));
+    expect(todayISO()).toBe('2026-01-05');
+  });
+});
 
 describe('date math', () => {
   it('counts inclusive-exclusive days and crosses month/year ends', () => {

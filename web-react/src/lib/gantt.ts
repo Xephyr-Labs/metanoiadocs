@@ -19,8 +19,20 @@ export function addDays(iso: string, n: number): string {
   return new Date(toUTC(iso) + n * DAY_MS).toISOString().slice(0, 10);
 }
 
+/**
+ * Today, on the calendar in front of the person reading.
+ *
+ * Not `toISOString()`: that is the day in UTC, which is a different day from
+ * about 5pm in Los Angeles and until about 11am in Auckland. It decides which
+ * cell the calendar rings, which tasks are drawn as overdue and where the gantt
+ * puts its line — all of which were a day out for anyone far enough from
+ * Greenwich, for part of every day.
+ */
 export function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
+  const now = new Date();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${now.getFullYear()}-${month}-${day}`;
 }
 
 export interface Range {

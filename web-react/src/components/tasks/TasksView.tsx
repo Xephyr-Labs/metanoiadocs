@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarRange, CheckSquare, KanbanSquare, List, RefreshCw } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { docsApi, type UserRow } from '../../lib/docsApi';
+import { todayISO } from '../../lib/gantt';
 import { swatch } from '../../lib/tagColors';
 import { applyFilters, fieldsFor, pruneUnresolvable, type Filter } from '../../lib/taskFilter';
 import { STATUS_LABEL, tasksApi, type AnyTaskRow } from '../../lib/tasksApi';
@@ -55,7 +56,6 @@ function readFilters(): Filter[] | null {
   }
 }
 
-const today = () => new Date().toISOString().slice(0, 10);
 
 const dueLabel = (iso: string) =>
   new Date(`${iso.slice(0, 10)}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
@@ -159,7 +159,7 @@ export function TasksView() {
   // be grouped by it at all — a custom property could not.
   const statusField = useMemo(() => fields.find((f) => f.key === 'status'), [fields]);
   const boardGroups = useMemo(() => (statusField ? groupsFor(statusField) : []), [statusField]);
-  const now = today();
+  const now = todayISO();
 
   return (
     <div className="flex h-full flex-col bg-canvas">

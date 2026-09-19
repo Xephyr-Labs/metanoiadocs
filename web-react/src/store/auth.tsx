@@ -6,6 +6,10 @@ export interface AuthUser {
   username: string;
   email: string;
   role?: string;
+  /** The IANA zone the server has on file, or null before a browser has said.
+   *  See reportZone: the server needs its own copy for the work it does when
+   *  nobody's browser is open. */
+  timezone?: string | null;
 }
 
 interface Result {
@@ -50,6 +54,29 @@ async function api(path: string, body?: unknown): Promise<{ status: number; data
   return { status: res.status, data };
 }
 
+/**
+ * Tell the server which zone this person is reading in, when it does not
+ * already know or the answer has changed.
+ *
+ * The browser is the only thing that knows, and the server is the only thing
+ * awake at 8am to act on it — the reminder sweep and the mail it sends run with
+ * no tab open anywhere. So the answer is stored rather than asked for, and
+ * re-sent whenever it moves, which is what makes it survive a flight.
+ *
+ * Fire-and-forget: getting this wrong costs a reminder an hour early, not a
+ * failed sign-in, and there is nothing useful to say to somebody about it.
+ */
+function reportZone(user: AuthUser): void {
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  if (!zone || zone === user.timezone) return;
+  fetch('/api/me', {
+    method: 'PATCH',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ timezone: zone }),
+  }).catch(() => {});
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
@@ -63,7 +90,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .then(async ({ status, data }) => {
         if (!alive) return;
         if (status === 200 && data?.id) {
-          setUser(data as AuthUser);
+          const me = data as AuthUser;
+          setUser(me);
+          reportZone(me);
           return;
         }
         const { data: s } = await api('/setup');
@@ -79,6 +108,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { status, data } = await api('/auth/login', { username, password });
     if (status === 200 && data?.user) {
       setUser(data.user);
+      reportZone(data.user);
       return { ok: true };
     }
     return { ok: false, error: data?.error ?? 'Sign in failed. Try again.' };
@@ -94,6 +124,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const { status, data } = await api('/auth/register', { name, username, email, password });
       if (status === 200 && data?.user) {
         setUser(data.user);
+        reportZone(data.user);
         return { ok: true };
       }
       return { ok: false, error: data?.error ?? 'Could not create account.' };
@@ -106,6 +137,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const { status, data } = await api('/setup', { name, username, email, password });
       if (status === 200 && data?.user) {
         setUser(data.user);
+        reportZone(data.user);
         setNeedsSetup(false);
         return { ok: true };
       }

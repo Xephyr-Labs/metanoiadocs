@@ -19,6 +19,7 @@ import { folderChain } from '../lib/folderPath';
 import { useDocSaveTick } from '../lib/docSignal';
 import { placeAt } from '../lib/reorder';
 import { nestByParent } from '../lib/pageTree';
+import { panelClosed, setPanelClosed } from '../lib/sidebarPrefs';
 import type { Template } from '../data/templates';
 import type { EditorMode, Folder, Page, PageId, Tag } from '../lib/types';
 
@@ -94,6 +95,9 @@ interface WorkspaceState {
   workspaceId: string;
 
   sidebarCollapsed: boolean;
+  /** The tree beside the rail is put away and only the icons are left. Distinct
+   *  from sidebarCollapsed, which takes the whole column including the rail. */
+  panelCollapsed: boolean;
   sidebarWidth: number;
   mobileDrawerOpen: boolean;
   rightPanel: RightTab | null;
@@ -143,6 +147,7 @@ interface WorkspaceState {
   setTagFilter: (tagIds: string[]) => void;
 
   setSidebarCollapsed: (v: boolean) => void;
+  setPanelCollapsed: (v: boolean) => void;
   setSidebarWidth: (w: number) => void;
   setMobileDrawer: (v: boolean) => void;
   setRightPanel: (t: RightTab | null) => void;
@@ -247,11 +252,17 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [activeViewId, setActiveViewId] = useState<string | null>(null);
   const [projects, setProjects] = useState<ProjectRow[]>([]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  // 44 for the icon rail plus the 260 the panel beside it has always had.
-  // 332 = a 260px panel beside the 72px rail. The number counts the rail, so it
-  // moves with it: left at 304 the labelled rail would have taken its 28px out
-  // of the panel instead.
-  const [sidebarWidth, setSidebarWidth] = useState(332);
+  // Lives here rather than in the Sidebar because the app shell animates the
+  // column's width, so the shell has to know which width it is animating to.
+  const [panelCollapsed, setPanelCollapsedState] = useState(panelClosed);
+  const setPanelCollapsed = useCallback((v: boolean) => {
+    setPanelCollapsedState(v);
+    setPanelClosed(v);
+  }, []);
+  // 316 = a 260px panel beside the 56px icon rail. The number counts the rail,
+  // so it moves with it: left at 332 the collapsed rail would have handed its
+  // 16px to the panel, which is not where that width was measured.
+  const [sidebarWidth, setSidebarWidth] = useState(316);
   const [mobileDrawerOpen, setMobileDrawer] = useState(false);
   const [rightPanel, setRightPanel] = useState<RightTab | null>(null);
   const [activeFolderId, setActiveFolderId] = useState<string | null>(null);
@@ -1035,12 +1046,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       currentId, currentPage, loading, error, workspaceId,
       historyDocId, openHistory, closeHistory,
       view, activeProjectId, activeFolderId, openHome, openTasks, openAllDocs, openProject, pendingTaskId, clearPendingTask, pendingViewId: activeViewId, clearPendingView, openFolder, projects, refreshProjects,
-      sidebarCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
+      sidebarCollapsed, panelCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
       settingsOpen, trashOpen, inboxOpen, mode, fullWidth, theme,
       refresh, select, toggleExpand, toggleFavorite, toggleFolderFavorite, setVisibility, rename, applyTitleFromEditor,
       createPage, createDesign, movePage, createChildPage, reorderPage, linkPage, reorderFolder, moveFolder, createFolder, renameFolder, setFolderColor, setIcon, toggleFolder, deleteFolder, createFromTemplate, importFiles, deletePage, restorePage,
       refreshTags, addTagToPage, removeTagFromPage, deleteTag, setTagFilter,
-      setSidebarCollapsed, setSidebarWidth, setMobileDrawer, setRightPanel, setPaletteOpen,
+      setSidebarCollapsed, setPanelCollapsed, setSidebarWidth, setMobileDrawer, setRightPanel, setPaletteOpen,
       setShareOpen, setSettingsOpen, setTrashOpen, setInboxOpen, setMode, setFullWidth, toggleTheme,
     }),
     [
@@ -1051,7 +1062,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       currentId, currentPage, loading, error, workspaceId,
       historyDocId, openHistory, closeHistory,
       view, activeProjectId, activeFolderId, openHome, openTasks, openAllDocs, openProject, pendingTaskId, clearPendingTask, activeViewId, clearPendingView, openFolder, projects, refreshProjects,
-      sidebarCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
+      sidebarCollapsed, panelCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
       settingsOpen, trashOpen, inboxOpen, mode, fullWidth, theme,
       refresh, select, toggleExpand, toggleFavorite, toggleFolderFavorite, setVisibility, rename, applyTitleFromEditor,
       createPage, createDesign, movePage, createChildPage, reorderPage, linkPage, reorderFolder, moveFolder, createFolder, renameFolder, setFolderColor, setIcon, toggleFolder, deleteFolder, createFromTemplate, importFiles, deletePage, restorePage,

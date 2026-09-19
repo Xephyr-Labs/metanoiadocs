@@ -99,6 +99,14 @@ export function notifyText(row: InboxRow, selfId?: string | null): { title: stri
       body: row.task_title || row.body || 'a task',
     };
   }
+  // The daily sweep's four. They have no actor and their body is already the
+  // whole sentence, so the title is only the heading it belongs under — and it
+  // matches the one the server's push uses, so a device that gets both shows
+  // one notification rather than two that disagree.
+  if (row.kind === 'digest') return { title: 'Your tasks today', body: row.body || '' };
+  if (row.kind === 'overdue') return { title: 'Overdue', body: row.body || '' };
+  if (row.kind === 'due_today') return { title: 'Due today', body: row.body || '' };
+  if (row.kind === 'due_soon') return { title: 'Due tomorrow', body: row.body || '' };
   if (row.kind === 'mention') {
     return {
       title: self ? `You tagged yourself in ${doc}` : `${who} mentioned you in ${doc}`,

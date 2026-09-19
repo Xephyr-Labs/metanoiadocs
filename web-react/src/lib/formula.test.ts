@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { checkFormula, evaluate, type Scope, type Value } from './formula';
 
-const scope = (props: Record<string, Value> = {}, today = '2026-09-15'): Scope => ({
+// Local midnight, not `${today}T00:00:00Z`: `today()` answers with the day on
+// the reader's own calendar, so a fixture pinned to UTC midnight means "the
+// 15th" west of Greenwich and "the 14th, late" east of it — the test passed or
+// failed on where it was run.
+const scope = (props: Record<string, Value> = {}, today = new Date(2026, 8, 15)): Scope => ({
   prop: (label) => props[label] ?? null,
-  now: () => new Date(`${today}T00:00:00Z`),
+  now: () => today,
 });
 
 const val = (src: string, props?: Record<string, Value>) => evaluate(src, scope(props)).value;

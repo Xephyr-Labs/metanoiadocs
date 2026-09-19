@@ -263,8 +263,25 @@ function Week({
 }) {
   const grid = useRef<HTMLDivElement>(null);
 
-  /** The day column under a pointer, clamped to this week. */
-  const dayAt = (clientX: number): string => {
+  /**
+   * The day under a pointer, anywhere in the month.
+   *
+   * Hit-tested rather than measured off this week's rectangle: a range being
+   * dragged longer does not stop at Sunday, and column arithmetic on one week
+   * can only ever answer with one of that week's seven days — so pulling an
+   * edge down into the next row used to pin the date to the Sunday above it
+   * and look stuck. Every day cell carries its own date, and the whole stack
+   * under the pointer is searched because the cards grid is painted over them.
+   *
+   * Off the grid entirely (the header, the gap past the last week) there is
+   * nothing to name, so this falls back to the old clamp and the edge simply
+   * stays inside the week it started in.
+   */
+  const dayAt = (clientX: number, clientY: number): string => {
+    for (const el of document.elementsFromPoint(clientX, clientY)) {
+      const iso = el.getAttribute('data-day');
+      if (iso) return iso;
+    }
     const rect = grid.current?.getBoundingClientRect();
     if (!rect) return week[0];
     const i = Math.floor(((clientX - rect.left) / rect.width) * 7);
@@ -282,7 +299,7 @@ function Week({
     setDraft({ id: task.id, from: base.from, to: base.to });
 
     const move = (ev: PointerEvent) => {
-      const day = dayAt(ev.clientX);
+      const day = dayAt(ev.clientX, ev.clientY);
       setDraft(
         edge === 'from'
           ? { id: task.id, from: day <= base.to ? day : base.to, to: base.to }
@@ -292,7 +309,7 @@ function Week({
     const up = (ev: PointerEvent) => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
-      const day = dayAt(ev.clientX);
+      const day = dayAt(ev.clientX, ev.clientY);
       const next =
         edge === 'from'
           ? { from: day <= base.to ? day : base.to, to: base.to }
@@ -329,6 +346,7 @@ function Week({
           return (
             <div
               key={iso}
+              data-day={iso}
               onClick={() => onAdd(iso, propId)}
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => {
@@ -454,7 +472,12 @@ function Card({
         'group/card pointer-events-auto relative min-w-0 border bg-canvas transition-colors',
         seg.opens ? 'rounded-l-md' : 'border-l-0',
         seg.closes ? 'rounded-r-md' : 'border-r-0',
-        overdue ? 'border-danger-soft bg-danger-soft' : 'border-line hover:border-line-strong',
+        // A card is a target, so it answers the pointer the way every other
+        // task surface does — white to the same light grey the table rows and
+        // the board cards use. An overdue card keeps its tint: the warning is
+        // the point of it, and a hover state that paints over it reads as the
+        // row having been fixed.
+        overdue ? 'border-danger-soft bg-danger-soft' : 'border-line hover:border-line-strong hover:bg-hover',
         resizing && 'ring-1 ring-accent',
       )}
     >
