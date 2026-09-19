@@ -43,6 +43,7 @@ import { registerMcpRoute } from './mcp-http.js';
 import { topTerms, extractSignals, findMentions, simhash, hamming, keyphrases, summarize, tokenize, coalesceByKey, blocksFromText } from './intelligence.js';
 import { docKind } from './props.js';
 import { registerTaskRoutes } from './tasks.js';
+import { registerTaskCommentRoutes } from './task-comments.js';
 import { registerPropRoutes } from './props-routes.js';
 import { registerViewRoutes } from './views.js';
 import { registerDocPropRoutes } from './doc-props.js';
@@ -2415,19 +2416,29 @@ async function notifyDocMentions(docId, state, actorId) {
   }
 }
 
+// Resolve and delete answer for both kinds of comment. A page comment is
+// guarded by the grant on its page; a task comment has no page to be granted
+// on — tasks are visible to every member — so writing one is guarded by
+// authorship instead, which is the rule the doc branch already falls back to.
+const commentOwner = async (row, userId) => {
+  if (row.task_id) return row.author_id === userId ? 'author' : null;
+  const role = await grantOn(row.doc_id, userId);
+  if (!role) return null;
+  return row.author_id === userId || role === 'owner' ? 'author' : 'reader';
+};
+
 app.post('/api/comments/:cid/resolve', requireUser, async (req, res) => {
-  const c = await pool.query('SELECT doc_id FROM comments WHERE id = $1', [req.params.cid]);
-  if (!c.rows[0] || !(await grantOn(c.rows[0].doc_id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
+  const c = await pool.query('SELECT doc_id, task_id, author_id FROM comments WHERE id = $1', [req.params.cid]);
+  if (!c.rows[0] || !(await commentOwner(c.rows[0], req.user.id))) return res.status(403).json({ error: 'forbidden' });
   await pool.query('UPDATE comments SET resolved = $1 WHERE id = $2 OR parent_id = $2',
     [req.body?.resolved !== false, req.params.cid]);
   res.json({ ok: true });
 });
 
 app.delete('/api/comments/:cid', requireUser, async (req, res) => {
-  const c = await pool.query('SELECT doc_id, author_id FROM comments WHERE id = $1', [req.params.cid]);
+  const c = await pool.query('SELECT doc_id, task_id, author_id FROM comments WHERE id = $1', [req.params.cid]);
   if (!c.rows[0]) return res.json({ ok: true });
-  const role = await grantOn(c.rows[0].doc_id, req.user.id);
-  if (!role || (c.rows[0].author_id !== req.user.id && role !== 'owner'))
+  if ((await commentOwner(c.rows[0], req.user.id)) !== 'author')
     return res.status(403).json({ error: 'forbidden' });
   await pool.query('DELETE FROM comments WHERE id = $1 OR parent_id = $1', [req.params.cid]);
   res.json({ ok: true });
@@ -2437,6 +2448,7 @@ app.use(express.static(WEB_DIST));
 // Projects/tasks and the home dashboard live in their own modules — this file
 // is long enough. Must register before the SPA catch-all below.
 registerTaskRoutes(app, { requireUser, wrap, createDocRow });
+registerTaskCommentRoutes(app, { requireUser, wrap });
 registerPropRoutes(app, { requireUser, wrap });
 registerViewRoutes(app, { requireUser, wrap });
 registerDocPropRoutes(app, { requireUser, wrap, grantOn });
