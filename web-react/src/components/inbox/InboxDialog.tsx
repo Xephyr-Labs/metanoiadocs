@@ -42,7 +42,9 @@ function NotifyNudge() {
 
   const turnOn = async () => {
     setBusy(true);
-    await enableAlerts().catch(() => 'denied' as NotificationPermission);
+    // Whether push came with it is Settings' story to tell; here the offer has
+    // done its job either way, and the foreground alerts start immediately.
+    await enableAlerts().catch(() => {});
     setBusy(false);
     // A refusal closes the offer too — asking again is the browser's job now.
     setShow(false);
