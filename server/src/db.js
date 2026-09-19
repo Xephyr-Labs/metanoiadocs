@@ -55,6 +55,16 @@ export async function initSchema() {
     -- fallback, which is exactly the behaviour that predates this column.
     ALTER TABLE users ADD COLUMN IF NOT EXISTS timezone TEXT;
 
+    -- Whether notification email is wanted at all.
+    --
+    -- The platform has always mailed a mention, a comment, an assignment and
+    -- the morning digest, and there was no switch anywhere for any of it: the
+    -- only way to stop the mail was to stop using the product. Default true,
+    -- because that is what every existing account already experiences.
+    -- Sign-in links and invitations ignore this: they are how you get in, not
+    -- news about something that happened.
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS email_notify BOOLEAN NOT NULL DEFAULT true;
+
     CREATE UNIQUE INDEX IF NOT EXISTS users_username_idx
       ON users(username) WHERE username IS NOT NULL;
 
@@ -467,6 +477,23 @@ export async function initSchema() {
     -- there.
     ALTER TABLE notifications ADD COLUMN IF NOT EXISTS task_id TEXT
       REFERENCES tasks(id) ON DELETE CASCADE;
+
+    -- A comment thread on a task.
+    --
+    -- The same table as a page's comments rather than a second one: a comment
+    -- is a body, an author, a parent and a time wherever it hangs, and two
+    -- tables would mean two notifiers, two delete rules and two ways to be
+    -- wrong. What changes is which column is filled — exactly one of doc_id
+    -- and task_id — so doc_id gives up NOT NULL here and the CHECK keeps a row
+    -- from belonging to both or to neither.
+    ALTER TABLE comments ADD COLUMN IF NOT EXISTS task_id TEXT
+      REFERENCES tasks(id) ON DELETE CASCADE;
+    ALTER TABLE comments ALTER COLUMN doc_id DROP NOT NULL;
+    DO $$ BEGIN
+      ALTER TABLE comments ADD CONSTRAINT comments_one_parent
+        CHECK ((doc_id IS NULL) <> (task_id IS NULL));
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    CREATE INDEX IF NOT EXISTS comments_task_idx ON comments(task_id, created_at);
 
     -- Task types, per project and editable by anyone who can see the project.
     -- Epic/Story/Task/Bug are seeded defaults, not built-ins.

@@ -10,6 +10,9 @@ export interface AuthUser {
    *  See reportZone: the server needs its own copy for the work it does when
    *  nobody's browser is open. */
   timezone?: string | null;
+  /** Whether mentions, comments, assignments and the morning digest are also
+   *  mailed. True for every account that predates the switch. */
+  emailNotify?: boolean;
 }
 
 interface Result {
@@ -30,6 +33,9 @@ interface AuthState {
   setup: (name: string, username: string, email: string, password: string) => Promise<Result>;
   logout: () => Promise<void>;
   updateName: (name: string) => Promise<Result>;
+  /** Turn notification email on or off for this account. Resolves false if the
+   *  server refused, so the switch can go back to where it was. */
+  setEmailNotify: (on: boolean) => Promise<boolean>;
   /** Resolves with how many other sessions the change signed out. */
   changePassword: (current: string, next: string) => Promise<Result & { signedOut?: number }>;
 }
@@ -166,6 +172,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { ok: true };
   }, []);
 
+  const setEmailNotify = useCallback(async (on: boolean): Promise<boolean> => {
+    const res = await fetch('/api/me', {
+      method: 'PATCH',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ emailNotify: on }),
+    });
+    if (!res.ok) return false;
+    setUser((u) => (u ? { ...u, emailNotify: on } : u));
+    return true;
+  }, []);
+
   const changePassword = useCallback(async (current: string, next: string) => {
     const { status, data } = await api('/auth/password', { current, next });
     if (status === 200 && data?.ok) return { ok: true as const, signedOut: Number(data.signedOut) || 0 };
@@ -173,8 +191,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo<AuthState>(
-    () => ({ user, loading, needsSetup, login, requestLink, signup, setup, logout, updateName, changePassword }),
-    [user, loading, needsSetup, login, requestLink, signup, setup, logout, updateName, changePassword],
+    () => ({ user, loading, needsSetup, login, requestLink, signup, setup, logout, updateName, setEmailNotify, changePassword }),
+    [user, loading, needsSetup, login, requestLink, signup, setup, logout, updateName, setEmailNotify, changePassword],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

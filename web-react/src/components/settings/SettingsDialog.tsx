@@ -295,6 +295,7 @@ function PasswordRow() {
 
 function Preferences() {
   const ws = useWorkspace();
+  const auth = useAuth();
   // Same switch as the page menu's "Small text" — one owner of the key and the
   // attribute (lib/docPrefs), so the two can't disagree about what is on.
   const [small, setSmall] = useState(smallText);
@@ -317,6 +318,15 @@ function Preferences() {
   // every visit costs one row write and heals a subscription the server lost.
   const [push, setPush] = useState<PushResult | null>(null);
   const [tested, setTested] = useState<string | null>(null);
+
+  // Email is the half that works with no browser at all — no permission, no
+  // subscription, nothing per-device. It had no switch until now, so this
+  // starts on for everybody, which is what they already had.
+  const [mail, setMail] = useState(auth.user?.emailNotify !== false);
+  const toggleMail = async (v: boolean) => {
+    setMail(v);
+    if (!(await auth.setEmailNotify(v))) setMail(!v);
+  };
 
   useEffect(() => {
     if (!notify || !pushSupported()) return;
@@ -388,6 +398,15 @@ function Preferences() {
             control={<Switch on={notify} onChange={toggleNotify} disabled={busy} />}
           />
         )}
+        <Row
+          title="Email notifications"
+          desc={
+            mail
+              ? `Mentions, comments, assignments and your morning digest are also emailed to ${auth.user?.email ?? 'you'}.`
+              : 'No email. Mentions and assignments still reach your inbox here.'
+          }
+          control={<Switch on={mail} onChange={toggleMail} />}
+        />
         {canNotify && notify && (
           <Row
             title="Test notifications"

@@ -184,7 +184,7 @@ function setSessionCookie(res, token) {
   }));
 }
 
-const publicUser = (u) => ({ id: u.id, email: u.email, name: u.name, username: u.username, role: u.role || 'collaborator', kind: u.kind || 'person', timezone: u.timezone || null });
+const publicUser = (u) => ({ id: u.id, email: u.email, name: u.name, username: u.username, role: u.role || 'collaborator', kind: u.kind || 'person', timezone: u.timezone || null, emailNotify: u.email_notify !== false });
 
 async function requireAdmin(req, res, next) {
   if (req.user?.role !== 'admin') return res.status(403).json({ error: 'Only an admin can do that.' });
@@ -450,6 +450,10 @@ app.patch('/api/me', requireUser, async (req, res) => {
     if (!isZone(req.body.timezone)) return res.status(400).json({ error: 'unknown timezone' });
     values.push(req.body.timezone);
     sets.push(`timezone = $${values.length}`);
+  }
+  if (req.body?.emailNotify !== undefined) {
+    values.push(req.body.emailNotify !== false);
+    sets.push(`email_notify = $${values.length}`);
   }
   if (!sets.length) return res.status(400).json({ error: 'nothing to update' });
   values.push(req.user.id);
