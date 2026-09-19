@@ -188,7 +188,7 @@ export function Calendar({
 
       <div className="grid shrink-0 grid-cols-7 border-b border-line">
         {WEEKDAYS.map((d) => (
-          <span key={d} className="px-2 py-1 text-2xs font-semibold uppercase tracking-wide text-faint">
+          <span key={d} className="px-2 py-1 text-xs font-semibold uppercase tracking-wide text-faint">
             {d}
           </span>
         ))}
@@ -384,7 +384,9 @@ function Week({
             >
               <span
                 className={cn(
-                  'flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-2xs',
+                  // 12px in a 20px pill was the smallest thing on the screen
+                  // and the one people actually navigate by.
+                  'flex h-6 min-w-6 items-center justify-center rounded-full px-1 text-sm tabular-nums',
                   iso === today
                     ? 'bg-accent font-semibold text-white'
                     : inMonth
