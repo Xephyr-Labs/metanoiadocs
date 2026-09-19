@@ -80,9 +80,10 @@ async function notify({ commentId, task, body, actor }) {
   });
   if (!recipients.size) return;
 
-  // An agent account is not told about a comment — it is asked, and being
-  // asked is what an @-mention on a page already queues a run for. Leaving
-  // them out here keeps a machine from collecting an inbox nobody reads.
+  // An agent account is left out: a machine has no inbox to read and no
+  // mailbox to read it in. Note that it is not asked either — @-mentioning an
+  // agent on a *page* queues a run for it, and nothing here does the same for
+  // a task comment yet. Naming an agent in this thread is, for now, a no-op.
   const { rows: people } = await pool.query(
     `SELECT id, email FROM users WHERE id = ANY($1) AND kind <> 'agent'`,
     [[...recipients.keys()]]
