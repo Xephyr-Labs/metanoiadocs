@@ -1,6 +1,6 @@
 import * as DM from '@radix-ui/react-dropdown-menu';
 import { Check, ChevronRight } from 'lucide-react';
-import type { ComponentType, ReactNode } from 'react';
+import type { ComponentType, MouseEvent, ReactNode } from 'react';
 import { cn } from '../../lib/cn';
 
 export interface MenuItem {
@@ -47,6 +47,22 @@ const surfaceCls =
   'scrollarea z-50 max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-y-auto ' +
   'rounded-lg border border-line bg-canvas p-1 shadow-pop animate-scale-in';
 
+/**
+ * The menu sits in a portal, but React events do not.
+ *
+ * Radix renders the panel into `document.body`, so nothing in the DOM above it
+ * hears the click — but React replays synthetic events up the *component* tree,
+ * and that tree still runs through whatever row this menu was written inside.
+ * Every one of those rows opens something on click, so "Open in a new tab"
+ * opened the second tab and then navigated the first one to the same page as
+ * the click finished travelling. Same for Rename, Export and Delete: each one
+ * quietly selected the row it acted on.
+ *
+ * Stopped once here rather than in the eight callers, because the rows are
+ * right to be clickable and the menu is the thing that does not belong to them.
+ */
+const swallowClick = (e: MouseEvent) => e.stopPropagation();
+
 function Rows({ items }: { items: MenuItem[] }) {
   return (
     <>
@@ -67,6 +83,7 @@ function Rows({ items }: { items: MenuItem[] }) {
                   collisionPadding={8}
                   style={{ width: 220 }}
                   className={surfaceCls}
+                  onClick={swallowClick}
                 >
                   <Rows items={it.items} />
                 </DM.SubContent>
@@ -110,6 +127,7 @@ export function Menu({ trigger, items, align = 'start', side = 'bottom', width =
           collisionPadding={8}
           style={{ width }}
           className={surfaceCls}
+          onClick={swallowClick}
         >
           <Rows items={items} />
         </DM.Content>
