@@ -19,7 +19,10 @@ const POLL_MS = 60_000;
  */
 function raise(row: InboxRow, selfId: string | null, onOpen: () => void): void {
   const { title, body } = notifyText(row, selfId);
-  const options = { body, tag: row.id, icon: '/favicon.svg' };
+  // The same icon the service worker uses, so a foreground alert and a pushed
+  // one look alike. `/favicon.svg` was neither in `public/` nor in the build,
+  // so this drew with no icon at all.
+  const options = { body, tag: row.id, icon: '/pwa-192.png' };
   try {
     const note = new Notification(title, options);
     note.onclick = () => {

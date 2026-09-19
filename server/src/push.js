@@ -76,15 +76,15 @@ export async function sendPush(userId, { title, body, tag, docId }) {
     key = await configure();
   } catch (err) {
     console.error('[push] no VAPID keys:', err.message);
-    return;
+    return 0;
   }
-  if (!key) return;
+  if (!key) return 0;
 
   const { rows } = await pool.query(
     'SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = $1',
     [userId]
   );
-  if (!rows.length) return;
+  if (!rows.length) return 0;
 
   const payload = JSON.stringify({
     title,
@@ -108,6 +108,10 @@ export async function sendPush(userId, { title, body, tag, docId }) {
       console.error('[push] send failed:', err.statusCode ?? '', err.message);
     }
   }));
+
+  // How many devices this went to. Every caller but the test route ignores it;
+  // that one needs it to say "sent to nothing" rather than "sent".
+  return rows.length;
 }
 
 export function registerPushRoutes(app, { requireUser, wrap }) {
@@ -145,6 +149,19 @@ export function registerPushRoutes(app, { requireUser, wrap }) {
       );
     }
     res.json({ ok: true });
+  }));
+
+  // Push to the caller's own devices, on demand. A notification that never
+  // arrives is otherwise unreproducible: the person reporting it cannot make
+  // one happen, so nobody can tell a dead subscription from a quiet operating
+  // system. No notification row is written — this is a probe, not an event.
+  app.post('/api/push/test', requireUser, wrap(async (req, res) => {
+    const devices = await sendPush(req.user.id, {
+      title: 'Test notification',
+      body: 'Alerts are working on this device.',
+      tag: `test-${Date.now()}`,
+    });
+    res.json({ devices });
   }));
 
   // Which devices are still listening. The app does not draw this yet; it is

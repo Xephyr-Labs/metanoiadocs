@@ -1,0 +1,42 @@
+<!doctype html><meta charset=utf-8><title>push e2e</title><body>running…
+<script>
+const report = (stage, data) =>
+  fetch('/report', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ stage, data }) });
+
+(async () => {
+  try {
+    const reg = await navigator.serviceWorker.register('/sw.js');
+    await report('step', 'registered');
+    await navigator.serviceWorker.ready;
+    await report('step', 'worker ready');
+    const key = await (await fetch('/key')).text();
+    await report('step', 'have key');
+    const b64 = (key + '='.repeat((4 - key.length % 4) % 4)).replace(/-/g, '+').replace(/_/g, '/');
+    const raw = atob(b64);
+    const bytes = new Uint8Array(new ArrayBuffer(raw.length));
+    for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+    await report('step', 'subscribing');
+    const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: bytes });
+    await report('subscribed', sub.toJSON());
+    // The server sends a push as soon as it has the subscription; poll the
+    // registration for what the worker actually put on screen.
+    for (let i = 0; i < 40; i++) {
+      const shown = await reg.getNotifications();
+      if (shown.length) {
+        await report('shown', shown.map((n) => ({
+          title: n.title, body: n.body, tag: n.tag, icon: n.icon, badge: n.badge,
+          silent: n.silent, renotify: n.renotify, requireInteraction: n.requireInteraction,
+          data: n.data,
+        })));
+        document.body.textContent = 'done';
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    await report('timeout', { permission: Notification.permission });
+  } catch (e) {
+    await report('error', { name: e.name, message: e.message });
+  }
+})();
+</script>

@@ -1,0 +1,1 @@
+importScripts('/push-sw.js');

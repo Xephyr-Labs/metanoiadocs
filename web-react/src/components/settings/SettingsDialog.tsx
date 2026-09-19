@@ -25,7 +25,15 @@ import { ActorMark } from '../ui/ActorMark';
 import { workspaces } from '../../data/mock';
 import { useWorkspace } from '../../store/workspace';
 import { notifyEnabled } from '../../lib/desktopNotify';
-import { disableAlerts, enableAlerts, pushSupported } from '../../lib/push';
+import {
+  alertsDescription,
+  disableAlerts,
+  enableAlerts,
+  pushSupported,
+  sendTestPush,
+  subscribePush,
+  type PushResult,
+} from '../../lib/push';
 import { useAuth } from '../../store/auth';
 import { sendInvite } from '../../lib/api';
 import { docsApi, type UserRow } from '../../lib/docsApi';
@@ -304,20 +312,53 @@ function Preferences() {
   );
   const [denied, setDenied] = useState(() => canNotify && Notification.permission === 'denied');
   const [busy, setBusy] = useState(false);
+  // Whether this device is registered for alerts with Metanoia closed, which is
+  // the half nothing used to report. Re-subscribing is an upsert, so asking on
+  // every visit costs one row write and heals a subscription the server lost.
+  const [push, setPush] = useState<PushResult | null>(null);
+  const [tested, setTested] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!notify || !pushSupported()) return;
+    let alive = true;
+    subscribePush()
+      .then((r) => alive && setPush(r))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [notify]);
+
   const toggleNotify = async (v: boolean) => {
     setBusy(true);
+    setTested(null);
     try {
       if (!v) {
         await disableAlerts();
         setNotify(false);
+        setPush(null);
         return;
       }
-      const permission = await enableAlerts();
+      const { permission, push: result } = await enableAlerts();
       setDenied(permission === 'denied');
       setNotify(permission === 'granted');
+      setPush(result);
     } finally {
       setBusy(false);
     }
+  };
+
+  // The whole chain end to end — subscription row, VAPID, push service, service
+  // worker — on demand. "I get no notifications" is otherwise a report nobody
+  // can reproduce, least of all the person making it.
+  const runTest = async () => {
+    setTested('Sending…');
+    const { devices } = await sendTestPush().catch(() => ({ devices: 0 }));
+    setTested(
+      devices > 0
+        ? `Sent to ${devices} device${devices === 1 ? '' : 's'}. Nothing shown? Check your system notification settings.`
+        : 'No device is registered for background alerts on this account yet.',
+    );
   };
   return (
     <div>
@@ -343,12 +384,23 @@ function Preferences() {
         {canNotify && (
           <Row
             title="Desktop notifications"
-            desc={denied
-              ? 'Blocked for this site — allow notifications in your browser settings first.'
-              : pushSupported()
-                ? 'Get a browser notification when you are mentioned or a task is assigned to you, whether or not Metanoia is open.'
-                : 'Get a browser notification when you are mentioned or a task is assigned to you. This browser can only show them while Metanoia is open in a tab.'}
+            desc={alertsDescription({ denied, on: notify, push, supported: pushSupported() })}
             control={<Switch on={notify} onChange={toggleNotify} disabled={busy} />}
+          />
+        )}
+        {canNotify && notify && (
+          <Row
+            title="Test notifications"
+            desc={tested ?? 'Send yourself one now to check it arrives.'}
+            control={
+              <button
+                type="button"
+                onClick={runTest}
+                className="h-7 rounded border border-line px-2.5 text-xs font-medium text-ink transition-colors hover:bg-hover"
+              >
+                Send test
+              </button>
+            }
           />
         )}
       </div>

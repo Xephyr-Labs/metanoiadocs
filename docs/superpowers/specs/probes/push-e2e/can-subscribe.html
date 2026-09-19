@@ -1,0 +1,27 @@
+<!doctype html><meta charset=utf-8><title>push probe</title>
+<script>
+window.probe = async (key) => {
+  const out = { steps: [] };
+  try {
+    const reg = await navigator.serviceWorker.register('/sw.js');
+    out.steps.push('registered');
+    await navigator.serviceWorker.ready;
+    out.steps.push('ready');
+    const b64 = (key + '='.repeat((4 - key.length % 4) % 4)).replace(/-/g,'+').replace(/_/g,'/');
+    const raw = atob(b64);
+    const bytes = new Uint8Array(new ArrayBuffer(raw.length));
+    for (let i=0;i<raw.length;i++) bytes[i]=raw.charCodeAt(i);
+    const started = Date.now();
+    const sub = await Promise.race([
+      reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: bytes }),
+      new Promise((r) => setTimeout(() => r('TIMEOUT'), 20000)),
+    ]);
+    out.ms = Date.now() - started;
+    out.result = sub === 'TIMEOUT' ? 'TIMEOUT (never settled)' : 'SUBSCRIBED ' + new URL(sub.endpoint).host;
+  } catch (e) {
+    out.result = 'REJECTED ' + e.name + ': ' + e.message;
+  }
+  out.permission = Notification.permission;
+  return out;
+};
+</script>
