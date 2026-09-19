@@ -373,6 +373,18 @@ export interface AgentRunRow {
   finished_at: string | null;
 }
 
+/** One message in a task's thread. `parent_id` threads a reply under another. */
+export interface TaskComment {
+  id: string;
+  body: string;
+  author_id: string | null;
+  author_name: string | null;
+  author_kind?: string | null;
+  parent_id: string | null;
+  resolved: boolean;
+  created_at: string;
+}
+
 export const tasksApi = {
   home: (): Promise<HomePayload> => req('/home'),
 
@@ -445,6 +457,12 @@ export const tasksApi = {
   patchSprint: (id: string, b: Partial<{ name: string; startAt: string | null; endAt: string | null; state: SprintState }>): Promise<SprintRow> =>
     req(`/sprints/${id}`, { method: 'PATCH', ...body(b) }),
   deleteSprint: (id: string) => req(`/sprints/${id}`, { method: 'DELETE' }),
+
+  comments: (taskId: string): Promise<TaskComment[]> => req(`/tasks/${taskId}/comments`),
+  addComment: (taskId: string, b: { body: string; parentId?: string | null }): Promise<TaskComment> =>
+    req(`/tasks/${taskId}/comments`, { method: 'POST', ...body(b) }),
+  /** Shared with a page's comments — same table, same route. */
+  deleteComment: (id: string) => req(`/comments/${id}`, { method: 'DELETE' }),
 
   addDep: (id: string, dependsOn: string) =>
     req(`/tasks/${id}/deps`, { method: 'POST', ...body({ dependsOn }) }),

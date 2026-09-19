@@ -132,9 +132,10 @@ export function InboxDialog() {
       if (it.project_id) ws.openProject(it.project_id);
       return;
     }
-    if (SYSTEM[it.kind]) {
-      // Straight to the task the reminder names: a board with forty cards on it
-      // is not an answer to "which one was late".
+    // Straight to the task a row names: a board with forty cards on it is not
+    // an answer to "which one was late", and a comment on a task belongs to the
+    // task's own thread rather than to whatever page it was eventually given.
+    if (SYSTEM[it.kind] || it.task_id) {
       if (it.project_id) ws.openProject(it.project_id, it.task_id ?? undefined);
       return;
     }
@@ -202,7 +203,9 @@ export function InboxDialog() {
                     <span className="font-medium">
                       {it.kind === 'assigned'
                         ? (it.task_title || it.body || 'a task')
-                        : <>{it.doc_icon} {it.doc_title || 'Untitled'}</>}
+                        : it.task_id
+                          ? (it.task_title || 'a task')
+                          : <>{it.doc_icon} {it.doc_title || 'Untitled'}</>}
                     </span>
                   </p>
                   {it.kind !== 'assigned' && (

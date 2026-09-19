@@ -26,6 +26,7 @@ import { useKinds } from './kinds';
 import { KindBadge } from './TaskChip';
 import { PropertyCell } from './props/PropertyCell';
 import { TaskAgents } from './TaskAgents';
+import { TaskComments } from './TaskComments';
 
 interface Props {
   task: TaskRow | null;
@@ -410,6 +411,12 @@ export function TaskPeek({
             onChanged={() => onTagsChanged?.()}
           />
         )}
+
+        {/* Above the page, below the fields: the conversation is about the row,
+            and the page under it is one thing the row happens to have. A data
+            database's records are not work and have nobody to discuss them
+            with, so they get the same silence they get from the agent rail. */}
+        {mode !== 'data' && <TaskComments taskId={task.id} users={users} />}
 
         {!!detail?.backlinks.length && (
           <section className="px-4 py-3">

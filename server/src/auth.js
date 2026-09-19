@@ -96,6 +96,27 @@ export async function sendInviteEmail(email, baseUrl, inviterName) {
 }
 
 /**
+ * Has this address asked not to hear from us?
+ *
+ * Addressed by email rather than by user id because that is what every caller
+ * already holds — each one reads the address off a row to decide whether to
+ * mail at all. An address with no account behind it defaults to yes: an
+ * unknown address has expressed no preference, and silence is not a default
+ * anyone chose.
+ */
+async function wantsEmail(email) {
+  try {
+    const { rows } = await pool.query(
+      'SELECT email_notify FROM users WHERE lower(email) = $1', [email]);
+    return rows[0] ? rows[0].email_notify !== false : true;
+  } catch (err) {
+    // A preference we cannot read is not a preference to be silent.
+    console.error('[notify] could not read email preference:', err.message);
+    return true;
+  }
+}
+
+/**
  * Best-effort notification email (e.g. "X mentioned you"). Never throws to the
  * caller — a mail failure must not fail the comment that triggered it. In DEV
  * mode (no SMTP) it just logs.
@@ -107,6 +128,10 @@ export async function sendInviteEmail(email, baseUrl, inviterName) {
 export async function sendNotificationEmail(to, subject, body, link) {
   const clean = String(to || '').trim().toLowerCase();
   if (!clean) return;
+  // The one place the preference is read. Five callers raise these mails —
+  // mentions, comments, assignments, automations, the morning digest — and a
+  // switch checked in four of them is a switch that does not work.
+  if (!(await wantsEmail(clean))) return;
   if (DEV) {
     console.log(`[notify] DEV email to ${clean}: ${subject}`);
     return;

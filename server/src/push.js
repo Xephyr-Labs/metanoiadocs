@@ -70,7 +70,7 @@ function configure() {
  * Best-effort in the same way the email is: a comment must still save when a
  * push service is down, so every caller fires this without awaiting it.
  */
-export async function sendPush(userId, { title, body, tag, docId }) {
+export async function sendPush(userId, { title, body, tag, docId, projectId }) {
   let key;
   try {
     key = await configure();
@@ -90,7 +90,9 @@ export async function sendPush(userId, { title, body, tag, docId }) {
     title,
     body: String(body || '').slice(0, 400),
     tag,
-    url: linkFor({ docId }),
+    // A task's page is made only when someone opens it, so most task alerts
+    // carry no doc id at all — the database it lives in is the address then.
+    url: linkFor({ docId, projectId }),
   });
 
   await Promise.all(rows.map(async (row) => {
