@@ -3,7 +3,7 @@ import { builtinProps, defaultCardProps, defaultPropIds, isBuiltinProp, isSystem
 import type { PropRow, TaskKindRow, TaskRow } from './tasksApi';
 
 const task = (over: Partial<TaskRow> = {}): TaskRow => ({
-  id: 't1', project_id: 'p', title: 'A task', status: 'doing',
+  id: 't1', project_id: 'p', num: 1, title: 'A task', status: 'doing',
   assignee_id: null, assignee_name: null, assignees: [],
   start_at: null, due_at: null, priority: 0, progress: 0, points: null,
   milestone: false, doc_id: null, parent_id: null, kind: 'task',

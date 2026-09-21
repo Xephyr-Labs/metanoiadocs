@@ -7,7 +7,7 @@
  *       hairline so navigation and chrome are not one undifferentiated field.
  */
 import { useEffect, useState } from 'react';
-import { Columns3, FolderOpen, MoreHorizontal, Plus, Tags, Zap } from 'lucide-react';
+import { Columns3, FolderOpen, Hash, MoreHorizontal, Plus, Tags, Zap } from 'lucide-react';
 import { useWorkspace } from '../../store/workspace';
 import { showDatabase } from '../../lib/route';
 import { VIEW_KINDS, type TaskRow, type TaskStatus, type ViewKind } from '../../lib/tasksApi';
@@ -34,6 +34,7 @@ import { PropertyVisibility } from './props/PropertyVisibility';
 import { ViewTabs } from './ViewTabs';
 import { TaskPeek } from './TaskPeek';
 import { AutomationsDialog } from './AutomationsDialog';
+import { ProjectKeyDialog } from './ProjectKeyDialog';
 import { TaskKindsDialog } from './TaskKindsDialog';
 import { TaskTable } from './TaskTable';
 import { useDatabaseView } from './useDatabaseView';
@@ -55,6 +56,7 @@ export function ProjectView() {
   const [open, setOpen] = useState<TaskRow | null>(null);
   const [kindsOpen, setKindsOpen] = useState(false);
   const [propsOpen, setPropsOpen] = useState(false);
+  const [keyOpen, setKeyOpen] = useState(false);
   const [autoOpen, setAutoOpen] = useState(false);
   // Status colours live on the project row, so a repaint has to refresh the
   // list the sidebar and this screen both read.
@@ -169,6 +171,7 @@ export function ProjectView() {
                 { icon: Tags, label: 'Task types…', onSelect: () => setKindsOpen(true) },
                 { icon: Columns3, label: 'Properties…', onSelect: () => setPropsOpen(true) },
                 { icon: Zap, label: 'Automations…', onSelect: () => setAutoOpen(true) },
+                { icon: Hash, label: isData ? 'Row key…' : 'Task key…', onSelect: () => setKeyOpen(true) },
               ]}
             />
           </div>
@@ -326,6 +329,17 @@ export function ProjectView() {
         onManageProps={() => setPropsOpen(true)}
         onEditOptions={p.editOptions}
         onTagsChanged={p.refresh}
+      />
+
+      <ProjectKeyDialog
+        open={keyOpen}
+        onOpenChange={setKeyOpen}
+        project={project}
+        tasks={p.tasks}
+        isData={isData}
+        // A key change rewrites every title the server holds; both lists on
+        // screen are reading the old ones.
+        onSaved={() => { ws.refreshProjects(); p.refresh(); }}
       />
 
       <TaskKindsDialog

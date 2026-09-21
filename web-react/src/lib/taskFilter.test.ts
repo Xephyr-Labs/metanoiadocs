@@ -3,7 +3,7 @@ import { applyFilters, fieldsFor, newFilter, needsValue, pruneUnresolvable, tagF
 import type { PropRow, TaskKindRow, TaskRow } from './tasksApi';
 
 const task = (over: Partial<TaskRow>): TaskRow => ({
-  id: 't1', project_id: 'A', title: 'Task', status: 'todo',
+  id: 't1', project_id: 'A', num: 1, title: 'Task', status: 'todo',
   assignee_id: null, assignee_name: null, assignees: [], start_at: null, due_at: null,
   priority: 0, progress: 0, points: null, milestone: false, doc_id: null,
   parent_id: null, kind: 'task', sprint_id: null, position: 0, done_at: null,

@@ -1,5 +1,6 @@
 import pg from 'pg';
 import crypto from 'node:crypto';
+import { KEY_PREFIX, deriveKey, uniqueKey } from './task-key.js';
 
 export const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
 
@@ -741,11 +742,93 @@ export async function initSchema() {
     -- The worker's claim query: due rows, oldest first.
     CREATE INDEX IF NOT EXISTS webhook_deliveries_due_idx
       ON webhook_deliveries(attempt_at) WHERE status = 'queued';
+
+    -- ── task keys ──────────────────────────────────────────────────────────
+    -- A task is quoted as MD-14, in chat and in commit messages, so its number
+    -- has to be per project, stable and never reused. See task-key.js.
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS key TEXT;
+    -- The counter, bumped in the same statement that reads it, which is what
+    -- makes two people creating a task at once get two different numbers.
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS task_seq INT NOT NULL DEFAULT 0;
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS num INT;
+    -- Case-insensitive: MD and md are the same key to everyone reading one.
+    CREATE UNIQUE INDEX IF NOT EXISTS projects_key_idx
+      ON projects(lower(key)) WHERE key IS NOT NULL;
+    -- Deleted tasks keep their number: it is quoted elsewhere, and the row can
+    -- come back out of the trash.
+    CREATE UNIQUE INDEX IF NOT EXISTS tasks_num_idx
+      ON tasks(project_id, num) WHERE num IS NOT NULL;
   `);
 
   await normalizeLegacyFolderImport();
   await relaxFavoritesKey();
   await seedTaskAssignees();
+  await backfillTaskKeys();
+}
+
+/** Give every project a key and every task a number, once, behind a marker.
+ *
+ *  Numbering runs in creation order, so a project's oldest task is its number 1
+ *  and the backlog reads the way it was written. Titles are rewritten in SQL
+ *  rather than row by row through the app: there is one statement per project
+ *  table here, not one per task, and a workspace with fifty thousand tasks
+ *  should not spend its boot on them. */
+async function backfillTaskKeys() {
+  const marker = 'task-keys-v1';
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const claimed = await client.query(
+      'INSERT INTO schema_migrations (key) VALUES ($1) ON CONFLICT (key) DO NOTHING',
+      [marker]
+    );
+    if (!claimed.rowCount) {
+      await client.query('ROLLBACK');
+      return;
+    }
+    // Keys are guessed in JS because deriving initials in SQL is a regex nobody
+    // will want to read again, and because uniqueKey is the same function the
+    // create route uses — one definition of what a key looks like.
+    const { rows: projects } = await client.query(
+      'SELECT id, name FROM projects ORDER BY created_at, id'
+    );
+    const taken = new Set();
+    for (const p of projects) {
+      const key = uniqueKey(deriveKey(p.name), taken);
+      taken.add(key);
+      await client.query('UPDATE projects SET key = $1 WHERE id = $2', [key, p.id]);
+    }
+    await client.query(`
+      UPDATE tasks t SET num = s.n
+        FROM (SELECT id, row_number() OVER (PARTITION BY project_id ORDER BY created_at, id) AS n
+                FROM tasks) s
+       WHERE s.id = t.id AND t.num IS NULL
+    `);
+    await client.query(
+      `UPDATE tasks t
+          SET title = p.key || '-' || t.num || ': ' || regexp_replace(t.title, $1, '')
+         FROM projects p
+        WHERE p.id = t.project_id AND t.num IS NOT NULL AND p.key IS NOT NULL`,
+      [KEY_PREFIX]
+    );
+    // A task and its page carry the same name everywhere else in the app; they
+    // would not here, and the mismatch would look like a bug on every task page.
+    await client.query(`
+      UPDATE docs d SET title = left(t.title, 200)
+        FROM tasks t
+       WHERE t.doc_id = d.id AND d.title <> left(t.title, 200)
+    `);
+    await client.query(`
+      UPDATE projects p
+         SET task_seq = coalesce((SELECT max(num) FROM tasks WHERE project_id = p.id), 0)
+    `);
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
 }
 
 /** Give every task that already had an assignee its first row in
