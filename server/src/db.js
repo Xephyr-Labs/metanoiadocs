@@ -801,6 +801,22 @@ export async function initSchema() {
       fired_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
       PRIMARY KEY (rule_id, task_id)
     );
+
+    -- ── intake forms ─────────────────────────────────────────────
+    -- A public share link that writes instead of reads. The token IS the
+    -- capability, and it grants exactly one thing: append a task to this
+    -- database. NULL means the database has no form, which is the default and
+    -- the only state it can be put back into.
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS form_token TEXT;
+    -- What the form says above the fields, in the words of whoever runs it.
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS form_intro TEXT;
+    CREATE UNIQUE INDEX IF NOT EXISTS projects_form_token_idx
+      ON projects(form_token) WHERE form_token IS NOT NULL;
+
+    -- Who the work came from, when it came from outside. A task made by a
+    -- signed-in person has created_by; one made through a form has nobody, and
+    -- "a bug report from nobody" is not worth having.
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS submitted_by TEXT;
   `);
 
   await normalizeLegacyFolderImport();

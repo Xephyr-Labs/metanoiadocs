@@ -56,6 +56,7 @@ import { registerFolderRoutes, visibleFolder } from './folders-routes.js';
 import { registerWebhookRoutes, emit, startWebhookWorker } from './webhooks.js';
 import { registerAgentRoutes, enqueueRun } from './agent-runs.js';
 import { registerAutomationRoutes, startAutomationSweeper } from './automations.js';
+import { registerFormRoutes } from './forms.js';
 import { TRASH_RETENTION_DAYS, startTrashSweeper } from './retention.js';
 import { startReminders } from './reminders.js';
 import { dayIn, isZone, zoneOf } from './timezone.js';
@@ -2594,6 +2595,7 @@ registerHomeRoutes(app, { requireUser, wrap });
 registerPushRoutes(app, { requireUser, wrap });
 registerFolderRoutes(app, { requireUser, wrap });
 registerWebhookRoutes(app, { requireUser, requireAdmin, wrap });
+registerFormRoutes(app, { requireUser, wrap, baseUrl: BASE_URL });
 // Deliveries are rows now, so something has to drain them.
 startWebhookWorker();
 registerAgentRoutes(app, { requireUser, wrap, createDocRow });

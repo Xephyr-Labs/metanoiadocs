@@ -228,6 +228,10 @@ export interface TaskRow {
   repeat_rule: string | null;
   /** Hours. Points size a sprint; this sizes a week. */
   estimate_h: number | null;
+  /** Who sent this in through the database's public intake form, in whatever
+   *  they chose to tell us. Null for every task a signed-in person made —
+   *  those have created_by instead. */
+  submitted_by?: string | null;
   doc_id: string | null;
   parent_id: string | null;
   kind: TaskKind;
@@ -497,6 +501,15 @@ export const tasksApi = {
     req(`/tasks/${id}/deps`, { method: 'POST', ...body({ dependsOn }) }),
   removeDep: (id: string, dependsOn: string) =>
     req(`/tasks/${id}/deps/${dependsOn}`, { method: 'DELETE' }),
+
+  /** The intake form a database has, if any. */
+  form: (projectId: string): Promise<{ token: string | null; url: string | null; intro: string }> =>
+    req(`/projects/${projectId}/form`),
+  /** Turn one on, reword it, or replace its address. */
+  saveForm: (projectId: string, b: { intro?: string; rotate?: boolean }): Promise<{ token: string; url: string; intro: string }> =>
+    req(`/projects/${projectId}/form`, { method: 'POST', ...body(b) }),
+  /** Turn it off. The address stops working at once and is not kept. */
+  closeForm: (projectId: string) => req(`/projects/${projectId}/form`, { method: 'DELETE' }),
 
   automations: (projectId: string): Promise<AutomationRow[]> => req(`/projects/${projectId}/automations`),
   createAutomation: (projectId: string, b: { name?: string; trigger?: AutomationTrigger; value?: string | null; actions?: AutomationAction[]; condition?: Filter[] }): Promise<AutomationRow> =>

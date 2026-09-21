@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import App from './App';
 import { AuthScreen } from './components/auth/AuthScreen';
 import { PublicView } from './components/public/PublicView';
+import { FormView } from './components/public/FormView';
 import { AuthProvider, useAuth } from './store/auth';
 import { WorkspaceProvider } from './store/workspace';
 import './index.css';
@@ -58,9 +59,15 @@ function Root() {
 // No StrictMode: its intentional double-invoke of effects races BlockSuite's
 // async web-component mount and can tear down the editor before it settles.
 const shareMatch = location.pathname.match(/^\/share\/(.+)$/);
+// The two addresses seen by people with no account: one publishes a page to
+// read, the other takes work in. Both mount before the app, because neither
+// needs a session and both would otherwise be answered by the sign-in screen.
+const formMatch = location.pathname.match(/^\/form\/(.+)$/);
 createRoot(document.getElementById('root')!).render(
   shareMatch ? (
     <PublicView token={decodeURIComponent(shareMatch[1])} />
+  ) : formMatch ? (
+    <FormView token={decodeURIComponent(formMatch[1])} />
   ) : (
     <AuthProvider>
       <Root />

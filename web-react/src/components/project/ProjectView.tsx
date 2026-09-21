@@ -7,7 +7,7 @@
  *       hairline so navigation and chrome are not one undifferentiated field.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { Columns3, FolderOpen, Hash, MoreHorizontal, Plus, Tags, Zap } from 'lucide-react';
+import { Columns3, FolderOpen, Hash, Inbox, MoreHorizontal, Plus, Tags, Zap } from 'lucide-react';
 import { useWorkspace } from '../../store/workspace';
 import { showDatabase } from '../../lib/route';
 import { VIEW_KINDS, type TaskRow, type TaskStatus, type ViewKind } from '../../lib/tasksApi';
@@ -36,6 +36,7 @@ import { ViewTabs } from './ViewTabs';
 import { TaskPeek } from './TaskPeek';
 import { AutomationsDialog } from './AutomationsDialog';
 import { ProjectKeyDialog } from './ProjectKeyDialog';
+import { IntakeFormDialog } from './IntakeFormDialog';
 import { TaskKindsDialog } from './TaskKindsDialog';
 import { TaskTable } from './TaskTable';
 import { useDatabaseView } from './useDatabaseView';
@@ -65,6 +66,7 @@ export function ProjectView() {
   const [propsOpen, setPropsOpen] = useState(false);
   const [keyOpen, setKeyOpen] = useState(false);
   const [autoOpen, setAutoOpen] = useState(false);
+  const [formOpen, setFormOpen] = useState(false);
   // Status colours live on the project row, so a repaint has to refresh the
   // list the sidebar and this screen both read.
   const p = useProject(ws.activeProjectId, ws.refreshProjects);
@@ -207,6 +209,7 @@ export function ProjectView() {
                 { icon: Columns3, label: 'Properties…', onSelect: () => setPropsOpen(true) },
                 { icon: Zap, label: 'Automations…', onSelect: () => setAutoOpen(true) },
                 { icon: Hash, label: isData ? 'Row key…' : 'Task key…', onSelect: () => setKeyOpen(true) },
+                { icon: Inbox, label: 'Intake form…', onSelect: () => setFormOpen(true) },
               ]}
             />
           </div>
@@ -375,6 +378,13 @@ export function ProjectView() {
           onClear={sel.clear}
         />
       )}
+
+      <IntakeFormDialog
+        open={formOpen}
+        onOpenChange={setFormOpen}
+        projectId={project.id}
+        projectName={project.name}
+      />
 
       <TaskPeek
         key={openTask?.id ?? 'none'}

@@ -138,6 +138,10 @@ export function builtinProps(
  * the cell renders as text rather than a control.
  */
 const AUDIT: PropRow[] = [
+  // Not strictly an audit column, but it belongs with them: written by the
+  // server, never editable, and off a table's default the way the other four
+  // are. A database with no intake form has it empty on every row.
+  row('submittedBy', 'Submitted by', 'text', [], 19),
   row('created', 'Created', 'date', [], 20),
   row('createdBy', 'Created by', 'text', [], 21),
   row('edited', 'Last edited', 'date', [], 22),
@@ -176,6 +180,7 @@ export function readBuiltin(task: TaskRow, id: string): unknown {
     case 'sys:tags': return task.tags ?? [];
     case 'sys:attachments': return task.attachments ?? [];
     case 'sys:created': return task.created_at ?? null;
+    case 'sys:submittedBy': return task.submitted_by ?? null;
     case 'sys:createdBy': return task.created_by_name ?? null;
     case 'sys:edited': return task.updated_at ?? null;
     case 'sys:editedBy': return task.updated_by_name ?? null;
