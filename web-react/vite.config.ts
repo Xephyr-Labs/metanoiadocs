@@ -115,6 +115,39 @@ export default defineConfig({
         // this origin — the API, live sync, share links, the sibling apps Caddy
         // routes to — goes to the network.
         navigateFallbackAllowlist: APP_PATHS,
+        // The shell was already precached, so opening the app on a train
+        // rendered a frame with nothing in it: every list it draws comes from
+        // the API, and every one of those requests failed. These five are the
+        // reads the shell needs to look like itself — who you are, your
+        // pages, your folders, your databases, your tags — plus Home, so the
+        // first screen is the workspace you left rather than "Failed to fetch".
+        //
+        // NetworkFirst, not StaleWhileRevalidate: online, the answer must be
+        // today's, and a three-second timeout is the point at which a flaky
+        // connection is worse than a slightly old sidebar.
+        //
+        // Reads only. Nothing here queues a write — a PATCH that looks like it
+        // worked and is silently lost is worse than one that fails in front of
+        // you, and the editor's own offline story (Yjs in IndexedDB, merged on
+        // reconnect) is the one path where writing offline is actually safe.
+        //
+        // `mn-api` is deleted on sign-out: on a shared machine the next person
+        // must not find the last one's sidebar waiting in a cache.
+        runtimeCaching: [
+          {
+            urlPattern: ({ url, request, sameOrigin }) =>
+              sameOrigin
+              && request.method === 'GET'
+              && /^\/api\/(me|home|docs|folders|projects|tags)(\?|$)/.test(url.pathname + url.search),
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'mn-api',
+              networkTimeoutSeconds: 3,
+              expiration: { maxEntries: 40, maxAgeSeconds: 60 * 60 * 24 },
+              cacheableResponse: { statuses: [200] },
+            },
+          },
+        ],
       },
     }),
   ],
