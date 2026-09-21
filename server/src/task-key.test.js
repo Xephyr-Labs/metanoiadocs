@@ -51,6 +51,16 @@ test('changing a project key renames rather than appends', () => {
   assert.equal(withKey('OPS', 14, 'MD-14: Fix login redirect'), 'OPS-14: Fix login redirect');
 });
 
+// Every task is created with an empty title and named a moment later, so this
+// is the state the board draws most often for a brand-new row.
+test('an unnamed task is left alone, so the app can call it Untitled', () => {
+  assert.equal(withKey('MD', 14, ''), '');
+  assert.equal(withKey('MD', 14, '   '), '', 'whitespace is emptiness, as btrim sees it');
+  // Including one that already carries a key and nothing else.
+  assert.equal(withKey('MD', 14, 'MD-14: '), '');
+  assert.equal(withKey('OPS', 14, 'MD-14:'), '');
+});
+
 test('a task that has no number yet keeps a bare title', () => {
   assert.equal(withKey('MD', null, 'Fix login redirect'), 'Fix login redirect');
   assert.equal(withKey(null, 14, 'Fix login redirect'), 'Fix login redirect');

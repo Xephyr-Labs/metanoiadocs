@@ -47,6 +47,15 @@ export function stripKey(title) {
  */
 export function withKey(key, num, title) {
   const bare = stripKey(title);
+  // An unnamed task keeps an empty title, so the UI's own "Untitled" still
+  // shows. Every task is created with `title: ''` and named a moment later in
+  // the peek; prefixing that emptiness gave the board a row reading "LAT-65:"
+  // with nothing after the colon. The number is already claimed and stored in
+  // `num`, so nothing is lost by waiting — the key appears with the name.
+  // Trimmed, to agree with the SQL that does the same job in bulk — that uses
+  // btrim, and a title of three spaces must not come out keyed in one path and
+  // empty in the other.
+  if (!bare.trim()) return '';
   return key && num ? `${key}-${num}: ${bare}` : bare;
 }
 
