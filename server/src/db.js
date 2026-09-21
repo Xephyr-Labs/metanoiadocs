@@ -764,6 +764,46 @@ export async function initSchema() {
   await relaxFavoritesKey();
   await seedTaskAssignees();
   await backfillTaskKeys();
+  await clearBareKeyTitles();
+}
+
+/** Repair the rows the first backfill gave a key and nothing else.
+ *
+ *  It ran before withKey learned to leave an unnamed task alone, so a task with
+ *  no title came out as "LAT-65: " — a key, a colon, and nothing to read. Its
+ *  own marker rather than a fix inside backfillTaskKeys, because that one has
+ *  already claimed its marker everywhere it has run. */
+async function clearBareKeyTitles() {
+  const marker = 'task-keys-empty-title-v1';
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const claimed = await client.query(
+      'INSERT INTO schema_migrations (key) VALUES ($1) ON CONFLICT (key) DO NOTHING',
+      [marker]
+    );
+    if (!claimed.rowCount) {
+      await client.query('ROLLBACK');
+      return;
+    }
+    await client.query(
+      `UPDATE tasks SET title = ''
+        WHERE num IS NOT NULL AND btrim(regexp_replace(title, $1, '')) = '' AND title <> ''`,
+      [KEY_PREFIX]
+    );
+    // The pages of those tasks carried the same bare key across.
+    await client.query(`
+      UPDATE docs d SET title = 'Untitled'
+        FROM tasks t
+       WHERE t.doc_id = d.id AND t.title = '' AND d.title <> 'Untitled'
+    `);
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
 }
 
 /** Give every project a key and every task a number, once, behind a marker.
@@ -804,9 +844,14 @@ async function backfillTaskKeys() {
                 FROM tasks) s
        WHERE s.id = t.id AND t.num IS NULL
     `);
+    // An unnamed task keeps an empty title — see withKey. A row reading
+    // "LAT-65:" with nothing after the colon is worse than the "Untitled" the
+    // app draws for itself.
     await client.query(
       `UPDATE tasks t
-          SET title = p.key || '-' || t.num || ': ' || regexp_replace(t.title, $1, '')
+          SET title = CASE WHEN btrim(regexp_replace(t.title, $1, '')) = '' THEN ''
+                           ELSE p.key || '-' || t.num || ': ' || regexp_replace(t.title, $1, '')
+                      END
          FROM projects p
         WHERE p.id = t.project_id AND t.num IS NOT NULL AND p.key IS NOT NULL`,
       [KEY_PREFIX]

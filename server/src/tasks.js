@@ -395,7 +395,9 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
       // changes.
       await pool.query(
         `UPDATE tasks
-            SET title = $1 || '-' || num || ': ' || regexp_replace(title, $2, '')
+            SET title = CASE WHEN btrim(regexp_replace(title, $2, '')) = '' THEN ''
+                             ELSE $1 || '-' || num || ': ' || regexp_replace(title, $2, '')
+                        END
           WHERE project_id = $3 AND num IS NOT NULL`,
         [rows[0].key, KEY_PREFIX, req.params.id]
       );
