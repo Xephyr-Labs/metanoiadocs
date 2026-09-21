@@ -20,18 +20,19 @@ import crypto from 'node:crypto';
 import { pool } from './db.js';
 import { parseCsv, mapColumns, normalizeHeader } from './csv.js';
 import { coercePropValue, propKey } from './props.js';
-import { propsFor } from './props-routes.js';
+import { propsFor, MAX_PROPS } from './props-routes.js';
 import { withKey, usableTitle } from './task-key.js';
 import { isRepeatRule } from './repeat.js';
 import { ensureTaskPage, setAssignees, MAX_ASSIGNEES } from './task-writes.js';
+// The list of statuses lives with the route that writes them; a second copy
+// here is a second answer to what a status is.
+import { STATUSES } from './tasks.js';
 import { notifyAssigneesById } from './assignees.js';
 
 /** Enough to seed a database from a real export, few enough that one request
  *  cannot hold a transaction open for a minute. */
 const MAX_ROWS = 2000;
-const MAX_PROPS = 40;
 
-const STATUSES = ['todo', 'doing', 'review', 'done'];
 
 /** A number that means a priority, or 0. Accepts the words the UI shows. */
 const PRIORITIES = { none: 0, low: 1, medium: 2, normal: 2, high: 3, urgent: 4, critical: 4 };
