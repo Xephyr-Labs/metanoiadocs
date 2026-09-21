@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applyRowTemplate, TEMPLATE_FIELDS, retitleState } from './templates.js';
+import { applyRowTemplate, checkTemplateFields, TEMPLATE_FIELDS, retitleState } from './templates.js';
 import { buildDocState, extractText } from './blocks.js';
 
 test('a template fills in what the request left out', () => {
@@ -64,4 +64,41 @@ test('retitling an untitled page is not an error', () => {
   const { title, text } = extractText(Buffer.from(retitleState(state, 'Named at last')));
   assert.equal(title, 'Named at last');
   assert.match(text, /just a paragraph/);
+});
+
+/* ── what a template is allowed to hold ──────────────────────────────── */
+
+const KINDS = [{ key: 'task' }, { key: 'bug' }];
+const isStatus = (s) => ['todo', 'doing', 'review', 'done'].includes(s);
+const check = (fields) => checkTemplateFields(fields, { kinds: KINDS, isStatus });
+
+test('a rule that is not a rule is refused when the template is saved', async () => {
+  // Not when it is used: that complained about something the person clicking
+  // New had never typed.
+  assert.deepEqual(await check({ repeatRule: 'fortnightly' }), { ok: false, error: 'bad repeat rule' });
+  assert.equal((await check({ repeatRule: 'weekdays' })).fields.repeatRule, 'weekdays');
+});
+
+test('a status or type this database does not have is refused', async () => {
+  assert.equal((await check({ status: 'bogus' })).error, 'bad status');
+  assert.equal((await check({ kind: 'nonexistent' })).error, 'no such type in this database');
+  assert.equal((await check({ status: 'doing', kind: 'bug' })).ok, true);
+});
+
+test('numbers are numbers, and are clamped to what the column takes', async () => {
+  assert.equal((await check({ priority: 'high' })).error, 'priority has to be a number');
+  assert.equal((await check({ priority: 99 })).fields.priority, 4);
+  assert.equal((await check({ estimateH: -5 })).fields.estimateH, 0);
+  assert.equal((await check({ estimateH: 2.46 })).fields.estimateH, 2.5);
+});
+
+test('only the closed list survives', async () => {
+  const { fields } = await check({ createdBy: 'someone', docId: 'x', dueAt: '2026-03-04', milestone: true });
+  assert.deepEqual(Object.keys(fields), ['milestone']);
+});
+
+test('a repeat rule saved before this check is dropped rather than carried', () => {
+  const out = applyRowTemplate({}, { fields: { repeatRule: 'fortnightly', status: 'doing' }, props: {} });
+  assert.equal(out.repeatRule, undefined);
+  assert.equal(out.status, 'doing', 'the rest of the template still applies');
 });
