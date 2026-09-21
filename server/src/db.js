@@ -825,6 +825,45 @@ export async function initSchema() {
     -- signed-in person has created_by; one made through a form has nobody, and
     -- "a bug report from nobody" is not worth having.
     ALTER TABLE tasks ADD COLUMN IF NOT EXISTS submitted_by TEXT;
+
+    -- ── templates ────────────────────────────────────────────────
+    -- A page that exists to be copied. Deliberately *not* hidden from the
+    -- sidebar, search or All documents: a template is a real page people edit,
+    -- and every list that would have to exclude it is a list that will one day
+    -- forget to. It is marked, not hidden — the badge is the whole difference.
+    ALTER TABLE docs ADD COLUMN IF NOT EXISTS is_template BOOLEAN NOT NULL DEFAULT false;
+
+    -- A named starting point for a row in one database: the property values it
+    -- begins with, and optionally a body for its page.
+    --
+    -- A table of its own rather than a flag on the tasks table, for the reason
+    -- the doc flag above is not one: a template task would have to be excluded
+    -- from the board, the table, the calendar, the gantt, search, the sweeper
+    -- and every count — and a page that shows a template by mistake is untidy
+    -- where a board that does is wrong.
+    CREATE TABLE IF NOT EXISTS row_templates (
+      id         TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      name       TEXT NOT NULL DEFAULT 'Untitled',
+      icon       TEXT NOT NULL DEFAULT '\u{1f4cb}',
+      -- Values for the database's own properties, shaped like tasks.props.
+      props      JSONB NOT NULL DEFAULT '{}',
+      -- The built-in fields a row starts with: status, priority, kind, points,
+      -- estimate_h, repeat_rule, assigneeIds. Loose on purpose — a release that
+      -- adds a built-in should not need a migration here.
+      fields     JSONB NOT NULL DEFAULT '{}',
+      -- Markdown for the row's page, built into a Yjs state when used.
+      body       TEXT,
+      position   INT NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS row_templates_project_idx ON row_templates(project_id, position);
+
+    -- ── form fields ──────────────────────────────────────────────
+    -- Which of this database's properties the public form asks for, and which
+    -- of those it insists on: [{ "id": "<db_prop id>", "required": true }].
+    -- Empty means the form is the two fields it has always been.
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS form_fields JSONB NOT NULL DEFAULT '[]';
   `);
 
   await normalizeLegacyFolderImport();

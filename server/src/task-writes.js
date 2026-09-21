@@ -54,7 +54,7 @@ export async function setAssignees(taskId, ids) {
  * cannot know whether the page exists — a person clicking into a row, an agent
  * about to write its result somewhere — just asks.
  */
-export async function ensureTaskPage(taskId, userId, createDocRow) {
+export async function ensureTaskPage(taskId, userId, createDocRow, content = null) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -80,7 +80,9 @@ export async function ensureTaskPage(taskId, userId, createDocRow) {
       folderId: null,
       visibility: 'team',
       kind: 'task',
-      content: null,
+      // Markdown when a row template brought a body with it; null for the
+      // ordinary "give this row a page" gesture, which opens an empty one.
+      content,
     });
     await client.query('UPDATE tasks SET doc_id = $1 WHERE id = $2', [doc.id, taskId]);
     await client.query('COMMIT');

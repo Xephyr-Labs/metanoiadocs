@@ -3,6 +3,7 @@
 import crypto from 'node:crypto';
 import { pool } from './db.js';
 import { coerceFiles, propsPatch } from './props.js';
+import { rowTemplateFor, applyRowTemplate } from './templates.js';
 import { propsFor } from './props-routes.js';
 import { wouldProjectCycle } from './project-tree.js';
 import { MAX_ASSIGNEES, ensureTaskPage, setAssignees } from './task-writes.js';
@@ -673,6 +674,17 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
   app.post('/api/tasks', requireUser, wrap(async (req, res) => {
     const projectId = req.body?.projectId;
     if (!projectId) return res.status(400).json({ error: 'projectId required' });
+    // A row template fills in what the request left out, and nothing it set.
+    // Resolved first, so every check below — status, kind, repeat rule, the
+    // property coercion — runs against the values that will actually be
+    // written rather than against half of them.
+    let templateBody = null;
+    if (typeof req.body.templateId === 'string' && req.body.templateId) {
+      const template = await rowTemplateFor(req.body.templateId, projectId);
+      if (!template) return res.status(404).json({ error: 'no such template' });
+      req.body = applyRowTemplate(req.body, template);
+      templateBody = template.body;
+    }
     const status = isStatus(req.body?.status) ? req.body.status : 'todo';
     const startAt = readDate(req.body?.startAt);
     const dueAt = readDate(req.body?.dueAt);
@@ -751,6 +763,13 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
       ]
     );
     emit('task.created', rows[0]);
+    // The template's body becomes the row's page. After the insert, because the
+    // page is a doc that has to point back at a task that exists — and not
+    // inside the transaction above, since createDocRow opens its own.
+    if (templateBody) {
+      await ensureTaskPage(id, req.user.id, createDocRow, templateBody)
+        .catch((err) => console.error('[template] page:', err.message));
+    }
     const assignees = wantedAssignees(req.body) ?? [];
     // Rules that listen for a new row run before the response, so the client
     // sees the task the rules left behind rather than the one it asked for and

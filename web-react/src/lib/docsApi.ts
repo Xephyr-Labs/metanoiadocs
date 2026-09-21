@@ -53,6 +53,19 @@ export interface DocRow {
   link_count: number;
   tags: TagRow[];
   props: Record<string, unknown>;
+  /** Marked as a starting point for new pages. Templates stay in every list
+   *  they were already in — the mark is the only difference. */
+  is_template?: boolean;
+}
+
+/** A page offered as a starting point, as the picker lists it. */
+export interface TemplateRow {
+  id: string;
+  title: string;
+  icon: string;
+  kind: 'doc' | 'design' | 'task';
+  updated_at: string;
+  created_by_name: string | null;
 }
 
 /**
@@ -274,6 +287,14 @@ export const docsApi = {
   /** `content` is markdown, built into real blocks server-side (used by import). */
   create: (body: { title?: string; icon?: string; folderId?: string | null; content?: string; kind?: 'doc' | 'design' }): Promise<DocRow> =>
     req('/docs', { method: 'POST', body: JSON.stringify(body) }),
+  /** Every page offered as a starting point. */
+  templates: (): Promise<TemplateRow[]> => req('/templates'),
+  /** Mark a page as a template, or stop. */
+  markTemplate: (id: string, isTemplate: boolean): Promise<{ id: string; isTemplate: boolean }> =>
+    req(`/docs/${id}/template`, { method: 'POST', body: JSON.stringify({ isTemplate }) }),
+  /** A new page with this template's body, copied block for block. */
+  useTemplate: (id: string, body: { title?: string; folderId?: string | null }): Promise<DocRow> =>
+    req(`/templates/${id}/use`, { method: 'POST', body: JSON.stringify(body) }),
   /** Create a page nested under `parentId` — the parent gains a reference to it. */
   createChild: (parentId: string, title?: string): Promise<DocRow> =>
     req(`/docs/${parentId}/children`, { method: 'POST', body: JSON.stringify({ title }) }),

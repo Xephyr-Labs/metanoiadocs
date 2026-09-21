@@ -1061,8 +1061,24 @@ export function Sidebar() {
 
         {shows('templates') && (
         <section className="mb-1 mt-2">
-          <CollapsibleSection collapsed={collapsed} onToggle={toggle} sectionKey="templates" label="Templates" count={templates.length}>
+          <CollapsibleSection collapsed={collapsed} onToggle={toggle} sectionKey="templates" label="Templates" count={templates.length + ws.docTemplates.length}>
           <div className="space-y-px">
+            {/* The workspace's own first: a page somebody here wrote and marked
+                beats a starter nobody chose, and the built-ins below never
+                change, so a stable order is the one that puts yours on top. */}
+            {ws.docTemplates.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                title={`New page from ${t.title}`}
+                onClick={() => ws.createFromPage(t.id)}
+                className="flex h-7 w-full items-center gap-2 rounded-md px-2 text-sm leading-5 text-ink transition-colors duration-120 hover:bg-hover"
+              >
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center text-md leading-none">{t.icon}</span>
+                <span className="block h-5 min-w-0 flex-1 !self-center truncate leading-5 text-left">{t.title}</span>
+                <Plus size={14} className="shrink-0 text-faint" />
+              </button>
+            ))}
             {templates.map((t) => (
               <button
                 key={t.id}
