@@ -324,8 +324,11 @@ paths:
   /api/search:
     get:
       tags: [Pages]
-      summary: Search pages
-      description: Hybrid full-text and fuzzy, over titles and bodies.
+      summary: Search pages and tasks
+      description: >
+        Hybrid full-text and fuzzy over page titles and bodies, plus tasks by
+        name. A query that parses as a task key ("MD-14") is answered with that
+        task first; anything else is answered with pages first.
       parameters:
         - { name: q, in: query, required: true, schema: { type: string } }
       responses:
@@ -338,9 +341,92 @@ paths:
                 items:
                   type: object
                   properties:
+                    kind: { type: string, enum: [doc, task] }
                     id: { type: string }
                     title: { type: string }
-                    snippet: { type: string }
+                    snippet:
+                      type: string
+                      description: Matching words for a page; the database's name for a task.
+                    projectId: { type: string, description: Tasks only. }
+                    projectIcon: { type: string, description: Tasks only. }
+                    status: { type: string, description: Tasks only. }
+                    dueAt: { type: string, format: date, nullable: true, description: Tasks only. }
+
+  /api/form/{token}:
+    get:
+      tags: [Tasks]
+      summary: Read a database's public intake form
+      description: >
+        No authentication: the token in the path is the whole capability, and it
+        grants exactly one thing — appending a task to one database.
+      parameters:
+        - { name: token, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: The form
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name: { type: string }
+                  icon: { type: string }
+                  intro: { type: string, nullable: true }
+        '404': { description: No such form, or it has been turned off }
+    post:
+      tags: [Tasks]
+      summary: Send work in through an intake form
+      description: >
+        Creates a task in the database behind the token. The details become the
+        task's first comment. Rate limited per token.
+      parameters:
+        - { name: token, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title: { type: string, maxLength: 200 }
+                details: { type: string, maxLength: 4000 }
+                name: { type: string, maxLength: 120 }
+                email: { type: string, maxLength: 120 }
+      responses:
+        '200':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  key:
+                    type: string
+                    nullable: true
+                    description: The task's key, to quote in a follow-up.
+        '400': { description: Nothing was written in the first field }
+        '404': { description: No such form, or it has been turned off }
+        '429': { description: This form has taken too many submissions this hour }
+
+  /api/calendar/{token}/tasks.ics:
+    get:
+      tags: [Tasks]
+      summary: One person's dated work, as an iCalendar feed
+      description: >
+        No authentication: the token in the path is all a calendar client can
+        send. Read-only, one person's own tasks, revoked by rotating the token
+        from Settings.
+      parameters:
+        - { name: token, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: An iCalendar document
+          content:
+            text/calendar:
+              schema: { type: string }
+        '404': { description: No such feed }
 
   /api/projects:
     get:
@@ -941,8 +1027,18 @@ components:
         due_at: { type: [string, 'null'], format: date }
         priority: { type: integer, description: Higher is more urgent }
         points: { type: [integer, 'null'] }
+        estimate_h: { type: [number, 'null'], description: Hours, to one decimal }
+        repeat_rule:
+          type: [string, 'null']
+          enum: [daily, weekdays, weekly, biweekly, monthly, null]
+          description: >
+            Finishing a task that carries one creates the next occurrence. Set
+            on completion, never on a clock.
         progress: { type: integer, minimum: 0, maximum: 100 }
         milestone: { type: boolean }
+        submitted_by:
+          type: [string, 'null']
+          description: Who sent this in through the database's public intake form, if anyone.
         props: { type: object, description: "The database's own properties, by id" }
         updated_via: { type: string, enum: [human, ai] }
         done_at: { type: [string, 'null'], format: date-time }
@@ -965,6 +1061,11 @@ components:
         dueAt: { type: [string, 'null'], format: date }
         priority: { type: integer }
         points: { type: [integer, 'null'] }
+        estimateH: { type: [number, 'null'], description: Hours. Rounded to one decimal, capped at 999.9 }
+        repeatRule:
+          type: [string, 'null']
+          enum: [daily, weekdays, weekly, biweekly, monthly, null]
+          description: An empty value stops it repeating.
         progress: { type: integer }
         milestone: { type: boolean }
         position: { type: integer }

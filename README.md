@@ -86,10 +86,10 @@ One image, one Postgres, one port. `docker compose up -d` and invite the team.
 | Area | What you get |
 |---|---|
 | **Write together** | Live multi-cursor pages over Yjs · a full block editor · threaded comments and @-mentions · version history you can restore from · a design canvas that files and searches like a document |
-| **Plan the work** | Kanban, backlog, table, gantt, calendar and gallery over one set of tasks · sprints, points, dependencies, milestones · every project is a database and every row is a page · automations and quick actions |
-| **Find and organise** | Nested pages, folders, tags, favorites and pins · hybrid full-text and fuzzy search behind ⌘K · related pages and extracted tasks computed in Postgres, with no LLM and no external calls |
+| **Plan the work** | Kanban, backlog, table, gantt, calendar and gallery over one set of tasks · sprints, points, estimates, dependencies, milestones · tasks that repeat when you finish them · every project is a database and every row is a page · automations and quick actions · a public intake form anyone can send work to |
+| **Find and organise** | Nested pages, folders, tags, favorites and pins · hybrid full-text and fuzzy search over pages **and tasks** behind ⌘K · keyboard shortcuts for everything, `?` for the list · related pages and extracted tasks computed in Postgres, with no LLM and no external calls |
 | **Let the machines in** | An MCP server · a REST API with an OpenAPI description · signed webhooks · an agent run queue your own machine works · provenance on every write, so you can see which edits a machine made |
-| **Run it yourself** | One container and one Postgres · a schema that migrates itself on boot · invite-only auth · Web Push · import and export · public read-only share links |
+| **Run it yourself** | One container and one Postgres · a schema that migrates itself on boot · invite-only auth · Web Push · import and export · a calendar feed your phone subscribes to · public read-only share links · works offline enough to read |
 
 <details>
 <summary><b>Write together</b> — the full list</summary>
@@ -110,11 +110,16 @@ One image, one Postgres, one port. `docker compose up -d` and invite the team.
 
 <br/>
 
-- **Projects** — kanban, backlog, table, gantt, calendar and gallery over one set of tasks; sprints, epics/stories/bugs, points, dependencies, milestones, several assignees per task.
+- **Projects** — kanban, backlog, table, gantt, calendar, gallery and a dashboard over one set of tasks; sprints, epics/stories/bugs, points, hour estimates, dependencies, milestones, several assignees per task.
+- **Quick capture** — `n` opens one line over whatever is on screen; Enter files it in a database and puts you back where you were. Shift+Enter keeps the box open.
+- **Bulk actions** — pick rows with the checkboxes, a shift-click range, or `x`, then set a status, an assignee or a sprint on all of them at once. `j`/`k` walk the list, Enter opens.
+- **Repeating tasks** — every day, every weekday, every week, every two weeks, every month. Finishing one is what makes the next, so nothing piles up while you are away, and a late finish lands in the future rather than already overdue.
+- **Workload** — open hours per person, with the count of unsized tasks printed beside each bar rather than quietly treated as zero.
 - **Tasks across projects** — one view of everything assigned to you, or anyone, filtered by project, status, kind, or the focus areas tagged on a task's page. Filters are chips; saved per view.
 - **Deadline reminders** — a one-line summary of what is pending each morning *where you are*, then a nudge the day before something is due, on the day, and every day it stays late. Every day boundary in the app — due today, one day late, 8am — is read in the zone your browser reports, so a workspace spread over three continents has three mornings rather than the server's one. Whoever handed the work over hears about the day it lands and the days it slips, with the name of whoever is carrying it. In-app, push, and one email a day rather than one per task.
 - **Databases** — a project is a database and every row is a page. Add columns (text, number, select, date, checkbox, person, URL, file, relation) and embed a live view of one in any document with `/database`.
-- **Automations** — "when a task enters Done, set progress to 100 and move it to the active sprint". Rules run on a move a person made, never on each other, so two rules cannot loop. A rule set to run by hand is a quick action, offered as a button on every task.
+- **Automations** — "when a task enters Done, set progress to 100 and move it to the active sprint". Six triggers: a status is entered, a task is created, someone is assigned, it is due today, it is overdue, or nothing has changed in N days. Rules run on a move a person made, never on each other, so two rules cannot loop; the two time-based ones are swept hourly and fire once per task. A rule set to run by hand is a quick action, offered as a button on every task.
+- **Intake forms** — publish a link anyone can fill in, with no account and no seat. What they send arrives as a task, with the details as its first comment. Turn it off and the link is dead.
 - **Task ↔ page linking** — a task can link to the page that specifies it, and a page shows the tasks that point at it.
 
 </details>
@@ -125,11 +130,14 @@ One image, one Postgres, one port. `docker compose up -d` and invite the team.
 <br/>
 
 - **Sidebar** — nested pages, folders (each with its own page and link), colored tags, favorites, and team-wide pins.
-- **Search** — hybrid full-text + fuzzy search, and a ⌘K palette for pages and commands.
+- **Search** — hybrid full-text + fuzzy search over pages, and tasks by name or by key: typing `MD-14` into ⌘K lands on that task. The palette also jumps to databases and runs commands.
+- **Keyboard** — `?` lists every shortcut. `⌘K` or `/` to search, `g h`/`g t`/`g d`/`g i` to go somewhere, `c` to make one, `n` to capture one, `j`/`k`/`x`/Enter in a task list. A bare letter is never a shortcut while you are typing.
 - **Ambient intelligence** — per-doc related pages, tag and link suggestions, extracted tasks / decisions / deadlines, duplicate and stale detection. Computed in Postgres on save. **No LLM, no external calls.**
 - **Import** — drop in `.md` or `.docx` (front matter, nested lists, tables, inline marks and images survive).
 - **Export** — any page as **Markdown**, **Word** or **PDF**; any canvas as **PNG**.
-- **Public share links** — publish any page read-only, enforced by the server.
+- **Public share links** — publish any page read-only, enforced by the server. Or publish an intake form, which is the same idea pointing the other way.
+- **Calendar subscription** — a per-person `.ics` address for the tasks assigned to you that have dates. Paste it into Google Calendar, Apple Calendar or Outlook; revoke it by asking for a new one.
+- **Offline** — the app opens to the workspace you left, not an error, and a page you have open keeps taking edits and syncs them when you are back.
 
 </details>
 
