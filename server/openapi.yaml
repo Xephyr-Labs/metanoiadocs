@@ -372,6 +372,13 @@ paths:
                   name: { type: string }
                   icon: { type: string }
                   intro: { type: string, nullable: true }
+                  fields:
+                    type: array
+                    description: >
+                      The database's own properties this form asks for, resolved
+                      as they are now — a property since deleted, or changed to
+                      a type a form may not ask for, is simply not here.
+                    items: { $ref: '#/components/schemas/FormField' }
         '404': { description: No such form, or it has been turned off }
     post:
       tags: [Tasks]
@@ -393,6 +400,14 @@ paths:
                 details: { type: string, maxLength: 4000 }
                 name: { type: string, maxLength: 120 }
                 email: { type: string, maxLength: 120 }
+                answers:
+                  type: object
+                  additionalProperties: true
+                  description: >
+                    Values for the fields the form asks for, keyed by property
+                    id. Coerced by the same code a signed-in write goes through;
+                    a select answer has to be one of that property's options.
+
       responses:
         '200':
           description: Accepted
@@ -406,7 +421,7 @@ paths:
                     type: string
                     nullable: true
                     description: The task's key, to quote in a follow-up.
-        '400': { description: Nothing was written in the first field }
+        '400': { description: Nothing was written in the first field, a needed field was left blank, or an answer was not valid }
         '404': { description: No such form, or it has been turned off }
         '429': { description: This form has taken too many submissions this hour }
 
@@ -505,6 +520,12 @@ paths:
                   properties:
                     projectId: { type: string }
                     title: { type: string }
+                    templateId:
+                      type: string
+                      description: >
+                        A row template in this database. It fills in what this
+                        body leaves out and never overrules what it sets; its
+                        body, if it has one, becomes the row's page.
                 - { $ref: '#/components/schemas/TaskPatch' }
       responses:
         '200':
@@ -906,6 +927,161 @@ paths:
             application/json:
               schema: { type: array, items: { $ref: '#/components/schemas/Delivery' } }
 
+  /api/templates:
+    get:
+      tags: [Docs]
+      summary: Every page offered as a starting point
+      description: >
+        A template is an ordinary page that somebody marked. It stays in the
+        sidebar, in search and in All documents — the mark is the only
+        difference.
+      responses:
+        '200':
+          description: The templates you can open
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Template' } }
+
+  /api/docs/{id}/template:
+    post:
+      tags: [Docs]
+      summary: Mark a page as a template, or stop
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: { isTemplate: { type: boolean, default: true } }
+      responses:
+        '200':
+          description: The page's new state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string }
+                  isTemplate: { type: boolean }
+        '403': { description: You cannot edit that page }
+        '404': { description: No such thing }
+
+  /api/templates/{id}/use:
+    post:
+      tags: [Docs]
+      summary: A new page from a template
+      description: >
+        Copies the template's content byte for byte — tables, images, columns
+        and embedded databases survive, because what is copied is the document
+        rather than a rendering of it. Comments, history, tags and the template
+        mark itself are not copied.
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: { type: string, maxLength: 200 }
+                folderId: { type: [string, 'null'] }
+      responses:
+        '200':
+          description: The new page
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Doc' }
+        '400': { description: That page is not a template }
+        '403': { description: You cannot open that page }
+        '404': { description: No such thing }
+
+  /api/projects/{id}/row-templates:
+    get:
+      tags: [Tasks]
+      summary: The named starting points this database offers
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200':
+          description: Its row templates
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/RowTemplate' } }
+    post:
+      tags: [Tasks]
+      summary: Add one
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RowTemplateBody' }
+      responses:
+        '200':
+          description: The template
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RowTemplate' }
+        '404': { description: No such thing }
+
+  /api/row-templates/{id}:
+    patch:
+      tags: [Tasks]
+      summary: Change one
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RowTemplateBody' }
+      responses:
+        '200':
+          description: The template
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RowTemplate' }
+        '404': { description: No such thing }
+    delete:
+      tags: [Tasks]
+      summary: Remove one
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  /api/projects/{id}/import.csv:
+    post:
+      tags: [Tasks]
+      summary: Read a CSV into this database
+      description: >
+        The body is the file itself, as text. One column has to be the title;
+        the rest are matched to the database's properties by label, with
+        Status, Priority, Assignee, Start date, Due date, Points, Estimate,
+        Type, Repeat and Notes understood as built-in fields. A built-in wins a
+        name it shares with a property, and the response says which property it
+        shadowed. Every value goes through the same coercion a signed-in write
+        does.
+      parameters:
+        - { $ref: '#/components/parameters/Id' }
+        - name: dry
+          in: query
+          description: Report what would happen and write nothing.
+          schema: { type: string, enum: ['1', 'true'] }
+        - name: create
+          in: query
+          description: Make a text property for each unmatched column.
+          schema: { type: string, enum: ['1', 'true'] }
+      requestBody:
+        required: true
+        content:
+          text/csv:
+            schema: { type: string }
+      responses:
+        '200':
+          description: What was done, or would be
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CsvImport' }
+        '400': { description: No rows, no Title column, or more rows than one import takes }
+        '404': { description: No such thing }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -939,6 +1115,98 @@ components:
             properties: { error: { type: string } }
 
   schemas:
+    Template:
+      type: object
+      description: A page offered as a starting point.
+      properties:
+        id: { type: string }
+        title: { type: string }
+        icon: { type: string }
+        kind: { type: string, enum: [doc, design, task] }
+        updated_at: { type: string, format: date-time }
+        created_by_name: { type: [string, 'null'] }
+
+    RowTemplate:
+      type: object
+      description: >
+        A named starting point for a row. Deliberately not a task: it lives in
+        its own table, so it cannot appear on a board, in a count or in a sweep.
+      properties:
+        id: { type: string }
+        project_id: { type: string }
+        name: { type: string }
+        icon: { type: string }
+        props:
+          type: object
+          additionalProperties: true
+          description: Values for the database's own properties, shaped like a task's props.
+        fields:
+          type: object
+          additionalProperties: true
+          description: >
+            The built-in fields a row starts with — title, status, priority,
+            kind, points, estimateH, repeatRule, assigneeIds, milestone. Dates
+            and sprint are deliberately not presettable: a template that always
+            starts a task on one day is wrong the day after it is written.
+        body: { type: [string, 'null'], description: Markdown for the row's page. }
+        position: { type: integer }
+        created_at: { type: string, format: date-time }
+
+    RowTemplateBody:
+      type: object
+      properties:
+        name: { type: string, maxLength: 120 }
+        icon: { type: string, maxLength: 8 }
+        props: { type: object, additionalProperties: true }
+        fields: { type: object, additionalProperties: true }
+        body: { type: [string, 'null'], maxLength: 20000 }
+
+    FormField:
+      type: object
+      description: One property a public intake form asks for.
+      properties:
+        id: { type: string, description: The property's id. }
+        label: { type: string }
+        type:
+          type: string
+          enum: [text, number, select, multi_select, date, checkbox, url, email, phone]
+          description: >
+            Person, relation and file are never on a form: answering one means
+            knowing what is already in the workspace, which the link does not grant.
+        options:
+          type: array
+          items: { type: object, additionalProperties: true }
+        required: { type: boolean }
+
+    CsvImport:
+      type: object
+      description: What an import did, or would do when `dry`.
+      properties:
+        dry: { type: boolean }
+        created: { type: integer }
+        skipped: { type: integer }
+        errorCount: { type: integer }
+        errors:
+          type: array
+          description: The first fifty, each naming the line in the file.
+          items:
+            type: object
+            properties:
+              line: { type: integer }
+              error: { type: string }
+        columns:
+          type: array
+          items:
+            type: object
+            properties:
+              header: { type: string }
+              kind: { type: string, enum: [builtin, prop, new, skip] }
+              field: { type: [string, 'null'] }
+              propId: { type: [string, 'null'] }
+              shadows:
+                type: [string, 'null']
+                description: The property this column stepped in front of, when they share a name.
+
     User:
       type: object
       properties:

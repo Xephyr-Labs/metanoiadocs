@@ -32,6 +32,10 @@ export interface Page {
   tags: Tag[];
   /** Pinned for the whole workspace, as opposed to `favorite`, which is yours. */
   pinned: boolean;
+  /** Offered as a starting point for new pages. A template is an ordinary page
+   *  that happens to be marked — it stays in the sidebar, in search and in All
+   *  documents, and is edited like any other. */
+  isTemplate: boolean;
   /** Page property values, keyed by DocPropRow.id. Sparse: only what is set. */
   props: Record<string, unknown>;
   children: PageId[];

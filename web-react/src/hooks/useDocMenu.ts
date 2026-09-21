@@ -1,4 +1,4 @@
-import { Download, ExternalLink, FileText, FileType, Link2, Pin, Printer, Star, Trash2 } from 'lucide-react';
+import { Download, ExternalLink, FileText, FileType, LayoutTemplate, Link2, Pin, Printer, Star, Trash2 } from 'lucide-react';
 import type { MenuItem } from '../components/ui/Menu';
 import { copyLink } from '../lib/clipboard';
 import { downloadDocx, downloadMarkdown, printDoc } from '../lib/docFiles';
@@ -67,6 +67,11 @@ export function useDocMenu(
       onSelect: () => ws.togglePin(id),
     },
     { icon: FileText, label: 'Rename', onSelect: rename },
+    {
+      icon: LayoutTemplate,
+      label: page?.isTemplate ? 'Remove from Templates' : 'Save as a template',
+      onSelect: () => { void ws.setTemplate(id, !page?.isTemplate); },
+    },
     ...(moveTo ? [moveTo] : []),
     {
       icon: Download,

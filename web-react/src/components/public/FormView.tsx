@@ -11,10 +11,20 @@ import { Check, FileWarning, Loader2, Send } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { Logo } from '../brand/Logo';
 
+/** A property this form asks for, as the server resolved it just now. */
+interface Field {
+  id: string;
+  label: string;
+  type: 'text' | 'number' | 'select' | 'multi_select' | 'date' | 'checkbox' | 'url' | 'email' | 'phone';
+  options: { id: string; label: string; color?: string }[];
+  required: boolean;
+}
+
 interface Form {
   name: string;
   icon: string;
   intro: string | null;
+  fields: Field[];
 }
 
 const field =
@@ -46,6 +56,7 @@ export function FormView({ token }: { token: string }) {
   const [details, setDetails] = useState('');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [answers, setAnswers] = useState<Record<string, unknown>>({});
   const [state, setState] = useState<'idle' | 'sending'>('idle');
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState<string | null>(null);
@@ -80,7 +91,7 @@ export function FormView({ token }: { token: string }) {
       const r = await fetch(`/api/form/${encodeURIComponent(token)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, details, name, email }),
+        body: JSON.stringify({ title, details, name, email, answers }),
       });
       const body = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(body.error || 'Could not send that.');
@@ -90,6 +101,120 @@ export function FormView({ token }: { token: string }) {
     } finally {
       setState('idle');
     }
+  };
+
+  const set = (id: string, value: unknown) => {
+    setAnswers((a) => ({ ...a, [id]: value }));
+    setError(null);
+  };
+
+  /**
+   * One question, drawn from what the database actually holds.
+   *
+   * Native controls throughout — a select, a date input, checkboxes. This page
+   * is opened by people with no account on whatever browser they have, and the
+   * app's own pickers assume a workspace around them. `required` is marked on
+   * the label and enforced by the server; the browser's own validation is the
+   * first line, not the only one.
+   */
+  const renderField = (f: Field) => {
+    const id = `form-prop-${f.id}`;
+    const value = answers[f.id];
+    const head = (
+      <label className={label} htmlFor={id}>
+        {f.label}{' '}
+        {f.required
+          ? <span className="font-normal text-danger-strong">— needed</span>
+          : <span className="font-normal text-faint">— optional</span>}
+      </label>
+    );
+
+    if (f.type === 'checkbox') {
+      return (
+        <div key={f.id} className="flex items-center gap-2">
+          <input
+            id={id}
+            type="checkbox"
+            checked={value === true}
+            onChange={(e) => set(f.id, e.target.checked)}
+            className="h-4 w-4 rounded border-line text-accent-fill focus:ring-2 focus:ring-accent"
+          />
+          <label htmlFor={id} className="text-sm text-ink">
+            {f.label}
+            {f.required && <span className="ml-1 text-danger-strong">*</span>}
+          </label>
+        </div>
+      );
+    }
+
+    if (f.type === 'select') {
+      return (
+        <div key={f.id}>
+          {head}
+          <select
+            id={id}
+            value={typeof value === 'string' ? value : ''}
+            required={f.required}
+            onChange={(e) => set(f.id, e.target.value)}
+            className={cn(field, 'h-[38px] appearance-none bg-canvas')}
+          >
+            <option value="">Choose one…</option>
+            {f.options.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+          </select>
+        </div>
+      );
+    }
+
+    if (f.type === 'multi_select') {
+      const chosen = Array.isArray(value) ? (value as string[]) : [];
+      return (
+        <fieldset key={f.id}>
+          <legend className={label}>
+            {f.label}{' '}
+            {f.required
+              ? <span className="font-normal text-danger-strong">— pick at least one</span>
+              : <span className="font-normal text-faint">— optional</span>}
+          </legend>
+          <div className="flex flex-wrap gap-x-4 gap-y-2">
+            {f.options.map((o) => (
+              <label key={o.id} className="flex items-center gap-2 text-sm text-ink">
+                <input
+                  type="checkbox"
+                  checked={chosen.includes(o.id)}
+                  onChange={(e) => set(f.id, e.target.checked
+                    ? [...chosen, o.id]
+                    : chosen.filter((c) => c !== o.id))}
+                  className="h-4 w-4 rounded border-line text-accent-fill focus:ring-2 focus:ring-accent"
+                />
+                {o.label}
+              </label>
+            ))}
+            {!f.options.length && <p className="text-2xs text-faint">Nothing to choose from yet.</p>}
+          </div>
+        </fieldset>
+      );
+    }
+
+    const type = f.type === 'number' ? 'number'
+      : f.type === 'date' ? 'date'
+      : f.type === 'email' ? 'email'
+      : f.type === 'url' ? 'url'
+      : f.type === 'phone' ? 'tel'
+      : 'text';
+    return (
+      <div key={f.id}>
+        {head}
+        <input
+          id={id}
+          type={type}
+          required={f.required}
+          value={typeof value === 'string' || typeof value === 'number' ? String(value) : ''}
+          onChange={(e) => set(f.id, e.target.value)}
+          placeholder={f.type === 'url' ? 'https://…' : undefined}
+          className={field}
+        />
+      </div>
+    );
   };
 
   const shell = (children: React.ReactNode) => (
@@ -141,7 +266,7 @@ export function FormView({ token }: { token: string }) {
         </div>
         <button
           type="button"
-          onClick={() => { setSent(null); setTitle(''); setDetails(''); setError(null); }}
+          onClick={() => { setSent(null); setTitle(''); setDetails(''); setAnswers({}); setError(null); }}
           className="text-sm font-medium text-accent-strong hover:underline"
         >
           Send another
@@ -189,6 +314,8 @@ export function FormView({ token }: { token: string }) {
           className={cn(field, 'resize-y leading-6')}
         />
       </div>
+
+      {form.fields.map(renderField)}
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div>

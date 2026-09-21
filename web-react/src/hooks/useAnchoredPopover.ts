@@ -41,6 +41,12 @@ export function useAnchoredPopover(open: boolean, minWidth = 240): {
       const flip = below < ROOMY && above > below;
       setStyle({
         position: 'fixed',
+        // A modal dialog sets `pointer-events: none` on <body> while it is
+        // open, and these menus are portalled into <body> — so inside a dialog
+        // they drew perfectly and ignored every click, which landed on
+        // whatever row happened to sit underneath. The dialog's own content
+        // gets this back from Radix; a sibling portal has to ask.
+        pointerEvents: 'auto',
         left: Math.max(8, Math.min(r.left, window.innerWidth - width - 8)),
         width,
         maxHeight: Math.max(160, flip ? above : below),

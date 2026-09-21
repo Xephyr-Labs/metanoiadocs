@@ -143,6 +143,12 @@ interface WorkspaceState {
   toggleFolder: (id: string) => void;
   deleteFolder: (id: string) => Promise<void>;
   createFromTemplate: (t: Template) => Promise<PageId | null>;
+  /** The workspace's own templates — ordinary pages somebody marked. */
+  docTemplates: Page[];
+  /** A new page carrying a template page's body, copied block for block. */
+  createFromPage: (templateId: PageId) => Promise<PageId | null>;
+  /** Mark a page as a template, or stop. */
+  setTemplate: (id: PageId, on: boolean) => Promise<void>;
   importFiles: (files: File[], folderId: string | null) => Promise<PageId | null>;
   deletePage: (id: PageId) => void;
   restorePage: (id: PageId) => Promise<void>;
@@ -186,6 +192,7 @@ function buildPages(rows: DocRow[]): Record<PageId, Page> {
       shared: !!r.shared,
       favorite: !!r.favorite,
       pinned: !!r.pinned,
+      isTemplate: !!r.is_template,
       role: r.role,
       visibility: r.visibility === 'private' ? 'private' : 'team',
       kind: r.kind === 'design' ? 'design' : r.kind === 'task' ? 'task' : 'doc',
@@ -791,6 +798,42 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }, [refresh, select]);
 
   /**
+   * The workspace's own templates.
+   *
+   * Derived from the pages already loaded rather than fetched: `is_template`
+   * rides along on the list the sidebar is built from, so a second request
+   * would only be a second answer to the same question.
+   */
+  const docTemplates = useMemo(
+    () => Object.values(pages).filter((p) => p.isTemplate && p.kind !== 'task').sort(byOrder),
+    [pages],
+  );
+
+  const createFromPage = useCallback(async (templateId: PageId): Promise<PageId | null> => {
+    try {
+      const row = await docsApi.useTemplate(templateId, {});
+      await refresh();
+      select(row.id);
+      return row.id;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not start from that template.');
+      return null;
+    }
+  }, [refresh, select]);
+
+  const setTemplate = useCallback(async (id: PageId, on: boolean) => {
+    // Optimistic: the mark is a label, and the sidebar section it moves into is
+    // the confirmation. A failure puts it back and says so.
+    setPages((p) => (p[id] ? { ...p, [id]: { ...p[id], isTemplate: on } } : p));
+    try {
+      await docsApi.markTemplate(id, on);
+    } catch {
+      setPages((p) => (p[id] ? { ...p, [id]: { ...p[id], isTemplate: !on } } : p));
+      toast(on ? 'Could not save that as a template.' : 'Could not remove that template.');
+    }
+  }, []);
+
+  /**
    * Markdown files → documents. Each file is its own page; a file that fails
    * stops the run but keeps everything imported before it, which is why the
    * refresh below happens either way.
@@ -1079,7 +1122,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       sidebarCollapsed, panelCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
       settingsOpen, trashOpen, inboxOpen, shortcutsOpen, captureOpen, mode, fullWidth, theme,
       refresh, select, toggleExpand, toggleFavorite, toggleFolderFavorite, setVisibility, rename, applyTitleFromEditor,
-      createPage, createDesign, movePage, createChildPage, reorderPage, linkPage, reorderFolder, moveFolder, createFolder, renameFolder, setFolderColor, setIcon, toggleFolder, deleteFolder, createFromTemplate, importFiles, deletePage, restorePage,
+      createPage, createDesign, movePage, createChildPage, reorderPage, linkPage, reorderFolder, moveFolder, createFolder, renameFolder, setFolderColor, setIcon, toggleFolder, deleteFolder, createFromTemplate, docTemplates, createFromPage, setTemplate, importFiles, deletePage, restorePage,
       refreshTags, addTagToPage, removeTagFromPage, deleteTag, setTagFilter,
       setSidebarCollapsed, setPanelCollapsed, setSidebarWidth, setMobileDrawer, setRightPanel, setPaletteOpen, setShortcutsOpen, setCaptureOpen,
       setShareOpen, setSettingsOpen, setTrashOpen, setInboxOpen, setMode, setFullWidth, toggleTheme,
@@ -1095,7 +1138,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       sidebarCollapsed, panelCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
       settingsOpen, trashOpen, inboxOpen, shortcutsOpen, captureOpen, mode, fullWidth, theme,
       refresh, select, toggleExpand, toggleFavorite, toggleFolderFavorite, setVisibility, rename, applyTitleFromEditor,
-      createPage, createDesign, movePage, createChildPage, reorderPage, linkPage, reorderFolder, moveFolder, createFolder, renameFolder, setFolderColor, setIcon, toggleFolder, deleteFolder, createFromTemplate, importFiles, deletePage, restorePage,
+      createPage, createDesign, movePage, createChildPage, reorderPage, linkPage, reorderFolder, moveFolder, createFolder, renameFolder, setFolderColor, setIcon, toggleFolder, deleteFolder, createFromTemplate, docTemplates, createFromPage, setTemplate, importFiles, deletePage, restorePage,
       refreshTags, addTagToPage, removeTagFromPage, deleteTag, toggleTheme,
     ],
   );

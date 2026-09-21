@@ -104,7 +104,7 @@ export function useProject(
     }
   }, [refresh, users]);
 
-  const create = useCallback(async (body: { title: string } & TaskPatch) => {
+  const create = useCallback(async (body: { title: string; templateId?: string } & TaskPatch) => {
     if (!projectId) return null;
     try {
       const row = await tasksApi.createTask({ projectId, ...body });

@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { pool } from './db.js';
 import { PROP_TYPES, propKey, canChangeType, normalizeConfig, normalizeOptions, relationError } from './props.js';
 
-const MAX_PROPS = 40;
+export const MAX_PROPS = 40;
 
 export async function propsFor(projectId) {
   const { rows } = await pool.query(

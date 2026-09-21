@@ -44,7 +44,7 @@ import { fileToMarkdown, IMPORT_EXTENSIONS } from './import.js';
 import { registerMcpRoute } from './mcp-http.js';
 import { topTerms, extractSignals, findMentions, simhash, hamming, keyphrases, summarize, tokenize, coalesceByKey, blocksFromText } from './intelligence.js';
 import { docKind } from './props.js';
-import { registerTaskRoutes } from './tasks.js';
+import { registerTaskRoutes, kindsFor, isStatus } from './tasks.js';
 import { registerTaskCommentRoutes } from './task-comments.js';
 import { registerPropRoutes } from './props-routes.js';
 import { registerViewRoutes } from './views.js';
@@ -57,6 +57,8 @@ import { registerWebhookRoutes, emit, startWebhookWorker } from './webhooks.js';
 import { registerAgentRoutes, enqueueRun } from './agent-runs.js';
 import { registerAutomationRoutes, startAutomationSweeper } from './automations.js';
 import { registerFormRoutes } from './forms.js';
+import { registerTemplateRoutes } from './templates.js';
+import { registerCsvRoutes } from './csv-import.js';
 import { TRASH_RETENTION_DAYS, startTrashSweeper } from './retention.js';
 import { startReminders } from './reminders.js';
 import { dayIn, isZone, zoneOf } from './timezone.js';
@@ -627,7 +629,7 @@ app.get('/api/docs/mine', requireUser, async (req, res) => {
 app.get('/api/docs', requireUser, async (req, res) => {
   const { rows } = await pool.query(
     `SELECT d.id, d.title, d.icon, d.folder_id, d.parent_id, d.position, d.updated_at,
-            coalesce(a.role, 'editor') AS role, d.visibility, d.kind, d.props,
+            coalesce(a.role, 'editor') AS role, d.visibility, d.kind, d.props, d.is_template,
             ub.name AS updated_by_name,
             coalesce(ub.kind, 'person') AS updated_by_kind,
             d.updated_via,
@@ -2596,6 +2598,12 @@ registerPushRoutes(app, { requireUser, wrap });
 registerFolderRoutes(app, { requireUser, wrap });
 registerWebhookRoutes(app, { requireUser, requireAdmin, wrap });
 registerFormRoutes(app, { requireUser, wrap, baseUrl: BASE_URL });
+registerTemplateRoutes(app, { requireUser, wrap, grantOn, kindsFor, isStatus });
+registerCsvRoutes(app, {
+  requireUser, wrap, createDocRow,
+  // One file per request, same shape and same ceiling as the document import.
+  raw: express.raw({ type: '*/*', limit: '10mb' }),
+});
 // Deliveries are rows now, so something has to drain them.
 startWebhookWorker();
 registerAgentRoutes(app, { requireUser, wrap, createDocRow });

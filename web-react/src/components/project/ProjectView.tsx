@@ -6,11 +6,11 @@
  * note: two header rows — which view, then how it is narrowed — separated by a
  *       hairline so navigation and chrome are not one undifferentiated field.
  */
-import { useEffect, useMemo, useState } from 'react';
-import { Columns3, FolderOpen, Hash, Inbox, MoreHorizontal, Plus, Tags, Zap } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ChevronDown, Columns3, Download, FolderOpen, Hash, Inbox, LayoutTemplate, MoreHorizontal, Plus, Tags, Upload, Zap } from 'lucide-react';
 import { useWorkspace } from '../../store/workspace';
 import { showDatabase } from '../../lib/route';
-import { VIEW_KINDS, type TaskRow, type TaskStatus, type ViewKind } from '../../lib/tasksApi';
+import { tasksApi, VIEW_KINDS, type RowTemplateRow, type TaskRow, type TaskStatus, type ViewKind } from '../../lib/tasksApi';
 import { Button } from '../ui/Button';
 import { EmptyState } from '../ui/EmptyState';
 import { IconButton } from '../ui/IconButton';
@@ -37,6 +37,9 @@ import { TaskPeek } from './TaskPeek';
 import { AutomationsDialog } from './AutomationsDialog';
 import { ProjectKeyDialog } from './ProjectKeyDialog';
 import { IntakeFormDialog } from './IntakeFormDialog';
+import { CsvDialog } from './CsvDialog';
+import { downloadCsv, tasksToRows, toCsv } from '../../lib/csv';
+import { RowTemplatesDialog } from './RowTemplatesDialog';
 import { TaskKindsDialog } from './TaskKindsDialog';
 import { TaskTable } from './TaskTable';
 import { useDatabaseView } from './useDatabaseView';
@@ -67,6 +70,9 @@ export function ProjectView() {
   const [keyOpen, setKeyOpen] = useState(false);
   const [autoOpen, setAutoOpen] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
+  const [csvOpen, setCsvOpen] = useState(false);
+  const [rowTemplatesOpen, setRowTemplatesOpen] = useState(false);
+  const [rowTemplates, setRowTemplates] = useState<RowTemplateRow[]>([]);
   // Status colours live on the project row, so a repaint has to refresh the
   // list the sidebar and this screen both read.
   const p = useProject(ws.activeProjectId, ws.refreshProjects);
@@ -111,6 +117,16 @@ export function ProjectView() {
     onToggle: (id) => sel.onSelect(id, false),
     onClear: sel.clear,
   });
+
+  // The New button's menu is built from these, so they are read once per
+  // database rather than when the menu opens — a menu that appears empty for a
+  // moment and then grows is a menu people click through.
+  const projectId = project?.id ?? null;
+  const loadRowTemplates = useCallback(() => {
+    if (!projectId) return;
+    tasksApi.rowTemplates(projectId).then(setRowTemplates).catch(() => setRowTemplates([]));
+  }, [projectId]);
+  useEffect(() => { setRowTemplates([]); loadRowTemplates(); }, [loadRowTemplates]);
 
   const { pendingTaskId, clearPendingTask, pendingViewId, clearPendingView } = ws;
   useEffect(() => {
@@ -162,6 +178,31 @@ export function ProjectView() {
     if (row) setOpen({ ...row, deps: [] });
   };
 
+  /** Start a row from a template — the server merges, this only names it. */
+  const addFromTemplate = async (t: RowTemplateRow) => {
+    const row = await p.create({ title: '', templateId: t.id });
+    ws.refreshProjects();
+    if (row) setOpen({ ...row, deps: [] });
+  };
+
+  /**
+   * The view on screen, as a file.
+   *
+   * Written here rather than fetched from the server because "this view" means
+   * its filters, its sort and its visible columns — all of which live in this
+   * browser. A server route would need a second copy of the filter engine, and
+   * the day the two disagree is the day an export quietly drops rows.
+   */
+  const exportCsv = () => {
+    const name = [project?.name, v.views.find((x) => x.id === v.activeId)?.name]
+      .filter(Boolean).join(' — ') || 'database';
+    // The columns on screen — or, where the view draws none of them (Backlog,
+    // Board, the gantt), every property there is. A file of nothing but titles
+    // is not what anybody means by "export this".
+    const columns = d.visible.length ? d.visible : d.allProps;
+    downloadCsv(name, toCsv(tasksToRows(d.tasks, columns, p.users)));
+  };
+
   // Keep the live task in the panel: patches land in p.tasks, not in `open`.
   const openTask = open ? p.tasks.find((t) => t.id === open.id) ?? null : null;
 
@@ -198,9 +239,46 @@ export function ProjectView() {
             onDelete={(id) => { void v.remove(id); }}
           />
           <div className="ml-auto flex shrink-0 items-center gap-2">
-            <Button variant="primary" size="sm" leftIcon={<Plus size={14} />} onClick={() => add()}>
-              {isData ? 'Row' : 'Task'}
-            </Button>
+            <div className="flex items-center">
+              <Button
+                variant="primary"
+                size="sm"
+                leftIcon={<Plus size={14} />}
+                className={rowTemplates.length ? 'rounded-r-none' : undefined}
+                onClick={() => add()}
+              >
+                {isData ? 'Row' : 'Task'}
+              </Button>
+              {/* Only where there is something to choose. A chevron that opens
+                  a menu of one item is a chevron that wastes a click. */}
+              {rowTemplates.length > 0 && (
+                <Menu
+                  align="end"
+                  trigger={(
+                    <button
+                      type="button"
+                      aria-label="Start from a template"
+                      className="flex h-7 items-center rounded-r border-y border-r border-accent-fill bg-accent-fill pl-0.5 pr-1.5 text-white
+                                 transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                    >
+                      <ChevronDown size={14} />
+                    </button>
+                  )}
+                  items={[
+                    ...rowTemplates.map((t) => ({
+                      label: `${t.icon}  ${t.name}`,
+                      onSelect: () => { void addFromTemplate(t); },
+                    })),
+                    {
+                      icon: LayoutTemplate,
+                      label: 'Manage templates…',
+                      separatorBefore: true,
+                      onSelect: () => setRowTemplatesOpen(true),
+                    },
+                  ]}
+                />
+              )}
+            </div>
             <Menu
               align="end"
               trigger={<IconButton icon={<MoreHorizontal size={16} />} label="Database settings" />}
@@ -209,7 +287,10 @@ export function ProjectView() {
                 { icon: Columns3, label: 'Properties…', onSelect: () => setPropsOpen(true) },
                 { icon: Zap, label: 'Automations…', onSelect: () => setAutoOpen(true) },
                 { icon: Hash, label: isData ? 'Row key…' : 'Task key…', onSelect: () => setKeyOpen(true) },
+                { icon: LayoutTemplate, label: isData ? 'Row templates…' : 'Task templates…', onSelect: () => setRowTemplatesOpen(true) },
                 { icon: Inbox, label: 'Intake form…', onSelect: () => setFormOpen(true) },
+                { icon: Upload, label: 'Import a CSV…', separatorBefore: true, onSelect: () => setCsvOpen(true) },
+                { icon: Download, label: 'Export this view as CSV', onSelect: exportCsv },
               ]}
             />
           </div>
@@ -384,6 +465,23 @@ export function ProjectView() {
         onOpenChange={setFormOpen}
         projectId={project.id}
         projectName={project.name}
+      />
+
+      <CsvDialog
+        open={csvOpen}
+        onOpenChange={setCsvOpen}
+        projectId={project.id}
+        onImported={() => { p.refresh(); ws.refreshProjects(); }}
+      />
+
+      <RowTemplatesDialog
+        open={rowTemplatesOpen}
+        onOpenChange={setRowTemplatesOpen}
+        projectId={project.id}
+        props={d.allProps}
+        users={p.users}
+        noun={isData ? 'row' : 'task'}
+        onChanged={loadRowTemplates}
       />
 
       <TaskPeek

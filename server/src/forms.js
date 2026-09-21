@@ -20,6 +20,8 @@ import { pool } from './db.js';
 import { usableTitle, withKey } from './task-key.js';
 import { fireTrigger } from './automations.js';
 import { emit } from './webhooks.js';
+import { propsFor } from './props-routes.js';
+import { coercePropValue } from './props.js';
 
 const MAX_TITLE = 200;
 const MAX_DETAILS = 4000;
@@ -61,6 +63,107 @@ export function resetLimit(token) { hits.delete(token); }
 
 const trim = (v, max) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
 
+/**
+ * The property types a form may ask a stranger for.
+ *
+ * `person` and `relation` are off the list because answering either means
+ * knowing what is already in the workspace, which is exactly what a form link
+ * does not grant. `file` is off it because an unauthenticated write of bytes is
+ * a different risk from an unauthenticated write of a string, and wants its own
+ * decision. `formula` and `rollup` are computed and have nothing to ask.
+ */
+export const FORM_TYPES = ['text', 'number', 'select', 'multi_select', 'date', 'checkbox', 'url', 'email', 'phone'];
+
+/**
+ * Whether a form may ask for this property at all.
+ *
+ * Type, and one more thing: a `_`-prefixed key is a machine-owned column — the
+ * app's own provenance and agent notes, which the table, the cards, the filters
+ * and the peek all hide (isSystemProp in web-react/src/lib/builtinProps.ts).
+ * A column the workspace itself will not show a member is not one a stranger
+ * with a link should be able to write.
+ */
+export const askableProp = (p) => FORM_TYPES.includes(p?.type) && !String(p?.key ?? '').startsWith('_');
+
+/**
+ * The fields a form actually shows: the saved list, resolved against the
+ * database's properties as they are *now*.
+ *
+ * Resolved on every request rather than stored denormalised, so renaming a
+ * property renames it on the form, deleting one removes it, and changing one to
+ * a type a form may not ask for takes it off — instead of leaving a field that
+ * writes somewhere that no longer exists.
+ */
+export function formFields(saved, props) {
+  const byId = new Map(props.map((p) => [p.id, p]));
+  const out = [];
+  for (const entry of Array.isArray(saved) ? saved : []) {
+    const prop = byId.get(entry?.id);
+    if (!prop || !askableProp(prop)) continue;
+    out.push({
+      id: prop.id,
+      label: prop.label,
+      type: prop.type,
+      options: prop.options ?? [],
+      required: entry?.required === true,
+    });
+  }
+  return out;
+}
+
+/** What the owner saved, cleaned: known properties of askable types, once each. */
+export function normalizeFormFields(value, props) {
+  const askable = new Set(props.filter(askableProp).map((p) => p.id));
+  const seen = new Set();
+  const out = [];
+  for (const entry of Array.isArray(value) ? value : []) {
+    const id = typeof entry === 'string' ? entry : entry?.id;
+    if (typeof id !== 'string' || !askable.has(id) || seen.has(id)) continue;
+    seen.add(id);
+    out.push({ id, required: entry?.required === true });
+  }
+  return out.slice(0, 20);
+}
+
+/**
+ * The answers, as a props patch — or the first thing wrong with them.
+ *
+ * Runs `coercePropValue`, the same function every signed-in write runs, so a
+ * form cannot put a shape in a database that the table then cannot render.
+ */
+export function readAnswers(fields, answers) {
+  const props = {};
+  for (const field of fields) {
+    const raw = typeof answers?.[field.id] === 'string' ? answers[field.id].trim() : answers?.[field.id];
+    // Whitespace is blank. Without the trim above, a required field is
+    // satisfied by a space bar — and then coerced to null on the way in, so the
+    // row lands empty in the column the form insisted on.
+    const empty = raw === undefined || raw === null || raw === ''
+      || (Array.isArray(raw) && raw.length === 0)
+      || (field.type === 'checkbox' && raw === false);
+    if (empty) {
+      if (field.required) return { ok: false, error: `${field.label} is needed.` };
+      continue;
+    }
+    const value = coercePropValue(field.type, raw);
+    if (value === undefined) return { ok: false, error: `${field.label} is not a valid ${field.type}.` };
+    // A choice has to be one of the choices. `coercePropValue` keeps any string
+    // for a select, which is right for a signed-in write — the picker only ever
+    // offers real options, and a stale id there is a race, not an attack. This
+    // is a public endpoint with no picker in front of it, so the option list is
+    // checked here rather than trusted.
+    if (value !== null && (field.type === 'select' || field.type === 'multi_select')) {
+      const known = new Set((field.options ?? []).map((o) => o.id));
+      const chosen = Array.isArray(value) ? value : [value];
+      if (chosen.some((v) => !known.has(v))) {
+        return { ok: false, error: `${field.label} is not one of the choices.` };
+      }
+    }
+    if (value !== null) props[field.id] = value;
+  }
+  return { ok: true, props };
+}
+
 export function registerFormRoutes(app, { requireUser, wrap, baseUrl }) {
   const urlFor = (token) => `${baseUrl}/form/${token}`;
 
@@ -71,12 +174,15 @@ export function registerFormRoutes(app, { requireUser, wrap, baseUrl }) {
     const token = String(req.params.token || '');
     if (token.length < 20 || token.length > 128) return res.status(404).json({ error: 'not found' });
     const { rows } = await pool.query(
-      `SELECT name, icon, form_intro FROM projects
+      `SELECT id, name, icon, form_intro, form_fields FROM projects
         WHERE form_token = $1 AND archived_at IS NULL`,
       [token]
     );
     if (!rows[0]) return res.status(404).json({ error: 'This form is closed.' });
-    res.json({ name: rows[0].name, icon: rows[0].icon, intro: rows[0].form_intro ?? null });
+    // The fields carry a label, a type and its options — enough to draw the
+    // form, and nothing about what is already in the database.
+    const fields = formFields(rows[0].form_fields, await propsFor(rows[0].id));
+    res.json({ name: rows[0].name, icon: rows[0].icon, intro: rows[0].form_intro ?? null, fields });
   }));
 
   /** Append a task. No account, no session — the token is the authorisation. */
@@ -101,10 +207,16 @@ export function registerFormRoutes(app, { requireUser, wrap, baseUrl }) {
     const email = trim(req.body?.email, MAX_NAME);
 
     const { rows: project } = await pool.query(
-      `SELECT id, key FROM projects WHERE form_token = $1 AND archived_at IS NULL`,
+      `SELECT id, key, form_fields FROM projects WHERE form_token = $1 AND archived_at IS NULL`,
       [token]
     );
     if (!project[0]) return res.status(404).json({ error: 'This form is closed.' });
+
+    // Resolved against the database's properties as they are now, so a field
+    // the owner has since deleted is not writable through an old open tab.
+    const fields = formFields(project[0].form_fields, await propsFor(project[0].id));
+    const answers = readAnswers(fields, req.body?.answers);
+    if (!answers.ok) return res.status(400).json({ error: answers.error });
 
     // Checked after the token resolves, so a wrong token cannot be used to
     // learn which tokens are real by how fast they are refused.
@@ -131,9 +243,10 @@ export function registerFormRoutes(app, { requireUser, wrap, baseUrl }) {
     // the board can show.
     const who = [from, email].filter(Boolean).join(' · ') || null;
     const { rows } = await pool.query(
-      `INSERT INTO tasks (id, project_id, num, title, status, position, submitted_by)
-       VALUES ($1,$2,$3,$4,'todo',$5,$6) RETURNING *`,
-      [id, project[0].id, claim[0].task_seq, withKey(claim[0].key, claim[0].task_seq, title), pos[0].n, who]
+      `INSERT INTO tasks (id, project_id, num, title, status, position, submitted_by, props)
+       VALUES ($1,$2,$3,$4,'todo',$5,$6,$7) RETURNING *`,
+      [id, project[0].id, claim[0].task_seq, withKey(claim[0].key, claim[0].task_seq, title), pos[0].n, who,
+       JSON.stringify(answers.props)]
     );
 
     // The paragraph goes in a comment rather than on the task's page. A page is
@@ -164,12 +277,17 @@ export function registerFormRoutes(app, { requireUser, wrap, baseUrl }) {
   /** The form this database has, if any. */
   app.get('/api/projects/:id/form', requireUser, wrap(async (req, res) => {
     const { rows } = await pool.query(
-      'SELECT form_token, form_intro FROM projects WHERE id = $1', [req.params.id]);
+      'SELECT form_token, form_intro, form_fields FROM projects WHERE id = $1', [req.params.id]);
     if (!rows[0]) return res.status(404).json({ error: 'not found' });
+    const props = await propsFor(req.params.id);
     res.json({
       token: rows[0].form_token,
       url: rows[0].form_token ? urlFor(rows[0].form_token) : null,
       intro: rows[0].form_intro ?? '',
+      fields: normalizeFormFields(rows[0].form_fields, props),
+      // Which properties could be asked for at all, so the dialog can offer
+      // them without knowing the rule the server enforces.
+      askable: props.filter(askableProp).map((p) => ({ id: p.id, label: p.label, type: p.type })),
     });
   }));
 
@@ -177,19 +295,28 @@ export function registerFormRoutes(app, { requireUser, wrap, baseUrl }) {
   app.post('/api/projects/:id/form', requireUser, wrap(async (req, res) => {
     const rotate = req.body?.rotate === true;
     const intro = req.body?.intro === undefined ? null : String(req.body.intro).slice(0, 500);
+    const props = await propsFor(req.params.id);
+    // null leaves the saved list alone; a list replaces it wholesale, which is
+    // what a checkbox column in the dialog sends.
+    const fields = req.body?.fields === undefined
+      ? null
+      : JSON.stringify(normalizeFormFields(req.body.fields, props));
     const { rows } = await pool.query(
       `UPDATE projects
           SET form_token = CASE WHEN form_token IS NULL OR $2 THEN $3 ELSE form_token END,
-              form_intro = coalesce($4, form_intro)
+              form_intro = coalesce($4, form_intro),
+              form_fields = coalesce($5::jsonb, form_fields)
         WHERE id = $1 AND archived_at IS NULL
-        RETURNING form_token, form_intro`,
-      [req.params.id, rotate, crypto.randomBytes(24).toString('base64url'), intro]
+        RETURNING form_token, form_intro, form_fields`,
+      [req.params.id, rotate, crypto.randomBytes(24).toString('base64url'), intro, fields]
     );
     if (!rows[0]) return res.status(404).json({ error: 'not found' });
     res.json({
       token: rows[0].form_token,
       url: urlFor(rows[0].form_token),
       intro: rows[0].form_intro ?? '',
+      fields: normalizeFormFields(rows[0].form_fields, props),
+      askable: props.filter(askableProp).map((p) => ({ id: p.id, label: p.label, type: p.type })),
     });
   }));
 
