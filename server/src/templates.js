@@ -155,7 +155,7 @@ export function registerTemplateRoutes(app, { requireUser, wrap, grantOn, kindsF
   app.post('/api/templates/:id/use', requireUser, wrap(async (req, res) => {
     if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
     const { rows: src } = await pool.query(
-      `SELECT d.id, d.title, d.icon, d.kind, d.is_template, d.search_text, s.state
+      `SELECT d.id, d.title, d.icon, d.kind, d.is_template, d.search_text, d.props, s.state
          FROM docs d LEFT JOIN doc_states s ON s.doc_id = d.id
         WHERE d.id = $1 AND d.deleted_at IS NULL`,
       [req.params.id]
@@ -171,10 +171,14 @@ export function registerTemplateRoutes(app, { requireUser, wrap, grantOn, kindsF
     try {
       await client.query('BEGIN');
       await client.query(
-        `INSERT INTO docs (id, title, icon, created_by, folder_id, visibility, kind, search_text)
-         VALUES ($1,$2,$3,$4,$5,'team',$6,$7)`,
+        // The page's own property values come along: "Doc type: spec", "Owner:
+        // unassigned" and the rest are part of what the template looks like,
+        // the same way its headings are. Tags are not copied — a tag is how a
+        // page is filed, and the copy has not been filed anywhere yet.
+        `INSERT INTO docs (id, title, icon, created_by, folder_id, visibility, kind, search_text, props)
+         VALUES ($1,$2,$3,$4,$5,'team',$6,$7,$8)`,
         [id, title, src[0].icon, req.user.id, folderId, src[0].kind === 'design' ? 'design' : 'doc',
-         String(src[0].search_text || '').slice(0, 100000)]
+         String(src[0].search_text || '').slice(0, 100000), JSON.stringify(src[0].props ?? {})]
       );
       await client.query(
         `INSERT INTO doc_access (doc_id, user_id, role) VALUES ($1, $2, 'owner')`,
