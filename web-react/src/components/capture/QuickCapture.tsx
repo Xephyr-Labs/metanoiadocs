@@ -92,7 +92,13 @@ export function QuickCapture() {
       });
       if (keepOpen) {
         setText('');
-        inputRef.current?.focus();
+        // After the flush, not now. The field is `disabled` while the save is
+        // in flight, and focusing a disabled input does nothing at all — so
+        // this used to leave the box open with the caret gone, and the next
+        // line someone typed went nowhere. `setSaving(false)` has not been
+        // applied yet at this point (it runs in the finally below), so the
+        // focus has to wait for React to re-enable the field.
+        window.setTimeout(() => inputRef.current?.focus(), 0);
       } else {
         ws.setCaptureOpen(false);
       }
