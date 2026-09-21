@@ -10,6 +10,12 @@
 // cell goes through `coercePropValue`, so a database cannot be filled with
 // shapes the UI then cannot render — which is the failure mode of every import
 // that validates in its own way.
+//
+// What an import deliberately does NOT do is set off automations or webhooks.
+// A rule that sends every new task to triage means one person picking up one
+// task, not two hundred at once, and a hook that posts to a channel would post
+// two hundred times. The dialog says so before the file is chosen; an import is
+// a bulk write, and bulk writes are not the event those rules were written for.
 import crypto from 'node:crypto';
 import { pool } from './db.js';
 import { parseCsv, mapColumns, normalizeHeader } from './csv.js';

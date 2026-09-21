@@ -123,6 +123,12 @@ export function CsvDialog({ open, onOpenChange, projectId, onImported }: Props) 
               are matched to this database's properties by name — Status, Assignee, Due date, Points
               and Estimate are understood too.
             </p>
+            {/* Said before the file is chosen, because the surprise otherwise
+                arrives later and quietly: a rule that assigns every new task to
+                triage does not run two hundred times over an import. */}
+            <p className="mt-1.5 text-2xs leading-4 text-faint">
+              Imported rows do not set off automations or webhooks.
+            </p>
 
             <input
               ref={inputRef}
