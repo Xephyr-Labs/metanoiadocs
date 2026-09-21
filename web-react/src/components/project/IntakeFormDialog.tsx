@@ -7,7 +7,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Check, ExternalLink, Loader2 } from 'lucide-react';
 import { cn } from '../../lib/cn';
-import { tasksApi } from '../../lib/tasksApi';
+import { tasksApi, type AskableProp, type FormField } from '../../lib/tasksApi';
 import { Button } from '../ui/Button';
 import { Modal } from '../ui/Modal';
 import { field } from '../ui/styles';
@@ -41,6 +41,8 @@ const button =
 export function IntakeFormDialog({ open, onOpenChange, projectId, projectName }: Props) {
   const [url, setUrl] = useState<string | null>(null);
   const [intro, setIntro] = useState('');
+  const [fields, setFields] = useState<FormField[]>([]);
+  const [askable, setAskable] = useState<AskableProp[]>([]);
   const [state, setState] = useState<'loading' | 'idle' | 'working'>('loading');
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -58,12 +60,19 @@ export function IntakeFormDialog({ open, onOpenChange, projectId, projectName }:
     setCopied(false);
     let alive = true;
     tasksApi.form(projectId)
-      .then((f) => { if (!alive) return; setUrl(f.url); setIntro(f.intro); setState('idle'); })
+      .then((f) => {
+        if (!alive) return;
+        setUrl(f.url);
+        setIntro(f.intro);
+        setFields(f.fields ?? []);
+        setAskable(f.askable ?? []);
+        setState('idle');
+      })
       .catch(() => { if (alive) { setError('Could not read this database’s form.'); setState('idle'); } });
     return () => { alive = false; };
   }, [open, projectId]);
 
-  const save = async (b: { intro?: string; rotate?: boolean }) => {
+  const save = async (b: { intro?: string; rotate?: boolean; fields?: FormField[] }) => {
     setState('working');
     setError(null);
     setArming(null);
@@ -71,6 +80,8 @@ export function IntakeFormDialog({ open, onOpenChange, projectId, projectName }:
       const f = await tasksApi.saveForm(projectId, b);
       setUrl(f.url);
       setIntro(f.intro);
+      setFields(f.fields ?? []);
+      setAskable(f.askable ?? []);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not save that.');
     } finally {
@@ -159,6 +170,59 @@ export function IntakeFormDialog({ open, onOpenChange, projectId, projectName }:
             />
             <p className="mt-1 text-2xs text-faint">
               Left empty, the form uses that line. Saved when you click away.
+            </p>
+
+            <p className="mb-1.5 mt-3.5 text-2xs font-medium text-muted">What it asks for</p>
+            <div className="rounded border border-line">
+              <div className="flex items-center justify-between px-2.5 py-1.5 text-2xs text-faint">
+                <span>Always asks for a headline, and optionally a name and an email.</span>
+              </div>
+              {askable.length === 0 ? (
+                <p className="border-t border-line px-2.5 py-2 text-2xs text-faint">
+                  This database has no properties a stranger could fill in yet. Add a text, select,
+                  date, number or checkbox property and it will show up here.
+                </p>
+              ) : (
+                <ul className="border-t border-line">
+                  {askable.map((prop) => {
+                    const on = fields.find((f) => f.id === prop.id);
+                    const write = (next: FormField[]) => { setFields(next); void save({ fields: next }); };
+                    return (
+                      <li key={prop.id} className="flex items-center gap-2 border-b border-line px-2.5 py-1.5 last:border-b-0">
+                        <input
+                          id={`ff-${prop.id}`}
+                          type="checkbox"
+                          checked={!!on}
+                          onChange={(e) => write(e.target.checked
+                            ? [...fields, { id: prop.id, required: false }]
+                            : fields.filter((f) => f.id !== prop.id))}
+                          className="h-3.5 w-3.5 rounded border-line text-accent-fill focus:ring-2 focus:ring-accent"
+                        />
+                        <label htmlFor={`ff-${prop.id}`} className="min-w-0 flex-1 truncate text-xs text-ink">
+                          {prop.label}
+                          <span className="ml-1.5 text-3xs text-faint">{prop.type.replace('_', ' ')}</span>
+                        </label>
+                        <label className={cn('flex items-center gap-1 text-3xs', on ? 'text-muted' : 'text-faint')}>
+                          <input
+                            type="checkbox"
+                            disabled={!on}
+                            checked={on?.required === true}
+                            onChange={(e) => write(fields.map((f) => (
+                              f.id === prop.id ? { ...f, required: e.target.checked } : f
+                            )))}
+                            className="h-3.5 w-3.5 rounded border-line text-accent-fill focus:ring-2 focus:ring-accent disabled:opacity-40"
+                          />
+                          Needed
+                        </label>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+            <p className="mt-1 text-2xs text-faint">
+              People, relations and files are not offered: answering any of those means knowing
+              what is already in the workspace, which this link deliberately does not grant.
             </p>
 
             <div className="mt-3.5 flex flex-wrap items-center gap-1.5 border-t border-line pt-3">
