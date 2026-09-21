@@ -17,7 +17,7 @@
 // submissions, and it can be revoked by turning the form off.
 import crypto from 'node:crypto';
 import { pool } from './db.js';
-import { withKey } from './task-key.js';
+import { usableTitle, withKey } from './task-key.js';
 import { fireTrigger } from './automations.js';
 import { emit } from './webhooks.js';
 
@@ -85,7 +85,15 @@ export function registerFormRoutes(app, { requireUser, wrap, baseUrl }) {
     if (token.length < 20 || token.length > 128) return res.status(404).json({ error: 'not found' });
 
     const title = trim(req.body?.title, MAX_TITLE);
-    if (!title) return res.status(400).json({ error: 'Say what you need in a line.' });
+    // Checked against the title as it will be *stored*, not as it arrived. A
+    // task's key lives inside its own title, so withKey strips any leading
+    // "MD-14: " before writing — and a submission of exactly "MD-14:" passed
+    // the non-empty check here and then landed as a row with no name at all.
+    // Public endpoint, so that was a nameless row anyone with the link could
+    // make, and the sender was told it worked.
+    if (!usableTitle(title)) {
+      return res.status(400).json({ error: 'Say what you need in a line.' });
+    }
     // Not collapsed the way the others are: the details are a paragraph, and
     // its line breaks are part of what was written.
     const details = String(req.body?.details ?? '').trim().slice(0, MAX_DETAILS);

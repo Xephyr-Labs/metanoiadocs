@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { deriveKey, parseKeyQuery, stripKey, uniqueKey, withKey } from './task-key.js';
+import { deriveKey, parseKeyQuery, stripKey, uniqueKey, usableTitle, withKey } from './task-key.js';
 
 test('a key is the initials of a multi-word name', () => {
   assert.equal(deriveKey('Metanoia Docs'), 'MD');
@@ -93,4 +93,23 @@ test('an ordinary search is not mistaken for a key', () => {
   assert.equal(parseKeyQuery(''), null);
   assert.equal(parseKeyQuery('MD-'), null, 'a key without a number names no task');
   assert.equal(parseKeyQuery('VERYLONGKEY-1'), null, 'nine letters is not a key');
+});
+
+// The hole this closes: a public form checked the title it was handed, stored
+// the title withKey gives back, and those are not the same string. A
+// submission of exactly "MD-14:" passed the check and landed as a row with no
+// name, from an endpoint anyone with the link can reach.
+test('a title that is only a key is not a title', () => {
+  assert.equal(usableTitle('MD-14:'), false);
+  assert.equal(usableTitle('MD-14:   '), false);
+  assert.equal(usableTitle('MD-14: '), false);
+  assert.equal(usableTitle(''), false);
+  assert.equal(usableTitle('   '), false);
+  assert.equal(usableTitle(null), false);
+});
+
+test('an ordinary title is usable, key or no key', () => {
+  assert.equal(usableTitle('Fix login'), true);
+  assert.equal(usableTitle('MD-14: Fix login'), true);
+  assert.equal(usableTitle('Bug: login redirects twice'), true);
 });

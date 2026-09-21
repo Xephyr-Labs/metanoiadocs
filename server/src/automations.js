@@ -93,10 +93,11 @@ export function triggerValue(kind, raw) {
   return null;
 }
 
-/** The trigger a rule has right now, for a patch that changes only the value. */
-async function triggerKindOf(id) {
-  const { rows } = await pool.query('SELECT trigger_kind FROM automations WHERE id = $1', [id]);
-  return rows[0]?.trigger_kind ?? 'status';
+/** What a rule is set to right now, for a patch that changes only one half. */
+async function triggerNow(id) {
+  const { rows } = await pool.query(
+    'SELECT trigger_kind, trigger_value FROM automations WHERE id = $1', [id]);
+  return { kind: rows[0]?.trigger_kind ?? 'status', value: rows[0]?.trigger_value ?? null };
 }
 
 /** The sprint an action means. 'active' is the useful one — "move it into
@@ -445,16 +446,21 @@ export function registerAutomationRoutes(app, { requireUser, wrap }) {
     const vals = [];
     const set = (sql, v) => { vals.push(v); sets.push(`${sql} = $${vals.length}`); };
     if (b.name !== undefined) set('name', String(b.name).slice(0, 120));
-    if (b.trigger !== undefined) {
-      if (!AUTOMATION_TRIGGERS.includes(b.trigger)) return res.status(400).json({ error: 'bad trigger' });
-      set('trigger_kind', b.trigger);
+    if (b.trigger !== undefined && !AUTOMATION_TRIGGERS.includes(b.trigger)) {
+      return res.status(400).json({ error: 'bad trigger' });
     }
-    if (b.value !== undefined) {
-      // Read against the trigger the rule will have after this patch, not the
-      // one it had before: changing both at once has to land a value the new
-      // trigger can actually use.
-      const kind = b.trigger !== undefined ? b.trigger : (await triggerKindOf(req.params.id));
-      set('trigger_value', triggerValue(kind, b.value));
+    if (b.trigger !== undefined) set('trigger_kind', b.trigger);
+    // The value is rewritten whenever either half moves, not only when a value
+    // was sent. Changing a rule from "nothing has changed in 7 days" to "it is
+    // overdue" used to leave trigger_value = '7' sitting on a due trigger: a
+    // rule storing a number where it holds a word, which the editor's single
+    // select cannot represent and so drew blank. triggerValue coerces whatever
+    // is there into something the new trigger can actually use.
+    if (b.trigger !== undefined || b.value !== undefined) {
+      const now = await triggerNow(req.params.id);
+      const kind = b.trigger !== undefined ? b.trigger : now.kind;
+      const raw = b.value !== undefined ? b.value : now.value;
+      set('trigger_value', triggerValue(kind, raw));
     }
     if (b.actions !== undefined) set('actions', JSON.stringify(cleanActions(b.actions)));
     if (b.condition !== undefined) set('condition', JSON.stringify(cleanCondition(b.condition)));

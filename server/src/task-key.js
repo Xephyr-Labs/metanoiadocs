@@ -98,6 +98,22 @@ export function uniqueKey(base, taken) {
 }
 
 /**
+ * Is there a title here once the key comes off?
+ *
+ * The trap this names: `withKey` strips a leading "MD-14: " before storing,
+ * because the key lives inside the title. So a string that is non-empty on
+ * arrival can be empty once stored — "MD-14:" is the whole of it. Anywhere a
+ * title is *required*, this is the check, not `!!title`.
+ *
+ * The app's own creates deliberately pass an empty title (the UI shows
+ * "Untitled" until you name it in the peek), so this is for the doors where a
+ * name is the point: the public intake form is the one that had the hole.
+ */
+export function usableTitle(title) {
+  return stripKey(title).trim().length > 0;
+}
+
+/**
  * A search query that *names* a task rather than describing one: "MD-14",
  * "md-14", "MD 14", "md14". Returns the key and number, or null.
  *

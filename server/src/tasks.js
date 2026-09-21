@@ -690,6 +690,11 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
     if (sprintId && (await sprintProject(sprintId)) !== projectId) {
       return res.status(400).json({ error: 'sprint is not in this project' });
     }
+    // Refused rather than silently dropped, which is what PATCH does with the
+    // same value: an API that ignores half a request is one you debug twice.
+    if (req.body?.repeatRule && !isRepeatRule(req.body.repeatRule)) {
+      return res.status(400).json({ error: 'bad repeat rule' });
+    }
     const id = crypto.randomUUID();
     // Append to the bottom of its column.
     const { rows: pos } = await pool.query(
