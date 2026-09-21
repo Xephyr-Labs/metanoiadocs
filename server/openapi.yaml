@@ -1034,6 +1034,11 @@ components:
           description: >
             Finishing a task that carries one creates the next occurrence. Set
             on completion, never on a clock.
+        repeat_of:
+          type: [string, 'null']
+          description: >
+            The occurrence this task was spawned by. Unique, which is what stops
+            two simultaneous completions creating two successors.
         progress: { type: integer, minimum: 0, maximum: 100 }
         milestone: { type: boolean }
         submitted_by:

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { resolveHotkey, type HotkeyAction } from '../lib/hotkeys';
-import { isTyping } from '../lib/typing';
+import { isInDialog, isTyping } from '../lib/typing';
 import { useWorkspace } from '../store/workspace';
 
 /** How long a `g` stays armed, waiting for the letter that says where to go. */
@@ -40,7 +40,11 @@ export function useGlobalHotkeys() {
     const onKey = (e: KeyboardEvent) => {
       if (MODIFIER_KEYS.has(e.key)) return;
       const armed = chord.current && Date.now() - chord.current.at < CHORD_MS ? chord.current.key : null;
-      const hit = resolveHotkey(e, { typing: isTyping(e.target), armed });
+      const hit = resolveHotkey(e, {
+        typing: isTyping(e.target),
+        inDialog: isInDialog(e.target),
+        armed,
+      });
       // Only a key that arms a chord leaves one armed. Anything else — a hit, a
       // miss, a letter meant for the page — clears it, so `g` does not sit
       // waiting through the rest of a sentence.

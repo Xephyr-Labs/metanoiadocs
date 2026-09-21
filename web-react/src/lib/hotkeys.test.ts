@@ -25,6 +25,22 @@ describe('resolveHotkey', () => {
     }
   });
 
+  // The bug: reading the `?` sheet and pressing `c` to see what it does made a
+  // page behind the dialog and navigated to it.
+  it('keeps its hands off bare keys while a dialog is being read', () => {
+    const reading = { typing: false, inDialog: true, armed: null };
+    for (const k of ['c', 'n', 'g', '/', '?']) {
+      expect(resolveHotkey(key(k), reading)).toBeNull();
+    }
+  });
+
+  // A dialog does not want ⌘K, ⌘\\ or ⌘J, so those still work over one.
+  it('still takes the modified keys over a dialog', () => {
+    const reading = { typing: false, inDialog: true, armed: null };
+    expect(resolveHotkey(key('k', { metaKey: true }), reading)).toEqual({ action: 'palette' });
+    expect(resolveHotkey(key('j', { ctrlKey: true }), reading)).toEqual({ action: 'theme' });
+  });
+
   it('reads the bare keys when nothing is listening for text', () => {
     expect(resolveHotkey(key('/'), idle)).toEqual({ action: 'palette' });
     expect(resolveHotkey(key('?'), idle)).toEqual({ action: 'shortcuts' });

@@ -226,6 +226,9 @@ export interface TaskRow {
   /** One of REPEAT_RULES, or null. Finishing a task that carries one creates
    *  the next occurrence — see server/src/repeat.js. */
   repeat_rule: string | null;
+  /** The occurrence this one was spawned by, for a repeating task. Also the
+   *  interlock that stops two simultaneous completions making two successors. */
+  repeat_of?: string | null;
   /** Hours. Points size a sprint; this sizes a week. */
   estimate_h: number | null;
   /** Who sent this in through the database's public intake form, in whatever

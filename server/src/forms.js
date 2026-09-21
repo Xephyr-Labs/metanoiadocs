@@ -18,6 +18,7 @@
 import crypto from 'node:crypto';
 import { pool } from './db.js';
 import { withKey } from './task-key.js';
+import { fireTrigger } from './automations.js';
 import { emit } from './webhooks.js';
 
 const MAX_TITLE = 200;
@@ -140,6 +141,13 @@ export function registerFormRoutes(app, { requireUser, wrap, baseUrl }) {
     }
 
     emit('task.created', rows[0]);
+    // A submission is a task being created, so the rules that listen for that
+    // run — which is the whole point of having them for intake: "a new task in
+    // this database goes to whoever is on triage". The actor is null, because
+    // nobody signed in made it; notifyAssigneesById already has a name for
+    // that case.
+    await fireTrigger({ task: rows[0], kind: 'created', actorId: null });
+
     // The key, and nothing else. Whoever filled the form has no account and no
     // board to open; a number they can quote is the whole of what they need.
     res.json({ ok: true, key: claim[0].key ? `${claim[0].key}-${claim[0].task_seq}` : null });

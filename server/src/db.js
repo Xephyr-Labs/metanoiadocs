@@ -769,6 +769,14 @@ export async function initSchema() {
     -- creates the next occurrence — see the note at the top of that file for
     -- why completion drives this and not a clock.
     ALTER TABLE tasks ADD COLUMN IF NOT EXISTS repeat_rule TEXT;
+    -- The occurrence this one was spawned by. It is what stops two people
+    -- ticking the same repeating task at the same moment from creating two
+    -- successors: the unique index below means the second INSERT loses, rather
+    -- than the read-then-write in the PATCH handler being trusted to notice.
+    -- Also the honest answer to "where did this come from".
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS repeat_of TEXT REFERENCES tasks(id) ON DELETE SET NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS tasks_repeat_of_idx
+      ON tasks(repeat_of) WHERE repeat_of IS NOT NULL;
     -- Hours, to one decimal. Points size a sprint; hours size a week, and a
     -- database that holds only points cannot answer "is anyone overloaded".
     --

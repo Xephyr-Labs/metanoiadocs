@@ -25,6 +25,9 @@ export interface KeyLike {
 export interface HotkeyContext {
   /** Something is listening for text — a field, or the editor. */
   typing: boolean;
+  /** A modal dialog has the keyboard. Same effect as `typing` for bare keys and
+   *  for the same reason: something nearer the keystroke owns it. */
+  inDialog?: boolean;
   /** A chord key pressed within the window, or null. Only 'g' so far. */
   armed: string | null;
 }
@@ -65,9 +68,11 @@ export function resolveHotkey(e: KeyLike, ctx: HotkeyContext): HotkeyResult | nu
   }
 
   // Everything past here is a bare key, so everything past here is off-limits
-  // while someone is writing.
+  // while someone is writing — or reading a dialog. The `?` sheet is the case
+  // that proves the second half: pressing `c` to see what it does should not
+  // make a page behind the list that just described it.
   if (e.altKey || e.ctrlKey || e.metaKey) return null;
-  if (ctx.typing) return null;
+  if (ctx.typing || ctx.inDialog) return null;
 
   if (ctx.armed === 'g') {
     const action = GO[e.key.toLowerCase()];

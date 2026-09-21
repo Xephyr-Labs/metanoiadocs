@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { isTyping } from '../../lib/typing';
+import { isInDialog, isTyping } from '../../lib/typing';
 
 interface Options {
   /** Off while a dialog owns the keyboard, or on a view with no rows to walk. */
@@ -45,7 +45,9 @@ export function useRowKeys({ enabled, ids, onOpen, onToggle, onClear }: Options)
     if (!enabled) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
-      if (isTyping(e.target)) return;
+      // A dialog over the list owns the keyboard: j should not walk rows
+      // behind a panel someone is reading.
+      if (isTyping(e.target) || isInDialog(e.target)) return;
       if (!ids.length) return;
 
       const at = focusId ? ids.indexOf(focusId) : -1;

@@ -145,10 +145,11 @@ const clampPct = (n) => Math.max(0, Math.min(100, Math.round(Number(n) || 0)));
 /**
  * An estimate in hours, or null.
  *
- * Capped at 999.9 because the column is NUMERIC(6,1) and a number that will not
- * fit raises a database error rather than a 400 — the estimate is the least
- * important thing in the patch it arrived with, and it must not be what makes
- * the rest of it fail. Rounded to the tenth for the same reason.
+ * Rounded to the tenth and capped at 999.9 on the way in rather than validated
+ * and refused: the estimate is the least important thing in the patch it
+ * arrived with, and a typo in it must not be what makes the rest of that patch
+ * fail. A thousand hours is half a working year on one task, which is a number
+ * somebody has mistyped.
  */
 const readHours = (n) => {
   if (n == null || n === '') return null;
@@ -212,11 +213,22 @@ async function repeatTask(done, actor) {
       WHERE project_id = $1 AND status = 'todo' AND deleted_at IS NULL`,
     [done.project_id]
   );
+  // `repeat_of` is the interlock, not a decoration. The PATCH handler decides
+  // to call this by reading the previous status and then writing the new one in
+  // a separate statement, so two people ticking the same task at the same
+  // moment can both read "doing" and both arrive here. The unique index on
+  // repeat_of is what makes the second one lose: it is a claim on the right to
+  // be this occurrence's successor, and there can only be one.
+  //
+  // ON CONFLICT DO NOTHING rather than a caught error, so a lost race is a
+  // no-op and not a log line about a constraint.
   const { rows } = await pool.query(
     `INSERT INTO tasks (id, project_id, num, title, status, start_at, due_at,
                         priority, points, estimate_h, kind, position, props,
-                        repeat_rule, created_by, updated_by)
-     VALUES ($1,$2,$3,$4,'todo',$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$14) RETURNING *`,
+                        repeat_rule, repeat_of, created_by, updated_by)
+     VALUES ($1,$2,$3,$4,'todo',$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$15)
+     ON CONFLICT DO NOTHING
+     RETURNING *`,
     [
       id, done.project_id, claim[0].task_seq,
       // stripKey runs inside withKey, so the new row is named after the work
@@ -225,9 +237,14 @@ async function repeatTask(done, actor) {
       dates.startAt, dates.dueAt,
       done.priority, done.points, done.estimate_h, done.kind,
       pos[0].n, JSON.stringify(done.props ?? {}), done.repeat_rule,
+      done.id,
       done.created_by ?? actor.id,
     ]
   );
+  // Somebody else already made this occurrence's successor. The number claimed
+  // above is spent either way, which is the same gap an ordinary failed create
+  // leaves and is invisible next to two identical standups on the board.
+  if (!rows[0]) return null;
 
   // The same people, carried over by the same writer the normal path uses —
   // nobody is notified, because nobody has been handed anything new.
