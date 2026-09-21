@@ -112,6 +112,8 @@ interface WorkspaceState {
   /** The `?` sheet. Its own flag rather than a right-panel tab: it is read
    *  over whatever you were doing and dismissed. */
   shortcutsOpen: boolean;
+  /** The one-line capture box, opened with `n` over whatever is on screen. */
+  captureOpen: boolean;
   mode: EditorMode;
   fullWidth: boolean;
   theme: 'light' | 'dark';
@@ -163,6 +165,7 @@ interface WorkspaceState {
   setTrashOpen: (v: boolean) => void;
   setInboxOpen: (v: boolean) => void;
   setShortcutsOpen: (v: boolean) => void;
+  setCaptureOpen: (v: boolean) => void;
   setMode: (m: EditorMode) => void;
   setFullWidth: (v: boolean) => void;
   toggleTheme: () => void;
@@ -280,6 +283,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [trashOpen, setTrashOpen] = useState(false);
   const [inboxOpen, setInboxOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [captureOpen, setCaptureOpen] = useState(false);
   const [allTags, setAllTags] = useState<Tag[]>([]);
   const [tagFilter, setTagFilter] = useState<string[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -1073,11 +1077,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       historyDocId, openHistory, closeHistory,
       view, activeProjectId, activeFolderId, openHome, openTasks, openAllDocs, openProject, createTaskIn, pendingTaskId, clearPendingTask, pendingViewId: activeViewId, clearPendingView, openFolder, projects, refreshProjects,
       sidebarCollapsed, panelCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
-      settingsOpen, trashOpen, inboxOpen, shortcutsOpen, mode, fullWidth, theme,
+      settingsOpen, trashOpen, inboxOpen, shortcutsOpen, captureOpen, mode, fullWidth, theme,
       refresh, select, toggleExpand, toggleFavorite, toggleFolderFavorite, setVisibility, rename, applyTitleFromEditor,
       createPage, createDesign, movePage, createChildPage, reorderPage, linkPage, reorderFolder, moveFolder, createFolder, renameFolder, setFolderColor, setIcon, toggleFolder, deleteFolder, createFromTemplate, importFiles, deletePage, restorePage,
       refreshTags, addTagToPage, removeTagFromPage, deleteTag, setTagFilter,
-      setSidebarCollapsed, setPanelCollapsed, setSidebarWidth, setMobileDrawer, setRightPanel, setPaletteOpen, setShortcutsOpen,
+      setSidebarCollapsed, setPanelCollapsed, setSidebarWidth, setMobileDrawer, setRightPanel, setPaletteOpen, setShortcutsOpen, setCaptureOpen,
       setShareOpen, setSettingsOpen, setTrashOpen, setInboxOpen, setMode, setFullWidth, toggleTheme,
     }),
     [
@@ -1089,7 +1093,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       historyDocId, openHistory, closeHistory,
       view, activeProjectId, activeFolderId, openHome, openTasks, openAllDocs, openProject, createTaskIn, pendingTaskId, clearPendingTask, activeViewId, clearPendingView, openFolder, projects, refreshProjects,
       sidebarCollapsed, panelCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
-      settingsOpen, trashOpen, inboxOpen, shortcutsOpen, mode, fullWidth, theme,
+      settingsOpen, trashOpen, inboxOpen, shortcutsOpen, captureOpen, mode, fullWidth, theme,
       refresh, select, toggleExpand, toggleFavorite, toggleFolderFavorite, setVisibility, rename, applyTitleFromEditor,
       createPage, createDesign, movePage, createChildPage, reorderPage, linkPage, reorderFolder, moveFolder, createFolder, renameFolder, setFolderColor, setIcon, toggleFolder, deleteFolder, createFromTemplate, importFiles, deletePage, restorePage,
       refreshTags, addTagToPage, removeTagFromPage, deleteTag, toggleTheme,

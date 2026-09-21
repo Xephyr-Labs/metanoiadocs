@@ -11,6 +11,7 @@ import { RightPanel } from './components/panel/RightPanel';
 import { SettingsDialog } from './components/settings/SettingsDialog';
 import { ShareDialog } from './components/share/ShareDialog';
 import { ShortcutsDialog } from './components/shortcuts/ShortcutsDialog';
+import { QuickCapture } from './components/capture/QuickCapture';
 import { TrashDialog } from './components/trash/TrashDialog';
 import { useDesktopNotifications } from './hooks/useDesktopNotifications';
 import { InboxDialog } from './components/inbox/InboxDialog';
@@ -130,6 +131,7 @@ export default function App() {
       <TrashDialog />
       <InboxDialog />
       <ShortcutsDialog open={ws.shortcutsOpen} onOpenChange={ws.setShortcutsOpen} />
+      <QuickCapture />
       <TagView />
     </TooltipProvider>
   );

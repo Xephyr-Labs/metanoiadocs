@@ -9,7 +9,7 @@
  */
 import {
   ArrowRight, Clock, Database, FilePlus2, Files, History, Home, Inbox, ListTodo,
-  Keyboard, Loader2, Moon, PanelRight, Search, Settings, Share2, Sparkles, Sun, Trash2, Upload,
+  Keyboard, Loader2, Moon, PanelRight, PenLine, Search, Settings, Share2, Sparkles, Sun, Trash2, Upload,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '../../lib/cn';
@@ -72,6 +72,7 @@ export function CommandPalette() {
         icon: Upload,
         run: () => { pickImportFiles().then((f) => { if (f.length) ws.importFiles(f, null); }); },
       },
+      { kind: 'command', id: 'capture', title: 'Quick capture — jot a task down without leaving this page', icon: PenLine, run: () => ws.setCaptureOpen(true) },
       { kind: 'command', id: 'home', title: 'Go to Home', icon: Home, run: ws.openHome },
       { kind: 'command', id: 'mytasks', title: 'My tasks — every database in one list', icon: ListTodo, run: ws.openTasks },
       { kind: 'command', id: 'inbox', title: 'Open Inbox', icon: Inbox, run: () => ws.setInboxOpen(true) },

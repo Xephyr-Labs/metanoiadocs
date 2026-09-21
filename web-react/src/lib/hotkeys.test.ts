@@ -20,7 +20,7 @@ describe('resolveHotkey', () => {
   // someone is writing.
   it('keeps its hands off bare keys while text is being typed', () => {
     const typing = { typing: true, armed: null };
-    for (const k of ['c', 'g', '/', '?']) {
+    for (const k of ['c', 'n', 'g', '/', '?']) {
       expect(resolveHotkey(key(k), typing)).toBeNull();
     }
   });
@@ -29,6 +29,7 @@ describe('resolveHotkey', () => {
     expect(resolveHotkey(key('/'), idle)).toEqual({ action: 'palette' });
     expect(resolveHotkey(key('?'), idle)).toEqual({ action: 'shortcuts' });
     expect(resolveHotkey(key('c'), idle)).toEqual({ action: 'create' });
+    expect(resolveHotkey(key('n'), idle)).toEqual({ action: 'capture' });
   });
 
   it('arms g, then reads the letter that says where to go', () => {

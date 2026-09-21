@@ -19,6 +19,7 @@ export function useGlobalHotkeys() {
       sidebar: () => ws.setSidebarCollapsed(!ws.sidebarCollapsed),
       theme: ws.toggleTheme,
       shortcuts: () => ws.setShortcutsOpen(true),
+      capture: () => ws.setCaptureOpen(true),
       home: ws.openHome,
       tasks: ws.openTasks,
       docs: ws.openAllDocs,

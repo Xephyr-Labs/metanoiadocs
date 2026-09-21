@@ -12,7 +12,7 @@
 
 export type HotkeyAction =
   | 'palette' | 'sidebar' | 'theme' | 'shortcuts'
-  | 'home' | 'tasks' | 'docs' | 'inbox' | 'create';
+  | 'home' | 'tasks' | 'docs' | 'inbox' | 'create' | 'capture';
 
 /** The parts of a KeyboardEvent this needs. */
 export interface KeyLike {
@@ -83,6 +83,7 @@ export function resolveHotkey(e: KeyLike, ctx: HotkeyContext): HotkeyResult | nu
   if (e.key === '?') return { action: 'shortcuts' };
   if (e.key === '/') return { action: 'palette' };
   if (e.key === 'c') return { action: 'create' };
+  if (e.key === 'n') return { action: 'capture' };
   return null;
 }
 
@@ -126,6 +127,7 @@ export const SHORTCUTS: ShortcutGroup[] = [
     title: 'Make something',
     rows: [
       { keys: ['C'], label: 'New page — or a new task, on a database' },
+      { keys: ['N'], label: 'Jot down a task without leaving this page' },
     ],
   },
   {
