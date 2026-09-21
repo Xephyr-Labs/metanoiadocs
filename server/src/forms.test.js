@@ -29,7 +29,9 @@ test('one form running out does not affect another', () => {
 /* ── the fields a form asks for ──────────────────────────────────────── */
 
 const PROPS = [
-  { id: 'p1', label: 'Severity', type: 'select', options: [{ id: 'o1', name: 'High' }] },
+  { id: 'p1', key: 'severity', label: 'Severity', type: 'select', options: [{ id: 'o1', name: 'High' }] },
+  // The app's own column: hidden from cards, columns, filters and the peek.
+  { id: 'p0', key: '_agent_notes', label: 'Agent notes', type: 'text', options: [] },
   { id: 'p2', label: 'Steps', type: 'text', options: [] },
   { id: 'p3', label: 'Owner', type: 'person', options: [] },
   { id: 'p4', label: 'Screenshot', type: 'file', options: [] },
@@ -93,4 +95,12 @@ test('a multi-select answer is checked option by option', () => {
   const fields = formFields([{ id: 'm1' }], props);
   assert.equal(readAnswers(fields, { m1: ['a', 'b'] }).ok, true);
   assert.equal(readAnswers(fields, { m1: ['a', 'zzz'] }).ok, false);
+});
+
+test('a machine-owned property is not on offer, however it is asked for', () => {
+  // `_`-prefixed columns are the app's own — provenance, agent notes. The
+  // workspace hides them from its own members; a stranger with a link should
+  // certainly not be writing them.
+  assert.deepEqual(formFields([{ id: 'p0' }], PROPS), []);
+  assert.deepEqual(normalizeFormFields([{ id: 'p0', required: true }], PROPS), []);
 });

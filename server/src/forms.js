@@ -75,6 +75,17 @@ const trim = (v, max) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, ma
 export const FORM_TYPES = ['text', 'number', 'select', 'multi_select', 'date', 'checkbox', 'url', 'email', 'phone'];
 
 /**
+ * Whether a form may ask for this property at all.
+ *
+ * Type, and one more thing: a `_`-prefixed key is a machine-owned column — the
+ * app's own provenance and agent notes, which the table, the cards, the filters
+ * and the peek all hide (isSystemProp in web-react/src/lib/builtinProps.ts).
+ * A column the workspace itself will not show a member is not one a stranger
+ * with a link should be able to write.
+ */
+export const askableProp = (p) => FORM_TYPES.includes(p?.type) && !String(p?.key ?? '').startsWith('_');
+
+/**
  * The fields a form actually shows: the saved list, resolved against the
  * database's properties as they are *now*.
  *
@@ -88,7 +99,7 @@ export function formFields(saved, props) {
   const out = [];
   for (const entry of Array.isArray(saved) ? saved : []) {
     const prop = byId.get(entry?.id);
-    if (!prop || !FORM_TYPES.includes(prop.type)) continue;
+    if (!prop || !askableProp(prop)) continue;
     out.push({
       id: prop.id,
       label: prop.label,
@@ -102,7 +113,7 @@ export function formFields(saved, props) {
 
 /** What the owner saved, cleaned: known properties of askable types, once each. */
 export function normalizeFormFields(value, props) {
-  const askable = new Set(props.filter((p) => FORM_TYPES.includes(p.type)).map((p) => p.id));
+  const askable = new Set(props.filter(askableProp).map((p) => p.id));
   const seen = new Set();
   const out = [];
   for (const entry of Array.isArray(value) ? value : []) {
@@ -276,8 +287,7 @@ export function registerFormRoutes(app, { requireUser, wrap, baseUrl }) {
       fields: normalizeFormFields(rows[0].form_fields, props),
       // Which properties could be asked for at all, so the dialog can offer
       // them without knowing the rule the server enforces.
-      askable: props.filter((p) => FORM_TYPES.includes(p.type))
-        .map((p) => ({ id: p.id, label: p.label, type: p.type })),
+      askable: props.filter(askableProp).map((p) => ({ id: p.id, label: p.label, type: p.type })),
     });
   }));
 
@@ -306,8 +316,7 @@ export function registerFormRoutes(app, { requireUser, wrap, baseUrl }) {
       url: urlFor(rows[0].form_token),
       intro: rows[0].form_intro ?? '',
       fields: normalizeFormFields(rows[0].form_fields, props),
-      askable: props.filter((p) => FORM_TYPES.includes(p.type))
-        .map((p) => ({ id: p.id, label: p.label, type: p.type })),
+      askable: props.filter(askableProp).map((p) => ({ id: p.id, label: p.label, type: p.type })),
     });
   }));
 
