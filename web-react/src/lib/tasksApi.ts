@@ -39,6 +39,67 @@ export const REPEAT_LABEL: Record<string, string> = {
 };
 export const REPEAT_RULES = Object.keys(REPEAT_LABEL);
 
+/** One property a public form asks for, as the owner saved it. */
+export interface FormField {
+  id: string;
+  required: boolean;
+}
+
+/** A property the form *could* ask for. Person, relation and file are not on
+ *  this list — the server decides, and hands back what it allows. */
+export interface AskableProp {
+  id: string;
+  label: string;
+  type: string;
+}
+
+export interface FormSettings {
+  token: string | null;
+  url: string | null;
+  intro: string;
+  fields: FormField[];
+  askable: AskableProp[];
+}
+
+/** A named starting point for a row: what it begins with, and optionally a
+ *  body for its page. */
+export interface RowTemplateRow {
+  id: string;
+  project_id: string;
+  name: string;
+  icon: string;
+  props: Record<string, unknown>;
+  fields: Record<string, unknown>;
+  body: string | null;
+  position: number;
+  created_at: string;
+}
+
+export interface RowTemplateBody {
+  name: string;
+  icon: string;
+  props: Record<string, unknown>;
+  fields: Record<string, unknown>;
+  body: string | null;
+}
+
+/** What an import did, or would do when `dry`. */
+export interface CsvImportResult {
+  dry: boolean;
+  created: number;
+  skipped: number;
+  columns: {
+    header: string;
+    kind: 'builtin' | 'prop' | 'new' | 'skip';
+    field: string | null;
+    propId: string | null;
+    /** The property this column stepped in front of, when they share a name. */
+    shadows?: string | null;
+  }[];
+  errors: { line: number; error: string }[];
+  errorCount: number;
+}
+
 export const STATUS_LABEL: Record<TaskStatus, string> = {
   todo: 'To do',
   doing: 'In progress',
@@ -470,7 +531,9 @@ export const tasksApi = {
    *  projects define — what the cross-project Tasks view filters over. */
   allTasks: (): Promise<{ tasks: AnyTaskRow[]; kinds: { key: string; label: string }[] }> =>
     req('/tasks'),
-  createTask: (b: { projectId: string; title: string } & TaskPatch): Promise<TaskRow> =>
+  /** `templateId` names a row template; it fills in what this body leaves out
+   *  and never overrules what it sets. */
+  createTask: (b: { projectId: string; title: string; templateId?: string } & TaskPatch): Promise<TaskRow> =>
     req('/tasks', { method: 'POST', ...body(b) }),
   patchTask: (id: string, b: TaskPatch): Promise<TaskRow> =>
     req(`/tasks/${id}`, { method: 'PATCH', ...body(b) }),
@@ -506,10 +569,9 @@ export const tasksApi = {
     req(`/tasks/${id}/deps/${dependsOn}`, { method: 'DELETE' }),
 
   /** The intake form a database has, if any. */
-  form: (projectId: string): Promise<{ token: string | null; url: string | null; intro: string }> =>
-    req(`/projects/${projectId}/form`),
-  /** Turn one on, reword it, or replace its address. */
-  saveForm: (projectId: string, b: { intro?: string; rotate?: boolean }): Promise<{ token: string; url: string; intro: string }> =>
+  form: (projectId: string): Promise<FormSettings> => req(`/projects/${projectId}/form`),
+  /** Turn one on, reword it, choose its fields, or replace its address. */
+  saveForm: (projectId: string, b: { intro?: string; rotate?: boolean; fields?: FormField[] }): Promise<FormSettings> =>
     req(`/projects/${projectId}/form`, { method: 'POST', ...body(b) }),
   /** Turn it off. The address stops working at once and is not kept. */
   closeForm: (projectId: string) => req(`/projects/${projectId}/form`, { method: 'DELETE' }),
@@ -523,6 +585,29 @@ export const tasksApi = {
   /** Fire a rule on one task by hand — what makes a rule a quick action. */
   runAutomation: (taskId: string, automationId: string): Promise<{ ok: true; applied: unknown[] }> =>
     req(`/tasks/${taskId}/automations/${automationId}/run`, { method: 'POST' }),
+
+  /** The row templates a database offers. */
+  rowTemplates: (projectId: string): Promise<RowTemplateRow[]> => req(`/projects/${projectId}/row-templates`),
+  createRowTemplate: (projectId: string, b: Partial<RowTemplateBody>): Promise<RowTemplateRow> =>
+    req(`/projects/${projectId}/row-templates`, { method: 'POST', ...body(b) }),
+  patchRowTemplate: (id: string, b: Partial<RowTemplateBody>): Promise<RowTemplateRow> =>
+    req(`/row-templates/${id}`, { method: 'PATCH', ...body(b) }),
+  deleteRowTemplate: (id: string) => req(`/row-templates/${id}`, { method: 'DELETE' }),
+
+  /**
+   * Read a CSV into this database. `dry` reports what would happen and writes
+   * nothing, which is what the dialog shows before anyone commits to a file.
+   */
+  importCsv: (projectId: string, text: string, opts: { dry?: boolean; create?: boolean } = {}): Promise<CsvImportResult> => {
+    const q = new URLSearchParams();
+    if (opts.dry) q.set('dry', '1');
+    if (opts.create) q.set('create', '1');
+    return req(`/projects/${projectId}/import.csv?${q}`, {
+      method: 'POST',
+      body: text,
+      headers: { 'Content-Type': 'text/csv' },
+    });
+  },
 
   agents: (): Promise<AgentRow[]> => req('/agents'),
   taskRuns: (taskId: string): Promise<AgentRunRow[]> => req(`/tasks/${taskId}/runs`),
