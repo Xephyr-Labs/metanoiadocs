@@ -10,11 +10,7 @@ import { tasksApi, type ProjectRow, type TaskRow } from '../../lib/tasksApi';
 import { Button } from '../ui/Button';
 import { Modal } from '../ui/Modal';
 import { field } from '../ui/styles';
-
-/** Mirrors KEY_PREFIX in server/src/task-key.js. It is here only to draw the
- *  preview line — the server is what actually rewrites a title, and it is the
- *  one that decides. Keep the two in step if either moves. */
-const KEY_PREFIX = /^[A-Za-z][A-Za-z0-9]{0,7}-\d+: */;
+import { splitKey } from '../../lib/taskKey';
 
 /**
  * Why a key cannot be used, in the words it should be refused in — or null.
@@ -106,7 +102,7 @@ export function ProjectKeyDialog({ open, onOpenChange, project, tasks, onSaved, 
   const key = draft.trim().toUpperCase();
   const changed = key !== current;
   const preview = sample
-    ? `${key || '—'}-${sample.num}: ${sample.title.replace(KEY_PREFIX, '')}`
+    ? `${key || '—'}-${sample.num}: ${splitKey(sample.title).text}`
     : `${key || '—'}-1`;
 
   const save = async () => {

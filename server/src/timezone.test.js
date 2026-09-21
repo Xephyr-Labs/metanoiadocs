@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { dayIn, hourIn, isZone, zoneOf } from './timezone.js';
+import { dayIn, hourIn, isZone, isoDate, zoneOf } from './timezone.js';
 
 // 2026-09-18T19:30:00Z — evening in London, already tomorrow in Auckland,
 // still afternoon in Los Angeles. One instant, three days.
@@ -43,4 +43,22 @@ test('an unknown zone reads as the server\'s own rather than throwing', () => {
   assert.equal(typeof zoneOf({ timezone: 'Mars/Olympus' }), 'string');
   assert.equal(zoneOf({}), zoneOf({ timezone: null }));
   assert.equal(zoneOf(null), zoneOf(undefined));
+});
+
+// node-postgres hands a DATE column back as a Date, not a string, and the
+// obvious String().slice(0,10) on one gives "Mon Sep 2".
+test('a date column reads as YYYY-MM-DD whichever shape it arrives in', () => {
+  assert.equal(isoDate('2026-09-21'), '2026-09-21');
+  assert.equal(isoDate('2026-09-21T00:00:00.000Z'), '2026-09-21');
+  assert.equal(isoDate(new Date(2026, 8, 21)), '2026-09-21');
+  // Local midnight west of Greenwich is the previous day in UTC. Reading the
+  // local parts is what keeps the task on the day it is actually due.
+  assert.equal(isoDate(new Date(2026, 0, 1)), '2026-01-01');
+});
+
+test('nothing in gives nothing out, rather than a wrong day', () => {
+  assert.equal(isoDate(null), null);
+  assert.equal(isoDate(undefined), null);
+  assert.equal(isoDate('not a date'), null);
+  assert.equal(isoDate(new Date('nonsense')), null);
 });

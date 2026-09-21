@@ -10,7 +10,30 @@ import { pool } from './db.js';
 import { setAssignees, MAX_ASSIGNEES } from './task-writes.js';
 import { notifyAssigneesById } from './assignees.js';
 
-export const AUTOMATION_TRIGGERS = ['status', 'manual'];
+/**
+ * What can set a rule off.
+ *
+ * `status` and `manual` were the whole list, which meant a rule could only ever
+ * answer a board move. The other three are the things people actually want a
+ * rule for: tag the new bugs, notify on a handover, and chase what has gone
+ * quiet or gone past its date.
+ *
+ * `status`, `created` and `assigned` are events — they fire on a write as it
+ * happens. `due` and `stale` are conditions, so they are swept for; see
+ * sweepTimeTriggers for why each of those fires once per task and not once an
+ * hour forever.
+ */
+export const AUTOMATION_TRIGGERS = ['status', 'created', 'assigned', 'due', 'stale', 'manual'];
+
+/** The triggers a clock finds rather than a person. */
+export const SWEPT_TRIGGERS = ['due', 'stale'];
+
+/** What `due` can mean. `today` is the morning-of nudge; `overdue` is the one
+ *  after the date has passed. */
+export const DUE_VALUES = ['today', 'overdue'];
+
+/** How long `stale` waits, when a rule does not say. */
+const DEFAULT_STALE_DAYS = 7;
 export const ACTION_TYPES = ['assign', 'status', 'priority', 'kind', 'sprint', 'points', 'progress'];
 /** Enough rules for a real workflow, few enough that a status change stays one
  *  round trip rather than a batch job. */
@@ -42,6 +65,39 @@ export function cleanActions(value) {
     if (out.length >= MAX_ACTIONS) break;
   }
   return out;
+}
+
+/**
+ * The value stored beside a trigger, normalised for the trigger it belongs to.
+ *
+ * Each trigger reads its value differently, and the ones that read nothing
+ * store NULL rather than whatever the dialog last had in the box — a stale
+ * value on a trigger that ignores it is what makes a rule look like it should
+ * be firing when it is.
+ */
+export function triggerValue(kind, raw) {
+  if (kind === 'status') {
+    const v = String(raw || 'done');
+    return ['todo', 'doing', 'review', 'done'].includes(v) ? v : 'done';
+  }
+  if (kind === 'due') {
+    const v = String(raw || 'overdue');
+    return DUE_VALUES.includes(v) ? v : 'overdue';
+  }
+  if (kind === 'stale') {
+    // Days. Floored at one — "stale after zero days" is every task, every
+    // sweep, which is a rule that fires on everything rather than on something.
+    const n = Math.round(Number(raw));
+    return String(Number.isFinite(n) && n > 0 ? Math.min(365, n) : DEFAULT_STALE_DAYS);
+  }
+  return null;
+}
+
+/** What a rule is set to right now, for a patch that changes only one half. */
+async function triggerNow(id) {
+  const { rows } = await pool.query(
+    'SELECT trigger_kind, trigger_value FROM automations WHERE id = $1', [id]);
+  return { kind: rows[0]?.trigger_kind ?? 'status', value: rows[0]?.trigger_value ?? null };
 }
 
 /** The sprint an action means. 'active' is the useful one — "move it into
@@ -226,25 +282,29 @@ export async function runActions(task, actions, actorId) {
 }
 
 /**
- * Run every active rule for the status a task has just entered.
+ * Run every active rule listening for one thing that just happened.
  *
  * Called after the person's own write has landed, so a rule always sees — and
  * can override — what they actually did. Best-effort: a broken rule must not
  * fail the board move that triggered it, so this never throws at its caller.
+ *
+ * `value` narrows a trigger that has variants: which status was entered. A
+ * trigger with no variants (`created`, `assigned`) matches whatever the rule
+ * happens to have stored beside it, which is nothing.
  */
-export async function applyAutomations({ task, entered, actorId }) {
-  if (!task || !entered) return [];
+export async function fireTrigger({ task, kind, value = null, actorId }) {
+  if (!task || !kind) return [];
   try {
     const { rows } = await pool.query(
       `SELECT * FROM automations
-        WHERE project_id = $1 AND active = true
-          AND trigger_kind = 'status' AND trigger_value = $2
+        WHERE project_id = $1 AND active = true AND trigger_kind = $2
+          AND ($3::text IS NULL OR trigger_value = $3)
         ORDER BY position, created_at`,
-      [task.project_id, entered]
+      [task.project_id, kind, value]
     );
     const applied = [];
     for (const rule of rows) {
-      // The status got it this far; the condition decides whether this
+      // The trigger got it this far; the condition decides whether this
       // particular task is one the rule was written for.
       if (!matchesCondition(task, rule.condition)) continue;
       applied.push(...await runActions(task, rule.actions, actorId));
@@ -254,6 +314,104 @@ export async function applyAutomations({ task, entered, actorId }) {
     console.error('[automation] apply failed:', e.message);
     return [];
   }
+}
+
+/** The status half, kept as its own name because that is what the task PATCH
+ *  reads and because "entered" says something "value" does not. */
+export const applyAutomations = ({ task, entered, actorId }) =>
+  fireTrigger({ task, kind: 'status', value: entered, actorId });
+
+/**
+ * The tasks a swept rule is about, right now.
+ *
+ * `due` is read in the zone of whoever the rule would act for — except that a
+ * rule belongs to a database rather than to a person, so it uses the server's
+ * day. That is a real limitation and a deliberate one: the alternative is a
+ * rule that fires at four different times for four readers of the same board,
+ * which is harder to explain than a rule that fires at midnight where the
+ * server lives.
+ */
+async function tasksFor(rule, today) {
+  if (rule.trigger_kind === 'due') {
+    const cmp = rule.trigger_value === 'today' ? '=' : '<';
+    const { rows } = await pool.query(
+      `SELECT * FROM tasks
+        WHERE project_id = $1 AND deleted_at IS NULL AND status <> 'done'
+          AND due_at IS NOT NULL AND due_at ${cmp} $2::date
+        LIMIT 500`,
+      [rule.project_id, today]
+    );
+    return rows;
+  }
+  if (rule.trigger_kind === 'stale') {
+    const days = Number(rule.trigger_value) || DEFAULT_STALE_DAYS;
+    const { rows } = await pool.query(
+      `SELECT * FROM tasks
+        WHERE project_id = $1 AND deleted_at IS NULL AND status <> 'done'
+          AND updated_at < now() - ($2 || ' days')::interval
+        LIMIT 500`,
+      [rule.project_id, String(days)]
+    );
+    return rows;
+  }
+  return [];
+}
+
+/**
+ * Run the rules a clock sets off, once each per task.
+ *
+ * The claim is the insert. A rule fires for a task only if this process is the
+ * one that managed to write the (rule, task) row, so two servers sweeping the
+ * same database at the same moment still act once — and a task that stays
+ * overdue for a fortnight is not reassigned three hundred times.
+ *
+ * Deleting a rule drops its rows with it, so re-creating the same rule starts
+ * clean, which is the only sensible reading of "I made this rule again".
+ */
+export async function sweepTimeTriggers(today = new Date().toISOString().slice(0, 10)) {
+  const { rows: rules } = await pool.query(
+    `SELECT * FROM automations a
+      WHERE a.active = true AND a.trigger_kind = ANY($1)
+        AND EXISTS (SELECT 1 FROM projects p WHERE p.id = a.project_id AND p.archived_at IS NULL)
+      ORDER BY a.project_id, a.position, a.created_at`,
+    [SWEPT_TRIGGERS]
+  );
+  let fired = 0;
+  for (const rule of rules) {
+    const tasks = await tasksFor(rule, today);
+    for (const task of tasks) {
+      if (!matchesCondition(task, rule.condition)) continue;
+      const claim = await pool.query(
+        'INSERT INTO automation_fires (rule_id, task_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+        [rule.id, task.id]
+      );
+      if (!claim.rowCount) continue;
+      // created_by, not null: the actions include assigning, and an assignment
+      // with no actor reads as nobody having handed it over.
+      await runActions(task, rule.actions, rule.created_by ?? null);
+      fired += 1;
+    }
+  }
+  return fired;
+}
+
+/** How often the sweep wakes. Hourly: `due today` should land within the
+ *  morning, and anything finer is polling for a date that changes once a day. */
+const SWEEP_INTERVAL_MS = 60 * 60 * 1000;
+
+/** Sweep once at boot, then hourly. A failed sweep is logged, never fatal. */
+export function startAutomationSweeper() {
+  let running = false;
+  const sweep = () => {
+    if (running) return;
+    running = true;
+    sweepTimeTriggers()
+      .then((n) => { if (n) console.log(`[automation] ${n} time-triggered rule run(s)`); })
+      .catch((e) => console.error('[automation] sweep failed', e.message))
+      .finally(() => { running = false; });
+  };
+  sweep();
+  setInterval(sweep, SWEEP_INTERVAL_MS).unref();
 }
 
 export function registerAutomationRoutes(app, { requireUser, wrap }) {
@@ -267,7 +425,7 @@ export function registerAutomationRoutes(app, { requireUser, wrap }) {
 
   app.post('/api/projects/:id/automations', requireUser, wrap(async (req, res) => {
     const trigger = AUTOMATION_TRIGGERS.includes(req.body?.trigger) ? req.body.trigger : 'status';
-    const value = trigger === 'status' ? String(req.body?.value || 'done') : null;
+    const value = triggerValue(trigger, req.body?.value);
     const { rows: pos } = await pool.query(
       'SELECT coalesce(max(position), 0) + 1 AS n FROM automations WHERE project_id = $1',
       [req.params.id]
@@ -288,11 +446,22 @@ export function registerAutomationRoutes(app, { requireUser, wrap }) {
     const vals = [];
     const set = (sql, v) => { vals.push(v); sets.push(`${sql} = $${vals.length}`); };
     if (b.name !== undefined) set('name', String(b.name).slice(0, 120));
-    if (b.trigger !== undefined) {
-      if (!AUTOMATION_TRIGGERS.includes(b.trigger)) return res.status(400).json({ error: 'bad trigger' });
-      set('trigger_kind', b.trigger);
+    if (b.trigger !== undefined && !AUTOMATION_TRIGGERS.includes(b.trigger)) {
+      return res.status(400).json({ error: 'bad trigger' });
     }
-    if (b.value !== undefined) set('trigger_value', b.value == null ? null : String(b.value).slice(0, 200));
+    if (b.trigger !== undefined) set('trigger_kind', b.trigger);
+    // The value is rewritten whenever either half moves, not only when a value
+    // was sent. Changing a rule from "nothing has changed in 7 days" to "it is
+    // overdue" used to leave trigger_value = '7' sitting on a due trigger: a
+    // rule storing a number where it holds a word, which the editor's single
+    // select cannot represent and so drew blank. triggerValue coerces whatever
+    // is there into something the new trigger can actually use.
+    if (b.trigger !== undefined || b.value !== undefined) {
+      const now = await triggerNow(req.params.id);
+      const kind = b.trigger !== undefined ? b.trigger : now.kind;
+      const raw = b.value !== undefined ? b.value : now.value;
+      set('trigger_value', triggerValue(kind, raw));
+    }
     if (b.actions !== undefined) set('actions', JSON.stringify(cleanActions(b.actions)));
     if (b.condition !== undefined) set('condition', JSON.stringify(cleanCondition(b.condition)));
     if (b.active !== undefined) set('active', !!b.active);

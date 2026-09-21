@@ -12,6 +12,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { DEFAULT_ZONE, dayIn } from './timezone.js';
+import { REPEAT_RULES } from './repeat.js';
 
 const ok = (obj) => ({
   content: [{ type: 'text', text: typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2) }],
@@ -427,6 +428,8 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
     docId: t.doc_id,
     tags: t.tags || [],
     points: t.points,
+    estimateH: t.estimate_h ?? null,
+    repeats: t.repeat_rule ?? null,
     sprintId: t.sprint_id,
     blockedBy: t.deps || [],
     url: taskUrl(t),
@@ -671,6 +674,8 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
         dueAt: z.string().optional().describe('YYYY-MM-DD'),
         startAt: z.string().optional().describe('YYYY-MM-DD'),
         points: z.number().optional(),
+        estimateH: z.number().optional().describe('Hours of work, to one decimal. Points size a sprint; this sizes a week'),
+        repeatRule: z.enum(REPEAT_RULES).optional().describe('Finishing it creates the next occurrence'),
         priority: z.number().optional(),
         milestone: z.boolean().optional(),
         kind: z.string().optional().describe("Task type — 'task' (default), 'bug', 'story', 'epic'; see list_task_kinds"),
@@ -694,6 +699,8 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
             dueAt: args.dueAt,
             startAt: args.startAt,
             points: args.points,
+            estimateH: args.estimateH,
+            repeatRule: args.repeatRule,
             priority: args.priority,
             milestone: args.milestone,
             kind: args.kind,
@@ -725,6 +732,8 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
         startAt: z.string().nullable().optional().describe('YYYY-MM-DD, or null to clear'),
         progress: z.number().optional().describe('0-100'),
         points: z.number().nullable().optional(),
+        estimateH: z.number().nullable().optional().describe('Hours of work; null clears it'),
+        repeatRule: z.enum(REPEAT_RULES).nullable().optional().describe('null stops it repeating'),
         priority: z.number().optional(),
         milestone: z.boolean().optional(),
         kind: z.string().optional().describe("Task type — 'task', 'bug', 'story', 'epic'; see list_task_kinds"),
@@ -738,7 +747,7 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
         // Only send what was asked for: the route treats an absent key as "leave
         // it alone" and a null as "clear it".
         const body = {};
-        for (const key of ['title', 'status', 'dueAt', 'startAt', 'progress', 'points', 'priority', 'milestone', 'kind', 'sprintId']) {
+        for (const key of ['title', 'status', 'dueAt', 'startAt', 'progress', 'points', 'estimateH', 'repeatRule', 'priority', 'milestone', 'kind', 'sprintId']) {
           if (args[key] !== undefined) body[key] = args[key];
         }
         if (args.assignees !== undefined) body.assigneeIds = await assigneeIds(args.assignees);

@@ -123,10 +123,26 @@ export interface VersionRow {
   author_email: string | null;
 }
 
+/**
+ * One hit from the palette's search. Pages and tasks come back in one list,
+ * ordered by the server — a query that names a task ("MD-14") is answered with
+ * that task first, anything else with the pages that contain the words.
+ *
+ * `kind` is optional only because a browser can outlive a deploy: a tab that
+ * loaded this bundle before the server learned to send it would otherwise
+ * render every hit as a task. Absent means page.
+ */
 export interface SearchRow {
+  kind?: 'doc' | 'task';
   id: string;
   title: string;
+  /** The matching words for a page; the database's name for a task. */
   snippet: string;
+  /** Tasks only — where to go when this hit is chosen. */
+  projectId?: string;
+  projectIcon?: string;
+  status?: string;
+  dueAt?: string | null;
 }
 
 export interface TrashRow {
@@ -362,6 +378,13 @@ export const docsApi = {
     req(`/docs/${id}/versions/${vid}/restore`, { method: 'POST' }),
   snapshot: (id: string, label: string) =>
     req(`/docs/${id}/versions`, { method: 'POST', body: JSON.stringify({ label }) }),
+
+  /** The address of this person's calendar feed, if one has been minted. */
+  calendarToken: (): Promise<{ token: string | null; url: string | null }> => req('/calendar/token'),
+  /** Mint one, or replace the one there is — which is how a feed pasted into
+   *  the wrong chat is revoked. */
+  makeCalendarToken: (rotate = false): Promise<{ token: string; url: string }> =>
+    req('/calendar/token', { method: 'POST', body: JSON.stringify({ rotate }) }),
 
   webhooks: (): Promise<WebhookRow[]> => req('/webhooks'),
   webhookEvents: (): Promise<string[]> => req('/webhooks/events'),

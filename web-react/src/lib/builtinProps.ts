@@ -16,6 +16,8 @@
 // PropType wherever one fits — which is what lets PropChips, the visibility
 // panel and the stored per-view order work on them with no special cases.
 import {
+  REPEAT_LABEL,
+  REPEAT_RULES,
   STATUSES,
   STATUS_LABEL,
   type ProjectMode,
@@ -111,12 +113,17 @@ export function builtinProps(
     row('start', 'Start', 'date', [], 3),
     row('due', 'Due', 'date', [], 4),
     row('points', 'Points', 'number', [], 5),
-    row('progress', 'Progress', 'number', [], 6),
+    row('estimate', 'Estimate', 'number', [], 6),
+    // A select, not a checkbox: "does this repeat" is five answers, and the
+    // rule is the whole of what a repeating task knows about itself.
+    row('repeat', 'Repeats', 'select',
+      REPEAT_RULES.map((r) => ({ id: r, label: REPEAT_LABEL[r], color: 'purple' })), 7),
+    row('progress', 'Progress', 'number', [], 8),
     row('sprint', 'Sprint', 'select',
-      sprints.map((s) => ({ id: s.id, label: s.name, color: s.state === 'active' ? 'green' : 'gray' })), 7),
-    row('milestone', 'Milestone', 'checkbox', [], 8),
-    row('tags', 'Focus area', 'multi_select', [], 9),
-    row('attachments', 'Files & media', 'file', [], 10),
+      sprints.map((s) => ({ id: s.id, label: s.name, color: s.state === 'active' ? 'green' : 'gray' })), 9),
+    row('milestone', 'Milestone', 'checkbox', [], 10),
+    row('tags', 'Focus area', 'multi_select', [], 11),
+    row('attachments', 'Files & media', 'file', [], 12),
     ...AUDIT,
   ];
 }
@@ -131,6 +138,10 @@ export function builtinProps(
  * the cell renders as text rather than a control.
  */
 const AUDIT: PropRow[] = [
+  // Not strictly an audit column, but it belongs with them: written by the
+  // server, never editable, and off a table's default the way the other four
+  // are. A database with no intake form has it empty on every row.
+  row('submittedBy', 'Submitted by', 'text', [], 19),
   row('created', 'Created', 'date', [], 20),
   row('createdBy', 'Created by', 'text', [], 21),
   row('edited', 'Last edited', 'date', [], 22),
@@ -159,6 +170,8 @@ export function readBuiltin(task: TaskRow, id: string): unknown {
     case 'sys:start': return task.start_at;
     case 'sys:due': return task.due_at;
     case 'sys:points': return task.points;
+    case 'sys:estimate': return task.estimate_h;
+    case 'sys:repeat': return task.repeat_rule;
     // 0% is the state every untouched task is in, so it is not worth a chip;
     // null reads as "nothing to draw" the whole way down.
     case 'sys:progress': return task.progress > 0 ? task.progress : null;
@@ -167,6 +180,7 @@ export function readBuiltin(task: TaskRow, id: string): unknown {
     case 'sys:tags': return task.tags ?? [];
     case 'sys:attachments': return task.attachments ?? [];
     case 'sys:created': return task.created_at ?? null;
+    case 'sys:submittedBy': return task.submitted_by ?? null;
     case 'sys:createdBy': return task.created_by_name ?? null;
     case 'sys:edited': return task.updated_at ?? null;
     case 'sys:editedBy': return task.updated_by_name ?? null;
@@ -284,6 +298,10 @@ export function writeBuiltin(id: string, value: unknown): TaskPatch | null {
     case 'sys:start': return { startAt: str() };
     case 'sys:due': return { dueAt: str() };
     case 'sys:points': return { points: num() };
+    case 'sys:estimate': return { estimateH: num() };
+    // Clearing the cell stops it repeating, which is why this one writes null
+    // rather than refusing the way the other selects do.
+    case 'sys:repeat': return { repeatRule: str() };
     // Progress is a percentage with a floor, not a nullable number: clearing
     // the box means 0% done, which is a real answer, and `null` would fail the
     // server's range check rather than reading as "not started".

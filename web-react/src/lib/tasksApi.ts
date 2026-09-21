@@ -28,6 +28,17 @@ const body = (v: unknown) => ({ body: JSON.stringify(v) });
 
 export type TaskStatus = 'todo' | 'doing' | 'review' | 'done';
 export const STATUSES: TaskStatus[] = ['todo', 'doing', 'review', 'done'];
+/** The five rules a task can repeat on. Mirrors REPEAT_RULES in
+ *  server/src/repeat.js, which is what actually applies them. */
+export const REPEAT_LABEL: Record<string, string> = {
+  daily: 'Every day',
+  weekdays: 'Every weekday',
+  weekly: 'Every week',
+  biweekly: 'Every two weeks',
+  monthly: 'Every month',
+};
+export const REPEAT_RULES = Object.keys(REPEAT_LABEL);
+
 export const STATUS_LABEL: Record<TaskStatus, string> = {
   todo: 'To do',
   doing: 'In progress',
@@ -212,6 +223,18 @@ export interface TaskRow {
   progress: number;
   points: number | null;
   milestone: boolean;
+  /** One of REPEAT_RULES, or null. Finishing a task that carries one creates
+   *  the next occurrence — see server/src/repeat.js. */
+  repeat_rule: string | null;
+  /** The occurrence this one was spawned by, for a repeating task. Also the
+   *  interlock that stops two simultaneous completions making two successors. */
+  repeat_of?: string | null;
+  /** Hours. Points size a sprint; this sizes a week. */
+  estimate_h: number | null;
+  /** Who sent this in through the database's public intake form, in whatever
+   *  they chose to tell us. Null for every task a signed-in person made —
+   *  those have created_by instead. */
+  submitted_by?: string | null;
   doc_id: string | null;
   parent_id: string | null;
   kind: TaskKind;
@@ -277,6 +300,9 @@ export interface TaskPatch {
   progress?: number;
   points?: number | null;
   milestone?: boolean;
+  /** '' or null stops it repeating. */
+  repeatRule?: string | null;
+  estimateH?: number | null;
   attachments?: StoredFile[];
   docId?: string | null;
   position?: number;
@@ -326,7 +352,10 @@ export interface HomePayload {
 
 /* ---- automations ------------------------------------------------------ */
 
-export type AutomationTrigger = 'status' | 'manual';
+/** What sets a rule off. Mirrors AUTOMATION_TRIGGERS in
+ *  server/src/automations.js. `due` and `stale` are found by an hourly sweep
+ *  rather than by a write, and each fires once per task. */
+export type AutomationTrigger = 'status' | 'created' | 'assigned' | 'due' | 'stale' | 'manual';
 
 /** One thing a rule does. `assign` carries a list; everything else carries one
  *  value, and `null` means "clear it" — a rule that empties the sprint moves a
@@ -475,6 +504,15 @@ export const tasksApi = {
     req(`/tasks/${id}/deps`, { method: 'POST', ...body({ dependsOn }) }),
   removeDep: (id: string, dependsOn: string) =>
     req(`/tasks/${id}/deps/${dependsOn}`, { method: 'DELETE' }),
+
+  /** The intake form a database has, if any. */
+  form: (projectId: string): Promise<{ token: string | null; url: string | null; intro: string }> =>
+    req(`/projects/${projectId}/form`),
+  /** Turn one on, reword it, or replace its address. */
+  saveForm: (projectId: string, b: { intro?: string; rotate?: boolean }): Promise<{ token: string; url: string; intro: string }> =>
+    req(`/projects/${projectId}/form`, { method: 'POST', ...body(b) }),
+  /** Turn it off. The address stops working at once and is not kept. */
+  closeForm: (projectId: string) => req(`/projects/${projectId}/form`, { method: 'DELETE' }),
 
   automations: (projectId: string): Promise<AutomationRow[]> => req(`/projects/${projectId}/automations`),
   createAutomation: (projectId: string, b: { name?: string; trigger?: AutomationTrigger; value?: string | null; actions?: AutomationAction[]; condition?: Filter[] }): Promise<AutomationRow> =>

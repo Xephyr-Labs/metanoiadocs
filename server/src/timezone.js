@@ -66,3 +66,24 @@ export function hourIn(zone, at = new Date()) {
   // Midnight comes back as "24" in some ICU versions and "00" in others.
   return Number(text) % 24;
 }
+
+/**
+ * A DATE column as 'YYYY-MM-DD', whatever shape the driver handed it over in.
+ *
+ * node-postgres parses DATE into a JS Date at local midnight, so the obvious
+ * `String(row.due_at).slice(0, 10)` yields "Mon Sep 2" and everything
+ * downstream fails on it. Reading the local parts rather than calling
+ * toISOString matters for the same reason: a Date built at local midnight west
+ * of Greenwich is the *previous* day in UTC, and the task would move a day
+ * every time it passed through here.
+ */
+export function isoDate(v) {
+  if (v == null) return null;
+  if (v instanceof Date) {
+    if (Number.isNaN(v.getTime())) return null;
+    const p = (n) => String(n).padStart(2, '0');
+    return `${v.getFullYear()}-${p(v.getMonth() + 1)}-${p(v.getDate())}`;
+  }
+  const s = String(v).slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
+}

@@ -22,6 +22,7 @@ import {
   PanelRight,
   Pin,
   Printer,
+  CloudOff,
   Search,
   Share2,
   Sparkles,
@@ -40,6 +41,7 @@ import { cn } from '../../lib/cn';
 import { useOpenCommentCount } from '../../editor/comments';
 import { downloadDocx, downloadMarkdown, pickImportFiles, printDoc } from '../../lib/docFiles';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
+import { useOnline } from '../../hooks/useOnline';
 import { Button } from '../ui/Button';
 import { PageIcon } from '../ui/PageIcon';
 import { IconButton } from '../ui/IconButton';
@@ -148,6 +150,7 @@ function ancestry(pages: Record<string, Page>, id: string): Page[] {
 
 export function TopBar() {
   const ws = useWorkspace();
+  const online = useOnline();
   const openComments = useOpenCommentCount();
   // Home and project views keep currentPage around for "continue where you left
   // off", but the doc breadcrumb and doc actions must not follow them there.
@@ -218,6 +221,26 @@ export function TopBar() {
           <Crumb current>Home</Crumb>
         ) : null}
       </nav>
+
+      {/* Said once, on the bar, and only while it is true. A banner across the
+          top would push every view down and back up again on a flaky
+          connection; this keeps its place and changes what is in it.
+
+          The claim is deliberately narrow. The page you have open is a Yjs
+          document persisted in this browser, so typing into it is safe and it
+          merges when the network comes back. Everything else — a board, a
+          table, a comment — is a request that will fail, and saying "offline"
+          rather than "you can work offline" is the difference between the two. */}
+      {!online && (
+        <span
+          role="status"
+          title="Edits to an open page are saved in this browser and sync when you reconnect. Boards, tables and comments need the network."
+          className="mr-1.5 flex h-7 shrink-0 items-center gap-1.5 rounded-lg bg-hover px-2 text-2xs font-medium text-muted"
+        >
+          <CloudOff size={13} className="shrink-0 text-faint" />
+          <span className="hidden sm:inline">Offline</span>
+        </span>
+      )}
 
       {/* Search belongs on the bar, not in the sidebar tree: it is an action on
           the whole workspace, and the tree is a list of places. */}

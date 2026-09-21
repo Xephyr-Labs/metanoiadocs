@@ -6,7 +6,7 @@ const task = (over: Partial<TaskRow> = {}): TaskRow => ({
   id: 't1', project_id: 'p', num: 1, title: 'A task', status: 'doing',
   assignee_id: null, assignee_name: null, assignees: [],
   start_at: null, due_at: null, priority: 0, progress: 0, points: null,
-  milestone: false, doc_id: null, parent_id: null, kind: 'task',
+  milestone: false, repeat_rule: null, estimate_h: null, doc_id: null, parent_id: null, kind: 'task',
   sprint_id: null, position: 0, done_at: null, deps: [], props: {},
   preview: null, ...over,
 });

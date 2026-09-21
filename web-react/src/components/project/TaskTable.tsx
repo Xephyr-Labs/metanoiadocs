@@ -53,6 +53,16 @@ interface Props {
    *  server already persists — so a drag here is a saved layout, not a local
    *  one. Absent on a surface with no view behind it (an embedded database). */
   onReorder?: (propIds: string[]) => void;
+  /** Rows picked for a bulk action. Absent turns the checkboxes off entirely —
+   *  an embedded database has no bar to act on a selection, so offering one
+   *  would be a control that leads nowhere. */
+  selected?: ReadonlySet<string>;
+  onSelect?: (id: string, shift: boolean) => void;
+  onToggleAll?: () => void;
+  /** The row j/k has walked to. Drawn as a rule down the leading edge rather
+   *  than a ring: a ring on a table row breaks across the frozen column, and
+   *  the eye is scanning down a list, not around a box. */
+  focusedId?: string | null;
 }
 
 /**
@@ -287,12 +297,49 @@ function TitleCell({ value, wrap, onCommit, onOpen }: {
 const input =
   'w-full rounded border border-transparent bg-transparent px-2.5 py-0.5 text-sm text-ink outline-none hover:border-line focus:border-accent focus:bg-canvas';
 
+/**
+ * The box that picks a row.
+ *
+ * A real checkbox, not a styled div: it is announced, it is reachable by Tab,
+ * and Space works on it without a line of code. `onPick` carries the shift key
+ * because a range is what a shift-click means everywhere else.
+ *
+ * Hidden until the row is hovered or something is already picked — a column of
+ * empty boxes down the left of every table is a permanent invitation to a
+ * gesture almost nobody is making.
+ */
+function RowCheck({ checked, label, always, className, onPick }: {
+  checked: boolean;
+  label: string;
+  always?: boolean;
+  className?: string;
+  onPick: (shift: boolean) => void;
+}) {
+  return (
+    <input
+      type="checkbox"
+      checked={checked}
+      aria-label={label}
+      onChange={() => { /* onClick owns it: only the click knows about shift. */ }}
+      onClick={(e) => { e.stopPropagation(); onPick(e.shiftKey); }}
+      className={cn(
+        'h-3.5 w-3.5 shrink-0 cursor-pointer accent-accent-strong transition-opacity',
+        'focus-visible:opacity-100 group-hover:opacity-100',
+        checked || always ? 'opacity-100' : 'opacity-0',
+        className,
+      )}
+    />
+  );
+}
+
 /** Dense editable grid. Every field writes straight through on change. */
 export function TaskTable({
   tasks, props, users, onPatch, onOpen, onDelete, onSetProp, onEditOptions, onTagsChanged,
-  viewId, onReorder,
+  viewId, onReorder, selected, onSelect, onToggleAll, focusedId,
   rowLabel = 'Task', auto,
 }: Props) {
+  const picking = !!onSelect;
+  const allPicked = picking && tasks.length > 0 && tasks.every((t) => selected?.has(t.id));
   const [wrap, setWrap] = useState(storedWrap);
 
   const pick = (next: boolean) => {
@@ -395,7 +442,17 @@ export function TaskTable({
               className={cn(head, sticky, frozen, 'w-[38%] min-w-[240px] z-30')}
               style={{ width: widths.__title, minWidth: widths.__title ? 0 : undefined }}
             >
-              <span className="relative flex items-center">
+              <span className="relative flex items-center gap-1.5">
+                {picking && (
+                  <RowCheck
+                    checked={allPicked}
+                    label={allPicked ? 'Clear the selection' : 'Select every row'}
+                    // The header box is always visible once picking is on:
+                    // it is the only thing that says the column is there.
+                    always
+                    onPick={() => onToggleAll?.()}
+                  />
+                )}
                 {rowLabel}
                 <ResizeHandle
                   width={widths.__title ?? 320}
@@ -441,14 +498,42 @@ export function TaskTable({
         </thead>
         <tbody>
           {tasks.map((t) => (
-            <tr key={t.id} className="group border-b border-line last:border-0 hover:bg-hover">
-              <td className={cn(cell, frozen, 'bg-canvas group-hover:bg-hover', wrap ? 'align-top' : 'align-middle')}>
-                <TitleCell
-                  value={t.title}
-                  wrap={wrap}
-                  onCommit={(v) => onPatch(t.id, { title: v })}
-                  onOpen={() => onOpen(t)}
-                />
+            <tr
+              key={t.id}
+              data-task-row={t.id}
+              className={cn(
+                'group border-b border-line last:border-0 hover:bg-hover',
+                selected?.has(t.id) && 'bg-selected hover:bg-selected',
+                focusedId === t.id && 'outline outline-2 -outline-offset-2 outline-accent',
+              )}
+            >
+              <td className={cn(
+                cell, frozen,
+                // The frozen cell paints its own ground, so a selected row has
+                // to repaint it here too or the title column alone stays white
+                // while the rest of the row is tinted.
+                selected?.has(t.id) ? 'bg-selected' : 'bg-canvas group-hover:bg-hover',
+                wrap ? 'align-top' : 'align-middle',
+              )}>
+                <span className="flex items-start gap-1.5">
+                  {picking && (
+                    <RowCheck
+                      checked={!!selected?.has(t.id)}
+                      label={`Select ${t.title || 'this row'}`}
+                      always={!!selected?.size}
+                      className="mt-1"
+                      onPick={(shift) => onSelect?.(t.id, shift)}
+                    />
+                  )}
+                  <span className="min-w-0 flex-1">
+                    <TitleCell
+                      value={t.title}
+                      wrap={wrap}
+                      onCommit={(v) => onPatch(t.id, { title: v })}
+                      onOpen={() => onOpen(t)}
+                    />
+                  </span>
+                </span>
               </td>
               {props.map((p) => (
                 <td key={p.id} className={cn(cell, text)}>

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { deriveKey, stripKey, uniqueKey, withKey } from './task-key.js';
+import { deriveKey, parseKeyQuery, stripKey, uniqueKey, usableTitle, withKey } from './task-key.js';
 
 test('a key is the initials of a multi-word name', () => {
   assert.equal(deriveKey('Metanoia Docs'), 'MD');
@@ -74,4 +74,42 @@ test('a colon in the title is not mistaken for a key', () => {
 test('a key someone typed themselves is stripped like any other', () => {
   assert.equal(stripKey('MD-14: Fix login'), 'Fix login');
   assert.equal(stripKey('MD-14:Fix login'), 'Fix login');
+});
+
+// Searching. A key is only worth having if typing it finds the task.
+test('a query that is a key is read as one, however it was typed', () => {
+  assert.deepEqual(parseKeyQuery('MD-14'), { key: 'MD', num: 14 });
+  assert.deepEqual(parseKeyQuery('md-14'), { key: 'MD', num: 14 });
+  assert.deepEqual(parseKeyQuery('MD 14'), { key: 'MD', num: 14 });
+  assert.deepEqual(parseKeyQuery('md14'), { key: 'MD', num: 14 });
+  assert.deepEqual(parseKeyQuery('  MD-14  '), { key: 'MD', num: 14 });
+  // Half a pasted title is still a key.
+  assert.deepEqual(parseKeyQuery('MD-14:'), { key: 'MD', num: 14 });
+});
+
+test('an ordinary search is not mistaken for a key', () => {
+  assert.equal(parseKeyQuery('login redirect'), null);
+  assert.equal(parseKeyQuery('2026'), null, 'a key starts with a letter');
+  assert.equal(parseKeyQuery(''), null);
+  assert.equal(parseKeyQuery('MD-'), null, 'a key without a number names no task');
+  assert.equal(parseKeyQuery('VERYLONGKEY-1'), null, 'nine letters is not a key');
+});
+
+// The hole this closes: a public form checked the title it was handed, stored
+// the title withKey gives back, and those are not the same string. A
+// submission of exactly "MD-14:" passed the check and landed as a row with no
+// name, from an endpoint anyone with the link can reach.
+test('a title that is only a key is not a title', () => {
+  assert.equal(usableTitle('MD-14:'), false);
+  assert.equal(usableTitle('MD-14:   '), false);
+  assert.equal(usableTitle('MD-14: '), false);
+  assert.equal(usableTitle(''), false);
+  assert.equal(usableTitle('   '), false);
+  assert.equal(usableTitle(null), false);
+});
+
+test('an ordinary title is usable, key or no key', () => {
+  assert.equal(usableTitle('Fix login'), true);
+  assert.equal(usableTitle('MD-14: Fix login'), true);
+  assert.equal(usableTitle('Bug: login redirects twice'), true);
 });

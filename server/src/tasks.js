@@ -7,10 +7,11 @@ import { propsFor } from './props-routes.js';
 import { wouldProjectCycle } from './project-tree.js';
 import { MAX_ASSIGNEES, ensureTaskPage, setAssignees } from './task-writes.js';
 import { notifyAssignees } from './assignees.js';
-import { dayIn, zoneOf } from './timezone.js';
-import { applyAutomations } from './automations.js';
+import { dayIn, isoDate, zoneOf } from './timezone.js';
+import { applyAutomations, fireTrigger } from './automations.js';
 import { emit } from './webhooks.js';
 import { KEY_PREFIX, KEY_RE, deriveKey, uniqueKey, withKey } from './task-key.js';
+import { isRepeatRule, nextOccurrence } from './repeat.js';
 
 export const STATUSES = ['todo', 'doing', 'review', 'done'];
 
@@ -142,6 +143,22 @@ function readDate(v) {
 const clampPct = (n) => Math.max(0, Math.min(100, Math.round(Number(n) || 0)));
 
 /**
+ * An estimate in hours, or null.
+ *
+ * Rounded to the tenth and capped at 999.9 on the way in rather than validated
+ * and refused: the estimate is the least important thing in the patch it
+ * arrived with, and a typo in it must not be what makes the rest of that patch
+ * fail. A thousand hours is half a working year on one task, which is a number
+ * somebody has mistyped.
+ */
+const readHours = (n) => {
+  if (n == null || n === '') return null;
+  const v = Number(n);
+  if (!Number.isFinite(v) || v < 0) return null;
+  return Math.min(999.9, Math.round(v * 10) / 10);
+};
+
+/**
  * Would adding task->dep close a cycle? Walks the existing edges forward from
  * dep; if it reaches task, the new edge would make a loop.
  * `edges` is a Map<taskId, string[]> of task -> its dependencies.
@@ -158,6 +175,86 @@ export function wouldCycle(edges, taskId, depId) {
     for (const next of edges.get(cur) || []) stack.push(next);
   }
   return false;
+}
+
+/**
+ * The next occurrence of a repeating task, created because this one was
+ * finished.
+ *
+ * A copy, not a move: the finished task keeps its number, its comments and its
+ * page, so "what did we do last week" still has a row to point at. The new one
+ * claims its own number from the project counter, exactly as an ordinary create
+ * does — two occurrences of a standup are two tasks, and quoting MD-14 has to
+ * mean one of them.
+ *
+ * What travels: the name, the type, the people, the estimate, the points, the
+ * priority, the property values and the rule itself. What does not: the sprint
+ * (the next occurrence is not in this one), the progress, the page, the
+ * dependencies and the parent — each of those is about the instance that was
+ * just completed rather than about the work that repeats.
+ */
+async function repeatTask(done, actor) {
+  const dates = nextOccurrence(done.repeat_rule, {
+    // isoDate, not a slice: node-postgres hands a DATE back as a Date object.
+    startAt: isoDate(done.start_at),
+    dueAt: isoDate(done.due_at),
+  }, dayIn(zoneOf(actor)));
+  if (!dates) return null;
+
+  const { rows: claim } = await pool.query(
+    'UPDATE projects SET task_seq = task_seq + 1 WHERE id = $1 RETURNING key, task_seq',
+    [done.project_id]
+  );
+  if (!claim[0]) return null;
+
+  const id = crypto.randomUUID();
+  const { rows: pos } = await pool.query(
+    `SELECT coalesce(max(position), 0) + 1 AS n FROM tasks
+      WHERE project_id = $1 AND status = 'todo' AND deleted_at IS NULL`,
+    [done.project_id]
+  );
+  // `repeat_of` is the interlock, not a decoration. The PATCH handler decides
+  // to call this by reading the previous status and then writing the new one in
+  // a separate statement, so two people ticking the same task at the same
+  // moment can both read "doing" and both arrive here. The unique index on
+  // repeat_of is what makes the second one lose: it is a claim on the right to
+  // be this occurrence's successor, and there can only be one.
+  //
+  // ON CONFLICT DO NOTHING rather than a caught error, so a lost race is a
+  // no-op and not a log line about a constraint.
+  const { rows } = await pool.query(
+    `INSERT INTO tasks (id, project_id, num, title, status, start_at, due_at,
+                        priority, points, estimate_h, kind, position, props,
+                        repeat_rule, repeat_of, created_by, updated_by)
+     VALUES ($1,$2,$3,$4,'todo',$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$15)
+     ON CONFLICT DO NOTHING
+     RETURNING *`,
+    [
+      id, done.project_id, claim[0].task_seq,
+      // stripKey runs inside withKey, so the new row is named after the work
+      // rather than after the occurrence that finished.
+      withKey(claim[0].key, claim[0].task_seq, done.title),
+      dates.startAt, dates.dueAt,
+      done.priority, done.points, done.estimate_h, done.kind,
+      pos[0].n, JSON.stringify(done.props ?? {}), done.repeat_rule,
+      done.id,
+      done.created_by ?? actor.id,
+    ]
+  );
+  // Somebody else already made this occurrence's successor. The number claimed
+  // above is spent either way, which is the same gap an ordinary failed create
+  // leaves and is invisible next to two identical standups on the board.
+  if (!rows[0]) return null;
+
+  // The same people, carried over by the same writer the normal path uses —
+  // nobody is notified, because nobody has been handed anything new.
+  const { rows: people } = await pool.query(
+    'SELECT user_id FROM task_assignees WHERE task_id = $1 ORDER BY position', [done.id]
+  );
+  if (people.length) await setAssignees(id, people.map((r) => r.user_id));
+
+  emit('task.created', rows[0]);
+  return rows[0];
 }
 
 async function depEdges(projectId) {
@@ -593,6 +690,11 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
     if (sprintId && (await sprintProject(sprintId)) !== projectId) {
       return res.status(400).json({ error: 'sprint is not in this project' });
     }
+    // Refused rather than silently dropped, which is what PATCH does with the
+    // same value: an API that ignores half a request is one you debug twice.
+    if (req.body?.repeatRule && !isRepeatRule(req.body.repeatRule)) {
+      return res.status(400).json({ error: 'bad repeat rule' });
+    }
     const id = crypto.randomUUID();
     // Append to the bottom of its column.
     const { rows: pos } = await pool.query(
@@ -623,8 +725,9 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
     const { rows } = await pool.query(
       `INSERT INTO tasks (id, project_id, num, title, status, assignee_id, start_at, due_at,
                           priority, progress, points, milestone, doc_id, parent_id,
-                          kind, sprint_id, position, props, created_by, updated_by)
-       VALUES ($1,$2,$19,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$18) RETURNING *`,
+                          kind, sprint_id, position, props, created_by, updated_by,
+                          repeat_rule, estimate_h)
+       VALUES ($1,$2,$19,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$18,$20,$21) RETURNING *`,
       [
         id, projectId,
         withKey(claim[0].key, claim[0].task_seq, String(req.body?.title || '').slice(0, 500)),
@@ -643,15 +746,23 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
         kind, sprintId,
         pos[0].n, JSON.stringify(checked.value), req.user.id,
         claim[0].task_seq,
+        isRepeatRule(req.body?.repeatRule) ? req.body.repeatRule : null,
+        readHours(req.body?.estimateH),
       ]
     );
     emit('task.created', rows[0]);
     const assignees = wantedAssignees(req.body) ?? [];
+    // Rules that listen for a new row run before the response, so the client
+    // sees the task the rules left behind rather than the one it asked for and
+    // then a different one on the next refresh.
+    await fireTrigger({ task: rows[0], kind: 'created', actorId: req.user.id });
     if (!assignees.length) {
       // A task is created before it has a page, so there is nothing to preview yet.
-      return res.json({ ...rows[0], deps: [], assignee_name: null, assignees: [], preview: null });
+      const { rows: made } = await pool.query(`${TASK_SELECT} WHERE t.id = $1`, [id]);
+      return res.json(made[0] ?? { ...rows[0], deps: [], assignee_name: null, assignees: [], preview: null });
     }
     const added = await setAssignees(id, assignees);
+    if (added.length) await fireTrigger({ task: rows[0], kind: 'assigned', actorId: req.user.id });
     notifyAssignees(rows[0], req.user, added)
       .catch((err) => console.error('[notify] assign:', err.message));
     // Read back rather than guessing the shape: the names come from users.
@@ -691,6 +802,14 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
     if (b.progress !== undefined) set('progress', clampPct(b.progress));
     if (b.points !== undefined) set('points', b.points == null ? null : Number(b.points) || 0);
     if (b.milestone !== undefined) set('milestone', !!b.milestone);
+    if (b.repeatRule !== undefined) {
+      // Clearing it is a real edit — "stop repeating" — so an empty value is
+      // NULL rather than a refusal, and only a value that is neither empty nor
+      // one of the five is a mistake worth a 400.
+      if (b.repeatRule && !isRepeatRule(b.repeatRule)) return res.status(400).json({ error: 'bad repeat rule' });
+      set('repeat_rule', b.repeatRule || null);
+    }
+    if (b.estimateH !== undefined) set('estimate_h', readHours(b.estimateH));
     if (b.attachments !== undefined) {
       const files = coerceFiles(b.attachments);
       if (!files) return res.status(400).json({ error: 'bad attachments' });
@@ -827,12 +946,25 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
     // Rules fire on a move a person made, and only on a real one: a board that
     // re-sends the column a task is already in must not run them again.
     const entered = b.status !== undefined && b.status !== prevStatus ? b.status : null;
+
+    // A repeating task makes its successor the moment it is finished. Guarded
+    // by `entered` for the same reason the rules are: a board re-sending Done
+    // for a task already in Done must not make a second copy, and that guard is
+    // also what keeps two simultaneous patches from both spawning — only one of
+    // them reads a previous status that was not Done.
+    if (entered === 'done' && rows[0].repeat_rule) {
+      await repeatTask(rows[0], req.user).catch((e) => console.error('[repeat]', e.message));
+    }
     const applied = entered
       ? await applyAutomations({ task: rows[0], entered, actorId: req.user.id })
       : [];
 
     if (assignees) {
       const added = await setAssignees(req.params.id, assignees);
+      // Only when somebody is actually new. A patch that re-sends the same
+      // people has handed nothing over, and a rule that fired on it would run
+      // every time a cell beside the names was edited.
+      if (added.length) await fireTrigger({ task: rows[0], kind: 'assigned', actorId: req.user.id });
       notifyAssignees(rows[0], req.user, added)
         .catch((err) => console.error('[notify] assign:', err.message));
     }

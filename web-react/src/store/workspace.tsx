@@ -40,6 +40,9 @@ interface WorkspaceState {
   /** `taskId` opens that task's panel once the board is up — how a page gets
    *  back to the task it belongs to. */
   openProject: (id: string, taskId?: string, viewId?: string) => void;
+  /** Make a task in a database and open its panel. The palette's "New task",
+   *  and the capture box's landing path. Resolves to the new task's id. */
+  createTaskIn: (projectId: string) => Promise<string | null>;
   /** The view a /db/<id>/<view> link named, until ProjectView takes it. */
   pendingViewId: string | null;
   clearPendingView: () => void;
@@ -106,6 +109,11 @@ interface WorkspaceState {
   settingsOpen: boolean;
   trashOpen: boolean;
   inboxOpen: boolean;
+  /** The `?` sheet. Its own flag rather than a right-panel tab: it is read
+   *  over whatever you were doing and dismissed. */
+  shortcutsOpen: boolean;
+  /** The one-line capture box, opened with `n` over whatever is on screen. */
+  captureOpen: boolean;
   mode: EditorMode;
   fullWidth: boolean;
   theme: 'light' | 'dark';
@@ -156,6 +164,8 @@ interface WorkspaceState {
   setSettingsOpen: (v: boolean) => void;
   setTrashOpen: (v: boolean) => void;
   setInboxOpen: (v: boolean) => void;
+  setShortcutsOpen: (v: boolean) => void;
+  setCaptureOpen: (v: boolean) => void;
   setMode: (m: EditorMode) => void;
   setFullWidth: (v: boolean) => void;
   toggleTheme: () => void;
@@ -272,6 +282,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [trashOpen, setTrashOpen] = useState(false);
   const [inboxOpen, setInboxOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [captureOpen, setCaptureOpen] = useState(false);
   const [allTags, setAllTags] = useState<Tag[]>([]);
   const [tagFilter, setTagFilter] = useState<string[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -438,6 +450,24 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setMobileDrawer(false);
     showDatabase(id, viewId ?? null);
   }, []);
+
+  /**
+   * Make a task in a database and open it, from anywhere.
+   *
+   * ProjectView has its own `add` — it has a board's worth of context to put
+   * into the new row (the scoped sprint, the column it was dropped in). This
+   * one is the context-free version the palette and the capture box need, and
+   * it deliberately creates the same empty-titled row: the title is typed in
+   * the peek that opens a moment later, which is where the key appears.
+   */
+  const createTaskIn = useCallback(async (projectId: string) => {
+    const row = await tasksApi.createTask({ projectId, title: '' }).catch(() => null);
+    if (!row) { toast('Could not create that task'); return null; }
+    // The sidebar and Home both count tasks from the project list.
+    void refreshProjects();
+    openProject(projectId, row.id);
+    return row.id;
+  }, [openProject, refreshProjects]);
 
   /** The view a /db/<id>/<view> link asked for, read and cleared by ProjectView
    *  the way pendingTaskId is — after which the screen owns which view is open. */
@@ -1045,13 +1075,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       pinnedIds, pinnedFolderIds, togglePin, toggleFolderPin,
       currentId, currentPage, loading, error, workspaceId,
       historyDocId, openHistory, closeHistory,
-      view, activeProjectId, activeFolderId, openHome, openTasks, openAllDocs, openProject, pendingTaskId, clearPendingTask, pendingViewId: activeViewId, clearPendingView, openFolder, projects, refreshProjects,
+      view, activeProjectId, activeFolderId, openHome, openTasks, openAllDocs, openProject, createTaskIn, pendingTaskId, clearPendingTask, pendingViewId: activeViewId, clearPendingView, openFolder, projects, refreshProjects,
       sidebarCollapsed, panelCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
-      settingsOpen, trashOpen, inboxOpen, mode, fullWidth, theme,
+      settingsOpen, trashOpen, inboxOpen, shortcutsOpen, captureOpen, mode, fullWidth, theme,
       refresh, select, toggleExpand, toggleFavorite, toggleFolderFavorite, setVisibility, rename, applyTitleFromEditor,
       createPage, createDesign, movePage, createChildPage, reorderPage, linkPage, reorderFolder, moveFolder, createFolder, renameFolder, setFolderColor, setIcon, toggleFolder, deleteFolder, createFromTemplate, importFiles, deletePage, restorePage,
       refreshTags, addTagToPage, removeTagFromPage, deleteTag, setTagFilter,
-      setSidebarCollapsed, setPanelCollapsed, setSidebarWidth, setMobileDrawer, setRightPanel, setPaletteOpen,
+      setSidebarCollapsed, setPanelCollapsed, setSidebarWidth, setMobileDrawer, setRightPanel, setPaletteOpen, setShortcutsOpen, setCaptureOpen,
       setShareOpen, setSettingsOpen, setTrashOpen, setInboxOpen, setMode, setFullWidth, toggleTheme,
     }),
     [
@@ -1061,9 +1091,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       pinnedIds, pinnedFolderIds, togglePin, toggleFolderPin,
       currentId, currentPage, loading, error, workspaceId,
       historyDocId, openHistory, closeHistory,
-      view, activeProjectId, activeFolderId, openHome, openTasks, openAllDocs, openProject, pendingTaskId, clearPendingTask, activeViewId, clearPendingView, openFolder, projects, refreshProjects,
+      view, activeProjectId, activeFolderId, openHome, openTasks, openAllDocs, openProject, createTaskIn, pendingTaskId, clearPendingTask, activeViewId, clearPendingView, openFolder, projects, refreshProjects,
       sidebarCollapsed, panelCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
-      settingsOpen, trashOpen, inboxOpen, mode, fullWidth, theme,
+      settingsOpen, trashOpen, inboxOpen, shortcutsOpen, captureOpen, mode, fullWidth, theme,
       refresh, select, toggleExpand, toggleFavorite, toggleFolderFavorite, setVisibility, rename, applyTitleFromEditor,
       createPage, createDesign, movePage, createChildPage, reorderPage, linkPage, reorderFolder, moveFolder, createFolder, renameFolder, setFolderColor, setIcon, toggleFolder, deleteFolder, createFromTemplate, importFiles, deletePage, restorePage,
       refreshTags, addTagToPage, removeTagFromPage, deleteTag, toggleTheme,

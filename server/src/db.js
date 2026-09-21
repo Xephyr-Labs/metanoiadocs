@@ -758,6 +758,73 @@ export async function initSchema() {
     -- come back out of the trash.
     CREATE UNIQUE INDEX IF NOT EXISTS tasks_num_idx
       ON tasks(project_id, num) WHERE num IS NOT NULL;
+    -- Tasks are searchable from the palette, which reaches them by fuzzy title
+    -- as well as by key. Same index shape docs_title_trgm_idx uses, for the
+    -- same operator.
+    CREATE INDEX IF NOT EXISTS tasks_title_trgm_idx
+      ON tasks USING GIN (title gin_trgm_ops);
+
+    -- ── work that comes back, and work you can size ────────────────────
+    -- One of repeat.js's five rules, or NULL. Marking a task with one done
+    -- creates the next occurrence — see the note at the top of that file for
+    -- why completion drives this and not a clock.
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS repeat_rule TEXT;
+    -- The occurrence this one was spawned by. It is what stops two people
+    -- ticking the same repeating task at the same moment from creating two
+    -- successors: the unique index below means the second INSERT loses, rather
+    -- than the read-then-write in the PATCH handler being trusted to notice.
+    -- Also the honest answer to "where did this come from".
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS repeat_of TEXT REFERENCES tasks(id) ON DELETE SET NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS tasks_repeat_of_idx
+      ON tasks(repeat_of) WHERE repeat_of IS NOT NULL;
+    -- Hours, to one decimal. Points size a sprint; hours size a week, and a
+    -- database that holds only points cannot answer "is anyone overloaded".
+    --
+    -- DOUBLE PRECISION rather than NUMERIC, which would be the better type for
+    -- money: node-postgres hands NUMERIC back as a *string*, because it will
+    -- not silently lose precision — and every view here would then sort "10"
+    -- before "9". The values are one-decimal hours that are summed for a bar
+    -- chart, so a float loses nothing anybody can see. Rounding happens on the
+    -- way in, in readHours.
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS estimate_h DOUBLE PRECISION;
+
+    -- ── calendar subscription ──────────────────────────────────────
+    -- The secret in a person's .ics URL. A calendar app sends no cookie and
+    -- cannot sign in, so the URL has to carry its own proof — which is why this
+    -- is a long random value the owner can revoke by asking for a new one, and
+    -- why the feed it unlocks is read-only and shows one person's own work.
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS calendar_token TEXT;
+    CREATE UNIQUE INDEX IF NOT EXISTS users_calendar_token_idx
+      ON users(calendar_token) WHERE calendar_token IS NOT NULL;
+
+    -- ── rules a clock sets off ──────────────────────────────────────
+    -- Which of the swept rules has already fired for which task. A status
+    -- change happens once by nature; "is overdue" is true every hour until
+    -- somebody deals with it, so without this a rule would reassign the same
+    -- task around the clock. The primary key IS the guard — the sweep inserts
+    -- first and only acts on the rows it actually managed to claim.
+    CREATE TABLE IF NOT EXISTS automation_fires (
+      rule_id    TEXT NOT NULL REFERENCES automations(id) ON DELETE CASCADE,
+      task_id    TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      fired_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (rule_id, task_id)
+    );
+
+    -- ── intake forms ─────────────────────────────────────────────
+    -- A public share link that writes instead of reads. The token IS the
+    -- capability, and it grants exactly one thing: append a task to this
+    -- database. NULL means the database has no form, which is the default and
+    -- the only state it can be put back into.
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS form_token TEXT;
+    -- What the form says above the fields, in the words of whoever runs it.
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS form_intro TEXT;
+    CREATE UNIQUE INDEX IF NOT EXISTS projects_form_token_idx
+      ON projects(form_token) WHERE form_token IS NOT NULL;
+
+    -- Who the work came from, when it came from outside. A task made by a
+    -- signed-in person has created_by; one made through a form has nobody, and
+    -- "a bug report from nobody" is not worth having.
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS submitted_by TEXT;
   `);
 
   await normalizeLegacyFolderImport();

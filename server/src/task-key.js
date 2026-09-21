@@ -96,3 +96,38 @@ export function uniqueKey(base, taken) {
   // Louder than silently handing back a key the unique index will reject.
   throw new Error(`no free key left around "${base}"`);
 }
+
+/**
+ * Is there a title here once the key comes off?
+ *
+ * The trap this names: `withKey` strips a leading "MD-14: " before storing,
+ * because the key lives inside the title. So a string that is non-empty on
+ * arrival can be empty once stored — "MD-14:" is the whole of it. Anywhere a
+ * title is *required*, this is the check, not `!!title`.
+ *
+ * The app's own creates deliberately pass an empty title (the UI shows
+ * "Untitled" until you name it in the peek), so this is for the doors where a
+ * name is the point: the public intake form is the one that had the hole.
+ */
+export function usableTitle(title) {
+  return stripKey(title).trim().length > 0;
+}
+
+/**
+ * A search query that *names* a task rather than describing one: "MD-14",
+ * "md-14", "MD 14", "md14". Returns the key and number, or null.
+ *
+ * This is what a key is for. People paste "MD-14" into a chat message, and the
+ * person who reads it types those six characters into the palette — so that
+ * query has to land on the task itself rather than on whatever pages happen to
+ * mention it.
+ *
+ * A trailing colon is tolerated because the title carries one, so half a
+ * pasted title ("MD-14:") is a key too.
+ */
+export function parseKeyQuery(q) {
+  const m = /^([A-Za-z][A-Za-z0-9]{0,7}?)[\s-]*([0-9]+)$/.exec(
+    String(q ?? '').trim().replace(/:$/, ''),
+  );
+  return m ? { key: m[1].toUpperCase(), num: Number(m[2]) } : null;
+}

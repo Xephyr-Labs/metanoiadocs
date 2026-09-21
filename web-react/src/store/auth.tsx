@@ -157,6 +157,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     await api('/auth/logout', {});
+    // The service worker keeps the last answers to /api/me, /api/docs and the
+    // rest so the app still renders on a train. On a shared machine that would
+    // mean the next person opening it offline finds this one's sidebar, so
+    // signing out takes the cache with it.
+    if (typeof caches !== 'undefined') {
+      await caches.delete('mn-api').catch(() => { /* nothing cached, or blocked */ });
+    }
     setUser(null);
   }, []);
 
