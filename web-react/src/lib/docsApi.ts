@@ -379,6 +379,13 @@ export const docsApi = {
   snapshot: (id: string, label: string) =>
     req(`/docs/${id}/versions`, { method: 'POST', body: JSON.stringify({ label }) }),
 
+  /** The address of this person's calendar feed, if one has been minted. */
+  calendarToken: (): Promise<{ token: string | null; url: string | null }> => req('/calendar/token'),
+  /** Mint one, or replace the one there is — which is how a feed pasted into
+   *  the wrong chat is revoked. */
+  makeCalendarToken: (rotate = false): Promise<{ token: string; url: string }> =>
+    req('/calendar/token', { method: 'POST', body: JSON.stringify({ rotate }) }),
+
   webhooks: (): Promise<WebhookRow[]> => req('/webhooks'),
   webhookEvents: (): Promise<string[]> => req('/webhooks/events'),
   /** The one response carrying the secret. It is not recoverable afterwards. */

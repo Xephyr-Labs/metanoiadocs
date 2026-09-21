@@ -12,7 +12,7 @@
 import { useMemo } from 'react';
 import { CalendarRange } from 'lucide-react';
 import {
-  burndown, linePoints, statusMix, throughput, velocity,
+  burndown, linePoints, statusMix, throughput, velocity, workload,
 } from '../../lib/charts';
 import { STATUS_LABEL, type SprintRow, type TaskRow, type TaskStatus } from '../../lib/tasksApi';
 import { STATUS_COLOR } from '../../lib/builtinProps';
@@ -239,6 +239,58 @@ function StatusMix({ tasks, statusColors }: { tasks: TaskRow[]; statusColors: Re
 }
 
 /**
+ * Who is carrying what, in hours.
+ *
+ * Bars rather than a ranked list of numbers, because the question is
+ * comparative — not "how many hours does Ada have" but "does Ada have more
+ * than everyone else". The scale is the heaviest person, so the top bar is
+ * always full: this says who is loaded relative to the team, which is the only
+ * thing a database that does not know anyone's working hours can honestly say.
+ *
+ * The unsized count is printed beside the hours rather than folded into them.
+ * A person with a 2-hour bar and four unestimated tasks is exactly the case
+ * this chart would otherwise get backwards, and inventing a number for those
+ * tasks would be worse than admitting they have none.
+ */
+function Workload({ tasks }: { tasks: TaskRow[] }) {
+  const rows = useMemo(() => workload(tasks), [tasks]);
+  const top = Math.max(...rows.map((r) => r.hours), 0);
+  if (!rows.length) return <Nothing>No open work in this view.</Nothing>;
+  if (top === 0) {
+    return <Nothing>No estimates yet — put hours on a task and this fills in.</Nothing>;
+  }
+
+  return (
+    <ul className="flex flex-col gap-2">
+      {rows.slice(0, 8).map((r) => (
+        <li key={r.id || 'unassigned'} className="flex flex-col gap-1">
+          <div className="flex items-baseline gap-2">
+            <span className={cn('min-w-0 flex-1 truncate text-2xs', r.id ? 'text-ink' : 'text-faint')}>{r.name}</span>
+            <span className="shrink-0 text-2xs tabular-nums text-muted">{round(r.hours)}h</span>
+            {r.unsized > 0 && (
+              <span className="shrink-0 text-3xs tabular-nums text-faint" title={`${r.unsized} of ${r.count} tasks carry no estimate`}>
+                +{r.unsized} unsized
+              </span>
+            )}
+          </div>
+          <div className="h-1.5 overflow-hidden rounded-full bg-hover">
+            <span
+              className={cn('block h-full rounded-full', r.id ? 'bg-accent' : 'bg-line-strong')}
+              style={{ width: `${Math.max(2, (r.hours / top) * 100)}%` }}
+              role="img"
+              aria-label={`${r.name}: ${round(r.hours)} hours over ${r.count} open task${r.count === 1 ? '' : 's'}`}
+            />
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** Hours, without a trailing .0 on the whole ones. */
+const round = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
+
+/**
  * The dashboard view.
  *
  * It reads the same filtered task list every other view does, so narrowing the
@@ -295,6 +347,12 @@ export function Dashboard({ tasks, sprints, scope, statusColors = {} }: {
             <StatusMix tasks={tasks} statusColors={statusColors} />
           </Card>
         </div>
+        {/* Its own row, not a fourth tile in the strip: a fourth card leaves a
+            hole beside it at every width the strip has, and this one is a list
+            of names that wants the width anyway. */}
+        <Card title="Workload" hint="open hours per person">
+          <Workload tasks={tasks} />
+        </Card>
       </div>
     </div>
   );

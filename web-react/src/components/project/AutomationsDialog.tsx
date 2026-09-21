@@ -17,6 +17,7 @@ import {
   tasksApi,
   type AutomationAction,
   type AutomationRow,
+  type AutomationTrigger,
   type SprintRow,
   type TaskKindRow,
   type TaskStatus,
@@ -236,6 +237,20 @@ function ConditionRow({ clause, kinds, sprints, users, onChange, onRemove }: {
   );
 }
 
+/**
+ * A rule's trigger as one select value.
+ *
+ * Two of the six triggers carry a variant (which status, due today or overdue)
+ * and four carry nothing. Joining them into one key is what lets this be a
+ * single select rather than a select plus a conditional second select — the
+ * reader is making one choice, and the control should be one control.
+ */
+function triggerKey(rule: AutomationRow): string {
+  if (rule.trigger_kind === 'status') return `status:${rule.trigger_value ?? 'done'}`;
+  if (rule.trigger_kind === 'due') return `due:${rule.trigger_value ?? 'overdue'}`;
+  return `${rule.trigger_kind}:`;
+}
+
 function RuleCard({ rule, kinds, sprints, users, onSave, onDelete }: {
   rule: AutomationRow;
   kinds: TaskKindRow[];
@@ -270,17 +285,47 @@ function RuleCard({ rule, kinds, sprints, users, onSave, onDelete }: {
         <select
           aria-label="Trigger"
           className={cn(selectField, 'h-7 flex-1 text-xs')}
-          value={rule.trigger_kind === 'manual' ? 'manual' : (rule.trigger_value ?? 'done')}
-          onChange={(e) => (e.target.value === 'manual'
-            ? onSave({ trigger_kind: 'manual', value: null })
-            : onSave({ trigger_kind: 'status', value: e.target.value }))}
+          // One key for both halves of a trigger, because a select has one
+          // value and "status becomes Done" is one choice, not two.
+          value={triggerKey(rule)}
+          onChange={(e) => {
+            const [kind, value] = e.target.value.split(':');
+            onSave({ trigger_kind: kind as AutomationTrigger, value: value || null });
+          }}
         >
           {STATUSES.map((s) => (
-            <option key={s} value={s}>status becomes {STATUS_LABEL[s]}</option>
+            <option key={s} value={`status:${s}`}>status becomes {STATUS_LABEL[s]}</option>
           ))}
-          <option value="manual">run by hand, from a task</option>
+          <option value="created:">a task is created</option>
+          <option value="assigned:">someone is assigned</option>
+          <option value="due:today">it is due today</option>
+          <option value="due:overdue">it is overdue</option>
+          <option value="stale:">nothing has changed in</option>
+          <option value="manual:">run by hand, from a task</option>
         </select>
+        {/* Only `stale` has a number to carry, so only `stale` shows the box. */}
+        {rule.trigger_kind === 'stale' && (
+          <span className="flex shrink-0 items-center gap-1.5">
+            <input
+              type="number"
+              min={1}
+              max={365}
+              aria-label="Days without a change"
+              defaultValue={Number(rule.trigger_value) || 7}
+              onBlur={(e) => onSave({ trigger_kind: 'stale', value: e.target.value })}
+              className={cn(fieldStyle, 'h-7 w-[64px] text-xs tabular-nums')}
+            />
+            <span className="text-xs text-muted">days</span>
+          </span>
+        )}
       </div>
+      {/* Said once, beside the two triggers it is true of: a rule a clock sets
+          off has to stop somewhere, and "once per task" is the rule. */}
+      {(rule.trigger_kind === 'due' || rule.trigger_kind === 'stale') && (
+        <p className="mt-1 pl-[112px] text-3xs leading-4 text-faint">
+          Checked hourly, and runs once per task — not every hour it stays true.
+        </p>
+      )}
 
       <div className="mt-1.5 space-y-1.5">
         {condition.map((c, i) => (
@@ -397,10 +442,11 @@ export function AutomationsDialog({ open, onOpenChange, projectId, kinds, sprint
     <Modal open={open} onOpenChange={onOpenChange} title="Automations" width={520} className="max-h-[80vh]" focusPanel>
       <div className="scrollarea min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
         <p className="pb-1 text-2xs leading-4 text-faint">
-          Rules run when someone moves a task into a status — never on each other, so two
-          rules cannot loop. A rule set to “run by hand” does nothing on its own and shows
-          up on a task as a button. Add conditions to narrow which tasks a rule may touch;
-          with none, it applies to all of them.
+          Rules run on something a person did — a move, a new task, a handover — or on a
+          date arriving. Never on each other, so two rules cannot loop. A rule set to
+          “run by hand” does nothing on its own and shows up on a task as a button. Add
+          conditions to narrow which tasks a rule may touch; with none, it applies to all
+          of them.
         </p>
 
         {rows === null ? (

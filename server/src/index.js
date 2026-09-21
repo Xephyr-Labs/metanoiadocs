@@ -4,6 +4,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { AI_ACTOR_NONCE, actorVia } from './actor.js';
 import { parseKeyQuery, withKey } from './task-key.js';
+import { buildCalendar } from './ics.js';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import * as cookie from 'cookie';
@@ -54,7 +55,7 @@ import { linkFor } from './push-rules.js';
 import { registerFolderRoutes, visibleFolder } from './folders-routes.js';
 import { registerWebhookRoutes, emit, startWebhookWorker } from './webhooks.js';
 import { registerAgentRoutes, enqueueRun } from './agent-runs.js';
-import { registerAutomationRoutes } from './automations.js';
+import { registerAutomationRoutes, startAutomationSweeper } from './automations.js';
 import { TRASH_RETENTION_DAYS, startTrashSweeper } from './retention.js';
 import { startReminders } from './reminders.js';
 import { dayIn, isZone, zoneOf } from './timezone.js';
@@ -353,6 +354,86 @@ app.post('/api/auth/logout', async (req, res) => {
 app.get('/api/me', requireUser, (req, res) => {
   res.json(publicUser(req.user));
 });
+
+/**
+ * The address of this person's calendar feed, minted on first ask.
+ *
+ * POST rather than GET because the first call writes: a token nobody has asked
+ * for should not exist, and a GET that quietly creates a long-lived credential
+ * is a GET that is not safe to retry, prefetch or log.
+ *
+ * Asking again with `{ rotate: true }` replaces it, which is how a feed that
+ * was pasted into the wrong chat is revoked — the old URL stops working the
+ * moment the new one exists.
+ */
+app.post('/api/calendar/token', requireUser, wrap(async (req, res) => {
+  const rotate = req.body?.rotate === true;
+  const { rows } = await pool.query(
+    `UPDATE users
+        SET calendar_token = CASE WHEN calendar_token IS NULL OR $2 THEN $3 ELSE calendar_token END
+      WHERE id = $1
+      RETURNING calendar_token`,
+    [req.user.id, rotate, crypto.randomBytes(24).toString('base64url')]
+  );
+  const token = rows[0]?.calendar_token;
+  if (!token) return res.status(404).json({ error: 'not found' });
+  res.json({ token, url: `${BASE_URL}/api/calendar/${token}/tasks.ics` });
+}));
+
+/** The address, if one has been minted. Null rather than minting one, so
+ *  opening Settings does not create a credential for everybody who looks. */
+app.get('/api/calendar/token', requireUser, wrap(async (req, res) => {
+  const { rows } = await pool.query('SELECT calendar_token FROM users WHERE id = $1', [req.user.id]);
+  const token = rows[0]?.calendar_token ?? null;
+  res.json({ token, url: token ? `${BASE_URL}/api/calendar/${token}/tasks.ics` : null });
+}));
+
+/**
+ * One person's dated work, as a calendar a phone can subscribe to.
+ *
+ * No cookie, no session: the token in the path is the whole of the
+ * authentication, because that is all a calendar client can send. Everything
+ * that follows from that is deliberate — it is read-only, it is one person's
+ * own tasks, it carries no comments or page content, and it can be revoked by
+ * rotating the token.
+ *
+ * `noindex` because a URL like this ends up pasted places, and a crawler that
+ * finds one should not put it in an index.
+ */
+app.get('/api/calendar/:token/tasks.ics', wrap(async (req, res) => {
+  const token = String(req.params.token || '');
+  // Length-checked first so a short or empty token never reaches the database.
+  if (token.length < 20 || token.length > 128) return res.status(404).end();
+  const { rows: who } = await pool.query(
+    'SELECT id, name, email, timezone FROM users WHERE calendar_token = $1', [token]
+  );
+  if (!who[0]) return res.status(404).end();
+
+  const { rows: tasks } = await pool.query(
+    `SELECT t.id, t.title, t.status, t.start_at, t.due_at, t.project_id, p.name AS project_name
+       FROM tasks t
+       JOIN projects p ON p.id = t.project_id AND p.archived_at IS NULL AND p.mode <> 'data'
+       JOIN (
+         SELECT task_id, user_id FROM task_assignees
+         UNION
+         SELECT id AS task_id, assignee_id AS user_id FROM tasks WHERE assignee_id IS NOT NULL
+       ) e ON e.task_id = t.id AND e.user_id = $1
+      WHERE t.deleted_at IS NULL
+        AND (t.start_at IS NOT NULL OR t.due_at IS NOT NULL)
+      ORDER BY coalesce(t.start_at, t.due_at) DESC
+      LIMIT 1000`,
+    [who[0].id]
+  );
+
+  res.set('Content-Type', 'text/calendar; charset=utf-8');
+  res.set('Content-Disposition', 'inline; filename="metanoiadocs.ics"');
+  res.set('X-Robots-Tag', 'noindex, nofollow');
+  res.set('Cache-Control', 'private, max-age=300');
+  res.send(buildCalendar(tasks, {
+    name: `MetanoiaDocs — ${who[0].name || who[0].email}`,
+    baseUrl: BASE_URL,
+  }));
+}));
 
 // Inbox: recent comments by other people on docs you can access.
 // Per-user notification feed: @-mentions and comments on docs you own.
@@ -2655,4 +2736,5 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`MetanoiaDocs server on :${PORT}  base=${BASE_URL}`);
   startTrashSweeper();
   startReminders();
+startAutomationSweeper();
 });

@@ -407,6 +407,7 @@ function Preferences() {
           }
           control={<Switch on={mail} onChange={toggleMail} />}
         />
+        <CalendarFeed />
         {canNotify && notify && (
           <Row
             title="Test notifications"
@@ -424,6 +425,114 @@ function Preferences() {
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * Subscribe to your dated work in whatever calendar you actually look at.
+ *
+ * Deliberately not a switch. A feed either exists or it does not, and what is
+ * useful is the address — so the control is the address, with one button to
+ * make it and one to replace it. Nothing is created by opening this screen:
+ * the URL is a credential, and everyone who ever looked at Settings should not
+ * be left holding one.
+ *
+ * The URL is shown in full rather than behind a "Copy" button alone. It is
+ * going to be pasted into another application, sometimes on another device,
+ * and a secret you cannot read is one you cannot type in.
+ */
+function CalendarFeed() {
+  const [url, setUrl] = useState<string | null>(null);
+  const [state, setState] = useState<'idle' | 'loading' | 'working'>('loading');
+  const [copied, setCopied] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    docsApi.calendarToken()
+      .then((r) => { if (alive) { setUrl(r.url); setState('idle'); } })
+      .catch(() => { if (alive) setState('idle'); });
+    return () => { alive = false; };
+  }, []);
+
+  const mint = async (rotate: boolean) => {
+    setState('working');
+    setError(null);
+    setConfirming(false);
+    try {
+      setUrl((await docsApi.makeCalendarToken(rotate)).url);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not make that link.');
+    } finally {
+      setState('idle');
+    }
+  };
+
+  const copy = async () => {
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1400);
+    } catch {
+      // A clipboard the browser will not hand over is why the URL is on screen.
+      setError('Could not copy — select the address above instead.');
+    }
+  };
+
+  const button =
+    'h-7 shrink-0 rounded border border-line px-2.5 text-xs font-medium text-ink '
+    + 'transition-colors hover:bg-hover disabled:pointer-events-none disabled:opacity-50';
+
+  return (
+    <Row
+      title="Calendar subscription"
+      desc={
+        error
+          ? error
+          : url
+            ? 'Add this address in Google Calendar, Apple Calendar or Outlook. It shows the tasks assigned to you that have dates, and it updates itself.'
+            : 'Put the tasks assigned to you into the calendar you already use. Anyone with the address can read them, so treat it like a password.'
+      }
+      control={
+        url ? (
+          <div className="flex w-full min-w-0 flex-col items-stretch gap-1.5 sm:w-[300px]">
+            <input
+              readOnly
+              value={url}
+              aria-label="Calendar address"
+              onFocus={(e) => e.target.select()}
+              className="h-7 w-full rounded border border-line bg-surface px-2 font-mono text-3xs text-muted"
+            />
+            <div className="flex items-center gap-1.5">
+              <button type="button" onClick={copy} className={button}>
+                {copied ? 'Copied' : 'Copy'}
+              </button>
+              {confirming ? (
+                <>
+                  <button type="button" onClick={() => void mint(true)} disabled={state === 'working'} className={cn(button, 'border-danger-strong text-danger-strong')}>
+                    Replace it
+                  </button>
+                  <button type="button" onClick={() => setConfirming(false)} className={button}>Keep</button>
+                </>
+              ) : (
+                // Arms rather than asking in a dialog: replacing the address
+                // breaks every calendar already subscribed to it, which is
+                // worth one deliberate second click and not a modal.
+                <button type="button" onClick={() => setConfirming(true)} className={cn(button, 'text-muted')}>
+                  New address
+                </button>
+              )}
+            </div>
+          </div>
+        ) : (
+          <button type="button" onClick={() => void mint(false)} disabled={state !== 'idle'} className={button}>
+            {state === 'working' ? 'Making…' : state === 'loading' ? 'Checking…' : 'Create a link'}
+          </button>
+        )
+      }
+    />
   );
 }
 

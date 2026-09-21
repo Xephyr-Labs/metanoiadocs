@@ -139,6 +139,55 @@ export function throughput(tasks: TaskRow[], weeks = 8, today = todayISO()): Thr
   return buckets;
 }
 
+export interface WorkloadRow {
+  id: string;
+  name: string;
+  /** Hours estimated across their open tasks. */
+  hours: number;
+  /** How many of those tasks carry no estimate — the honest caveat on the bar. */
+  unsized: number;
+  count: number;
+}
+
+/**
+ * Open work per person, in hours.
+ *
+ * The question points cannot answer. Points size a sprint against the team's
+ * own history; hours size a week against the number of hours in one, and
+ * "is anyone carrying too much" is a question about the week.
+ *
+ * Done tasks are out: this is what is still coming, not what happened. A task
+ * with several assignees counts once for each of them — it is on all their
+ * plates, and splitting the hours would invent a division of labour the
+ * database does not know about.
+ *
+ * `unsized` rides along rather than being hidden, because a person with four
+ * unestimated tasks and a 2-hour bar is the case this chart would otherwise
+ * quietly get wrong.
+ */
+export function workload(tasks: TaskRow[]): WorkloadRow[] {
+  const by = new Map<string, WorkloadRow>();
+  for (const t of tasks) {
+    if (t.status === 'done') continue;
+    const people = t.assignees?.length
+      ? t.assignees.map((a) => ({ id: a.id, name: a.name || 'Someone' }))
+      : [{ id: '', name: 'Unassigned' }];
+    for (const p of people) {
+      const row = by.get(p.id) ?? { id: p.id, name: p.name, hours: 0, unsized: 0, count: 0 };
+      row.count += 1;
+      if (t.estimate_h == null) row.unsized += 1;
+      else row.hours += Number(t.estimate_h) || 0;
+      by.set(p.id, row);
+    }
+  }
+  return [...by.values()]
+    // Heaviest first: the reason to open this is to find who is buried.
+    // Unassigned sinks to the bottom whatever it holds — it is a pile, not a
+    // person, and it should not be what the eye lands on.
+    .sort((a, b) => (a.id === '' ? 1 : b.id === '' ? -1 : 0)
+      || b.hours - a.hours || b.count - a.count || a.name.localeCompare(b.name));
+}
+
 /** Counts by status, in the order the board shows them. */
 export function statusMix(tasks: TaskRow[]): { status: TaskStatus; count: number }[] {
   return STATUSES.map((status) => ({ status, count: tasks.filter((t) => t.status === status).length }));

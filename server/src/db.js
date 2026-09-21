@@ -763,6 +763,44 @@ export async function initSchema() {
     -- same operator.
     CREATE INDEX IF NOT EXISTS tasks_title_trgm_idx
       ON tasks USING GIN (title gin_trgm_ops);
+
+    -- ── work that comes back, and work you can size ────────────────────
+    -- One of repeat.js's five rules, or NULL. Marking a task with one done
+    -- creates the next occurrence — see the note at the top of that file for
+    -- why completion drives this and not a clock.
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS repeat_rule TEXT;
+    -- Hours, to one decimal. Points size a sprint; hours size a week, and a
+    -- database that holds only points cannot answer "is anyone overloaded".
+    --
+    -- DOUBLE PRECISION rather than NUMERIC, which would be the better type for
+    -- money: node-postgres hands NUMERIC back as a *string*, because it will
+    -- not silently lose precision — and every view here would then sort "10"
+    -- before "9". The values are one-decimal hours that are summed for a bar
+    -- chart, so a float loses nothing anybody can see. Rounding happens on the
+    -- way in, in readHours.
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS estimate_h DOUBLE PRECISION;
+
+    -- ── calendar subscription ──────────────────────────────────────
+    -- The secret in a person's .ics URL. A calendar app sends no cookie and
+    -- cannot sign in, so the URL has to carry its own proof — which is why this
+    -- is a long random value the owner can revoke by asking for a new one, and
+    -- why the feed it unlocks is read-only and shows one person's own work.
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS calendar_token TEXT;
+    CREATE UNIQUE INDEX IF NOT EXISTS users_calendar_token_idx
+      ON users(calendar_token) WHERE calendar_token IS NOT NULL;
+
+    -- ── rules a clock sets off ──────────────────────────────────────
+    -- Which of the swept rules has already fired for which task. A status
+    -- change happens once by nature; "is overdue" is true every hour until
+    -- somebody deals with it, so without this a rule would reassign the same
+    -- task around the clock. The primary key IS the guard — the sweep inserts
+    -- first and only acts on the rows it actually managed to claim.
+    CREATE TABLE IF NOT EXISTS automation_fires (
+      rule_id    TEXT NOT NULL REFERENCES automations(id) ON DELETE CASCADE,
+      task_id    TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      fired_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (rule_id, task_id)
+    );
   `);
 
   await normalizeLegacyFolderImport();

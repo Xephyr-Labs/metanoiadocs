@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { burndown, linePoints, mondayOf, statusMix, throughput, velocity } from './charts';
+import { burndown, linePoints, mondayOf, statusMix, throughput, velocity, workload } from './charts';
 import type { SprintRow, TaskRow } from './tasksApi';
 
 const task = (t: Partial<TaskRow>): TaskRow => ({
@@ -126,5 +126,51 @@ describe('linePoints', () => {
   it('survives an empty chart without dividing by zero', () => {
     expect(linePoints([0, 0], 0, 100, 50, 2)).toBe('0,50 100,50');
     expect(linePoints([1], 1, 100, 50, 1)).toBe('0,0');
+  });
+});
+
+describe('workload', () => {
+  const t = task;
+
+  it('adds up open hours per person, heaviest first', () => {
+    const rows = workload([
+      t({ id: '1', estimate_h: 3, assignees: [{ id: 'a', name: 'Ada' }] }),
+      t({ id: '2', estimate_h: 5, assignees: [{ id: 'b', name: 'Bo' }] }),
+      t({ id: '3', estimate_h: 4, assignees: [{ id: 'b', name: 'Bo' }] }),
+    ]);
+    expect(rows.map((r) => [r.name, r.hours])).toEqual([['Bo', 9], ['Ada', 3]]);
+  });
+
+  it('leaves finished work out — this is what is still coming', () => {
+    const rows = workload([
+      t({ id: '1', estimate_h: 3, status: 'done', assignees: [{ id: 'a', name: 'Ada' }] }),
+      t({ id: '2', estimate_h: 2, assignees: [{ id: 'a', name: 'Ada' }] }),
+    ]);
+    expect(rows).toEqual([{ id: 'a', name: 'Ada', hours: 2, unsized: 0, count: 1 }]);
+  });
+
+  // A task on two people is on two plates. Splitting the hours would invent a
+  // division of labour nobody recorded.
+  it('counts a shared task once for each person', () => {
+    const rows = workload([
+      t({ id: '1', estimate_h: 6, assignees: [{ id: 'a', name: 'Ada' }, { id: 'b', name: 'Bo' }] }),
+    ]);
+    expect(rows.map((r) => r.hours)).toEqual([6, 6]);
+  });
+
+  it('counts the tasks nobody sized rather than pretending they are free', () => {
+    const rows = workload([
+      t({ id: '1', estimate_h: 2, assignees: [{ id: 'a', name: 'Ada' }] }),
+      t({ id: '2', estimate_h: null, assignees: [{ id: 'a', name: 'Ada' }] }),
+    ]);
+    expect(rows[0]).toEqual({ id: 'a', name: 'Ada', hours: 2, unsized: 1, count: 2 });
+  });
+
+  it('gathers what nobody is carrying, and puts it last', () => {
+    const rows = workload([
+      t({ id: '1', estimate_h: 40, assignees: [] }),
+      t({ id: '2', estimate_h: 1, assignees: [{ id: 'a', name: 'Ada' }] }),
+    ]);
+    expect(rows.map((r) => r.name)).toEqual(['Ada', 'Unassigned']);
   });
 });
