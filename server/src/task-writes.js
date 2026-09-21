@@ -19,12 +19,21 @@ export const MAX_ASSIGNEES = 20;
  *
  * Returns the ids that were not on the task before, which is who gets told.
  */
+/**
+ * The ids in `ids` that are really users, in the order given.
+ *
+ * Order is the caller's, not the database's: the first name is the one a narrow
+ * cell shows, so it must be the one they put first.
+ */
+export async function knownUsers(ids) {
+  if (!ids?.length) return [];
+  const { rows } = await pool.query('SELECT id FROM users WHERE id = ANY($1)', [ids]);
+  const known = new Set(rows.map((r) => r.id));
+  return ids.filter((id) => known.has(id));
+}
+
 export async function setAssignees(taskId, ids) {
-  const { rows: real } = await pool.query('SELECT id FROM users WHERE id = ANY($1)', [ids]);
-  // Order is the caller's, not the database's: the first name is the one a
-  // narrow cell shows, so it must be the one they put first.
-  const known = new Set(real.map((r) => r.id));
-  const wanted = ids.filter((id) => known.has(id));
+  const wanted = await knownUsers(ids);
   const { rows: before } = await pool.query(
     'SELECT user_id FROM task_assignees WHERE task_id = $1', [taskId]
   );

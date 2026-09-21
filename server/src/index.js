@@ -44,7 +44,7 @@ import { fileToMarkdown, IMPORT_EXTENSIONS } from './import.js';
 import { registerMcpRoute } from './mcp-http.js';
 import { topTerms, extractSignals, findMentions, simhash, hamming, keyphrases, summarize, tokenize, coalesceByKey, blocksFromText } from './intelligence.js';
 import { docKind } from './props.js';
-import { registerTaskRoutes } from './tasks.js';
+import { registerTaskRoutes, kindsFor, isStatus } from './tasks.js';
 import { registerTaskCommentRoutes } from './task-comments.js';
 import { registerPropRoutes } from './props-routes.js';
 import { registerViewRoutes } from './views.js';
@@ -2598,7 +2598,7 @@ registerPushRoutes(app, { requireUser, wrap });
 registerFolderRoutes(app, { requireUser, wrap });
 registerWebhookRoutes(app, { requireUser, requireAdmin, wrap });
 registerFormRoutes(app, { requireUser, wrap, baseUrl: BASE_URL });
-registerTemplateRoutes(app, { requireUser, wrap, grantOn });
+registerTemplateRoutes(app, { requireUser, wrap, grantOn, kindsFor, isStatus });
 registerCsvRoutes(app, {
   requireUser, wrap, createDocRow,
   // One file per request, same shape and same ceiling as the document import.

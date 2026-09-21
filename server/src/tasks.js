@@ -6,7 +6,7 @@ import { coerceFiles, propsPatch } from './props.js';
 import { rowTemplateFor, applyRowTemplate } from './templates.js';
 import { propsFor } from './props-routes.js';
 import { wouldProjectCycle } from './project-tree.js';
-import { MAX_ASSIGNEES, ensureTaskPage, setAssignees } from './task-writes.js';
+import { MAX_ASSIGNEES, ensureTaskPage, knownUsers, setAssignees } from './task-writes.js';
 import { notifyAssignees } from './assignees.js';
 import { dayIn, isoDate, zoneOf } from './timezone.js';
 import { applyAutomations, fireTrigger } from './automations.js';
@@ -34,7 +34,7 @@ export function wantedAssignees(body) {
 export const PROJECT_MODES = ['tasks', 'data'];
 const isMode = (m) => PROJECT_MODES.includes(m);
 
-const isStatus = (s) => STATUSES.includes(s);
+export const isStatus = (s) => STATUSES.includes(s);
 
 /**
  * The palette a chip may be painted in — the same nine names the tag palette
@@ -92,7 +92,7 @@ export function kindKey(label, taken = []) {
 }
 
 /** A project's types, seeding the defaults the first time it is asked. */
-async function kindsFor(projectId) {
+export async function kindsFor(projectId) {
   const sql = `SELECT * FROM task_kinds WHERE project_id = $1
                 ORDER BY position ASC, created_at ASC`;
   const { rows } = await pool.query(sql, [projectId]);
@@ -729,6 +729,13 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
     // A create that fails after this point burns a number, leaving a gap. That
     // is the deliberate trade, and the one every issue tracker makes: a gap is
     // invisible, whereas MD-14 meaning two different tasks is not.
+    // Resolved before the number is claimed, because `tasks.assignee_id` has a
+    // foreign key: an id that is not a user fails the INSERT, which answers
+    // "internal error", burns a task number and creates nothing. A template
+    // naming somebody who has since left the workspace is exactly how that
+    // happens, and setAssignees below has always dropped such an id silently —
+    // so the row column trusted what the list did not.
+    const people = await knownUsers(wantedAssignees(req.body) ?? []);
     const { rows: claim } = await pool.query(
       'UPDATE projects SET task_seq = task_seq + 1 WHERE id = $1 RETURNING key, task_seq',
       [projectId]
@@ -747,7 +754,7 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
         // The row's own column is filled from the list a moment later, by
         // setAssignees; this keeps a single-assignee create working unchanged
         // even if that write fails.
-        wantedAssignees(req.body)?.[0] ?? null,
+        people[0] ?? null,
         startAt.value, dueAt.value,
         Number(req.body?.priority) || 0,
         clampPct(req.body?.progress),
@@ -770,7 +777,7 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
       await ensureTaskPage(id, req.user.id, createDocRow, templateBody)
         .catch((err) => console.error('[template] page:', err.message));
     }
-    const assignees = wantedAssignees(req.body) ?? [];
+    const assignees = people;
     // Rules that listen for a new row run before the response, so the client
     // sees the task the rules left behind rather than the one it asked for and
     // then a different one on the next refresh.
