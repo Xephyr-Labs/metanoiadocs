@@ -29,6 +29,12 @@ interface Props {
    *  tasks from several projects has no project to add one to. The control is
    *  then not drawn at all, rather than drawn and inert. */
   onAdd?: (value: string) => void;
+  /** Cards picked for a bulk action. Absent turns the checkboxes off — a board
+   *  with no bar to act on a selection has nothing to pick rows for. */
+  selected?: ReadonlySet<string>;
+  onSelect?: (id: string, shift: boolean) => void;
+  /** The card j/k has walked to. */
+  focusedId?: string | null;
 }
 
 /** One dot per column, so the four headers are told apart before they are read.
@@ -42,7 +48,7 @@ export const DOT = STATUS_DOT as Record<TaskStatus, string>;
  * columns are drop targets and a card carries its own id, which is all this
  * needs.
  */
-export function Board({ tasks, groups, groupOf, cardProps, users, onMove, onOpen, onAdd }: Props) {
+export function Board({ tasks, groups, groupOf, cardProps, users, onMove, onOpen, onAdd, selected, onSelect, focusedId }: Props) {
   const [over, setOver] = useState<string | null>(null);
 
   return (
@@ -96,10 +102,29 @@ export function Board({ tasks, groups, groupOf, cardProps, users, onMove, onOpen
               {column.map((t) => (
                 <div
                   key={t.id}
+                  data-task-row={t.id}
                   draggable
                   onDragStart={(e) => {
                     e.dataTransfer.setData('text/task-id', t.id);
                     e.dataTransfer.effectAllowed = 'move';
+                  }}
+                  className={cn(
+                    'group/card relative rounded-lg',
+                    selected?.has(t.id) && 'ring-2 ring-accent-strong',
+                    focusedId === t.id && !selected?.has(t.id) && 'ring-2 ring-accent',
+                  )}
+                  // A held modifier picks the card instead of opening it — no
+                  // checkbox. A board card is a title that starts in its own
+                  // top-left corner, so a box there lands on the first letter
+                  // of every task; the table, whose rows have a gutter, gets
+                  // the checkboxes. Capture, because the chip's own click
+                  // handler is further down and would open the task first.
+                  onClickCapture={(e) => {
+                    if (!onSelect) return;
+                    if (!(e.metaKey || e.ctrlKey || e.shiftKey)) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onSelect(t.id, e.shiftKey);
                   }}
                 >
                   <TaskChip task={t} onOpen={() => onOpen(t)} cardProps={cardProps} users={users} />

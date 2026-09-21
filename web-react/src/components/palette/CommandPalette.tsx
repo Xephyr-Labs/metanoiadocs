@@ -9,7 +9,7 @@
  */
 import {
   ArrowRight, Clock, Database, FilePlus2, Files, History, Home, Inbox, ListTodo,
-  Loader2, Moon, PanelRight, Search, Settings, Share2, Sparkles, Sun, Trash2, Upload,
+  Keyboard, Loader2, Moon, PanelRight, Search, Settings, Share2, Sparkles, Sun, Trash2, Upload,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '../../lib/cn';
@@ -89,6 +89,7 @@ export function CommandPalette() {
       { kind: 'command', id: 'ai', title: 'Ask AI', icon: Sparkles, run: () => ws.setRightPanel('ai') },
       { kind: 'command', id: 'panel', title: 'Toggle side panel', icon: PanelRight, run: () => ws.setRightPanel(ws.rightPanel ? null : 'outline') },
       { kind: 'command', id: 'theme', title: ws.theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode', icon: ws.theme === 'dark' ? Sun : Moon, run: ws.toggleTheme },
+      { kind: 'command', id: 'shortcuts', title: 'Keyboard shortcuts', icon: Keyboard, run: () => ws.setShortcutsOpen(true) },
       { kind: 'command', id: 'trash', title: 'Open Trash', icon: Trash2, run: () => ws.setTrashOpen(true) },
       { kind: 'command', id: 'settings', title: 'Open settings', icon: Settings, run: () => ws.setSettingsOpen(true) },
     ];

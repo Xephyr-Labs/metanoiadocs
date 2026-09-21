@@ -6,7 +6,7 @@
  * note: two header rows — which view, then how it is narrowed — separated by a
  *       hairline so navigation and chrome are not one undifferentiated field.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Columns3, FolderOpen, Hash, MoreHorizontal, Plus, Tags, Zap } from 'lucide-react';
 import { useWorkspace } from '../../store/workspace';
 import { showDatabase } from '../../lib/route';
@@ -17,6 +17,7 @@ import { IconButton } from '../ui/IconButton';
 import { Menu } from '../ui/Menu';
 import { Skeleton } from '../ui/Skeleton';
 import { Backlog } from './Backlog';
+import { BulkBar } from './BulkBar';
 import { Board } from './Board';
 import { addDays } from '../../lib/gantt';
 import { Calendar } from './Calendar';
@@ -39,7 +40,13 @@ import { TaskKindsDialog } from './TaskKindsDialog';
 import { TaskTable } from './TaskTable';
 import { useDatabaseView } from './useDatabaseView';
 import { useProject } from './useProject';
+import { useTaskSelection } from './useTaskSelection';
+import { useRowKeys } from './useRowKeys';
 import { useViews } from './useViews';
+
+/** A stable empty list, so a view with no rows to walk does not hand the key
+ *  listener a fresh array to re-subscribe to on every render. */
+const EMPTY_IDS: string[] = [];
 
 /** Backlog, Board and Gantt read status, sprints and start/due dates, which a
  *  data database does not have. */
@@ -75,6 +82,34 @@ export function ProjectView() {
   // Arriving from a page that belongs to a task: open that task's panel as soon
   // as the list it lives in has loaded, then forget the request so a later
   // visit to the same board opens on the board itself.
+  // The ids the current view is showing, in the order the eye reads them — down
+  // a table, but column by column on a board, which is not the order the
+  // filtered list is in. Both the selection and j/k walk this, so a shift-click
+  // on a board takes the run you can actually see rather than a slice of the
+  // underlying list interleaved across four columns.
+  //
+  // Keyed by the joined ids rather than by the array: d.tasks is rebuilt on
+  // every render (it is a filter and a sort, not a memo), so identity alone
+  // would re-arm the key listener and rebuild every callback each time.
+  const orderedIds = d.kind === 'board'
+    ? d.groups.flatMap((g) => d.tasks.filter((t) => d.groupOf(t) === g.value).map((t) => t.id))
+    : d.tasks.map((t) => t.id);
+  const idKey = orderedIds.join(',');
+  const rowIds = useMemo(() => (idKey ? idKey.split(',') : []), [idKey]);
+
+  const sel = useTaskSelection(rowIds);
+
+  // j/k/Enter/x walk the rows the board and the table draw. Off while the peek
+  // owns the keyboard, and off on the views whose rows are not a flat list.
+  const walkable = d.kind === 'table' || d.kind === 'board';
+  const focusId = useRowKeys({
+    enabled: walkable && !open,
+    ids: walkable ? rowIds : EMPTY_IDS,
+    onOpen: (id) => { const t = d.tasks.find((x) => x.id === id); if (t) setOpen(t); },
+    onToggle: (id) => sel.onSelect(id, false),
+    onClear: sel.clear,
+  });
+
   const { pendingTaskId, clearPendingTask, pendingViewId, clearPendingView } = ws;
   useEffect(() => {
     if (!pendingTaskId) return;
@@ -252,6 +287,9 @@ export function ProjectView() {
             onOpen={setOpen}
             onAdd={(value) => add(d.groupSeed(value))}
             onMove={(id, value, position) => { d.moveToGroup(id, value, position); ws.refreshProjects(); }}
+            selected={sel.selected}
+            onSelect={sel.onSelect}
+            focusedId={focusId}
           />
         ) : d.kind === 'table' ? (
           <TaskTable
@@ -271,6 +309,10 @@ export function ProjectView() {
             // A focus area is a tag on the task's page, so both the task list
             // and the workspace's tag counts have to be re-read.
             onTagsChanged={() => { p.refresh(); ws.refreshTags(); }}
+            selected={sel.selected}
+            onSelect={sel.onSelect}
+            onToggleAll={sel.toggleAll}
+            focusedId={focusId}
           />
         ) : d.kind === 'gantt' ? (
           <Gantt tasks={d.tasks} cardProps={d.visible} users={p.users} onOpen={setOpen} />
@@ -309,6 +351,30 @@ export function ProjectView() {
           />
         )}
       </div>
+
+      {/* Only where a selection can be made — the board and the table are the
+          two views with checkboxes on their rows. */}
+      {sel.count > 0 && (d.kind === 'table' || d.kind === 'board') && (
+        <BulkBar
+          count={sel.count}
+          ids={sel.ids}
+          users={p.users}
+          sprints={p.sprints}
+          isData={isData}
+          onPatch={async (ids, body) => {
+            // Sequential, not Promise.all: every one of these is an UPDATE on
+            // the same table plus a webhook, and twenty at once is how a small
+            // Postgres ends up refusing the twenty-first.
+            for (const id of ids) await p.patch(id, body);
+            ws.refreshProjects();
+          }}
+          onDelete={async (ids) => {
+            for (const id of ids) await p.remove(id);
+            ws.refreshProjects();
+          }}
+          onClear={sel.clear}
+        />
+      )}
 
       <TaskPeek
         key={openTask?.id ?? 'none'}
