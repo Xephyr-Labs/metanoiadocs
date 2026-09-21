@@ -10,6 +10,7 @@ import { notifyAssignees } from './assignees.js';
 import { dayIn, zoneOf } from './timezone.js';
 import { applyAutomations } from './automations.js';
 import { emit } from './webhooks.js';
+import { KEY_PREFIX, KEY_RE, deriveKey, uniqueKey, withKey } from './task-key.js';
 
 export const STATUSES = ['todo', 'doing', 'review', 'done'];
 
@@ -260,20 +261,37 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
 
   app.post('/api/projects', requireUser, wrap(async (req, res) => {
     const id = crypto.randomUUID();
-    const { rows } = await pool.query(
-      `INSERT INTO projects (id, name, icon, color, doc_id, parent_id, mode, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+    const name = String(req.body?.name || 'Untitled project').slice(0, 200);
+    const insert = (key) => pool.query(
+      `INSERT INTO projects (id, name, icon, color, doc_id, parent_id, mode, key, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
       [
         id,
-        String(req.body?.name || 'Untitled project').slice(0, 200),
+        name,
         String(req.body?.icon || '📋').slice(0, 8),
         String(req.body?.color || 'blue').slice(0, 20),
         req.body?.docId || null,
         req.body?.parentId || null,
         isMode(req.body?.mode) ? req.body.mode : 'tasks',
+        key,
         req.user.id,
       ]
     );
+    // Two projects created in the same breath can reduce to the same key, and
+    // the guess is made outside the write. The unique index is the referee:
+    // look again at what is held and try once more, which is cheaper and
+    // shorter than locking the table on every create. The key is a guess
+    // either way — PATCH takes a better one.
+    let rows;
+    for (let attempt = 0; ; attempt++) {
+      const { rows: held } = await pool.query('SELECT key FROM projects WHERE key IS NOT NULL');
+      try {
+        ({ rows } = await insert(uniqueKey(deriveKey(name), held.map((r) => r.key))));
+        break;
+      } catch (e) {
+        if (e.code !== '23505' || attempt >= 2) throw e;
+      }
+    }
     res.json({ ...rows[0], total: '0', done: '0', overdue: '0' });
   }));
 
@@ -345,12 +363,49 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
     if (req.body?.archived !== undefined) {
       sets.push(req.body.archived ? 'archived_at = now()' : 'archived_at = NULL');
     }
+    // The key is set apart from the loop above: it is normalised, checked and
+    // — unlike a name — written into every one of the project's task titles.
+    // Renaming a project deliberately does *not* move its key: MD-14 is quoted
+    // in chat and in commit messages, and a name is a label while a key is an
+    // address.
+    if (req.body?.key !== undefined) {
+      const key = String(req.body.key).trim().toUpperCase();
+      if (!KEY_RE.test(key)) {
+        return res.status(400).json({ error: 'A key is one to eight letters or digits, starting with a letter.' });
+      }
+      vals.push(key);
+      sets.push(`key = $${vals.length}`);
+    }
     if (!sets.length) return res.json({ ok: true });
     vals.push(req.params.id);
-    const { rows } = await pool.query(
-      `UPDATE projects SET ${sets.join(', ')} WHERE id = $${vals.length} RETURNING *`, vals
-    );
+    let rows;
+    try {
+      ({ rows } = await pool.query(
+        `UPDATE projects SET ${sets.join(', ')} WHERE id = $${vals.length} RETURNING *`, vals
+      ));
+    } catch (e) {
+      if (e.code === '23505') return res.status(409).json({ error: 'That key belongs to another database.' });
+      throw e;
+    }
     if (!rows[0]) return res.status(404).json({ error: 'not found' });
+    if (req.body?.key !== undefined) {
+      // One statement, not one per task: a project can hold thousands, and the
+      // rewrite is the same substitution on every one of them. Numbers do not
+      // move, so nothing anyone wrote down stops resolving — only the prefix
+      // changes.
+      await pool.query(
+        `UPDATE tasks
+            SET title = $1 || '-' || num || ': ' || regexp_replace(title, $2, '')
+          WHERE project_id = $3 AND num IS NOT NULL`,
+        [rows[0].key, KEY_PREFIX, req.params.id]
+      );
+      await pool.query(
+        `UPDATE docs d SET title = left(t.title, 200)
+           FROM tasks t
+          WHERE t.doc_id = d.id AND t.project_id = $1 AND d.title <> left(t.title, 200)`,
+        [req.params.id]
+      );
+    }
     res.json(rows[0]);
   }));
 
@@ -547,14 +602,30 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
     // the date of the day it was created on.
     const checked = propsPatch(await propsFor(projectId), req.body?.props ?? {});
     if (!checked.ok) return res.status(400).json({ error: checked.error });
+    // The task's number, claimed before anything is written.
+    //
+    // Reading and bumping in one statement is what makes this safe: the UPDATE
+    // takes a row lock on the project for the instant it runs, so two people
+    // creating a task at the same moment queue behind it and come away with
+    // two different numbers. `max(num) + 1` over the tasks table would hand
+    // both of them the same one.
+    //
+    // A create that fails after this point burns a number, leaving a gap. That
+    // is the deliberate trade, and the one every issue tracker makes: a gap is
+    // invisible, whereas MD-14 meaning two different tasks is not.
+    const { rows: claim } = await pool.query(
+      'UPDATE projects SET task_seq = task_seq + 1 WHERE id = $1 RETURNING key, task_seq',
+      [projectId]
+    );
+    if (!claim[0]) return res.status(404).json({ error: 'no such project' });
     const { rows } = await pool.query(
-      `INSERT INTO tasks (id, project_id, title, status, assignee_id, start_at, due_at,
+      `INSERT INTO tasks (id, project_id, num, title, status, assignee_id, start_at, due_at,
                           priority, progress, points, milestone, doc_id, parent_id,
                           kind, sprint_id, position, props, created_by, updated_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$18) RETURNING *`,
+       VALUES ($1,$2,$19,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$18) RETURNING *`,
       [
         id, projectId,
-        String(req.body?.title || '').slice(0, 500),
+        withKey(claim[0].key, claim[0].task_seq, String(req.body?.title || '').slice(0, 500)),
         status,
         // The row's own column is filled from the list a moment later, by
         // setAssignees; this keeps a single-assignee create working unchanged
@@ -569,6 +640,7 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
         req.body?.parentId || null,
         kind, sprintId,
         pos[0].n, JSON.stringify(checked.value), req.user.id,
+        claim[0].task_seq,
       ]
     );
     emit('task.created', rows[0]);
@@ -591,7 +663,10 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
     const vals = [];
     const set = (sql, v) => { vals.push(v); sets.push(`${sql} = $${vals.length}`); };
 
-    if (b.title !== undefined) set('title', String(b.title).slice(0, 500));
+    // Held rather than set, because the page-link branch below can decide the
+    // title too, and both of them have to go through withKey — the key lives
+    // inside the title, so a plain write of what was typed would drop it.
+    let wantTitle = b.title === undefined ? undefined : String(b.title).slice(0, 500);
     if (b.status !== undefined) {
       if (!isStatus(b.status)) return res.status(400).json({ error: 'bad status' });
       set('status', b.status);
@@ -640,8 +715,17 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
           'SELECT title FROM docs WHERE id = $1 AND deleted_at IS NULL', [b.docId]
         );
         if (!page[0]) return res.status(400).json({ error: 'no such page' });
-        set('title', String(page[0].title || '').slice(0, 500));
+        wantTitle = String(page[0].title || '').slice(0, 500);
       }
+    }
+    if (wantTitle !== undefined) {
+      const { rows: k } = await pool.query(
+        `SELECT t.num, p.key FROM tasks t JOIN projects p ON p.id = t.project_id
+          WHERE t.id = $1`,
+        [req.params.id]
+      );
+      if (!k[0]) return res.status(404).json({ error: 'not found' });
+      set('title', withKey(k[0].key, k[0].num, wantTitle));
     }
     if (b.position !== undefined) set('position', Number(b.position) || 0);
     if (b.kind !== undefined) {
@@ -732,10 +816,10 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
         await pool.query('UPDATE docs SET deleted_at = now() WHERE id = $1', [leaving.id]);
       }
     }
-    if (b.title !== undefined && rows[0].doc_id) {
+    if (wantTitle !== undefined && rows[0].doc_id) {
       await pool.query(
         'UPDATE docs SET title = $1, updated_at = now(), updated_by = $3, updated_via = $4 WHERE id = $2 AND title <> $1',
-        [String(b.title).slice(0, 200), rows[0].doc_id, req.user.id, req.via]
+        [String(rows[0].title).slice(0, 200), rows[0].doc_id, req.user.id, req.via]
       );
     }
     // Rules fire on a move a person made, and only on a real one: a board that

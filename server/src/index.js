@@ -3,6 +3,7 @@ import { WebSocketServer } from 'ws';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { AI_ACTOR_NONCE, actorVia } from './actor.js';
+import { withKey } from './task-key.js';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import * as cookie from 'cookie';
@@ -1159,10 +1160,21 @@ app.patch('/api/docs/:id', requireUser, async (req, res) => {
   if (typeof req.body?.title === 'string') {
     // The row and its page show the same title. Write only when it differs,
     // which is what stops the two updates looping.
-    await pool.query(
-      'UPDATE tasks SET title = $1 WHERE doc_id = $2 AND title <> $1',
-      [req.body.title.slice(0, 500), req.params.id]
+    //
+    // The row's title carries its key, and the page's does not, so the two are
+    // never byte-identical and the name cannot simply be copied across: renaming
+    // the page of MD-14 has to land as "MD-14: <new name>", or the key is lost
+    // through the one door that does not go past the task routes.
+    const { rows: linked } = await pool.query(
+      `SELECT t.id, t.num, t.title, p.key FROM tasks t JOIN projects p ON p.id = t.project_id
+        WHERE t.doc_id = $1`,
+      [req.params.id]
     );
+    for (const t of linked) {
+      const title = withKey(t.key, t.num, req.body.title.slice(0, 500));
+      if (title === t.title) continue;
+      await pool.query('UPDATE tasks SET title = $1 WHERE id = $2', [title, t.id]);
+    }
   }
   emit('doc.updated', { id: req.params.id, by: req.user.id, via: req.via });
   res.json({ ok: true });

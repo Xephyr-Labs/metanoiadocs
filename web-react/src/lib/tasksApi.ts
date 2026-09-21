@@ -75,6 +75,9 @@ export type ProjectMode = 'tasks' | 'data';
 export interface ProjectRow {
   id: string;
   name: string;
+  /** The project's short name in a task key: the MD of MD-14. Null only on a
+   *  project that predates the column and has not been through the backfill. */
+  key: string | null;
   icon: string;
   color: string;
   doc_id: string | null;
@@ -192,6 +195,10 @@ export interface Assignee {
 export interface TaskRow {
   id: string;
   project_id: string;
+  /** The task's number within its project: the 14 of MD-14. It is already part
+   *  of `title`, which is what every view shows; this is here for the places
+   *  that want the number on its own, such as a link or a sort. */
+  num: number | null;
   title: string;
   status: TaskStatus;
   /** The first assignee. Kept for the narrow cells that show a single name —
@@ -393,7 +400,7 @@ export const tasksApi = {
     req('/projects', { method: 'POST', ...body(b) }),
   patchProject: (
     id: string,
-    b: Partial<{ name: string; icon: string; color: string; position: number; archived: boolean; mode: ProjectMode; statusColors: Record<string, string> }>,
+    b: Partial<{ name: string; key: string; icon: string; color: string; position: number; archived: boolean; mode: ProjectMode; statusColors: Record<string, string> }>,
   ) =>
     req(`/projects/${id}`, { method: 'PATCH', ...body(b) }),
   archiveProject: (id: string) => req(`/projects/${id}`, { method: 'DELETE' }),
