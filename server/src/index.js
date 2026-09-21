@@ -3,7 +3,7 @@ import { WebSocketServer } from 'ws';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { AI_ACTOR_NONCE, actorVia } from './actor.js';
-import { withKey } from './task-key.js';
+import { parseKeyQuery, withKey } from './task-key.js';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import * as cookie from 'cookie';
@@ -1831,7 +1831,52 @@ app.get('/api/search', requireUser, wrap(async (req, res) => {
       LIMIT 20`,
     [req.user.id, q, expansionOr],
   );
-  res.json(rows.map((r) => ({ id: r.id, title: r.title, snippet: r.snippet })));
+  const docs = rows.map((r) => ({ kind: 'doc', id: r.id, title: r.title, snippet: r.snippet }));
+
+  // Tasks are searched in their own statement rather than folded into the CTE
+  // above. They have no search_text, no tsvector and no per-doc grant, so every
+  // clause up there would need a branch for them — and the thing worth being
+  // fast at here is different anyway: a key. "MD-14" is what people paste into
+  // a chat message, so that query has to land on the task itself, above
+  // anything that merely mentions the same six characters.
+  //
+  // Not access-scoped, because tasks are not: a board is visible to every
+  // signed-in member, and a search that hid rows the board shows would be
+  // lying about the workspace rather than protecting it. A task's *page* keeps
+  // its own visibility — that is the doc half of these results.
+  const named = parseKeyQuery(q);
+  const { rows: taskRows } = await pool.query(
+    `SELECT t.id, t.title, t.num, t.status, t.due_at,
+            t.project_id, p.name AS project_name, p.icon AS project_icon,
+            (lower(p.key) = lower($3::text) AND t.num = $4::int) AS named
+       FROM tasks t
+       JOIN projects p ON p.id = t.project_id
+      WHERE t.deleted_at IS NULL
+        AND p.archived_at IS NULL
+        AND ((lower(p.key) = lower($3::text) AND t.num = $4::int)
+             OR t.title ILIKE $1
+             OR t.title % $2)
+      ORDER BY named DESC, similarity(t.title, $2) DESC, t.updated_at DESC
+      LIMIT 8`,
+    // The literal `%` and `_` a person may have typed are escaped: an ILIKE
+    // pattern is not a search box, and "100%" should look for that string
+    // rather than for everything.
+    [`%${q.replace(/([%_\\])/g, '\\$1')}%`, q, named?.key ?? null, named?.num ?? null],
+  );
+  const tasks = taskRows.map((r) => ({
+    kind: 'task',
+    id: r.id,
+    title: r.title,
+    snippet: r.project_name,
+    projectId: r.project_id,
+    projectIcon: r.project_icon,
+    status: r.status,
+    dueAt: r.due_at,
+  }));
+
+  // A query that names a task answers with that task first; anything else is a
+  // search for words, and words live in pages.
+  res.json(named ? [...tasks, ...docs] : [...docs, ...tasks]);
 }));
 
 // Everything the Intelligence rail needs, in one round-trip. All access-scoped.

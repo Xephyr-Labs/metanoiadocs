@@ -758,6 +758,11 @@ export async function initSchema() {
     -- come back out of the trash.
     CREATE UNIQUE INDEX IF NOT EXISTS tasks_num_idx
       ON tasks(project_id, num) WHERE num IS NOT NULL;
+    -- Tasks are searchable from the palette, which reaches them by fuzzy title
+    -- as well as by key. Same index shape docs_title_trgm_idx uses, for the
+    -- same operator.
+    CREATE INDEX IF NOT EXISTS tasks_title_trgm_idx
+      ON tasks USING GIN (title gin_trgm_ops);
   `);
 
   await normalizeLegacyFolderImport();

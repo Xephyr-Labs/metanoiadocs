@@ -96,3 +96,22 @@ export function uniqueKey(base, taken) {
   // Louder than silently handing back a key the unique index will reject.
   throw new Error(`no free key left around "${base}"`);
 }
+
+/**
+ * A search query that *names* a task rather than describing one: "MD-14",
+ * "md-14", "MD 14", "md14". Returns the key and number, or null.
+ *
+ * This is what a key is for. People paste "MD-14" into a chat message, and the
+ * person who reads it types those six characters into the palette — so that
+ * query has to land on the task itself rather than on whatever pages happen to
+ * mention it.
+ *
+ * A trailing colon is tolerated because the title carries one, so half a
+ * pasted title ("MD-14:") is a key too.
+ */
+export function parseKeyQuery(q) {
+  const m = /^([A-Za-z][A-Za-z0-9]{0,7}?)[\s-]*([0-9]+)$/.exec(
+    String(q ?? '').trim().replace(/:$/, ''),
+  );
+  return m ? { key: m[1].toUpperCase(), num: Number(m[2]) } : null;
+}
