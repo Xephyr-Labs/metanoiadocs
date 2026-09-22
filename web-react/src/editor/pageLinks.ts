@@ -23,6 +23,8 @@ export interface LinkTarget {
   id: string;
   title: string;
   icon: string;
+  /** Last save, for breaking ties between equally good title matches. */
+  updatedAt?: string;
 }
 
 export interface PageLinkOptions {
@@ -96,6 +98,42 @@ export function fuzzy(title: string, query: string) {
   return false;
 }
 
+/**
+ * The pages that match `query`, best first.
+ *
+ * Filtering alone was enough with thirty pages and useless with three hundred:
+ * `fuzzy` is a subsequence match, so a short query matches almost everything,
+ * and the survivors came back in sidebar order — the six shown were the six
+ * highest in the tree, not the six most likely. The tiers below are the order
+ * a person means them: the exact title, one that starts this way, a word that
+ * starts this way, the letters somewhere in it, all the typed words in any
+ * order, and only then a loose subsequence. Recency breaks ties, because the
+ * page you touched this morning is usually the one you are linking to.
+ */
+export function rankPages<T extends LinkTarget>(pages: T[], query: string): T[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return pages;
+  const words = q.split(/\s+/).filter(Boolean);
+  const scored: { page: T; score: number; title: string }[] = [];
+  for (const page of pages) {
+    const title = (page.title || UNTITLED).toLowerCase();
+    let score: number;
+    if (title === q) score = 0;
+    else if (title.startsWith(q)) score = 1;
+    else if (title.split(/[^a-z0-9]+/).some((w) => w && w.startsWith(q))) score = 2;
+    else if (title.includes(q)) score = 3;
+    else if (words.length > 1 && words.every((w) => title.includes(w))) score = 4;
+    else if (fuzzy(title, q)) score = 5;
+    else continue;
+    scored.push({ page, score, title });
+  }
+  scored.sort((a, b) =>
+    a.score - b.score ||
+    (b.page.updatedAt ?? '').localeCompare(a.page.updatedAt ?? '') ||
+    a.title.length - b.title.length);
+  return scored.map((s) => s.page);
+}
+
 const emoji = (icon: string): TemplateResult<1> =>
   html`<span style="font-size:16px;line-height:20px">${icon || '📄'}</span>`;
 
@@ -112,9 +150,7 @@ export function pageLinkExtensions({ pages, currentId, createPage }: PageLinkOpt
     _host: unknown,
     inlineEditor: Parameters<typeof insertLinkedNode>[0]['inlineEditor'],
   ) => {
-    const matches = pages()
-      .filter((p) => p.id !== currentId)
-      .filter((p) => fuzzy(p.title || UNTITLED, query));
+    const matches = rankPages(pages().filter((p) => p.id !== currentId), query);
 
     const link = (docId: string) => insertLinkedNode({ inlineEditor, docId });
 

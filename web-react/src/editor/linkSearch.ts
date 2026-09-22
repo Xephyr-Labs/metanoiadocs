@@ -5,7 +5,7 @@
  * contrast: pass (40-41) · tokens: pass (48)
  */
 import { REFERENCE_NODE } from '@blocksuite/affine/shared/consts';
-import { fuzzy, type LinkTarget } from './pageLinks';
+import { rankPages, type LinkTarget } from './pageLinks';
 
 /** Six is the "@" menu's cap too — the same list, so the same depth. */
 const MAX_RESULTS = 6;
@@ -125,9 +125,7 @@ export function attachLinkSearch(
       const query = input.value.trim();
       matches = !query || looksLikeUrl(query)
         ? []
-        : pages()
-            .filter((p) => p.id !== currentId && fuzzy(p.title || 'Untitled', query))
-            .slice(0, MAX_RESULTS);
+        : rankPages(pages().filter((p) => p.id !== currentId), query).slice(0, MAX_RESULTS);
       active = 0;
       paint();
     };
