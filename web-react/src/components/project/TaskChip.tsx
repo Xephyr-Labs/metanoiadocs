@@ -2,11 +2,13 @@
  * theme: project tokens (index.css)
  * pre-emit critique: P5 H5 E4 S5 R5 V4
  * states: default · hover · focus-visible · active · compact · flush ·
- *         done · overdue · in progress · with cover · empty title
+ *         done · overdue · in progress · with cover · empty title ·
+ *         blocked · waiting on nothing · others waiting · links unknown
  */
 import { Link2 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { isImageFile, isVideoFile, type StoredFile } from '../../lib/uploads';
+import type { TaskLinks } from '../../lib/taskTree';
 import type { PropRow, TaskRow } from '../../lib/tasksApi';
 import type { UserRow } from '../../lib/docsApi';
 import { isOverdue } from './TaskBadges';
@@ -29,11 +31,15 @@ export { AssigneeStack, KindBadge, shortDate, isOverdue } from './TaskBadges';
  * all of them; that default set is simply what the card drew before. What stays hard-coded here is the two things
  * that are *not* properties: how far along the task is, and what it waits on.
  */
-export function TaskChip({ task, onOpen, compact, flush, cover, cardProps, users }: {
+export function TaskChip({ task, onOpen, compact, flush, cover, cardProps, users, links }: {
   task: TaskRow;
   onOpen: () => void;
   compact?: boolean;
   flush?: boolean;
+  /** What this row waits on and what waits on it, from buildLinkIndex. Omitted
+   *  by a view that has not built the index — the card then falls back to the
+   *  bare count it drew before, which says less but never says it wrongly. */
+  links?: TaskLinks;
   /** Suppresses the card's own thumbnails — the gallery is already showing
    *  this file full-width above, and twice is once too many. */
   cover?: StoredFile | null;
@@ -88,12 +94,65 @@ export function TaskChip({ task, onOpen, compact, flush, cover, cardProps, users
         </div>
       )}
 
-      {task.deps.length > 0 && (
-        <div className="mt-2 flex items-center gap-0.5 text-2xs text-faint" title={`${task.deps.length} dependencies`}>
-          <Link2 size={12} />{task.deps.length}
-        </div>
-      )}
+      <LinkRow task={task} links={links} />
     </button>
+  );
+}
+
+/** Two or three titles, then "and 4 more" — a tooltip is not a list view. */
+const names = (rows: TaskRow[]) => {
+  const shown = rows.slice(0, 3).map((t) => t.title || 'Untitled');
+  const rest = rows.length - shown.length;
+  return shown.join(', ') + (rest > 0 ? `, and ${rest} more` : '');
+};
+
+/**
+ * What the card says about its ties.
+ *
+ * The card used to draw `🔗 2` — the number of rows this one depends on, in
+ * faint grey, whether or not any of them were finished. That is the count of
+ * an edge, and nobody scans a board for edges; they scan it for what they can
+ * pick up. So the chip states the consequence instead: red while something it
+ * waits on is unfinished, quiet once they are all done, and quiet again for
+ * the rows waiting on this one — which is a reason to finish it, not a reason
+ * to stop.
+ */
+function LinkRow({ task, links }: { task: TaskRow; links?: TaskLinks }) {
+  if (!links) {
+    // No index: say only what a single row can know about itself.
+    return task.deps.length > 0 ? (
+      <div className="mt-2 flex items-center gap-0.5 text-2xs text-faint" title={`${task.deps.length} dependencies`}>
+        <Link2 size={12} />{task.deps.length}
+      </div>
+    ) : null;
+  }
+
+  const { blockedBy, met, unknown, blocking } = links;
+  const settled = met + unknown;
+  if (!blockedBy.length && !settled && !blocking.length) return null;
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-2xs">
+      {blockedBy.length > 0 ? (
+        <span className="flex items-center gap-1 font-medium text-danger-strong" title={`Waiting on ${names(blockedBy)}`}>
+          <Link2 size={12} /> Blocked by {blockedBy.length}
+        </span>
+      ) : settled > 0 ? (
+        <span
+          className="flex items-center gap-1 text-faint"
+          title={unknown > 0
+            ? `${settled} ${settled === 1 ? 'dependency' : 'dependencies'}, ${met} done`
+            : `${met} ${met === 1 ? 'dependency' : 'dependencies'}, all done`}
+        >
+          <Link2 size={12} />{settled}
+        </span>
+      ) : null}
+      {blocking.length > 0 && (
+        <span className="text-faint" title={`${names(blocking)} ${blocking.length === 1 ? 'is' : 'are'} waiting on this`}>
+          {blocking.length} waiting
+        </span>
+      )}
+    </div>
   );
 }
 

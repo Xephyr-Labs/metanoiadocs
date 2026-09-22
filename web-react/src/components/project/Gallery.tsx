@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Plus } from 'lucide-react';
 import { cn } from '../../lib/cn';
+import { buildLinkIndex } from '../../lib/taskTree';
 import { previewLine } from '../../lib/preview';
 import { fileUrl, isImageFile } from '../../lib/uploads';
 import type { PropRow, TaskRow } from '../../lib/tasksApi';
@@ -74,6 +75,7 @@ export function Gallery({
 
   const { min, preview, clamp } = SIZES[size];
   const ordered = [...tasks].sort((a, b) => a.position - b.position);
+  const links = useMemo(() => buildLinkIndex(tasks), [tasks]);
 
   return (
     <div className="flex h-full flex-col">
@@ -151,7 +153,7 @@ export function Gallery({
                 >
                   <p className={cn('text-2xs leading-4 text-muted', clamp)}>{line}</p>
                 </button>) : null}
-                <TaskChip task={t} onOpen={() => onOpen(t)} flush cover={cover} cardProps={cardProps} users={users} />
+                <TaskChip task={t} onOpen={() => onOpen(t)} flush cover={cover} cardProps={cardProps} users={users} links={links.get(t.id)} />
               </article>
             );
           })}

@@ -124,6 +124,23 @@ function chipFor(
       : null;
   }
 
+  // A relation's value is not in the props bag — the ids live in their own
+  // column, keyed by property, because a rollup has to reduce them without a
+  // request per row. Without this branch the value fell through to the string
+  // default and every relation drew nothing at all, on every card.
+  //
+  // A count, not the titles: the rows linked to are usually in another
+  // database, so this card holds their ids and nothing else. Naming them would
+  // mean a request per card to say what the peek already says on one click.
+  if (prop.type === 'relation') {
+    const linked = task.relationIds?.[prop.id]?.length ?? 0;
+    return linked ? (
+      <Chip color="gray" title={`${prop.label}: ${linked} linked ${linked === 1 ? 'row' : 'rows'}`}>
+        {prop.label} · {linked}
+      </Chip>
+    ) : null;
+  }
+
   switch (prop.type) {
     case 'select':
     case 'multi_select': {
