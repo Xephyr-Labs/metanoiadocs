@@ -392,9 +392,12 @@ export function Backlog({ tasks, sprints, onOpen, onMoveToSprint, onAdd, onCreat
       return next;
     });
 
-  // Over every row in the project, not over the section being drawn: an epic
+  // Over every row this view holds, not over the section being drawn: an epic
   // split across two sprints and the backlog is still one epic, and a
   // dependency does not stop mattering because it was committed elsewhere.
+  // A filter narrows what the view holds, and the counts narrow with it —
+  // which is why a dependency outside it is counted apart rather than read as
+  // met (see TaskLinks.unknown).
   const links = useMemo(() => buildLinkIndex(tasks), [tasks]);
   const progress = useMemo(() => subtreeIndex(tasks), [tasks]);
   const byId = useMemo(() => new Map(tasks.map((t) => [t.id, t])), [tasks]);
@@ -638,7 +641,12 @@ function BacklogPane({ count, onDropTask, onAdd, children }: {
         // Wider than it was: a flat list fitted in 22rem, but a tree spends
         // width on the shape itself, and every level of nesting comes out of
         // the title. The sprint pane beside it loses 64px and notices nothing.
-        'flex w-[26rem] shrink-0 flex-col border-l border-line transition-colors duration-120 2xl:w-[30rem]',
+        //
+        // Capped at 45%, because the two panes are picked by the *window* and
+        // this view also runs inside a database embedded in a page, where the
+        // column is a third of it — there, a fixed 26rem would leave the
+        // sprints less room than the backlog docked beside them.
+        'flex w-[26rem] max-w-[45%] shrink-0 flex-col border-l border-line transition-colors duration-120 2xl:w-[30rem]',
         drop.over && 'bg-accent-soft',
       )}
     >
