@@ -36,6 +36,28 @@ function changeableTo(type: PropType): PropType[] {
 }
 
 /**
+ * The labels typed into the "add option" field, one per option.
+ *
+ * A select is usually born with its whole list in mind — High, Medium, Low —
+ * and typing them one Enter at a time was the slow part of making one. So
+ * the field takes several: split on commas or line breaks (a pasted column
+ * from a spreadsheet arrives as line breaks), trimmed, empties and repeats
+ * dropped, and anything already in `existing` dropped too. Exported for its
+ * test — this is the one piece of the editor that can silently eat input.
+ */
+export function splitOptionLabels(text: string, existing: string[] = []): string[] {
+  const seen = new Set(existing.map((l) => l.toLowerCase()));
+  const out: string[] = [];
+  for (const raw of text.split(/[,\n]/)) {
+    const label = raw.trim();
+    if (!label || seen.has(label.toLowerCase())) continue;
+    seen.add(label.toLowerCase());
+    out.push(label);
+  }
+  return out;
+}
+
+/**
  * Option rows are keyed by id, never by label — a rename must never mint a
  * new id, or every task that stored the old id renders blank (the value is
  * still in `tasks.props`, but nothing in `prop.options` matches it anymore).
@@ -45,10 +67,14 @@ function OptionsEditor({ prop, onPatch }: { prop: PropRow; onPatch: Props['onPat
 
   const setOptions = (options: PropRow['options']) => onPatch(prop.id, { options });
 
-  const addOption = () => {
-    const label = draft.trim();
-    if (label && !prop.options.some((o) => o.label === label)) {
-      setOptions([...prop.options, { id: crypto.randomUUID(), label, color: nextColor(prop.options) }]);
+  const addOptions = () => {
+    const labels = splitOptionLabels(draft, prop.options.map((o) => o.label));
+    if (labels.length) {
+      // Each new option takes the next colour after the ones before it, so
+      // three added together are three colours, not one repeated.
+      const next = [...prop.options];
+      for (const label of labels) next.push({ id: crypto.randomUUID(), label, color: nextColor(next) });
+      setOptions(next);
     }
     setDraft('');
   };
@@ -83,13 +109,20 @@ function OptionsEditor({ prop, onPatch }: { prop: PropRow; onPatch: Props['onPat
           />
         </div>
       ))}
-      <input
-        className={field}
-        placeholder="Add option…"
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onKeyDown={(e) => e.key === 'Enter' && addOption()}
-      />
+      {/* A button as well as Enter: the field alone read as "one option, and
+          only if you know the key". The placeholder says the other thing the
+          field takes — several at once. */}
+      <div className="flex items-center gap-2">
+        <input
+          className={field}
+          placeholder="Add options… separate with commas"
+          aria-label={`Add options to ${prop.label}`}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addOptions(); } }}
+        />
+        <IconButton icon={<Plus size={14} />} label="Add these options" disabled={!draft.trim()} onClick={addOptions} />
+      </div>
     </div>
   );
 }
