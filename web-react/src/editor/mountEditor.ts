@@ -446,7 +446,7 @@ export async function mountEditor(
   // because the widget portals the popover out of the editor subtree.
   const detachLinkedDocMenu = share || snapshot || !pages
     ? null
-    : attachLinkedDocMenu(document, { pages, currentId: docId });
+    : attachLinkedDocMenu(editor, { pages, currentId: docId });
 
   // Paint each image's stored alignment onto the DOM (see imageAlign.ts).
   const detachImageAlign = attachImageAlign({

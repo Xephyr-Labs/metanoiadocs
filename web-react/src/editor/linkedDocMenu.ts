@@ -25,12 +25,19 @@ import { linkPeople, liveLinkMenu, rankPages, type LinkTarget } from './pageLink
  * CSS that hides it is injected by the same code that adds the panel.
  */
 export function attachLinkedDocMenu(
-  root: Document | Element,
+  editor: Element,
   { pages, currentId }: { pages: () => LinkTarget[]; currentId: string },
 ): () => void {
   const enhance = async (pop: PopoverLike) => {
     if (pop.dataset?.mnPanel) return;
     await pop.updateComplete;
+    // A task peek open over a page means two editors, each with one of these
+    // attached, both watching the same body for the same popover. The one it
+    // belongs to is the one whose host it points at — anyone else leaves it
+    // alone, or the panel offers the wrong page index and hides the wrong
+    // current page.
+    const host = pop.context?.std?.host;
+    if (host && !editor.contains(host)) return;
     const shadow = pop.shadowRoot;
     const shell = shadow?.querySelector<HTMLElement>('.linked-doc-popover');
     if (!shadow || !shell) return;
@@ -63,7 +70,15 @@ export function attachLinkedDocMenu(
     input.focus({ preventScroll: true });
 
     let rows: Row[] = [];
+    let found = false;
     let active = 0;
+
+    const note = (text: string) => {
+      const p = document.createElement('p');
+      p.className = 'mn-link-empty';
+      p.textContent = text;
+      return p;
+    };
 
     const run = (row: Row) => {
       const menu = liveLinkMenu();
@@ -110,11 +125,10 @@ export function attachLinkedDocMenu(
         });
         list.append(el);
       });
-      if (!rows.length) {
-        const empty = document.createElement('p');
-        empty.className = 'mn-link-empty';
-        empty.textContent = 'No page or person by that name.';
-        list.append(empty);
+      if (!found) {
+        // Above the "create" row, which is always there: without this, a query
+        // that matches nothing looks the same as one still being typed.
+        list.insertBefore(note('No page or person by that name.'), list.firstChild);
       }
       list.querySelector<HTMLElement>('[data-active="true"]')?.scrollIntoView({ block: 'nearest' });
     };
@@ -147,6 +161,7 @@ export function attachLinkedDocMenu(
       const named = query.length > 1 && people.some((u) =>
         u.label.toLowerCase().startsWith(query.toLowerCase()) ||
         (u.hint ?? '').toLowerCase().startsWith(`@${query.toLowerCase()}`));
+      found = docs.length > 0 || people.length > 0;
       rows = [...(named ? [...people, ...docs] : [...docs, ...people]), {
         kind: 'create',
         id: 'create',
@@ -182,9 +197,11 @@ export function attachLinkedDocMenu(
     search();
 
     // The widget re-renders its own list when its query changes, which takes
-    // the panel with it. Cheap to notice, cheap to put back.
+    // the panel with it. Cheap to notice, cheap to put back — until the
+    // popover itself is gone, and then this has nothing left to watch.
     const keep = new MutationObserver(() => {
-      if (!panel.isConnected) shell.append(panel);
+      if (!pop.isConnected) keep.disconnect();
+      else if (!panel.isConnected) shell.append(panel);
     });
     keep.observe(shell, { childList: true });
   };
@@ -198,7 +215,8 @@ export function attachLinkedDocMenu(
       }
     }
   });
-  observer.observe(root instanceof Document ? root.body : root, { childList: true, subtree: true });
+  // The body, not the editor: the widget portals the popover out of it.
+  observer.observe(editor.ownerDocument.body, { childList: true, subtree: true });
   return () => observer.disconnect();
 }
 
@@ -217,6 +235,8 @@ interface Row {
 
 interface PopoverLike extends HTMLElement {
   updateComplete?: Promise<unknown>;
+  /** The widget's own handle on the editor it opened over. */
+  context?: { std?: { host?: Element } };
 }
 
 /** Plain substring, for names. Pages get the ranked match instead. */

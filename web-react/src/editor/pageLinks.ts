@@ -78,6 +78,15 @@ export interface LiveLinkMenu {
   create: (title: string) => Promise<void>;
 }
 
+/** The slice of BlockSuite's inline editor the caret dance needs. Loosely
+ *  typed at the boundary, like the rest of this file's BlockSuite contact. */
+interface InlineEditorParts {
+  eventSource?: HTMLElement | null;
+  yText?: { length: number };
+  getInlineRange: () => { index: number; length: number } | null;
+  toDomRange: (range: { index: number; length: number }) => Range | null;
+}
+
 let live: LiveLinkMenu | null = null;
 
 export const liveLinkMenu = () => live;
@@ -181,7 +190,31 @@ export function pageLinkExtensions({ pages, currentId, createPage }: PageLinkOpt
 
     live = {
       query,
-      abort,
+      // Abandoning the menu has to hand the caret back. Picking an item does
+      // that by writing into the page; Escape writes nothing, so without this
+      // the focus stays in a panel that no longer exists and the next thing
+      // typed goes nowhere.
+      abort: () => {
+        abort();
+        const editor = inlineEditor as unknown as InlineEditorParts;
+        const source = editor.eventSource;
+        const range = editor.getInlineRange();
+        if (!source) return;
+        source.focus();
+        // Next frame, not this one. The focusable element is the page root, so
+        // focusing it alone drops the caret at the top of the document, and
+        // BlockSuite syncs the selection again right after — the caret has to
+        // be put back once that has happened. Clamped, because the range still
+        // counts the "@" that abort has just deleted.
+        requestAnimationFrame(() => {
+          const index = Math.min(range?.index ?? 0, editor.yText?.length ?? 0);
+          const dom = editor.toDomRange({ index, length: 0 });
+          if (!dom) return;
+          const selection = source.ownerDocument.getSelection();
+          selection?.removeAllRanges();
+          selection?.addRange(dom);
+        });
+      },
       link: (docId) => { abort(); link(docId); },
       mention: (username) => { abort(); insertMention(inlineEditor, username); },
       create: async (title) => {
