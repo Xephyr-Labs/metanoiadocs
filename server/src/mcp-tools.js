@@ -24,6 +24,38 @@ const fail = (e) => ({ isError: true, content: [{ type: 'text', text: `Error: ${
  * @param {string} opts.base      Origin to call, no trailing slash (e.g. http://127.0.0.1:3000).
  * @param {Record<string,string>} opts.headers  Auth headers forwarded on every call.
  */
+/**
+ * A board's own columns, resolved to what a person would read.
+ *
+ * Every task carried its custom properties as `{<uuid>: <uuid>}` and this
+ * tool dropped them, so Assignor, Reviewer and Priority — the fields the
+ * team actually plans with — came back empty through the friendly tool and
+ * only existed in the raw REST response. An agent asked "who is reviewing
+ * this?" answered "nobody" and was wrong, which is worse than not offering
+ * the field at all.
+ *
+ * Values are rendered, not raw: a person is a name, a select is its option
+ * label. A UUID is not an answer to a question about a colleague.
+ */
+export function renderPropValue(def, raw, peopleById) {
+  if (raw === null || raw === undefined || raw === '') return null;
+  const asArray = Array.isArray(raw) ? raw : [raw];
+  if (def.type === 'person') {
+    const names = asArray.map((id) => peopleById.get(id) || id).filter(Boolean);
+    return names.length ? names.join(', ') : null;
+  }
+  if (def.type === 'select' || def.type === 'multi_select') {
+    const labels = asArray
+      .map((id) => (def.options || []).find((o) => o.id === id)?.label ?? id)
+      .filter(Boolean);
+    if (!labels.length) return null;
+    return def.type === 'select' ? labels[0] : labels;
+  }
+  if (def.type === 'checkbox') return raw ? true : null;
+  if (def.type === 'file') return Array.isArray(raw) && raw.length ? `${raw.length} file(s)` : null;
+  return raw;
+}
+
 export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZONE }) {
   const origin = String(base || '').replace(/\/+$/, '');
 
@@ -416,7 +448,50 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
 
   const taskUrl = (t) => (t.doc_id ? `${PUBLIC}/d/${t.doc_id}` : `${PUBLIC}/db/${t.project_id}`);
 
-  const taskRow = (t) => ({
+  /**
+   * One resolver for a whole result set: property definitions are per board and
+   * person values are workspace-wide, so both are fetched once here rather than
+   * once per row. Failures degrade to "no custom fields" rather than failing
+   * the listing — a board whose props cannot be read is still a board whose
+   * tasks somebody asked for.
+   */
+  async function propRenderer(rows) {
+    const boards = [...new Set(rows.map((t) => t.project_id).filter(Boolean))];
+    const defs = new Map();
+    await Promise.all(
+      boards.map(async (id) => {
+        try {
+          for (const p of await api(`/projects/${encodeURIComponent(id)}/props`)) {
+            defs.set(p.id, p);
+          }
+        } catch {
+          /* a board without readable props simply contributes none */
+        }
+      }),
+    );
+    let peopleById = new Map();
+    if ([...defs.values()].some((p) => p.type === 'person')) {
+      try {
+        peopleById = new Map(
+          (await api('/users')).map((u) => [u.id, u.name || u.username || u.email]),
+        );
+      } catch {
+        /* names fall back to ids */
+      }
+    }
+    return (task) => {
+      const out = {};
+      for (const [propId, raw] of Object.entries(task.props || {})) {
+        const def = defs.get(propId);
+        if (!def) continue;
+        const value = renderPropValue(def, raw, peopleById);
+        if (value !== null) out[def.label] = value;
+      }
+      return Object.keys(out).length ? out : undefined;
+    };
+  }
+
+  const taskRow = (t, fields) => ({
     id: t.id,
     title: t.title,
     status: t.status,
@@ -432,6 +507,8 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
     repeats: t.repeat_rule ?? null,
     sprintId: t.sprint_id,
     blockedBy: t.deps || [],
+    /** The board's own columns — Assignor, Reviewer, Priority — when it has any. */
+    ...(fields ? { fields } : {}),
     url: taskUrl(t),
   });
 
@@ -653,7 +730,12 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
         if (overdue) rows = rows.filter((t) => isOverdue(t, today));
 
         rows = [...rows].sort((a, b) => (dueDay(a) || '9999').localeCompare(dueDay(b) || '9999'));
-        return ok({ count: rows.length, tasks: rows.slice(0, limit ?? 50).map(taskRow) });
+        const shown = rows.slice(0, limit ?? 50);
+        const fieldsFor = await propRenderer(shown);
+        return ok({
+          count: rows.length,
+          tasks: shown.map((t) => taskRow(t, fieldsFor(t))),
+        });
       } catch (e) {
         return fail(e);
       }
