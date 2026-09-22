@@ -45,6 +45,14 @@ export interface DocRow {
   updated_by_name: string | null;
   updated_by_kind?: 'person' | 'agent';
   updated_via?: 'human' | 'ai';
+  /** Who made it, and when. Unlike the editor above, this never changes. */
+  created_by_name?: string | null;
+  created_at?: string;
+  /** Public applause, Confluence-style: the team's count, and whether you
+   *  are in it. Distinct from `favorite` (yours alone) and `pinned` (the
+   *  team's shelf) — a love says nothing about where the page lives. */
+  loved?: boolean;
+  love_count?: number;
   shared: boolean;
   favorite: boolean;
   /** Pinned for everyone. Distinct from `favorite`, which is per person. */
@@ -368,6 +376,9 @@ export const docsApi = {
   setUserKind: (id: string, kind: 'person' | 'agent') =>
     req(`/users/${id}/kind`, { method: 'PATCH', body: JSON.stringify({ kind }) }),
   removeUser: (id: string) => req(`/users/${id}`, { method: 'DELETE' }),
+
+  love: (id: string, loved: boolean): Promise<{ count: number; loved: boolean }> =>
+    req(`/docs/${id}/love`, { method: 'PUT', body: JSON.stringify({ loved }) }),
 
   publicGet: (id: string): Promise<{ token: string | null }> => req(`/docs/${id}/public`),
   publicEnable: (id: string): Promise<{ token: string }> => req(`/docs/${id}/public`, { method: 'POST' }),

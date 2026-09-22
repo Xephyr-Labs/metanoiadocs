@@ -496,6 +496,15 @@ export async function initSchema() {
     EXCEPTION WHEN duplicate_object THEN NULL; END $$;
     CREATE INDEX IF NOT EXISTS comments_task_idx ON comments(task_id, created_at);
 
+    -- Loves. A favourite is a private bookmark and a pin is the team's shelf;
+    -- a love is public applause — everyone sees the count, one per person.
+    CREATE TABLE IF NOT EXISTS doc_loves (
+      doc_id     TEXT NOT NULL REFERENCES docs(id) ON DELETE CASCADE,
+      user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (doc_id, user_id)
+    );
+
     -- Set when the author rewrites their own comment, so the card can say so.
     -- Null means never touched since it was posted — the common case.
     ALTER TABLE comments ADD COLUMN IF NOT EXISTS edited_at TIMESTAMPTZ;

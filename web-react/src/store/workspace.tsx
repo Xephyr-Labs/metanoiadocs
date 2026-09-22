@@ -122,6 +122,7 @@ interface WorkspaceState {
   select: (id: PageId) => void;
   toggleExpand: (id: PageId) => void;
   toggleFavorite: (id: PageId) => void;
+  toggleLove: (id: PageId) => void;
   toggleFolderFavorite: (id: string) => void;
   setVisibility: (id: PageId, visibility: 'team' | 'private') => void;
   rename: (id: PageId, title: string) => void;
@@ -200,6 +201,10 @@ function buildPages(rows: DocRow[]): Record<PageId, Page> {
       updatedByKind: r.updated_by_kind === 'agent' ? 'agent' : 'person',
       updatedVia: r.updated_via === 'ai' ? 'ai' : 'human',
       updatedAt: r.updated_at,
+      createdByName: r.created_by_name ?? null,
+      createdAt: r.created_at ?? null,
+      loveCount: r.love_count ?? 0,
+      loved: !!r.loved,
       linkCount: r.link_count ?? 0,
       tags: r.tags ?? [],
       props: r.props ?? {},
@@ -555,6 +560,23 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       const favorite = !cur.favorite;
       docsApi.favorite(id, favorite).catch(() => refresh());
       return { ...p, [id]: { ...cur, favorite } };
+    });
+  }, [refresh]);
+
+  /**
+   * Love, the public one. Optimistic like a favourite, but the count can have
+   * moved under us — somebody else loving the same page — so the server's
+   * count replaces the guess when it answers.
+   */
+  const toggleLove = useCallback((id: PageId) => {
+    setPages((p) => {
+      const cur = p[id];
+      if (!cur) return p;
+      const loved = !cur.loved;
+      docsApi.love(id, loved)
+        .then((r) => setPages((q) => (q[id] ? { ...q, [id]: { ...q[id], loveCount: r.count, loved: r.loved } } : q)))
+        .catch(() => refresh());
+      return { ...p, [id]: { ...cur, loved, loveCount: Math.max(0, cur.loveCount + (loved ? 1 : -1)) } };
     });
   }, [refresh]);
 
@@ -1121,7 +1143,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       view, activeProjectId, activeFolderId, openHome, openTasks, openAllDocs, openProject, createTaskIn, pendingTaskId, clearPendingTask, pendingViewId: activeViewId, clearPendingView, openFolder, projects, refreshProjects,
       sidebarCollapsed, panelCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
       settingsOpen, trashOpen, inboxOpen, shortcutsOpen, captureOpen, mode, fullWidth, theme,
-      refresh, select, toggleExpand, toggleFavorite, toggleFolderFavorite, setVisibility, rename, applyTitleFromEditor,
+      refresh, select, toggleExpand, toggleFavorite, toggleLove, toggleFolderFavorite, setVisibility, rename, applyTitleFromEditor,
       createPage, createDesign, movePage, createChildPage, reorderPage, linkPage, reorderFolder, moveFolder, createFolder, renameFolder, setFolderColor, setIcon, toggleFolder, deleteFolder, createFromTemplate, docTemplates, createFromPage, setTemplate, importFiles, deletePage, restorePage,
       refreshTags, addTagToPage, removeTagFromPage, deleteTag, setTagFilter,
       setSidebarCollapsed, setPanelCollapsed, setSidebarWidth, setMobileDrawer, setRightPanel, setPaletteOpen, setShortcutsOpen, setCaptureOpen,
@@ -1137,7 +1159,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       view, activeProjectId, activeFolderId, openHome, openTasks, openAllDocs, openProject, createTaskIn, pendingTaskId, clearPendingTask, activeViewId, clearPendingView, openFolder, projects, refreshProjects,
       sidebarCollapsed, panelCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
       settingsOpen, trashOpen, inboxOpen, shortcutsOpen, captureOpen, mode, fullWidth, theme,
-      refresh, select, toggleExpand, toggleFavorite, toggleFolderFavorite, setVisibility, rename, applyTitleFromEditor,
+      refresh, select, toggleExpand, toggleFavorite, toggleLove, toggleFolderFavorite, setVisibility, rename, applyTitleFromEditor,
       createPage, createDesign, movePage, createChildPage, reorderPage, linkPage, reorderFolder, moveFolder, createFolder, renameFolder, setFolderColor, setIcon, toggleFolder, deleteFolder, createFromTemplate, docTemplates, createFromPage, setTemplate, importFiles, deletePage, restorePage,
       refreshTags, addTagToPage, removeTagFromPage, deleteTag, toggleTheme,
     ],

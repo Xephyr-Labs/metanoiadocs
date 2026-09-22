@@ -389,7 +389,13 @@ function DetailsTab() {
   const rows: [string, string][] = [
     ['Your role', p.role],
     ['Sharing', p.shared ? 'Public link on' : 'Private'],
+    ['Created by', p.createdByName ?? 'Unknown'],
+    ['Created', p.createdAt ? relativeTime(p.createdAt) : '—'],
+    // Null until somebody saves it — a page nobody has touched since it was
+    // made has no last editor, and saying "Unknown" there would be a lie.
+    ['Last edited by', p.updatedByName ?? 'Not edited yet'],
     ['Last edited', relativeTime(p.updatedAt)],
+    ['Loves', String(p.loveCount)],
     ['Sub-pages', String(p.children.length)],
   ];
   return (
