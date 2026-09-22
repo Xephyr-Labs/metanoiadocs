@@ -59,8 +59,20 @@ function Avatar({ name, size = 22 }: { name: string; size?: number }) {
  * about it, so nesting would only add a level nobody needs to choose. The
  * table underneath still carries parent_id, so a reply is a later decision and
  * not a migration.
+ *
+ * Mounted twice: under the row in the peek, and in the right panel when the
+ * open page is a task's page. There `title` separates it from the page's own
+ * anchored comments, which are a different conversation about the same thing.
  */
-export function TaskComments({ taskId, users }: { taskId: string; users: UserRow[] }) {
+export function TaskComments({
+  taskId,
+  users,
+  title = 'Comments',
+}: {
+  taskId: string;
+  users: UserRow[];
+  title?: string;
+}) {
   const auth = useAuth();
   const [rows, setRows] = useState<TaskComment[] | null>(null);
   const [draft, setDraft] = useState('');
@@ -147,7 +159,7 @@ export function TaskComments({ taskId, users }: { taskId: string; users: UserRow
 
   return (
     <section className="px-4 py-3">
-      <h3 className="mb-1.5 text-2xs font-semibold uppercase text-muted">Comments</h3>
+      <h3 className="mb-1.5 text-2xs font-semibold uppercase text-muted">{title}</h3>
 
       {rows === null ? (
         <div className="flex justify-center py-4">

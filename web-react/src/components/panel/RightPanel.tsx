@@ -3,6 +3,8 @@ import { Bot, Check, Info, ListTree, Loader2, MessageSquareText, Pencil, Send, S
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { docsApi, type CommentRow, type UserRow } from '../../lib/docsApi';
 import { applyCommentHighlights, clearPendingAnchor, clearPendingFocus, onCommentRequest, usePendingAnchor, usePendingFocus } from '../../editor/comments';
+import { tasksApi, type DocTask } from '../../lib/tasksApi';
+import { TaskComments } from '../project/TaskComments';
 import { AIChat } from './AIChat';
 import { IntelligenceRail } from '../intelligence/IntelligenceRail';
 import { useIntelligence } from '../../hooks/useIntelligence';
@@ -149,6 +151,10 @@ function CommentsTab({ docId }: { docId: string }) {
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [members, setMembers] = useState<UserRow[]>([]);
+  // The row this page belongs to, if any. Its comments live on the task, not
+  // on the page — without this they are only visible from the board, which is
+  // not where somebody reading the page looks for them.
+  const [task, setTask] = useState<DocTask | null>(null);
   const [mentionDismissed, setMentionDismissed] = useState(false);
   const composerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -164,6 +170,12 @@ function CommentsTab({ docId }: { docId: string }) {
       .then((rows) => { setComments(rows); applyCommentHighlights(rows); })
       .catch(() => setComments([]));
   useEffect(() => { setComments(null); load(); /* eslint-disable-next-line */ }, [docId]);
+  useEffect(() => {
+    let alive = true;
+    setTask(null);
+    tasksApi.docTask(docId).then((r) => alive && setTask(r.task)).catch(() => {});
+    return () => { alive = false; };
+  }, [docId]);
   useEffect(() => { docsApi.users().then(setMembers).catch(() => {}); }, []);
   // Selection just landed here — put the caret in the composer. Delay past the
   // panel slide-in, which otherwise steals focus back.
@@ -265,7 +277,26 @@ function CommentsTab({ docId }: { docId: string }) {
   return (
     <div className="flex h-full flex-col">
       <div className="flex-1 space-y-3 p-3">
-        {roots.length === 0 && <EmptyState icon={MessageSquareText} title="No comments yet" hint="Add the first comment below." compact />}
+        {/* Two conversations, kept apart. The task thread is about the work;
+            the page's own comments hang off a paragraph in it. Each keeps its
+            own box, because a single composer could only guess which one a
+            comment was meant for. */}
+        {task && (
+          <div className="-mx-3 -mt-3 border-b border-line">
+            <TaskComments taskId={task.id} users={members} title="On this task" />
+          </div>
+        )}
+        {task && <h3 className="text-2xs font-semibold uppercase text-muted">On this page</h3>}
+        {roots.length === 0 &&
+          // Under a task thread this is a second empty state on one screen, and
+          // the tall centred one turns the panel into mostly nothing. A line.
+          (task ? (
+            <p className="flex items-center gap-1.5 text-xs text-faint">
+              <MessageSquareText size={14} /> Select text in the page to comment on it.
+            </p>
+          ) : (
+            <EmptyState icon={MessageSquareText} title="No comments yet" hint="Add the first comment below." compact />
+          ))}
         {roots.map((c) => (
           <div
             key={c.id}
