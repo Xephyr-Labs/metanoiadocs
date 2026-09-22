@@ -4,7 +4,7 @@
  * states: loading · empty · posting · own comment (deletable) · agent author
  *         · mention menu open · send failed
  */
-import { Loader2, MessageSquareText, Send, Trash2 } from 'lucide-react';
+import { Loader2, MessageSquareText, Pencil, Send, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { avatarFor } from '../../lib/avatar';
 import type { UserRow } from '../../lib/docsApi';
@@ -67,7 +67,11 @@ export function TaskComments({ taskId, users }: { taskId: string; users: UserRow
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dismissed, setDismissed] = useState(false);
+  const [editing, setEditing] = useState<{ id: string; text: string } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Escape clears the draft, but the blur it causes still runs with the old
+  // state — this tells that late save to stand down.
+  const cancelEdit = useRef(false);
 
   useEffect(() => {
     let alive = true;
@@ -114,6 +118,24 @@ export function TaskComments({ taskId, users }: { taskId: string; users: UserRow
     }
   };
 
+  const saveEdit = async () => {
+    if (cancelEdit.current) { cancelEdit.current = false; return; }
+    if (!editing) return;
+    const body = editing.text.trim();
+    const { id } = editing;
+    setEditing(null);
+    const before = rows;
+    if (!body) return;
+    setRows((r) => (r ?? []).map((c) => (c.id === id ? { ...c, body } : c)));
+    try {
+      const saved = await tasksApi.editComment(id, { body });
+      setRows((r) => (r ?? []).map((c) => (c.id === id ? { ...c, ...saved } : c)));
+    } catch (e) {
+      setRows(before);
+      setError(e instanceof Error ? e.message : 'Could not save that edit.');
+    }
+  };
+
   const remove = async (id: string) => {
     setRows((r) => (r ?? []).filter((c) => c.id !== id));
     await tasksApi.deleteComment(id).catch(() => {
@@ -146,19 +168,54 @@ export function TaskComments({ taskId, users }: { taskId: string; users: UserRow
                   <ActorMark kind={c.author_kind} name={c.author_name || ''} />
                   <span>{relativeTime(c.created_at)}</span>
                   {c.author_id === auth.user?.id && (
-                    <button
-                      type="button"
-                      onClick={() => remove(c.id)}
-                      aria-label="Delete this comment"
-                      className="ml-auto shrink-0 text-faint opacity-0 transition-opacity hover:text-danger-strong group-hover/comment:opacity-100"
-                    >
-                      <Trash2 size={12} />
-                    </button>
+                    <span className="ml-auto flex shrink-0 items-center gap-1.5 opacity-0 transition-opacity group-hover/comment:opacity-100">
+                      <button
+                        type="button"
+                        onClick={() => setEditing({ id: c.id, text: c.body })}
+                        aria-label="Edit this comment"
+                        className="text-faint hover:text-ink"
+                      >
+                        <Pencil size={12} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => remove(c.id)}
+                        aria-label="Delete this comment"
+                        className="text-faint hover:text-danger-strong"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </span>
                   )}
                 </p>
                 {/* Whitespace kept: people paste lists and short logs in here,
                     and a comment reflowed into one paragraph loses them. */}
-                <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-ink">{c.body}</p>
+                {editing?.id === c.id ? (
+                  // A textarea, not an input: the same pasted lists have to
+                  // survive being edited, and Enter still sends.
+                  <textarea
+                    autoFocus
+                    // Newlines and wrapping both count: a pasted list and a long
+                    // single line each need more than one row to be editable.
+                    rows={Math.min(8, Math.max(2, editing.text.split('\n').length, Math.ceil(editing.text.length / 60)))}
+                    value={editing.text}
+                    onChange={(e) => setEditing({ id: c.id, text: e.target.value })}
+                    onBlur={saveEdit}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        saveEdit();
+                      }
+                      if (e.key === 'Escape') { cancelEdit.current = true; setEditing(null); }
+                    }}
+                    className="mt-0.5 w-full resize-none rounded-md bg-transparent px-1.5 py-1 text-sm leading-relaxed text-ink outline-none ring-1 ring-inset ring-line focus:ring-2 focus:ring-accent"
+                  />
+                ) : (
+                  <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-ink">
+                    {c.body}
+                    {c.edited_at && <span className="ml-1 text-2xs text-faint">(edited)</span>}
+                  </p>
+                )}
               </div>
             </li>
           ))}

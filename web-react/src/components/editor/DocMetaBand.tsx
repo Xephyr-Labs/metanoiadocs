@@ -2,12 +2,15 @@
  * theme: project tokens (index.css) · states: default · hover (tags) ·
  * focus-visible · empty (no editor yet — renders nothing)
  */
+import { Heart } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Intelligence } from '../../lib/docsApi';
 import { avatarFor } from '../../lib/avatar';
+import { cn } from '../../lib/cn';
 import { relativeTime } from '../../lib/time';
 import type { Page } from '../../lib/types';
+import { useWorkspace } from '../../store/workspace';
 import { ActorMark } from '../ui/ActorMark';
 import { TagChips } from './TagChips';
 import { TagSuggestions } from './TagSuggestions';
@@ -41,6 +44,7 @@ export function DocMetaBand({
   suggested: Intelligence['suggestedTags'];
   savedTick: number;
 }) {
+  const ws = useWorkspace();
   const [host, setHost] = useState<HTMLElement | null>(null);
   const [minutes, setMinutes] = useState(1);
 
@@ -61,7 +65,10 @@ export function DocMetaBand({
   useEffect(() => { setMinutes(readingMinutes(editor)); }, [editor, savedTick, page.id]);
 
   if (!host) return null;
-  const who = page.updatedByName;
+  // The name is whoever touched it last; on a page nobody has edited since it
+  // was made, that is nobody, and the person who made it is the honest answer.
+  const edited = page.updatedByName;
+  const who = edited ?? page.createdByName;
   const avatar = who ? avatarFor(who) : null;
 
   return createPortal(
@@ -75,12 +82,31 @@ export function DocMetaBand({
             {avatar.initials}
           </span>
           <span className="text-muted">{who}</span>
-          <ActorMark kind={page.updatedByKind} via={page.updatedVia} name={who} />
+          {edited && <ActorMark kind={page.updatedByKind} via={page.updatedVia} name={who} />}
         </span>
       )}
-      <span>Updated {relativeTime(page.updatedAt)}</span>
+      <span>
+        {edited
+          ? `Edited ${relativeTime(page.updatedAt)}`
+          : `Created ${relativeTime(page.createdAt ?? page.updatedAt)}`}
+      </span>
       <span aria-hidden>·</span>
       <span>{minutes} min read</span>
+      <span aria-hidden>·</span>
+      <button
+        type="button"
+        onClick={() => ws.toggleLove(page.id)}
+        aria-pressed={page.loved}
+        aria-label={page.loved ? 'Remove your love from this page' : 'Love this page'}
+        title={page.loved ? 'You love this page' : 'Love this page'}
+        className={cn(
+          'flex items-center gap-1 rounded-full px-1.5 py-0.5 transition-colors hover:bg-hover',
+          page.loved ? 'text-danger-strong' : 'text-faint hover:text-ink',
+        )}
+      >
+        <Heart size={12} fill={page.loved ? 'currentColor' : 'none'} />
+        {page.loveCount > 0 && <span>{page.loveCount}</span>}
+      </button>
       <TagChips page={page} trailing={<TagSuggestions pageId={page.id} suggested={suggested} />} compact />
     </div>,
     host,

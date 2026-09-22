@@ -26,7 +26,8 @@ export function useDocLinking() {
   pagesRef.current = ws.pages;
 
   const pages = useCallback(
-    (): LinkTarget[] => Object.values(pagesRef.current).map((p) => ({ id: p.id, title: p.title, icon: p.icon })),
+    (): LinkTarget[] => Object.values(pagesRef.current)
+      .map((p) => ({ id: p.id, title: p.title, icon: p.icon, updatedAt: p.updatedAt })),
     [],
   );
 

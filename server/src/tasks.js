@@ -58,6 +58,26 @@ export function cleanStatusColors(value) {
   return out;
 }
 
+/**
+ * `{ 'sys:<id>': { label?, hidden? } }`, keeping only what the shape allows.
+ *
+ * Same stance as cleanStatusColors: the body is the whole map, so a bad entry
+ * is dropped rather than failing the good ones. A label is trimmed and capped;
+ * an empty one means "no override", and is dropped so the default comes back.
+ */
+export function cleanBuiltinProps(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const out = {};
+  for (const [id, raw] of Object.entries(value)) {
+    if (!id.startsWith('sys:') || !raw || typeof raw !== 'object') continue;
+    const entry = {};
+    if (typeof raw.label === 'string' && raw.label.trim()) entry.label = raw.label.trim().slice(0, 60);
+    if (raw.hidden === true) entry.hidden = true;
+    if (Object.keys(entry).length) out[id] = entry;
+  }
+  return out;
+}
+
 /** Seeded into every project on first read. Not built-ins — all four can be
  * renamed, recoloured or deleted like any type someone adds later. */
 export const DEFAULT_KINDS = [
@@ -455,6 +475,12 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
       if (!colors) return res.status(400).json({ error: 'bad statusColors' });
       vals.push(JSON.stringify(colors));
       sets.push(`status_colors = $${vals.length}::jsonb`);
+    }
+    if (req.body?.builtinProps !== undefined) {
+      const overrides = cleanBuiltinProps(req.body.builtinProps);
+      if (!overrides) return res.status(400).json({ error: 'bad builtinProps' });
+      vals.push(JSON.stringify(overrides));
+      sets.push(`builtin_props = $${vals.length}::jsonb`);
     }
     // Archiving is a toggle, not a one-way door: the sidebar's Archive action
     // offers an undo, and that undo comes back through here.

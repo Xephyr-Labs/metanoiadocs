@@ -786,6 +786,43 @@ html.dark .mn-toc .outline-viewer-indicator {
   opacity: 0;
 }
 
+/* No hover, no reveal: on a touch screen a control that waits for a pointer
+ * to pass over it waits forever. Anything drawn invisible until hover is
+ * simply visible there. Same opt-out as above, for the same reason. */
+@media (hover: none) {
+  .opacity-0[class*='group-hover']:not(.mn-stay-hidden) {
+    opacity: 1;
+  }
+}
+
+/* The editor bar folds by its own width, not the window's — with the side
+ * panel open the column is narrow on a wide screen too. Three tiers: the mode
+ * switch loses its words, the lists and link go into ⋯, then the marks do. */
+.mn-editor-bar {
+  container-type: inline-size;
+}
+.mn-editor-bar .mn-bar-more {
+  display: none;
+}
+@container (max-width: 720px) {
+  .mn-editor-bar .mn-seg-label {
+    display: none;
+  }
+}
+@container (max-width: 560px) {
+  .mn-editor-bar .mn-bar-secondary {
+    display: none;
+  }
+  .mn-editor-bar .mn-bar-more {
+    display: flex;
+  }
+}
+@container (max-width: 460px) {
+  .mn-editor-bar .mn-bar-marks {
+    display: none;
+  }
+}
+
 /* A row's page inside the task panel: the panel owns the title, so the
  * document's title block is hidden and the body starts where the properties
  * end. Headings step down too — display sizes drawn for a 760px measure are

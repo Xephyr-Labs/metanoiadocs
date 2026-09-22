@@ -1,8 +1,9 @@
-import { ChevronDown, ChevronUp, Plus, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronUp, Eye, EyeOff, Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { cn } from '../../../lib/cn';
 import { swatch } from '../../../lib/tagColors';
-import { PROP_TYPES, PROP_TYPE_LABEL, type PropRow, type PropType, type ProjectRow } from '../../../lib/tasksApi';
+import { PROP_TYPES, PROP_TYPE_LABEL, type BuiltinOverride, type PropRow, type PropType, type ProjectRow } from '../../../lib/tasksApi';
+import { isAuditProp } from '../../../lib/builtinProps';
 import { Button } from '../../ui/Button';
 import { ColorPicker } from '../../ui/ColorPicker';
 import { IconButton } from '../../ui/IconButton';
@@ -21,6 +22,60 @@ interface Props {
   onDelete: (id: string) => void;
   /** Swap a property with its neighbour; `by` is -1 for up, 1 for down. */
   onReorder: (id: string, by: -1 | 1) => void;
+  /** Every built-in the database has, switched-off ones included. Absent on
+   *  an embed, which shows the custom half only. */
+  builtins?: PropRow[];
+  /** A built-in's label or visibility. Its type and id are not on offer. */
+  onBuiltin?: (id: string, patch: BuiltinOverride) => void;
+  /** Task types have an editor of their own; the Type row hands over to it. */
+  onEditKinds?: () => void;
+}
+
+/**
+ * One built-in property, as far as the project may change it.
+ *
+ * The same row shape as a custom property so the two halves of the list read
+ * as one list — which is the point: people looked for Status here, did not
+ * find it, and made a custom "Status" beside the real one. Rename and hide
+ * are offered; type, delete and reorder are not, because Status is the
+ * board's columns and Due is what "overdue" means, and a project that could
+ * delete them would break in ways nobody would trace back to this dialog.
+ */
+function BuiltinRow({ prop, onBuiltin, onEditKinds }: {
+  prop: PropRow;
+  onBuiltin: NonNullable<Props['onBuiltin']>;
+  onEditKinds?: () => void;
+}) {
+  const hidden = !!prop.hidden;
+  return (
+    <div className={cn('flex items-center gap-2', hidden && 'opacity-60')}>
+      <IconButton
+        icon={hidden ? <EyeOff size={14} /> : <Eye size={14} />}
+        label={hidden ? `Show ${prop.label}` : `Hide ${prop.label}`}
+        active={!hidden}
+        onClick={() => onBuiltin(prop.id, { hidden: !hidden })}
+      />
+      <input
+        className={field}
+        aria-label={`Name of ${prop.label}`}
+        defaultValue={prop.label}
+        onBlur={(e) => {
+          const next = e.target.value.trim();
+          if (next !== prop.label) onBuiltin(prop.id, { label: next });
+          else e.target.value = prop.label;
+        }}
+        onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+      />
+      <span className={cn(selectField, 'w-32 shrink-0 text-faint')} title="A built-in keeps its type">
+        {PROP_TYPE_LABEL[prop.type]}
+      </span>
+      {prop.id === 'sys:kind' && onEditKinds ? (
+        <Button variant="ghost" size="sm" onClick={onEditKinds}>Edit types…</Button>
+      ) : (
+        <span className="w-7 shrink-0" aria-hidden />
+      )}
+    </div>
+  );
 }
 
 /**
@@ -36,6 +91,28 @@ function changeableTo(type: PropType): PropType[] {
 }
 
 /**
+ * The labels typed into the "add option" field, one per option.
+ *
+ * A select is usually born with its whole list in mind — High, Medium, Low —
+ * and typing them one Enter at a time was the slow part of making one. So
+ * the field takes several: split on commas or line breaks (a pasted column
+ * from a spreadsheet arrives as line breaks), trimmed, empties and repeats
+ * dropped, and anything already in `existing` dropped too. Exported for its
+ * test — this is the one piece of the editor that can silently eat input.
+ */
+export function splitOptionLabels(text: string, existing: string[] = []): string[] {
+  const seen = new Set(existing.map((l) => l.toLowerCase()));
+  const out: string[] = [];
+  for (const raw of text.split(/[,\n]/)) {
+    const label = raw.trim();
+    if (!label || seen.has(label.toLowerCase())) continue;
+    seen.add(label.toLowerCase());
+    out.push(label);
+  }
+  return out;
+}
+
+/**
  * Option rows are keyed by id, never by label — a rename must never mint a
  * new id, or every task that stored the old id renders blank (the value is
  * still in `tasks.props`, but nothing in `prop.options` matches it anymore).
@@ -45,10 +122,14 @@ function OptionsEditor({ prop, onPatch }: { prop: PropRow; onPatch: Props['onPat
 
   const setOptions = (options: PropRow['options']) => onPatch(prop.id, { options });
 
-  const addOption = () => {
-    const label = draft.trim();
-    if (label && !prop.options.some((o) => o.label === label)) {
-      setOptions([...prop.options, { id: crypto.randomUUID(), label, color: nextColor(prop.options) }]);
+  const addOptions = () => {
+    const labels = splitOptionLabels(draft, prop.options.map((o) => o.label));
+    if (labels.length) {
+      // Each new option takes the next colour after the ones before it, so
+      // three added together are three colours, not one repeated.
+      const next = [...prop.options];
+      for (const label of labels) next.push({ id: crypto.randomUUID(), label, color: nextColor(next) });
+      setOptions(next);
     }
     setDraft('');
   };
@@ -83,19 +164,28 @@ function OptionsEditor({ prop, onPatch }: { prop: PropRow; onPatch: Props['onPat
           />
         </div>
       ))}
-      <input
-        className={field}
-        placeholder="Add option…"
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onKeyDown={(e) => e.key === 'Enter' && addOption()}
-      />
+      {/* A button as well as Enter: the field alone read as "one option, and
+          only if you know the key". The placeholder says the other thing the
+          field takes — several at once. */}
+      <div className="flex items-center gap-2">
+        <input
+          className={field}
+          placeholder="Add options… separate with commas"
+          aria-label={`Add options to ${prop.label}`}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addOptions(); } }}
+        />
+        <IconButton icon={<Plus size={14} />} label="Add these options" disabled={!draft.trim()} onClick={addOptions} />
+      </div>
     </div>
   );
 }
 
 /** Per-project custom properties. Modelled on TaskKindsDialog. */
-export function PropsDialog({ open, onOpenChange, props, projects, onCreate, onPatch, onDelete, onReorder }: Props) {
+export function PropsDialog({
+  open, onOpenChange, props, projects, onCreate, onPatch, onDelete, onReorder, builtins, onBuiltin, onEditKinds,
+}: Props) {
   const [label, setLabel] = useState('');
   const [type, setType] = useState<PropType>('text');
   const [target, setTarget] = useState('');
@@ -110,8 +200,23 @@ export function PropsDialog({ open, onOpenChange, props, projects, onCreate, onP
   };
 
   return (
-    <Modal open={open} onOpenChange={onOpenChange} title="Properties" width={520}>
-      <div className="space-y-2 p-4">
+    <Modal open={open} onOpenChange={onOpenChange} title="Properties" width={520} className="max-h-[80vh]">
+      {/* Scrolls, like Task types and Automations: with the built-ins listed
+          the dialog is taller than a laptop screen, and a panel that clips
+          instead puts its first rows above the top edge. */}
+      <div className="scrollarea min-h-0 flex-1 space-y-2 overflow-y-auto p-4">
+        {/* Built-ins first, the way they sit in the peek. The audit columns
+            (Created, Last edited by…) are left out: they are written by the
+            database and cannot be hidden from it. */}
+        {builtins && onBuiltin && (
+          <>
+            <p className="text-2xs font-semibold uppercase tracking-wide text-faint">Built in</p>
+            {builtins.filter((b) => !isAuditProp(b.id)).map((b) => (
+              <BuiltinRow key={b.id} prop={b} onBuiltin={onBuiltin} onEditKinds={onEditKinds} />
+            ))}
+            <p className="pt-2 text-2xs font-semibold uppercase tracking-wide text-faint">Yours</p>
+          </>
+        )}
         {props.map((p, i) => (
           <div key={p.id}>
             <div className="flex items-center gap-2">

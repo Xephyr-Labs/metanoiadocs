@@ -30,6 +30,7 @@ import { attachMermaidPreviews } from './mermaidPreview';
 import { attachMarkdownPaste } from './markdownPaste';
 import { attachRefClicks, collectPageLinks, pageLinkExtensions, type LinkTarget } from './pageLinks';
 import { attachLinkSearch } from './linkSearch';
+import { attachLinkedDocMenu } from './linkedDocMenu';
 import { missingDocMetas } from './docMetas';
 import { blockLinkExtensions } from './blockLinks';
 import { attachImageAlign } from './imageAlign';
@@ -440,6 +441,13 @@ export async function mountEditor(
     ? null
     : attachLinkSearch(editor, { pages, currentId: docId });
 
+  // The "@" popover is BlockSuite's; its contents are ours — a search box and
+  // the ranked page list (see linkedDocMenu.ts). Observed on the document
+  // because the widget portals the popover out of the editor subtree.
+  const detachLinkedDocMenu = share || snapshot || !pages
+    ? null
+    : attachLinkedDocMenu(editor, { pages, currentId: docId });
+
   // Paint each image's stored alignment onto the DOM (see imageAlign.ts).
   const detachImageAlign = attachImageAlign({
     store: store as unknown as Parameters<typeof attachImageAlign>[0]['store'],
@@ -533,6 +541,7 @@ export async function mountEditor(
       try { detachComments?.(); } catch { /* noop */ }
       try { detachRefClicks?.(); } catch { /* noop */ }
       try { detachLinkSearch?.(); } catch { /* noop */ }
+      try { detachLinkedDocMenu?.(); } catch { /* noop */ }
       try { detachImageAlign(); } catch { /* noop */ }
       try { detachColumns(); } catch { /* noop */ }
       try { detachCalloutPanels(); } catch { /* noop */ }

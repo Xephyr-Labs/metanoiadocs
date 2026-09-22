@@ -11,7 +11,10 @@
 //
 // Click routing and link extraction live here too, so everything that knows
 // about references sits in one file.
-import { DocDisplayMetaProvider } from '@blocksuite/affine/shared/services';
+import { ActionPlacement, DocDisplayMetaProvider, ToolbarModuleExtension } from '@blocksuite/affine/shared/services';
+import { BlockFlavourIdentifier } from '@blocksuite/affine/std';
+import { OpenInNewIcon } from '@blocksuite/icons/lit';
+import { docUrl } from '../lib/route';
 import { insertLinkedNode, RefNodeSlotsProvider } from '@blocksuite/affine/inlines/reference';
 import { LinkedWidgetConfigExtension } from '@blocksuite/affine/widgets/linked-doc';
 import { computed, signal } from '@preact/signals-core';
@@ -23,6 +26,8 @@ export interface LinkTarget {
   id: string;
   title: string;
   icon: string;
+  /** Last save, for breaking ties between equally good title matches. */
+  updatedAt?: string;
 }
 
 export interface PageLinkOptions {
@@ -46,6 +51,9 @@ const UNTITLED = 'Untitled';
 let people: { id: string; name: string; username: string | null }[] = [];
 let peopleLoading = false;
 
+/** The cached member list, for the custom "@" panel. Empty until it lands. */
+export const linkPeople = () => people;
+
 function loadPeople() {
   if (peopleLoading || people.length) return;
   peopleLoading = true;
@@ -54,6 +62,37 @@ function loadPeople() {
     .catch(() => { /* the menu just keeps its pages-only shape */ })
     .finally(() => { peopleLoading = false; });
 }
+
+/**
+ * What the open "@" menu can do, published for the panel that replaces its
+ * looks (linkedDocMenu.ts). Everything here needs the live inline editor and
+ * the widget's own abort — which delete the trigger text and close the popover
+ * — and both are handed to `getMenus` and to nothing else, so this is where
+ * they are caught. Read at the moment of the click, never cached: a stale
+ * inline editor writes into a block that is no longer there.
+ */
+export interface LiveLinkMenu {
+  /** What the widget itself has as the query — the characters that reached the
+   *  page before the panel took focus, which the panel starts from. */
+  query: string;
+  abort: () => void;
+  link: (docId: string) => void;
+  mention: (username: string) => void;
+  create: (title: string) => Promise<void>;
+}
+
+/** The slice of BlockSuite's inline editor the caret dance needs. Loosely
+ *  typed at the boundary, like the rest of this file's BlockSuite contact. */
+interface InlineEditorParts {
+  eventSource?: HTMLElement | null;
+  yText?: { length: number };
+  getInlineRange: () => { index: number; length: number } | null;
+  toDomRange: (range: { index: number; length: number }) => Range | null;
+}
+
+let live: LiveLinkMenu | null = null;
+
+export const liveLinkMenu = () => live;
 
 /**
  * A person is written as literal "@username" text, not a reference node.
@@ -96,6 +135,42 @@ export function fuzzy(title: string, query: string) {
   return false;
 }
 
+/**
+ * The pages that match `query`, best first.
+ *
+ * Filtering alone was enough with thirty pages and useless with three hundred:
+ * `fuzzy` is a subsequence match, so a short query matches almost everything,
+ * and the survivors came back in sidebar order — the six shown were the six
+ * highest in the tree, not the six most likely. The tiers below are the order
+ * a person means them: the exact title, one that starts this way, a word that
+ * starts this way, the letters somewhere in it, all the typed words in any
+ * order, and only then a loose subsequence. Recency breaks ties, because the
+ * page you touched this morning is usually the one you are linking to.
+ */
+export function rankPages<T extends LinkTarget>(pages: T[], query: string): T[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return pages;
+  const words = q.split(/\s+/).filter(Boolean);
+  const scored: { page: T; score: number; title: string }[] = [];
+  for (const page of pages) {
+    const title = (page.title || UNTITLED).toLowerCase();
+    let score: number;
+    if (title === q) score = 0;
+    else if (title.startsWith(q)) score = 1;
+    else if (title.split(/[^a-z0-9]+/).some((w) => w && w.startsWith(q))) score = 2;
+    else if (title.includes(q)) score = 3;
+    else if (words.length > 1 && words.every((w) => title.includes(w))) score = 4;
+    else if (fuzzy(title, q)) score = 5;
+    else continue;
+    scored.push({ page, score, title });
+  }
+  scored.sort((a, b) =>
+    a.score - b.score ||
+    (b.page.updatedAt ?? '').localeCompare(a.page.updatedAt ?? '') ||
+    a.title.length - b.title.length);
+  return scored.map((s) => s.page);
+}
+
 const emoji = (icon: string): TemplateResult<1> =>
   html`<span style="font-size:16px;line-height:20px">${icon || '📄'}</span>`;
 
@@ -112,11 +187,45 @@ export function pageLinkExtensions({ pages, currentId, createPage }: PageLinkOpt
     _host: unknown,
     inlineEditor: Parameters<typeof insertLinkedNode>[0]['inlineEditor'],
   ) => {
-    const matches = pages()
-      .filter((p) => p.id !== currentId)
-      .filter((p) => fuzzy(p.title || UNTITLED, query));
+    const matches = rankPages(pages().filter((p) => p.id !== currentId), query);
 
     const link = (docId: string) => insertLinkedNode({ inlineEditor, docId });
+
+    live = {
+      query,
+      // Abandoning the menu has to hand the caret back. Picking an item does
+      // that by writing into the page; Escape writes nothing, so without this
+      // the focus stays in a panel that no longer exists and the next thing
+      // typed goes nowhere.
+      abort: () => {
+        abort();
+        const editor = inlineEditor as unknown as InlineEditorParts;
+        const source = editor.eventSource;
+        const range = editor.getInlineRange();
+        if (!source) return;
+        source.focus();
+        // Next frame, not this one. The focusable element is the page root, so
+        // focusing it alone drops the caret at the top of the document, and
+        // BlockSuite syncs the selection again right after — the caret has to
+        // be put back once that has happened. Clamped, because the range still
+        // counts the "@" that abort has just deleted.
+        requestAnimationFrame(() => {
+          const index = Math.min(range?.index ?? 0, editor.yText?.length ?? 0);
+          const dom = editor.toDomRange({ index, length: 0 });
+          if (!dom) return;
+          const selection = source.ownerDocument.getSelection();
+          selection?.removeAllRanges();
+          selection?.addRange(dom);
+        });
+      },
+      link: (docId) => { abort(); link(docId); },
+      mention: (username) => { abort(); insertMention(inlineEditor, username); },
+      create: async (title) => {
+        abort();
+        const id = await createPage(title.trim() || UNTITLED);
+        if (id) link(id);
+      },
+    };
 
     const matchedPeople = people.filter(
       (u) => fuzzy(u.username ?? '', query) || fuzzy(u.name || '', query),
@@ -175,6 +284,28 @@ export function pageLinkExtensions({ pages, currentId, createPage }: PageLinkOpt
 
   return [
     LinkedWidgetConfigExtension({ getMenus }),
+    // "Open in new tab" on the chip's hover toolbar. A `custom:` variant, like
+    // the image toolbar: a second module for the flavour itself throws at
+    // mount, and a custom one is merged into the built-in row by id. The
+    // click goes through the chip's own `open`, so it lands in attachRefClicks
+    // below with the mode set, the same as a middle click does.
+    ToolbarModuleExtension({
+      id: BlockFlavourIdentifier('custom:affine:reference'),
+      config: {
+        actions: [
+          {
+            placement: ActionPlacement.Normal,
+            id: 'b.open-in-new-tab',
+            tooltip: 'Open in new tab',
+            icon: OpenInNewIcon(),
+            run: (ctx: { message$: { peek: () => { element?: unknown } | null } }) => {
+              const target = ctx.message$.peek()?.element as { open?: (e: { openMode: string }) => void } | undefined;
+              target?.open?.({ openMode: 'open-in-new-tab' });
+            },
+          },
+        ],
+      },
+    }),
     {
       setup: (di: { override: (a: unknown, b: unknown) => void }) =>
         di.override(DocDisplayMetaProvider, {
@@ -197,12 +328,22 @@ export function pageLinkExtensions({ pages, currentId, createPage }: PageLinkOpt
  * in BlockSuite, so failing to unsubscribe would leak across mounts.
  */
 export function attachRefClicks(editor: Element, onOpen: (docId: string) => void) {
+  interface RefClick {
+    pageId?: string;
+    /** Set by the toolbar action above and by a middle click (BlockSuite
+     *  maps button 1 to it); a ⌘/Ctrl click carries the intent on the event. */
+    openMode?: string;
+    event?: MouseEvent;
+  }
   const host = editor.querySelector('editor-host') as
-    | { std?: { getOptional?: (id: unknown) => { docLinkClicked?: { subscribe: (fn: (e: { pageId?: string }) => void) => { unsubscribe: () => void } } } | undefined } }
+    | { std?: { getOptional?: (id: unknown) => { docLinkClicked?: { subscribe: (fn: (e: RefClick) => void) => { unsubscribe: () => void } } } | undefined } }
     | null;
   const slots = host?.std?.getOptional?.(RefNodeSlotsProvider);
   const sub = slots?.docLinkClicked?.subscribe((e) => {
-    if (e?.pageId) onOpen(e.pageId);
+    if (!e?.pageId) return;
+    const newTab = e.openMode === 'open-in-new-tab' || !!e.event?.metaKey || !!e.event?.ctrlKey;
+    if (newTab) window.open(docUrl(e.pageId), '_blank', 'noopener');
+    else onOpen(e.pageId);
   });
   return () => {
     try { sub?.unsubscribe(); } catch { /* noop */ }

@@ -499,6 +499,7 @@ export function ProjectView() {
         onAddDep={p.addDep}
         onRemoveDep={p.removeDep}
         statusColors={project.status_colors}
+        builtinOverrides={project.builtin_props}
         onManageKinds={() => setKindsOpen(true)}
         onManageProps={() => setPropsOpen(true)}
         onEditOptions={p.editOptions}
@@ -539,11 +540,24 @@ export function ProjectView() {
         open={propsOpen}
         onOpenChange={setPropsOpen}
         props={p.props}
+        builtins={d.builtins}
         projects={ws.projects}
         onCreate={p.createProp}
         onPatch={p.patchProp}
         onReorder={p.reorderProp}
         onDelete={p.deleteProp}
+        // A built-in's label and visibility are project settings, like its
+        // status colours — so the same refresh the sidebar and this screen read.
+        onBuiltin={(id, patch) => {
+          const cur = project.builtin_props?.[id] ?? {};
+          tasksApi.patchProject(project.id, { builtinProps: { ...project.builtin_props, [id]: { ...cur, ...patch } } })
+            .then(() => ws.refreshProjects())
+            .catch(() => p.setError('Could not save that property setting.'));
+        }}
+        // Types have their own editor; the dialog hands over rather than
+        // growing a second one. Two stacked modals is a focus trap, so this
+        // one closes first.
+        onEditKinds={() => { setPropsOpen(false); setKindsOpen(true); }}
       />
     </div>
     </KindsProvider>

@@ -27,6 +27,12 @@ export interface Page {
   /** 'ai' when the copilot made that last save, not the person typing. */
   updatedVia: 'human' | 'ai';
   updatedAt: string;
+  /** Who made the page and when — fixed, unlike the editor above. */
+  createdByName: string | null;
+  createdAt: string | null;
+  /** Loves from the whole team, and whether one of them is yours. */
+  loveCount: number;
+  loved: boolean;
   /** Pages this one @-references. Drives the sidebar disclosure arrow. */
   linkCount: number;
   tags: Tag[];

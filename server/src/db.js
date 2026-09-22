@@ -496,6 +496,19 @@ export async function initSchema() {
     EXCEPTION WHEN duplicate_object THEN NULL; END $$;
     CREATE INDEX IF NOT EXISTS comments_task_idx ON comments(task_id, created_at);
 
+    -- Loves. A favourite is a private bookmark and a pin is the team's shelf;
+    -- a love is public applause — everyone sees the count, one per person.
+    CREATE TABLE IF NOT EXISTS doc_loves (
+      doc_id     TEXT NOT NULL REFERENCES docs(id) ON DELETE CASCADE,
+      user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (doc_id, user_id)
+    );
+
+    -- Set when the author rewrites their own comment, so the card can say so.
+    -- Null means never touched since it was posted — the common case.
+    ALTER TABLE comments ADD COLUMN IF NOT EXISTS edited_at TIMESTAMPTZ;
+
     -- Task types, per project and editable by anyone who can see the project.
     -- Epic/Story/Task/Bug are seeded defaults, not built-ins.
     --
@@ -605,6 +618,12 @@ export async function initSchema() {
     -- repainted here, never renamed or invented. Missing keys fall back to the
     -- palette the app has always drawn (web-react/src/lib/builtinProps.ts).
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS status_colors JSONB NOT NULL DEFAULT '{}';
+    -- What a project says about its built-in properties: a label of its own
+    -- ("Stage" for Status) and whether the property is shown at all. Keyed by
+    -- the built-in's id. The property itself stays what it is — a hidden Due
+    -- still drives overdue — this only changes how it reads and whether it
+    -- takes up a row.
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS builtin_props JSONB NOT NULL DEFAULT '{}';
 
     -- Was the last write typed, or made by the copilot on the person's behalf?
     --

@@ -53,15 +53,19 @@ export function useDatabaseView({
   const kind = view?.kind ?? 'table';
   const config = view?.config ?? {};
 
+  // Every built-in, switched-off ones included: that is the list the
+  // properties dialog shows, since a hidden property has to stay findable.
   const builtins = useMemo(
-    () => builtinProps(mode, source.kinds, source.sprints, project?.status_colors),
-    [mode, source.kinds, source.sprints, project?.status_colors],
+    () => builtinProps(mode, source.kinds, source.sprints, project?.status_colors, project?.builtin_props),
+    [mode, source.kinds, source.sprints, project?.status_colors, project?.builtin_props],
   );
-  // Machine-owned properties (`_`-prefixed) never reach a card, a column, a
-  // filter or the peek — see isSystemProp. They are still stored, still
-  // readable through the API, and still listed in the properties dialog.
+  // Machine-owned properties (`_`-prefixed) and built-ins the project has
+  // hidden never reach a card, a column, a filter or the peek — see
+  // visibleProps. They are still stored, still readable through the API, and
+  // still listed in the properties dialog.
+  const shownBuiltins = useMemo(() => visibleProps(builtins), [builtins]);
   const readable = useMemo(() => visibleProps(source.props), [source.props]);
-  const allProps = useMemo(() => [...builtins, ...readable], [builtins, readable]);
+  const allProps = useMemo(() => [...shownBuiltins, ...readable], [shownBuiltins, readable]);
 
   const fields = useMemo(
     () => fieldsFor({
@@ -79,9 +83,9 @@ export function useDatabaseView({
     // The table is the one view with room for all of them, so its unconfigured
     // state is every property rather than a chosen few.
     () => (kind === 'table'
-      ? defaultTableProps(builtins, source.props)
-      : defaultPropIds(kind, builtins, source.props, mode)),
-    [kind, builtins, source.props, mode],
+      ? defaultTableProps(shownBuiltins, source.props)
+      : defaultPropIds(kind, shownBuiltins, source.props, mode)),
+    [kind, shownBuiltins, source.props, mode],
   );
 
   const { visible, hidden } = useMemo(
@@ -176,6 +180,7 @@ export function useDatabaseView({
     statusColors: project?.status_colors ?? {},
     fields,
     allProps,
+    builtins,
     filters,
     sort,
     scope,

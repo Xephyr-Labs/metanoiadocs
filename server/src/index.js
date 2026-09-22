@@ -632,7 +632,9 @@ app.get('/api/docs', requireUser, async (req, res) => {
             coalesce(a.role, 'editor') AS role, d.visibility, d.kind, d.props, d.is_template,
             ub.name AS updated_by_name,
             coalesce(ub.kind, 'person') AS updated_by_kind,
-            d.updated_via,
+            d.updated_via, d.created_at, cb.name AS created_by_name,
+            (lv.doc_id IS NOT NULL) AS loved,
+            coalesce(lc.love_count, 0) AS love_count,
             (d.share_token IS NOT NULL) AS shared,
             (f.doc_id IS NOT NULL) AS favorite,
             (pin.doc_id IS NOT NULL) AS pinned,
@@ -645,6 +647,11 @@ app.get('/api/docs', requireUser, async (req, res) => {
           WHERE l.from_id = d.id
        ) lk ON true
        LEFT JOIN users ub ON ub.id = d.updated_by
+       LEFT JOIN users cb ON cb.id = d.created_by
+       LEFT JOIN doc_loves lv ON lv.doc_id = d.id AND lv.user_id = $1
+       LEFT JOIN LATERAL (
+         SELECT count(*)::int AS love_count FROM doc_loves WHERE doc_id = d.id
+       ) lc ON true
        LEFT JOIN doc_access a ON a.doc_id = d.id AND a.user_id = $1
        LEFT JOIN favorites f ON f.doc_id = d.id AND f.user_id = $1
        -- No user_id: a pin is the same for everyone, which is the whole point.
@@ -724,7 +731,7 @@ async function createDocRow({ title, icon, userId, folderId, visibility, kind, c
   } finally {
     client.release();
   }
-  return { id, title, icon, parent_id: null, folder_id: folderId, role: 'owner', visibility, kind, shared: false, favorite: false };
+  return { id, title, icon, parent_id: null, folder_id: folderId, role: 'owner', visibility, kind, shared: false, favorite: false, created_at: new Date().toISOString(), loved: false, love_count: 0 };
 }
 
 app.post('/api/docs', requireUser, async (req, res) => {
@@ -1087,6 +1094,29 @@ app.put('/api/docs/:id/favorite', requireUser, async (req, res) => {
     );
   }
   res.json({ ok: true });
+});
+
+// Love a page — Confluence's "like", and the only signal here that is neither
+// private (a favourite) nor structural (a pin). The count comes back so the
+// button lands on the truth including everyone else's loves since the list
+// was fetched.
+app.put('/api/docs/:id/love', requireUser, async (req, res) => {
+  if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
+  if (req.body?.loved === false) {
+    await pool.query('DELETE FROM doc_loves WHERE user_id = $1 AND doc_id = $2', [req.user.id, req.params.id]);
+  } else {
+    await pool.query(
+      'INSERT INTO doc_loves (doc_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+      [req.params.id, req.user.id]
+    );
+  }
+  const { rows } = await pool.query(
+    `SELECT count(*)::int AS count,
+            bool_or(user_id = $2) AS mine
+       FROM doc_loves WHERE doc_id = $1`,
+    [req.params.id, req.user.id]
+  );
+  res.json({ count: rows[0].count, loved: !!rows[0].mine });
 });
 
 // Pin a doc for the whole workspace. Any member who can see it can pin or
@@ -2363,7 +2393,8 @@ app.post('/api/docs/:id/versions/:vid/restore', requireUser, async (req, res) =>
 app.get('/api/docs/:id/comments', requireUser, async (req, res) => {
   if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
   const { rows } = await pool.query(
-    `SELECT id, block_id, quote, body, author_name, parent_id, resolved, created_at
+    `SELECT id, block_id, quote, body, author_id, author_name, parent_id, resolved,
+            created_at, edited_at
        FROM comments WHERE doc_id = $1 ORDER BY created_at ASC`,
     [req.params.id]
   );
@@ -2574,6 +2605,27 @@ app.post('/api/comments/:cid/resolve', requireUser, async (req, res) => {
   await pool.query('UPDATE comments SET resolved = $1 WHERE id = $2 OR parent_id = $2',
     [req.body?.resolved !== false, req.params.cid]);
   res.json({ ok: true });
+});
+
+// Rewrite a comment. The author's own only — an owner may delete a comment on
+// their page, but putting words in someone else's mouth is a different thing.
+// No notification fan-out: the mention that was already sent stands, and a new
+// handle typed into an edit is a message nobody asked to receive.
+app.patch('/api/comments/:cid', requireUser, async (req, res) => {
+  const body = String(req.body?.body || '').trim().slice(0, 4000);
+  if (!body) return res.status(400).json({ error: 'empty comment' });
+  const c = await pool.query('SELECT doc_id, task_id, author_id FROM comments WHERE id = $1', [req.params.cid]);
+  // Authorship on its own, checked here rather than through commentOwner:
+  // that helper answers "may delete this", and on a page it says yes to the
+  // owner too. Access still has to hold — an author dropped from a page does
+  // not keep a pen there — so the helper is asked for that part.
+  if (!c.rows[0] || c.rows[0].author_id !== req.user.id || !(await commentOwner(c.rows[0], req.user.id)))
+    return res.status(403).json({ error: 'forbidden' });
+  const { rows } = await pool.query(
+    'UPDATE comments SET body = $1, edited_at = now() WHERE id = $2 RETURNING body, edited_at',
+    [body, req.params.cid]
+  );
+  res.json(rows[0]);
 });
 
 app.delete('/api/comments/:cid', requireUser, async (req, res) => {

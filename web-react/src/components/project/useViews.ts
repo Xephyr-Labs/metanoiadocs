@@ -46,6 +46,12 @@ function inherited(projectId: string, view: ViewRow): ViewConfig | null {
  * character. The server merges rather than replaces, so two facets saved from
  * two controls do not race each other into a half-written view.
  */
+/** The view a database opens on when the address names none: the board, if
+ *  it has one. The backlog is first in the strip because planning reads left
+ *  to right, but it is a planning tool, and most visits are to see where the
+ *  work stands — which is the board. */
+const firstView = (rows: ViewRow[]) => rows.find((v) => v.kind === 'board') ?? rows[0];
+
 export function useViews(projectId: string | null) {
   const [views, setViews] = useState<ViewRow[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -65,7 +71,7 @@ export function useViews(projectId: string | null) {
     try {
       const rows = await tasksApi.views(projectId);
       setViews(rows);
-      setActiveId((cur) => (rows.some((v) => v.id === cur) ? cur : rows[0]?.id ?? null));
+      setActiveId((cur) => (rows.some((v) => v.id === cur) ? cur : firstView(rows)?.id ?? null));
       // One-time lift of the pre-views localStorage settings.
       for (const v of rows) {
         const config = inherited(projectId, v);
@@ -83,7 +89,7 @@ export function useViews(projectId: string | null) {
 
   useEffect(() => { load(); }, [load]);
 
-  const active = views.find((v) => v.id === activeId) ?? views[0] ?? null;
+  const active = views.find((v) => v.id === activeId) ?? firstView(views) ?? null;
 
   /** Merge a change into a view, on screen now and on the server shortly. */
   const setConfig = useCallback((id: string, patch: ViewConfig) => {
