@@ -158,6 +158,7 @@ export function TopBar() {
   const project = ws.view === 'project' ? ws.projects.find((p) => p.id === ws.activeProjectId) : null;
   const folder = ws.view === 'folder' && ws.activeFolderId ? ws.folders[ws.activeFolderId] : null;
   const isMobile = useMediaQuery('(max-width: 767px)');
+  const compact = useMediaQuery('(max-width: 1023px)');
   const moveTo = useMoveToFolder(page?.id);
   // Read on every render rather than mirrored into state: the settings dialog
   // writes the same preference, and a mirror would leave this menu ticking the
@@ -283,7 +284,10 @@ export function TopBar() {
 
       {page && (
         <div className="flex shrink-0 items-center gap-0.5 border-l border-line pl-1.5">
-          <span className="mr-1 hidden items-center gap-1 text-2xs text-faint md:flex">
+          {/* lg, not md: between 768 and 1024 with the side panel open, this
+              cluster was squeezing the breadcrumb to its first letter. The
+              save time is the least important thing on the bar. */}
+          <span className="mr-1 hidden items-center gap-1 text-2xs text-faint lg:flex">
             <Cloud size={14} /> Edited {relativeTime(page.updatedAt)}
           </span>
           <PresenceStack />
@@ -298,7 +302,7 @@ export function TopBar() {
               trigger={
                 <button className="flex h-7 items-center gap-1.5 rounded-md px-2 text-sm font-medium text-muted transition-colors hover:bg-hover">
                   {page.visibility === 'private' ? <Lock size={14} /> : <Globe size={14} />}
-                  <span>{page.visibility === 'private' ? 'Private' : 'Team'}</span>
+                  <span className="hidden lg:inline">{page.visibility === 'private' ? 'Private' : 'Team'}</span>
                   <ChevronDown size={14} className="text-faint" />
                 </button>
               }
@@ -309,7 +313,7 @@ export function TopBar() {
               <span className="hidden sm:inline">{page.visibility === 'private' ? 'Private' : 'Team'}</span>
             </span>
           )}
-          <Button variant="ghost" size="sm" onClick={() => ws.setShareOpen(true)} className="hidden sm:inline-flex">
+          <Button variant="ghost" size="sm" onClick={() => ws.setShareOpen(true)} className="hidden lg:inline-flex">
             Share
           </Button>
           <IconButton
@@ -356,6 +360,10 @@ export function TopBar() {
           <Menu
             align="end"
             items={[
+              // Share leaves the bar below lg (see the Edited note above); it
+              // has to be somewhere, and this menu is where the bar's
+              // overflow already lives.
+              ...(!isMobile && compact ? [{ icon: Share2, label: 'Share', onSelect: () => ws.setShareOpen(true) }] : []),
               // On phones the toolbar icons collapse in here so the bar isn't crammed.
               ...(isMobile ? [
                 { icon: Share2, label: 'Share', onSelect: () => ws.setShareOpen(true) },

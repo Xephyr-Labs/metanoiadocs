@@ -12,7 +12,7 @@ import {
   AlignHorizontalJustifyStart, AlignVerticalDistributeCenter, AlignVerticalJustifyCenter,
   AlignVerticalJustifyEnd, AlignVerticalJustifyStart,
   Bold, Check, ChevronDown, Code, Download, FileText, Italic, Link2, List, ListOrdered,
-  ListTodo, Maximize2, Minimize2, PencilRuler, Presentation, Strikethrough,
+  ListTodo, Maximize2, Minimize2, MoreHorizontal, PencilRuler, Presentation, Strikethrough,
 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { applyAlign, selectedCount } from '../../editor/designAlign';
@@ -22,6 +22,7 @@ import { MIN_FOR, type AlignMode } from '../../lib/align';
 import type { EditorMode } from '../../lib/types';
 import { cn } from '../../lib/cn';
 import { IconButton } from '../ui/IconButton';
+import { Menu } from '../ui/Menu';
 import { SegmentedControl } from '../ui/SegmentedControl';
 
 /** BlockSuite's std scope, loosely typed at this boundary like the editor glue. */
@@ -164,8 +165,13 @@ export function EditorBar({ editor, mode, design, onMode, fullWidth, onFullWidth
 
   // Edgeless is a canvas — block formatting has nothing to act on there, so the
   // bar collapses to just the mode switch rather than showing dead controls.
+  //
+  // The bar is a container (index.css, .mn-editor-bar): as the column narrows
+  // — the side panel open on a laptop — the mode switch drops its words, then
+  // the lists and the link fold into the ⋯ menu, then the marks do. Nothing
+  // is ever clipped off the right edge, which is what used to happen.
   return (
-    <div className="flex h-9 shrink-0 items-center gap-0.5 px-3 md:px-4">
+    <div className="mn-editor-bar flex h-9 shrink-0 items-center gap-0.5 px-3 md:px-4">
       {!edgeless && (
         <>
           <DM.Root>
@@ -200,45 +206,63 @@ export function EditorBar({ editor, mode, design, onMode, fullWidth, onFullWidth
             </DM.Portal>
           </DM.Root>
 
-          <Divider />
+          <span className="mn-bar-marks flex items-center gap-0.5">
+            <Divider />
+            {MARKS.map((m) => (
+              <IconButton
+                key={m.id}
+                size="sm"
+                icon={<m.icon size={14} />}
+                label={m.label}
+                keys={[...m.keys]}
+                active={!!marks[m.id]}
+                disabled={idle}
+                onClick={() => runMark(m.cmd)}
+              />
+            ))}
+          </span>
 
-          {MARKS.map((m) => (
+          <span className="mn-bar-secondary flex items-center gap-0.5">
+            <Divider />
+            {LISTS.map((l) => (
+              <IconButton
+                key={l.id}
+                size="sm"
+                icon={<l.icon size={14} />}
+                label={l.label}
+                active={blockLabel === l.label}
+                disabled={idle}
+                onClick={() => setBlock('affine:list', { type: l.id })}
+              />
+            ))}
+
             <IconButton
-              key={m.id}
               size="sm"
-              icon={<m.icon size={14} />}
-              label={m.label}
-              keys={[...m.keys]}
-              active={!!marks[m.id]}
+              icon={<Link2 size={14} />}
+              label="Link"
+              keys={['⌘', 'K']}
               disabled={idle}
-              onClick={() => runMark(m.cmd)}
+              // BlockSuite's own command, not a synthesised ⌘K — a dispatched
+              // KeyboardEvent never reached its keymap, so this button did nothing.
+              onClick={() => runMark(toggleLink)}
             />
-          ))}
+          </span>
 
-          <Divider />
-
-          {LISTS.map((l) => (
-            <IconButton
-              key={l.id}
-              size="sm"
-              icon={<l.icon size={14} />}
-              label={l.label}
-              active={blockLabel === l.label}
-              disabled={idle}
-              onClick={() => setBlock('affine:list', { type: l.id })}
+          {/* Everything the narrow bar has folded away, in one place. Hidden
+              until the container query shows it, so at full width it is not
+              a second copy of the buttons beside it. */}
+          <span className="mn-bar-more items-center">
+            <Divider />
+            <Menu
+              align="start"
+              trigger={<span><IconButton size="sm" icon={<MoreHorizontal size={14} />} label="More formatting" disabled={idle} /></span>}
+              items={[
+                ...MARKS.map((m) => ({ icon: m.icon, label: m.label, checked: !!marks[m.id], keepOpen: true, onSelect: () => runMark(m.cmd) })),
+                ...LISTS.map((l, i) => ({ icon: l.icon, label: l.label, checked: blockLabel === l.label, separatorBefore: i === 0, onSelect: () => setBlock('affine:list', { type: l.id }) })),
+                { icon: Link2, label: 'Link', separatorBefore: true, onSelect: () => runMark(toggleLink) },
+              ]}
             />
-          ))}
-
-          <IconButton
-            size="sm"
-            icon={<Link2 size={14} />}
-            label="Link"
-            keys={['⌘', 'K']}
-            disabled={idle}
-            // BlockSuite's own command, not a synthesised ⌘K — a dispatched
-            // KeyboardEvent never reached its keymap, so this button did nothing.
-            onClick={() => runMark(toggleLink)}
-          />
+          </span>
         </>
       )}
 

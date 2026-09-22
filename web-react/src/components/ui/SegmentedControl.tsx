@@ -46,7 +46,9 @@ export function SegmentedControl({ segments, value, onChange, ...aria }: Props) 
             )}
             <span className="relative flex items-center gap-1">
               {s.icon}
-              {s.label}
+              {/* A hook, not a breakpoint: the editor bar hides the word when
+                  its own column is narrow, whatever the window is doing. */}
+              <span className="mn-seg-label">{s.label}</span>
             </span>
           </Toggle.Item>
         );

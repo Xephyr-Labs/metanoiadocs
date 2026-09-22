@@ -11,7 +11,10 @@
 //
 // Click routing and link extraction live here too, so everything that knows
 // about references sits in one file.
-import { DocDisplayMetaProvider } from '@blocksuite/affine/shared/services';
+import { ActionPlacement, DocDisplayMetaProvider, ToolbarModuleExtension } from '@blocksuite/affine/shared/services';
+import { BlockFlavourIdentifier } from '@blocksuite/affine/std';
+import { OpenInNewIcon } from '@blocksuite/icons/lit';
+import { docUrl } from '../lib/route';
 import { insertLinkedNode, RefNodeSlotsProvider } from '@blocksuite/affine/inlines/reference';
 import { LinkedWidgetConfigExtension } from '@blocksuite/affine/widgets/linked-doc';
 import { computed, signal } from '@preact/signals-core';
@@ -281,6 +284,28 @@ export function pageLinkExtensions({ pages, currentId, createPage }: PageLinkOpt
 
   return [
     LinkedWidgetConfigExtension({ getMenus }),
+    // "Open in new tab" on the chip's hover toolbar. A `custom:` variant, like
+    // the image toolbar: a second module for the flavour itself throws at
+    // mount, and a custom one is merged into the built-in row by id. The
+    // click goes through the chip's own `open`, so it lands in attachRefClicks
+    // below with the mode set, the same as a middle click does.
+    ToolbarModuleExtension({
+      id: BlockFlavourIdentifier('custom:affine:reference'),
+      config: {
+        actions: [
+          {
+            placement: ActionPlacement.Normal,
+            id: 'b.open-in-new-tab',
+            tooltip: 'Open in new tab',
+            icon: OpenInNewIcon(),
+            run: (ctx: { message$: { peek: () => { element?: unknown } | null } }) => {
+              const target = ctx.message$.peek()?.element as { open?: (e: { openMode: string }) => void } | undefined;
+              target?.open?.({ openMode: 'open-in-new-tab' });
+            },
+          },
+        ],
+      },
+    }),
     {
       setup: (di: { override: (a: unknown, b: unknown) => void }) =>
         di.override(DocDisplayMetaProvider, {
@@ -303,12 +328,22 @@ export function pageLinkExtensions({ pages, currentId, createPage }: PageLinkOpt
  * in BlockSuite, so failing to unsubscribe would leak across mounts.
  */
 export function attachRefClicks(editor: Element, onOpen: (docId: string) => void) {
+  interface RefClick {
+    pageId?: string;
+    /** Set by the toolbar action above and by a middle click (BlockSuite
+     *  maps button 1 to it); a ⌘/Ctrl click carries the intent on the event. */
+    openMode?: string;
+    event?: MouseEvent;
+  }
   const host = editor.querySelector('editor-host') as
-    | { std?: { getOptional?: (id: unknown) => { docLinkClicked?: { subscribe: (fn: (e: { pageId?: string }) => void) => { unsubscribe: () => void } } } | undefined } }
+    | { std?: { getOptional?: (id: unknown) => { docLinkClicked?: { subscribe: (fn: (e: RefClick) => void) => { unsubscribe: () => void } } } | undefined } }
     | null;
   const slots = host?.std?.getOptional?.(RefNodeSlotsProvider);
   const sub = slots?.docLinkClicked?.subscribe((e) => {
-    if (e?.pageId) onOpen(e.pageId);
+    if (!e?.pageId) return;
+    const newTab = e.openMode === 'open-in-new-tab' || !!e.event?.metaKey || !!e.event?.ctrlKey;
+    if (newTab) window.open(docUrl(e.pageId), '_blank', 'noopener');
+    else onOpen(e.pageId);
   });
   return () => {
     try { sub?.unsubscribe(); } catch { /* noop */ }
