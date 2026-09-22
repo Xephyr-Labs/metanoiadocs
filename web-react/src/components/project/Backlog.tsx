@@ -4,14 +4,17 @@
  * states: empty project · no sprints · active sprint · planned sprint ·
  *         completed sprints folded · dragging · drop target · renaming ·
  *         editing dates · composing a sprint · empty backlog · narrow (one column)
+ *         · branch open · branch collapsed · blocked row · parent elsewhere ·
+ *         leaf row (no disclosure)
  * note: two panes, because planning is two lists — what is committed and what
  *       is available. The backlog was underneath every sprint before, so a
  *       drag from it was a scroll down, a pick up, and a scroll back.
  */
-import { useEffect, useRef, useState } from 'react';
-import { CheckCircle2, ChevronDown, ChevronRight, MoreHorizontal, Play, Plus, Trash2 } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { CheckCircle2, ChevronDown, ChevronRight, CornerDownRight, Link2, MoreHorizontal, Play, Plus, Trash2 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
+import { buildLinkIndex, buildTaskTree, subtreeIndex, NO_LINKS, type TaskLinks, type TaskNode } from '../../lib/taskTree';
 import {
   STATUS_LABEL,
   type SprintRow,
@@ -21,7 +24,6 @@ import {
 } from '../../lib/tasksApi';
 import { field } from '../ui/styles';
 import { Menu } from '../ui/Menu';
-import { useKind } from './kinds';
 import { AssigneeStack, KindBadge } from './TaskChip';
 
 const shortDate = (iso: string | null) =>
@@ -46,15 +48,20 @@ const STATE_BADGE: Record<SprintState, string> = {
  * it. `compact` drops the status column for the narrow backlog pane, where the
  * title is worth more than a word that repeats down the whole column.
  */
-function TaskLine({ task, tasks, onOpen, compact }: {
-  task: TaskRow;
-  tasks: TaskRow[];
+function TaskLine({ node, links, progress, parent, expanded, onToggle, onOpen, compact }: {
+  node: TaskNode;
+  links: TaskLinks;
+  /** Done and total under this row across the whole project — see subtreeIndex. */
+  progress: { done: number; total: number };
+  /** The row this one hangs off when that row is not in this list. */
+  parent?: TaskRow;
+  expanded: boolean;
+  onToggle: () => void;
   onOpen: () => void;
   compact?: boolean;
 }) {
-  // Any grouping type rolls its children up here, not just the seeded Epic.
-  const children = useKind(task.kind)?.is_group ? tasks.filter((t) => t.parent_id === task.id) : [];
-  const childDone = children.filter((t) => t.status === 'done').length;
+  const task = node.task;
+  const branch = node.children.length > 0 || links.blockedBy.length > 0;
   return (
     <div
       draggable
@@ -66,14 +73,30 @@ function TaskLine({ task, tasks, onOpen, compact }: {
       className={cn(
         'group grid h-9 cursor-pointer items-center gap-2 rounded-md px-2.5 transition-colors duration-120 hover:bg-hover sm:gap-2.5',
         compact
-          ? 'grid-cols-[2.75rem_minmax(0,1fr)_2.25rem_1.5rem]'
+          ? 'grid-cols-[1rem_2.75rem_minmax(0,1fr)_2.25rem_1.5rem]'
           // On a phone the status column costs 88px and says the same word most
           // of the way down the list; the title is what the row is for. It goes,
           // and the track list goes with it — a hidden grid child still holds
           // its column otherwise.
-          : 'grid-cols-[2.75rem_minmax(0,1fr)_2.25rem_3rem] sm:grid-cols-[3.25rem_minmax(0,1fr)_2.25rem_5.5rem_3rem]',
+          : 'grid-cols-[1rem_2.75rem_minmax(0,1fr)_2.25rem_3rem] sm:grid-cols-[1rem_3.25rem_minmax(0,1fr)_2.25rem_5.5rem_3rem]',
       )}
     >
+      {/* The disclosure keeps its column on every row, branch or leaf: drawn
+          only where it does something, but the track is always there, so a
+          list of leaves does not sit 16px left of the epic above it. */}
+      {branch ? (
+        <button
+          type="button"
+          aria-expanded={expanded}
+          aria-label={expanded ? `Collapse ${task.title || 'this row'}` : `Expand ${task.title || 'this row'}`}
+          onClick={(e) => { e.stopPropagation(); onToggle(); }}
+          className="flex h-5 w-4 items-center justify-center rounded text-faint transition-colors duration-120 hover:bg-hover hover:text-muted active:text-ink"
+        >
+          <ChevronRight size={13} className={cn('transition-transform duration-180', expanded && 'rotate-90')} />
+        </button>
+      ) : (
+        <span />
+      )}
       {/* Wrapped, because KindBadge renders nothing for a type that has no
           badge — and an empty grid cell has to be an element, or the title
           slides up into the badge's 44px track and truncates to "WR-1…". */}
@@ -81,12 +104,38 @@ function TaskLine({ task, tasks, onOpen, compact }: {
         <KindBadge kind={task.kind} />
       </span>
       <span className="flex min-w-0 items-center gap-2">
-        <span className={cn('min-w-0 truncate text-sm', task.status === 'done' ? 'text-muted line-through' : 'text-ink')}>
+        {/* The title carries its own tooltip: in the docked pane a nested row
+            has half the width of a root one, and a truncated title with
+            nothing behind it is a row you cannot read at all. */}
+        <span
+          title={parent ? `${task.title || 'Untitled'} — part of ${parent.title || 'Untitled'}` : task.title || 'Untitled'}
+          className={cn('min-w-0 truncate text-sm', task.status === 'done' ? 'text-muted line-through' : 'text-ink')}
+        >
           {task.title || 'Untitled'}
         </span>
-        {children.length > 0 && (
-          <span className="shrink-0 text-2xs text-faint" title="Children done">
-            {childDone}/{children.length}
+        {/* Counted over the project, so an epic reads the same here as it does
+            on the board — and a row that groups nothing says nothing. */}
+        {progress.total > 0 && (
+          <span className="shrink-0 text-2xs tabular-nums text-faint" title={`${progress.done} of ${progress.total} underneath are done`}>
+            {progress.done}/{progress.total}
+          </span>
+        )}
+        {links.blockedBy.length > 0 && (
+          <span
+            className="flex shrink-0 items-center gap-0.5 text-2xs font-medium text-danger-strong"
+            title={`Waiting on ${links.blockedBy.map((t) => t.title || 'Untitled').join(', ')}`}
+          >
+            <Link2 size={11} />{links.blockedBy.length}
+          </span>
+        )}
+        {/* Where a row's parent is — but only when the parent is somewhere
+            else, because a nested row already shows it by sitting under it.
+            Not in the docked pane: at that width it truncates to "WR-…", which
+            is the title's space spent saying nothing. The tooltip has it. */}
+        {parent && !compact && (
+          <span className="hidden min-w-0 shrink items-center gap-0.5 text-2xs text-faint sm:flex" title={`Part of ${parent.title || 'Untitled'}`}>
+            <CornerDownRight size={11} className="shrink-0" />
+            <span className="max-w-[8rem] truncate">{parent.title || 'Untitled'}</span>
           </span>
         )}
       </span>
@@ -108,6 +157,107 @@ function TaskLine({ task, tasks, onOpen, compact }: {
         {task.assignees?.length ? <AssigneeStack people={task.assignees} max={2} /> : <span className="h-5 w-5" />}
       </span>
     </div>
+  );
+}
+
+/** What every row in a tree needs, gathered once by the view that draws it. */
+interface TreeContext {
+  links: Map<string, TaskLinks>;
+  progress: Map<string, { done: number; total: number }>;
+  byId: Map<string, TaskRow>;
+  collapsed: ReadonlySet<string>;
+  onToggle: (id: string) => void;
+  onOpen: (task: TaskRow) => void;
+}
+
+/**
+ * A row, the work it waits on, and the rows underneath it.
+ *
+ * The backlog was a flat list, which is the one shape that cannot show either
+ * of the two ways a task is tied to another: an epic's stories were loose rows
+ * somewhere further down, and a task that could not start until another was
+ * finished looked exactly like one that could.
+ *
+ * Containment nests — a story sits inside its epic, a task inside its story —
+ * and the rail down the left is the edge itself, drawn rather than implied by
+ * indentation alone. Dependencies do not nest: the row this one waits on is
+ * usually elsewhere in the same list, and drawing it as a child would be a
+ * second copy of a row that already exists, with its own children under it. It
+ * is listed instead, under its own label, above the children — because "what
+ * has to happen first" is read before "what is inside this".
+ *
+ * Only unfinished dependencies are listed. A met condition is not a step; it
+ * is a line of history, and it is counted rather than named underneath.
+ */
+function TreeRows({ nodes, ctx, compact }: { nodes: TaskNode[]; ctx: TreeContext; compact?: boolean }) {
+  return (
+    <>
+      {nodes.map((node) => (
+        <Branch key={node.task.id} node={node} ctx={ctx} compact={compact} />
+      ))}
+    </>
+  );
+}
+
+function Branch({ node, ctx, compact }: { node: TaskNode; ctx: TreeContext; compact?: boolean }) {
+  const links = ctx.links.get(node.task.id) ?? NO_LINKS;
+  const expanded = !ctx.collapsed.has(node.task.id);
+  // Only a root says where it came from: a nested row is already under its
+  // parent, and repeating the name there would be the same word twice.
+  const parent = node.depth === 0 && node.task.parent_id ? ctx.byId.get(node.task.parent_id) : undefined;
+  const settled = links.met + links.unknown;
+
+  return (
+    <>
+      <TaskLine
+        node={node}
+        links={links}
+        progress={ctx.progress.get(node.task.id) ?? { done: 0, total: 0 }}
+        parent={parent}
+        expanded={expanded}
+        onToggle={() => ctx.onToggle(node.task.id)}
+        onOpen={() => ctx.onOpen(node.task)}
+        compact={compact}
+      />
+      {expanded && (links.blockedBy.length > 0 || node.children.length > 0) && (
+        // 0.875rem puts the rail under the middle of the disclosure above it,
+        // so the line reads as coming out of the control that opened it.
+        <div className="ml-[0.875rem] border-l border-line pl-1">
+          {links.blockedBy.length > 0 && (
+            <div className="pt-1">
+              <p className="px-2.5 pb-0.5 text-2xs font-semibold uppercase tracking-wide text-faint">Waits on</p>
+              {links.blockedBy.map((dep) => (
+                <DepLine key={dep.id} task={dep} onOpen={() => ctx.onOpen(dep)} />
+              ))}
+              {settled > 0 && (
+                <p className="px-2.5 pb-1 pt-0.5 text-2xs text-faint">
+                  {links.met > 0 && `${links.met} already done`}
+                  {links.met > 0 && links.unknown > 0 && ' · '}
+                  {links.unknown > 0 && `${links.unknown} not in this view`}
+                </p>
+              )}
+            </div>
+          )}
+          <TreeRows nodes={node.children} ctx={ctx} compact={compact} />
+        </div>
+      )}
+    </>
+  );
+}
+
+/** One thing that has to happen first. Clicking it opens that row, because the
+ *  next question after "what is blocking this" is always "what is that". */
+function DepLine({ task, onOpen }: { task: TaskRow; onOpen: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="flex h-7 w-full items-center gap-1.5 rounded-md px-2.5 text-left transition-colors duration-120 hover:bg-hover active:bg-selected"
+    >
+      <Link2 size={11} className="shrink-0 text-danger-strong" />
+      <span className="min-w-0 flex-1 truncate text-xs text-muted">{task.title || 'Untitled'}</span>
+      <span className="shrink-0 text-2xs text-faint">{STATUS_LABEL[task.status as TaskStatus]}</span>
+    </button>
   );
 }
 
@@ -230,6 +380,29 @@ export function Backlog({ tasks, sprints, onOpen, onMoveToSprint, onAdd, onCreat
   const backlog = tasks.filter((t) => !t.sprint_id).sort((a, b) => b.priority - a.priority || a.position - b.position);
   const bySprint = (id: string) => tasks.filter((t) => t.sprint_id === id).sort((a, b) => a.position - b.position);
 
+  // Collapsed rather than expanded: the shape is the point of the view, so it
+  // opens showing it. What somebody folds away is theirs for this visit only —
+  // a planning session is one sitting, and a remembered fold is a row missing
+  // from the list the next time with no sign that anything is hidden.
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set<string>());
+  const toggle = (id: string) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+
+  // Over every row this view holds, not over the section being drawn: an epic
+  // split across two sprints and the backlog is still one epic, and a
+  // dependency does not stop mattering because it was committed elsewhere.
+  // A filter narrows what the view holds, and the counts narrow with it —
+  // which is why a dependency outside it is counted apart rather than read as
+  // met (see TaskLinks.unknown).
+  const links = useMemo(() => buildLinkIndex(tasks), [tasks]);
+  const progress = useMemo(() => subtreeIndex(tasks), [tasks]);
+  const byId = useMemo(() => new Map(tasks.map((t) => [t.id, t])), [tasks]);
+  const ctx: TreeContext = { links, progress, byId, collapsed, onToggle: toggle, onOpen };
+
   // The server hands these back active-first then by start date, which puts a
   // sprint that finished last week between the one being worked and the one
   // being planned. Finished work goes to the bottom instead, behind one
@@ -343,7 +516,7 @@ export function Backlog({ tasks, sprints, onOpen, onMoveToSprint, onAdd, onCreat
             </button>
           </div>
         )}
-        {rows.length ? rows.map((t) => <TaskLine key={t.id} task={t} tasks={tasks} onOpen={() => onOpen(t)} />) : (
+        {rows.length ? <TreeRows nodes={buildTaskTree(rows)} ctx={ctx} /> : (
           <p className="px-3 py-4 text-center text-2xs text-faint">Drag tasks here to plan this sprint.</p>
         )}
       </Section>
@@ -351,7 +524,7 @@ export function Backlog({ tasks, sprints, onOpen, onMoveToSprint, onAdd, onCreat
   };
 
   const backlogRows = backlog.length
-    ? backlog.map((t) => <TaskLine key={t.id} task={t} tasks={tasks} onOpen={() => onOpen(t)} compact={twoPane} />)
+    ? <TreeRows nodes={buildTaskTree(backlog)} ctx={ctx} compact={twoPane} />
     : <p className="px-3 py-6 text-center text-2xs text-faint">Nothing waiting. Every task is in a sprint.</p>;
 
   return (
@@ -465,7 +638,15 @@ function BacklogPane({ count, onDropTask, onAdd, children }: {
       {...drop.props}
       aria-label="Backlog"
       className={cn(
-        'flex w-[22rem] shrink-0 flex-col border-l border-line transition-colors duration-120 2xl:w-[26rem]',
+        // Wider than it was: a flat list fitted in 22rem, but a tree spends
+        // width on the shape itself, and every level of nesting comes out of
+        // the title. The sprint pane beside it loses 64px and notices nothing.
+        //
+        // Capped at 45%, because the two panes are picked by the *window* and
+        // this view also runs inside a database embedded in a page, where the
+        // column is a third of it — there, a fixed 26rem would leave the
+        // sprints less room than the backlog docked beside them.
+        'flex w-[26rem] max-w-[45%] shrink-0 flex-col border-l border-line transition-colors duration-120 2xl:w-[30rem]',
         drop.over && 'bg-accent-soft',
       )}
     >

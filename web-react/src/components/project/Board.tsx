@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Plus } from 'lucide-react';
 import { cn } from '../../lib/cn';
+import { buildLinkIndex } from '../../lib/taskTree';
 import type { TaskRow, TaskStatus, PropRow } from '../../lib/tasksApi';
 import { STATUS_DOT, type BoardGroup } from '../../lib/grouping';
 import type { UserRow } from '../../lib/docsApi';
@@ -50,6 +51,9 @@ export const DOT = STATUS_DOT as Record<TaskStatus, string>;
  */
 export function Board({ tasks, groups, groupOf, cardProps, users, onMove, onOpen, onAdd, selected, onSelect, focusedId }: Props) {
   const [over, setOver] = useState<string | null>(null);
+  // Once per board, not once per card: "what waits on this" is the reverse of
+  // an edge each row carries, and asking it per card walks the list per card.
+  const links = useMemo(() => buildLinkIndex(tasks), [tasks]);
 
   return (
     <div className="scrollarea flex h-full gap-3 overflow-x-auto p-4">
@@ -127,7 +131,7 @@ export function Board({ tasks, groups, groupOf, cardProps, users, onMove, onOpen
                     onSelect(t.id, e.shiftKey);
                   }}
                 >
-                  <TaskChip task={t} onOpen={() => onOpen(t)} cardProps={cardProps} users={users} />
+                  <TaskChip task={t} onOpen={() => onOpen(t)} cardProps={cardProps} users={users} links={links.get(t.id)} />
                 </div>
               ))}
               {!column.length && (

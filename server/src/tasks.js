@@ -336,10 +336,22 @@ const TASK_SELECT = `
       -- list rather than fetched per row because a rollup has to reduce the
       -- linked rows' values for every row on screen, and asking once per row
       -- is a request per card.
+      --
+      -- Both directions. An edge is stored once and the inverse property reads
+      -- it backwards (see db_props.is_inverse), so a row on the far side of a
+      -- two-way relation carried nothing here at all: its chip drew nothing
+      -- and a rollup written on that property reduced an empty list, while the
+      -- owning side of the very same edge worked.
       SELECT json_object_agg(r.prop_id, r.ids) AS relations
         FROM (
           SELECT prop_id, json_agg(to_id) AS ids
             FROM task_relations WHERE from_id = t.id GROUP BY prop_id
+          UNION ALL
+          SELECT p.id, json_agg(r2.from_id)
+            FROM task_relations r2
+            JOIN db_props p ON p.paired_prop_id = r2.prop_id AND p.is_inverse
+           WHERE r2.to_id = t.id
+           GROUP BY p.id
         ) r
     ) rel ON true`;
 
