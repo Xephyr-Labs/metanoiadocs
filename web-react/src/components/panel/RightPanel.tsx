@@ -236,7 +236,12 @@ function CommentsTab({ docId }: { docId: string }) {
         className="mt-1.5 h-7 w-full rounded-md bg-transparent px-1.5 text-sm text-ink outline-none ring-1 ring-inset ring-line focus:ring-2 focus:ring-accent"
       />
     ) : (
-      <p className={className}>{c.body}</p>
+      // "(edited)" trails the text rather than sitting in the header: the
+      // panel is narrow, and one more chip up there wraps the author's name.
+      <p className={className}>
+        {c.body}
+        {c.edited_at && <span className="ml-1 text-2xs text-faint">(edited)</span>}
+      </p>
     );
 
   /** The pencil, for your own words only. */
@@ -274,7 +279,7 @@ function CommentsTab({ docId }: { docId: string }) {
             <div className="flex items-center gap-2">
               <Avatar name={c.author_name} />
               <span className="text-sm font-medium text-ink">{c.author_name}</span>
-              <span className="text-2xs text-faint">{relativeTime(c.created_at)}{c.edited_at && ' · edited'}</span>
+              <span className="text-2xs text-faint">{relativeTime(c.created_at)}</span>
               {renderEdit(c)}
               {c.resolved ? (
                 <span className="ml-auto flex items-center gap-1 text-2xs text-faint"><Check size={12} /> Resolved</span>
@@ -290,7 +295,7 @@ function CommentsTab({ docId }: { docId: string }) {
                 <div className="min-w-0 flex-1">
                   <p className="flex items-center gap-1.5 text-2xs font-medium text-ink">
                     {r.author_name}
-                    <span className="font-normal text-faint">· {relativeTime(r.created_at)}{r.edited_at && ' · edited'}</span>
+                    <span className="font-normal text-faint">· {relativeTime(r.created_at)}</span>
                     {renderEdit(r)}
                   </p>
                   {renderBody(r, "text-sm text-ink")}

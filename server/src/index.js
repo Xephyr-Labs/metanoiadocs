@@ -2615,7 +2615,11 @@ app.patch('/api/comments/:cid', requireUser, async (req, res) => {
   const body = String(req.body?.body || '').trim().slice(0, 4000);
   if (!body) return res.status(400).json({ error: 'empty comment' });
   const c = await pool.query('SELECT doc_id, task_id, author_id FROM comments WHERE id = $1', [req.params.cid]);
-  if (!c.rows[0] || (await commentOwner(c.rows[0], req.user.id)) !== 'author')
+  // Authorship on its own, checked here rather than through commentOwner:
+  // that helper answers "may delete this", and on a page it says yes to the
+  // owner too. Access still has to hold — an author dropped from a page does
+  // not keep a pen there — so the helper is asked for that part.
+  if (!c.rows[0] || c.rows[0].author_id !== req.user.id || !(await commentOwner(c.rows[0], req.user.id)))
     return res.status(403).json({ error: 'forbidden' });
   const { rows } = await pool.query(
     'UPDATE comments SET body = $1, edited_at = now() WHERE id = $2 RETURNING body, edited_at',

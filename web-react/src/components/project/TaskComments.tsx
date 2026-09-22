@@ -167,7 +167,6 @@ export function TaskComments({ taskId, users }: { taskId: string; users: UserRow
                   <span className="font-medium text-ink">{c.author_name || 'Someone'}</span>
                   <ActorMark kind={c.author_kind} name={c.author_name || ''} />
                   <span>{relativeTime(c.created_at)}</span>
-                  {c.edited_at && <span>· edited</span>}
                   {c.author_id === auth.user?.id && (
                     <span className="ml-auto flex shrink-0 items-center gap-1.5 opacity-0 transition-opacity group-hover/comment:opacity-100">
                       <button
@@ -196,7 +195,9 @@ export function TaskComments({ taskId, users }: { taskId: string; users: UserRow
                   // survive being edited, and Enter still sends.
                   <textarea
                     autoFocus
-                    rows={Math.min(6, editing.text.split('\n').length)}
+                    // Newlines and wrapping both count: a pasted list and a long
+                    // single line each need more than one row to be editable.
+                    rows={Math.min(8, Math.max(2, editing.text.split('\n').length, Math.ceil(editing.text.length / 60)))}
                     value={editing.text}
                     onChange={(e) => setEditing({ id: c.id, text: e.target.value })}
                     onBlur={saveEdit}
@@ -210,7 +211,10 @@ export function TaskComments({ taskId, users }: { taskId: string; users: UserRow
                     className="mt-0.5 w-full resize-none rounded-md bg-transparent px-1.5 py-1 text-sm leading-relaxed text-ink outline-none ring-1 ring-inset ring-line focus:ring-2 focus:ring-accent"
                   />
                 ) : (
-                  <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-ink">{c.body}</p>
+                  <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-ink">
+                    {c.body}
+                    {c.edited_at && <span className="ml-1 text-2xs text-faint">(edited)</span>}
+                  </p>
                 )}
               </div>
             </li>
