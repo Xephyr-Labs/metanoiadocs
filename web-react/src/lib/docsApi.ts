@@ -122,10 +122,13 @@ export interface CommentRow {
   block_id: string | null;
   quote: string | null;
   body: string;
+  author_id: string | null;
   author_name: string;
   parent_id: string | null;
   resolved: boolean;
   created_at: string;
+  /** Set once the author has rewritten it; null while untouched. */
+  edited_at: string | null;
 }
 
 export interface VersionRow {
@@ -378,6 +381,8 @@ export const docsApi = {
     req(`/docs/${id}/comments`, { method: 'POST', body: JSON.stringify({ body, ...opts }) }),
   resolveComment: (cid: string, resolved: boolean) =>
     req(`/comments/${cid}/resolve`, { method: 'POST', body: JSON.stringify({ resolved }) }),
+  editComment: (cid: string, body: string): Promise<{ body: string; edited_at: string }> =>
+    req(`/comments/${cid}`, { method: 'PATCH', body: JSON.stringify({ body }) }),
   deleteComment: (cid: string) => req(`/comments/${cid}`, { method: 'DELETE' }),
 
   versions: (id: string): Promise<VersionRow[]> => req(`/docs/${id}/versions`),

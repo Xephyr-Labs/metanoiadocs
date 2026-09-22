@@ -2363,7 +2363,8 @@ app.post('/api/docs/:id/versions/:vid/restore', requireUser, async (req, res) =>
 app.get('/api/docs/:id/comments', requireUser, async (req, res) => {
   if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
   const { rows } = await pool.query(
-    `SELECT id, block_id, quote, body, author_name, parent_id, resolved, created_at
+    `SELECT id, block_id, quote, body, author_id, author_name, parent_id, resolved,
+            created_at, edited_at
        FROM comments WHERE doc_id = $1 ORDER BY created_at ASC`,
     [req.params.id]
   );
@@ -2574,6 +2575,23 @@ app.post('/api/comments/:cid/resolve', requireUser, async (req, res) => {
   await pool.query('UPDATE comments SET resolved = $1 WHERE id = $2 OR parent_id = $2',
     [req.body?.resolved !== false, req.params.cid]);
   res.json({ ok: true });
+});
+
+// Rewrite a comment. The author's own only — an owner may delete a comment on
+// their page, but putting words in someone else's mouth is a different thing.
+// No notification fan-out: the mention that was already sent stands, and a new
+// handle typed into an edit is a message nobody asked to receive.
+app.patch('/api/comments/:cid', requireUser, async (req, res) => {
+  const body = String(req.body?.body || '').trim().slice(0, 4000);
+  if (!body) return res.status(400).json({ error: 'empty comment' });
+  const c = await pool.query('SELECT doc_id, task_id, author_id FROM comments WHERE id = $1', [req.params.cid]);
+  if (!c.rows[0] || (await commentOwner(c.rows[0], req.user.id)) !== 'author')
+    return res.status(403).json({ error: 'forbidden' });
+  const { rows } = await pool.query(
+    'UPDATE comments SET body = $1, edited_at = now() WHERE id = $2 RETURNING body, edited_at',
+    [body, req.params.cid]
+  );
+  res.json(rows[0]);
 });
 
 app.delete('/api/comments/:cid', requireUser, async (req, res) => {

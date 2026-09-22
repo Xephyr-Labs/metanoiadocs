@@ -480,6 +480,8 @@ export interface TaskComment {
   parent_id: string | null;
   resolved: boolean;
   created_at: string;
+  /** Set once the author has rewritten it; null while untouched. */
+  edited_at?: string | null;
 }
 
 export const tasksApi = {
@@ -560,7 +562,9 @@ export const tasksApi = {
   comments: (taskId: string): Promise<TaskComment[]> => req(`/tasks/${taskId}/comments`),
   addComment: (taskId: string, b: { body: string; parentId?: string | null }): Promise<TaskComment> =>
     req(`/tasks/${taskId}/comments`, { method: 'POST', ...body(b) }),
-  /** Shared with a page's comments — same table, same route. */
+  /** Shared with a page's comments — same table, same routes. */
+  editComment: (id: string, b: { body: string }): Promise<{ body: string; edited_at: string }> =>
+    req(`/comments/${id}`, { method: 'PATCH', ...body(b) }),
   deleteComment: (id: string) => req(`/comments/${id}`, { method: 'DELETE' }),
 
   addDep: (id: string, dependsOn: string) =>

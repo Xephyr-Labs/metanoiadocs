@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { Bot, Check, Info, ListTree, Loader2, MessageSquareText, Send, Sparkles, X } from 'lucide-react';
+import { Bot, Check, Info, ListTree, Loader2, MessageSquareText, Pencil, Send, Sparkles, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { docsApi, type CommentRow, type UserRow } from '../../lib/docsApi';
 import { applyCommentHighlights, clearPendingAnchor, clearPendingFocus, onCommentRequest, usePendingAnchor, usePendingFocus } from '../../editor/comments';
@@ -12,6 +12,7 @@ import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { avatarFor } from '../../lib/avatar';
 import { relativeTime } from '../../lib/time';
 import { useWorkspace, type RightTab } from '../../store/workspace';
+import { useAuth } from '../../store/auth';
 import { cn } from '../../lib/cn';
 import { EmptyState } from '../ui/EmptyState';
 import { IconButton } from '../ui/IconButton';
@@ -142,7 +143,9 @@ function IntelligenceTab({ docId }: { docId: string }) {
 }
 
 function CommentsTab({ docId }: { docId: string }) {
+  const auth = useAuth();
   const [comments, setComments] = useState<CommentRow[] | null>(null);
+  const [editing, setEditing] = useState<{ id: string; text: string } | null>(null);
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [members, setMembers] = useState<UserRow[]>([]);
@@ -150,6 +153,9 @@ function CommentsTab({ docId }: { docId: string }) {
   const composerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const cardRefs = useRef(new Map<string, HTMLDivElement>());
+  // Escape clears the draft, but the blur it causes still runs with the old
+  // state — this tells that late save to stand down.
+  const cancelEdit = useRef(false);
   const anchor = usePendingAnchor();
   const focusId = usePendingFocus();
 
@@ -201,6 +207,51 @@ function CommentsTab({ docId }: { docId: string }) {
     } finally { setBusy(false); }
   };
 
+  const saveEdit = async () => {
+    if (cancelEdit.current) { cancelEdit.current = false; return; }
+    if (!editing) return;
+    const body = editing.text.trim();
+    const { id } = editing;
+    setEditing(null);
+    if (!body) return;
+    setComments((r) => (r ?? []).map((c) => (c.id === id ? { ...c, body } : c)));
+    await docsApi.editComment(id, body).catch(() => {});
+    await load();
+  };
+
+  // Plain functions, not components: a component declared here gets a new
+  // identity every render, so the open input would remount on each keystroke.
+  /** A comment's text, or the box it is being rewritten in. */
+  const renderBody = (c: CommentRow, className: string) =>
+    editing?.id === c.id ? (
+      <input
+        autoFocus
+        value={editing.text}
+        onChange={(e) => setEditing({ id: c.id, text: e.target.value })}
+        onBlur={saveEdit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') saveEdit();
+          if (e.key === 'Escape') { cancelEdit.current = true; setEditing(null); }
+        }}
+        className="mt-1.5 h-7 w-full rounded-md bg-transparent px-1.5 text-sm text-ink outline-none ring-1 ring-inset ring-line focus:ring-2 focus:ring-accent"
+      />
+    ) : (
+      <p className={className}>{c.body}</p>
+    );
+
+  /** The pencil, for your own words only. */
+  const renderEdit = (c: CommentRow) =>
+    c.author_id && c.author_id === auth.user?.id ? (
+      <button
+        type="button"
+        onClick={() => setEditing({ id: c.id, text: c.body })}
+        aria-label="Edit this comment"
+        className="shrink-0 text-faint hover:text-ink"
+      >
+        <Pencil size={12} />
+      </button>
+    ) : null;
+
   if (comments === null) return <div className="flex justify-center py-10"><Loader2 size={18} className="animate-spin text-faint" /></div>;
 
   const roots = comments.filter((c) => !c.parent_id);
@@ -223,7 +274,8 @@ function CommentsTab({ docId }: { docId: string }) {
             <div className="flex items-center gap-2">
               <Avatar name={c.author_name} />
               <span className="text-sm font-medium text-ink">{c.author_name}</span>
-              <span className="text-2xs text-faint">{relativeTime(c.created_at)}</span>
+              <span className="text-2xs text-faint">{relativeTime(c.created_at)}{c.edited_at && ' · edited'}</span>
+              {renderEdit(c)}
               {c.resolved ? (
                 <span className="ml-auto flex items-center gap-1 text-2xs text-faint"><Check size={12} /> Resolved</span>
               ) : (
@@ -231,13 +283,17 @@ function CommentsTab({ docId }: { docId: string }) {
               )}
             </div>
             {c.quote && <p className="mt-1.5 border-l-2 border-comment-mark pl-2 text-2xs italic text-muted">{c.quote}</p>}
-            <p className="mt-1.5 text-sm leading-relaxed text-ink">{c.body}</p>
+            {renderBody(c, "mt-1.5 text-sm leading-relaxed text-ink")}
             {replies(c.id).map((r) => (
               <div key={r.id} className="mt-2.5 flex items-start gap-2 border-l-2 border-line pl-2.5">
                 <Avatar name={r.author_name} size={18} />
-                <div>
-                  <p className="text-2xs font-medium text-ink">{r.author_name} <span className="font-normal text-faint">· {relativeTime(r.created_at)}</span></p>
-                  <p className="text-sm text-ink">{r.body}</p>
+                <div className="min-w-0 flex-1">
+                  <p className="flex items-center gap-1.5 text-2xs font-medium text-ink">
+                    {r.author_name}
+                    <span className="font-normal text-faint">· {relativeTime(r.created_at)}{r.edited_at && ' · edited'}</span>
+                    {renderEdit(r)}
+                  </p>
+                  {renderBody(r, "text-sm text-ink")}
                 </div>
               </div>
             ))}

@@ -126,8 +126,8 @@ async function notify({ commentId, task, body, actor }) {
 export function registerTaskCommentRoutes(app, { requireUser, wrap }) {
   app.get('/api/tasks/:id/comments', requireUser, wrap(async (req, res) => {
     const { rows } = await pool.query(
-      `SELECT c.id, c.body, c.author_id, c.author_name, c.parent_id, c.resolved, c.created_at,
-              u.kind AS author_kind
+      `SELECT c.id, c.body, c.author_id, c.author_name, c.parent_id, c.resolved,
+              c.created_at, c.edited_at, u.kind AS author_kind
          FROM comments c
          LEFT JOIN users u ON u.id = c.author_id
         WHERE c.task_id = $1

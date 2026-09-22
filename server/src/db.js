@@ -496,6 +496,10 @@ export async function initSchema() {
     EXCEPTION WHEN duplicate_object THEN NULL; END $$;
     CREATE INDEX IF NOT EXISTS comments_task_idx ON comments(task_id, created_at);
 
+    -- Set when the author rewrites their own comment, so the card can say so.
+    -- Null means never touched since it was posted — the common case.
+    ALTER TABLE comments ADD COLUMN IF NOT EXISTS edited_at TIMESTAMPTZ;
+
     -- Task types, per project and editable by anyone who can see the project.
     -- Epic/Story/Task/Bug are seeded defaults, not built-ins.
     --
