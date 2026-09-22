@@ -48,6 +48,9 @@ const UNTITLED = 'Untitled';
 let people: { id: string; name: string; username: string | null }[] = [];
 let peopleLoading = false;
 
+/** The cached member list, for the custom "@" panel. Empty until it lands. */
+export const linkPeople = () => people;
+
 function loadPeople() {
   if (peopleLoading || people.length) return;
   peopleLoading = true;
@@ -56,6 +59,28 @@ function loadPeople() {
     .catch(() => { /* the menu just keeps its pages-only shape */ })
     .finally(() => { peopleLoading = false; });
 }
+
+/**
+ * What the open "@" menu can do, published for the panel that replaces its
+ * looks (linkedDocMenu.ts). Everything here needs the live inline editor and
+ * the widget's own abort — which delete the trigger text and close the popover
+ * — and both are handed to `getMenus` and to nothing else, so this is where
+ * they are caught. Read at the moment of the click, never cached: a stale
+ * inline editor writes into a block that is no longer there.
+ */
+export interface LiveLinkMenu {
+  /** What the widget itself has as the query — the characters that reached the
+   *  page before the panel took focus, which the panel starts from. */
+  query: string;
+  abort: () => void;
+  link: (docId: string) => void;
+  mention: (username: string) => void;
+  create: (title: string) => Promise<void>;
+}
+
+let live: LiveLinkMenu | null = null;
+
+export const liveLinkMenu = () => live;
 
 /**
  * A person is written as literal "@username" text, not a reference node.
@@ -153,6 +178,18 @@ export function pageLinkExtensions({ pages, currentId, createPage }: PageLinkOpt
     const matches = rankPages(pages().filter((p) => p.id !== currentId), query);
 
     const link = (docId: string) => insertLinkedNode({ inlineEditor, docId });
+
+    live = {
+      query,
+      abort,
+      link: (docId) => { abort(); link(docId); },
+      mention: (username) => { abort(); insertMention(inlineEditor, username); },
+      create: async (title) => {
+        abort();
+        const id = await createPage(title.trim() || UNTITLED);
+        if (id) link(id);
+      },
+    };
 
     const matchedPeople = people.filter(
       (u) => fuzzy(u.username ?? '', query) || fuzzy(u.name || '', query),
