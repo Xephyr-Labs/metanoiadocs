@@ -16,6 +16,7 @@
 // PropType wherever one fits — which is what lets PropChips, the visibility
 // panel and the stored per-view order work on them with no special cases.
 import {
+  type BuiltinOverride,
   REPEAT_LABEL,
   REPEAT_RULES,
   STATUSES,
@@ -48,8 +49,10 @@ import {
  */
 export const isSystemProp = (p: { key?: string }) => !!p.key && p.key.startsWith('_');
 
-/** The properties a reader should see, in the order they were given. */
-export const visibleProps = <T extends { key?: string }>(props: T[]) => props.filter((x) => !isSystemProp(x));
+/** The properties a reader should see, in the order they were given: not
+ *  the app's own, and not a built-in the project has switched off. */
+export const visibleProps = <T extends { key?: string; hidden?: boolean }>(props: T[]) =>
+  props.filter((x) => !isSystemProp(x) && !x.hidden);
 
 export const BUILTIN_PREFIX = 'sys:';
 
@@ -98,13 +101,23 @@ export function builtinProps(
   sprints: SprintRow[] = [],
   /** Per-project overrides for the status chips, `{ status: colour }`. */
   statusColors: Record<string, string> = {},
+  /** The project's own label for a built-in, and whether it is shown at all
+   *  (`projects.builtin_props`). Applied here, at the one place the rows are
+   *  made, so a renamed Status is "Stage" on the card, in the peek, in the
+   *  visibility panel and in the dialog without any of them knowing. */
+  overrides: Record<string, BuiltinOverride> = {},
 ): PropRow[] {
+  const own = (rows: PropRow[]) => rows.map((r) => {
+    const o = overrides[r.id];
+    if (!o) return r;
+    return { ...r, ...(o.label ? { label: o.label } : {}), ...(o.hidden ? { hidden: true } : {}) };
+  });
   // A data database has no status, no assignee, no schedule — Backlog, Board
   // and the work half of the table are all hidden for it. Offering those as
   // properties would put controls on a card for columns the mode doesn't use.
-  if (mode === 'data') return [row('attachments', 'Files & media', 'file', [], 10)];
+  if (mode === 'data') return own([row('attachments', 'Files & media', 'file', [], 10)]);
 
-  return [
+  return own([
     row('status', 'Status', 'select',
       STATUSES.map((s) => ({ id: s, label: STATUS_LABEL[s], color: statusColors[s] || STATUS_COLOR[s] || 'gray' })), 0),
     row('assignees', 'Assignees', 'person', [], 1),
@@ -125,7 +138,7 @@ export function builtinProps(
     row('tags', 'Focus area', 'multi_select', [], 11),
     row('attachments', 'Files & media', 'file', [], 12),
     ...AUDIT,
-  ];
+  ]);
 }
 
 /**

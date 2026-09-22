@@ -144,6 +144,14 @@ export interface SprintRow {
 /** A database is either a board of work, or a plain table of records. */
 export type ProjectMode = 'tasks' | 'data';
 
+/** A project's say over one built-in property. The property's type and id
+ *  are not on offer: a hidden Due still drives overdue, a renamed Status still
+ *  drives the board. */
+export interface BuiltinOverride {
+  label?: string;
+  hidden?: boolean;
+}
+
 export interface ProjectRow {
   id: string;
   name: string;
@@ -159,6 +167,9 @@ export interface ProjectRow {
   /** Per-project colours for the four fixed statuses, `{ status: colour }`.
    *  Missing keys fall back to the palette builtinProps has always drawn. */
   status_colors: Record<string, string>;
+  /** What this project says about its built-in properties, by `sys:` id — a
+   *  label of its own, and whether the property is shown at all. */
+  builtin_props: Record<string, BuiltinOverride>;
   /** Postgres count() arrives as a string. */
   total: string;
   done: string;
@@ -239,6 +250,10 @@ export interface PropRow {
   options: PropOption[];
   target_project_id: string | null;
   position: number;
+  /** A built-in the project has switched off: kept out of cards, columns,
+   *  filters and the peek, still listed in the properties dialog so it can be
+   *  switched back on. Never set on a database-defined property. */
+  hidden?: boolean;
   /** Type-specific settings: a formula's expression, a rollup's
    *  (relation, target, function). Empty for every other type. */
   config?: { expression?: string; relation?: string; target?: string; fn?: string };
@@ -492,7 +507,7 @@ export const tasksApi = {
     req('/projects', { method: 'POST', ...body(b) }),
   patchProject: (
     id: string,
-    b: Partial<{ name: string; key: string; icon: string; color: string; position: number; archived: boolean; mode: ProjectMode; statusColors: Record<string, string> }>,
+    b: Partial<{ name: string; key: string; icon: string; color: string; position: number; archived: boolean; mode: ProjectMode; statusColors: Record<string, string>; builtinProps: Record<string, BuiltinOverride> }>,
   ) =>
     req(`/projects/${id}`, { method: 'PATCH', ...body(b) }),
   archiveProject: (id: string) => req(`/projects/${id}`, { method: 'DELETE' }),

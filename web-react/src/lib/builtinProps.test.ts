@@ -205,3 +205,20 @@ describe('system properties', () => {
     expect(visibleProps(list).map((x) => x.key)).toEqual(['owner', 'due']);
   });
 });
+
+describe('builtinProps with a project\'s overrides', () => {
+  it('renames at the source, so every surface reads the new name', () => {
+    const rows = builtinProps('tasks', [], [], {}, { 'sys:status': { label: 'Stage' } });
+    expect(rows.find((p) => p.id === 'sys:status')?.label).toBe('Stage');
+    // Untouched rows keep their names; the type never changes.
+    expect(rows.find((p) => p.id === 'sys:due')?.label).toBe('Due');
+    expect(rows.find((p) => p.id === 'sys:status')?.type).toBe('select');
+  });
+
+  it('a hidden built-in is still in the full list and gone from the readable one', () => {
+    const rows = builtinProps('tasks', [], [], {}, { 'sys:points': { hidden: true } });
+    expect(rows.some((p) => p.id === 'sys:points')).toBe(true);
+    expect(visibleProps(rows).some((p) => p.id === 'sys:points')).toBe(false);
+    expect(visibleProps(rows).some((p) => p.id === 'sys:status')).toBe(true);
+  });
+});

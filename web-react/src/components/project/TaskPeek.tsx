@@ -14,7 +14,7 @@ import { useWorkspace } from '../../store/workspace';
 import { builtinProps, isAuditProp, visibleProps } from '../../lib/builtinProps';
 import {
   tasksApi,
-  type ProjectMode, type PropOption, type PropRow, type RelatedRow, type SprintRow, type TaskDetail, type TaskPatch, type TaskRow,
+  type ProjectMode, type PropOption, type PropRow, type RelatedRow, type SprintRow, type TaskDetail, type TaskPatch, type TaskRow, type BuiltinOverride,
 } from '../../lib/tasksApi';
 import { LazyEditor } from '../../editor/LazyEditor';
 import { IconButton } from '../ui/IconButton';
@@ -39,6 +39,8 @@ interface Props {
   /** The project's own colours for the four statuses, so the chip here is the
    *  colour the board and the table paint. */
   statusColors?: Record<string, string>;
+  /** The project's labels for, and hiding of, built-in properties. */
+  builtinOverrides?: Record<string, BuiltinOverride>;
   onClose: () => void;
   onPatch: (id: string, body: TaskPatch) => void;
   onSetProp: (taskId: string, propId: string, value: unknown) => void;
@@ -126,7 +128,7 @@ function EdgeLink({ task, onOpen }: { task: TaskRow; onOpen: () => void }) {
 }
 
 export function TaskPeek({
-  task, mode, tasks, props, sprints, users, statusColors, onClose, onPatch, onSetProp, onDelete, onAddDep, onRemoveDep,
+  task, mode, tasks, props, sprints, users, statusColors, builtinOverrides, onClose, onPatch, onSetProp, onDelete, onAddDep, onRemoveDep,
   onManageKinds, onManageProps, onEditOptions, onTagsChanged,
 }: Props) {
   const ws = useWorkspace();
@@ -147,12 +149,13 @@ export function TaskPeek({
   // audit columns are left out for the same reason the table leaves them out
   // of its default: worth having, not worth four rows before anyone asks.
   const fields = useMemo(() => {
-    const builtins = builtinProps(mode, kinds, sprints, statusColors).filter((p) => !isAuditProp(p.id));
+    const builtins = visibleProps(builtinProps(mode, kinds, sprints, statusColors, builtinOverrides))
+      .filter((p) => !isAuditProp(p.id));
     // `_`-prefixed properties are the app's own — provenance, agent notes,
     // anything written about the row rather than by its owner. They stay out
     // of the panel for the same reason the audit columns do.
     return [...builtins, ...visibleProps(props)];
-  }, [mode, kinds, sprints, statusColors, props]);
+  }, [mode, kinds, sprints, statusColors, builtinOverrides, props]);
 
   // Labels carried by more than one property — a database may define its own
   // "Status" beside the built-in one. Two identical rows is a coin flip.

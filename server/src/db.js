@@ -618,6 +618,12 @@ export async function initSchema() {
     -- repainted here, never renamed or invented. Missing keys fall back to the
     -- palette the app has always drawn (web-react/src/lib/builtinProps.ts).
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS status_colors JSONB NOT NULL DEFAULT '{}';
+    -- What a project says about its built-in properties: a label of its own
+    -- ("Stage" for Status) and whether the property is shown at all. Keyed by
+    -- the built-in's id. The property itself stays what it is — a hidden Due
+    -- still drives overdue — this only changes how it reads and whether it
+    -- takes up a row.
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS builtin_props JSONB NOT NULL DEFAULT '{}';
 
     -- Was the last write typed, or made by the copilot on the person's behalf?
     --
