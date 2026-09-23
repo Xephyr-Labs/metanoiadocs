@@ -150,7 +150,7 @@ interface WorkspaceState {
   createFromPage: (templateId: PageId) => Promise<PageId | null>;
   /** Mark a page as a template, or stop. */
   setTemplate: (id: PageId, on: boolean) => Promise<void>;
-  importFiles: (files: File[], folderId: string | null) => Promise<PageId | null>;
+  importFiles: (files: File[], folderId: string | null, intoPageId?: PageId | null) => Promise<PageId | null>;
   deletePage: (id: PageId) => void;
   restorePage: (id: PageId) => Promise<void>;
   refreshTags: () => Promise<void>;
@@ -856,11 +856,16 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }, []);
 
   /**
-   * Markdown files → documents. Each file is its own page; a file that fails
-   * stops the run but keeps everything imported before it, which is why the
-   * refresh below happens either way.
+   * Files → documents. Each file is its own page, unless `intoPageId` names a
+   * page to append them to — then every file lands in that one body, in the
+   * order they were chosen. A file that fails stops nothing: the rest still
+   * import, which is why the refresh below happens either way.
    */
-  const importFiles = useCallback(async (files: File[], folderId: string | null): Promise<PageId | null> => {
+  const importFiles = useCallback(async (
+    files: File[],
+    folderId: string | null,
+    intoPageId: PageId | null = null,
+  ): Promise<PageId | null> => {
     let first: PageId | null = null;
     // One file failing no longer abandons the rest: a bad PDF in a selection of
     // ten used to import nothing after it, with only the first error shown.
@@ -869,7 +874,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     for (const file of files) {
       try {
         if (file.size > MAX_IMPORT_BYTES) throw new Error(`it is bigger than 25 MB`);
-        const row = await docsApi.import(file, folderId);
+        const row = await docsApi.import(file, folderId, intoPageId);
         warnings.push(...(row.warnings ?? []));
         first ??= row.id;
       } catch (e) {
@@ -879,7 +884,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     if (failed.length) setError(failed.join('\n'));
     else if (warnings.length) setError(warnings.join('\n'));
     if (!first) return null;
-    if (folderId) {
+    if (folderId && !intoPageId) {
       folderExpandedRef.current.add(folderId);
       setFolders((f) => (f[folderId] ? { ...f, [folderId]: { ...f[folderId], expanded: true } } : f));
     }

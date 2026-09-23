@@ -6,6 +6,7 @@ import { docUrl } from '../lib/route';
 import { requestTitleFocus } from '../lib/titleFocus';
 import type { PageId } from '../lib/types';
 import { useWorkspace } from '../store/workspace';
+import { useImportIntoPage } from './useImportMenu';
 import { useMoveToFolder } from './useMoveToFolder';
 
 /**
@@ -36,6 +37,7 @@ export function useDocMenu(
 ): MenuItem[] {
   const ws = useWorkspace();
   const moveTo = useMoveToFolder(id);
+  const importInto = useImportIntoPage(id);
   // A card on Home can name a document the page store has not cached. Every
   // action here addresses the document by id, so they all still work; the
   // favourite and pin toggles simply read as "add", which is the safe way round.
@@ -73,6 +75,7 @@ export function useDocMenu(
       onSelect: () => { void ws.setTemplate(id, !page?.isTemplate); },
     },
     ...(moveTo ? [moveTo] : []),
+    ...(importInto ? [importInto] : []),
     {
       icon: Download,
       label: 'Export',

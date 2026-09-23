@@ -46,6 +46,7 @@ import { Button } from '../ui/Button';
 import { PageIcon } from '../ui/PageIcon';
 import { IconButton } from '../ui/IconButton';
 import { Menu } from '../ui/Menu';
+import { useImportIntoPage } from '../../hooks/useImportMenu';
 import { useMoveToFolder } from '../../hooks/useMoveToFolder';
 import { copyLink } from '../../lib/clipboard';
 import { useReducer } from 'react';
@@ -160,6 +161,7 @@ export function TopBar() {
   const isMobile = useMediaQuery('(max-width: 767px)');
   const compact = useMediaQuery('(max-width: 1023px)');
   const moveTo = useMoveToFolder(page?.id);
+  const importInto = useImportIntoPage(page?.id);
   // Read on every render rather than mirrored into state: the settings dialog
   // writes the same preference, and a mirror would leave this menu ticking the
   // opposite of what the document is actually doing until the bar remounted.
@@ -417,6 +419,9 @@ export function TopBar() {
                 separatorBefore: true,
                 onSelect: () => { pickImportFiles().then((f) => { if (f.length) ws.importFiles(f, page.folderId); }); },
               },
+              // The other half of the same sentence: a file can also belong to
+              // the page that is already open, appended to what it says.
+              ...(importInto ? [importInto] : []),
               // One row instead of three: the formats belong together and this
               // menu already carries everything else a page can do.
               // A design is a canvas: docx, markdown and the print stylesheet all

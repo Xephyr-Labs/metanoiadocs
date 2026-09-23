@@ -764,17 +764,44 @@ const IMAGE_MIME = {
 };
 
 /**
- * Import one file as a new doc: .md, .txt, .docx or .pdf.
+ * Import one file: .md, .txt, .docx or .pdf.
+ *
+ * It becomes a new doc, in `folderId` or at the top level — unless `docId`
+ * names a page that already exists, in which case its blocks are appended to
+ * that page's body instead. Both are the same file read the same way; the only
+ * difference is whether there is already a document for it to belong to, and
+ * making people import a stray page and copy it across was the long way round.
  *
  * Raw bytes rather than multipart — one file per request, so a form parser
  * would be pure ceremony; the name and destination ride on the query string.
  * Everything format-specific lives in import.js, and what arrives here is the
  * markdown the rest of the app already speaks.
  */
-app.post('/api/docs/import', requireUser, express.raw({ type: '*/*', limit: '25mb' }), async (req, res) => {
+app.post('/api/docs/import', requireUser, express.raw({ type: '*/*', limit: '25mb' }), wrap(async (req, res) => {
   const name = String(req.query.name || 'document').slice(0, 255);
   const folderId = typeof req.query.folderId === 'string' && req.query.folderId ? req.query.folderId : null;
-  if (folderId && !(await visibleFolder(folderId, req.user.id))) {
+  const intoId = typeof req.query.docId === 'string' && req.query.docId ? req.query.docId : null;
+
+  // The destination is checked before the file is read: a 25 MB PDF parsed and
+  // then refused is a minute of somebody's time spent on an answer we already
+  // had.
+  let into = null;
+  if (intoId) {
+    // Writing into a body is an edit, not a read — the same exclusion a version
+    // restore makes. Elsewhere on a doc a bare grant is enough, because a
+    // viewer with a share link still has nothing to change.
+    const role = await grantOn(intoId, req.user.id);
+    if (!role || role === 'viewer') return res.status(403).json({ error: 'forbidden' });
+    const d = await pool.query('SELECT title, kind FROM docs WHERE id = $1 AND deleted_at IS NULL', [intoId]);
+    if (!d.rows[0]) return res.status(404).json({ error: 'not found' });
+    // Not into a canvas. A doc with no note block to append to is rewritten
+    // wholesale instead, which on a design means the drawing replaced by the
+    // file — a destination worth refusing rather than a write worth risking.
+    if (d.rows[0].kind === 'design') {
+      return res.status(400).json({ error: 'A canvas cannot take an imported file. Import it as its own page instead.' });
+    }
+    into = d.rows[0];
+  } else if (folderId && !(await visibleFolder(folderId, req.user.id))) {
     return res.status(403).json({ error: 'folder not accessible' });
   }
 
@@ -799,6 +826,20 @@ app.post('/api/docs/import', requireUser, express.raw({ type: '*/*', limit: '25m
     return res.status(415).json({ error: e.message, accepted: IMPORT_EXTENSIONS });
   }
 
+  // Into an existing page: the file's own title stays out of it — the page
+  // already has one, and the H1 the parser found is part of the body.
+  if (into) {
+    await writeDocMarkdown({
+      docId: intoId,
+      title: into.title,
+      markdown: file.markdown,
+      mode: 'append',
+      user: req.user,
+      via: req.via,
+    });
+    return res.json({ id: intoId, title: into.title, appended: true, warnings: file.warnings });
+  }
+
   const row = await createDocRow({
     title: file.title,
     icon: '📄',
@@ -809,7 +850,7 @@ app.post('/api/docs/import', requireUser, express.raw({ type: '*/*', limit: '25m
     content: file.markdown,
   });
   res.json({ ...row, warnings: file.warnings });
-});
+}));
 
 /**
  * Create a page nested under another — the sidebar's "Add a page inside".
@@ -1008,34 +1049,34 @@ app.get('/api/docs/:id/print', requireUser, async (req, res) => {
   }));
 });
 
-// Write markdown content to a doc: mode 'append' (default) or 'replace'.
-//
-// Goes through a Hocuspocus direct connection rather than into doc_states, for
-// the same reason referenceChild does: a state row written behind a live
-// session's back is overwritten by that session's next save, and until then
-// nobody with the page open sees anything. Through the connection the blocks
-// are an ordinary edit — they appear in every open editor as they land, and are
-// persisted by the path a typed edit already takes.
-app.post('/api/docs/:id/content', requireUser, wrap(async (req, res) => {
-  const docId = req.params.id;
-  if (!(await grantOn(docId, req.user.id))) return res.status(403).json({ error: 'forbidden' });
-  const markdown = String(req.body?.markdown || '');
-  const mode = req.body?.mode === 'replace' ? 'replace' : 'append';
-  const d = await pool.query('SELECT title FROM docs WHERE id = $1 AND deleted_at IS NULL', [docId]);
-  if (!d.rows[0]) return res.status(404).json({ error: 'not found' });
-
+/**
+ * Write markdown into an existing doc's body: mode 'append' (default) or
+ * 'replace'.
+ *
+ * Goes through a Hocuspocus direct connection rather than into doc_states, for
+ * the same reason referenceChild does: a state row written behind a live
+ * session's back is overwritten by that session's next save, and until then
+ * nobody with the page open sees anything. Through the connection the blocks
+ * are an ordinary edit — they appear in every open editor as they land, and are
+ * persisted by the path a typed edit already takes.
+ *
+ * Shared by the content endpoint and by an import that names a destination
+ * page: a file dropped into a document is the same write as one the copilot
+ * makes, and nothing about it should depend on which of the two asked.
+ */
+async function writeDocMarkdown({ docId, title, markdown, mode, user, via }) {
   // A replace swaps the whole body, which is what restoring a version does —
   // same primitive, so the same one is used. An append on a doc with no body
   // yet has nothing to append to, and becomes the same wholesale write.
   let state;
   let rewrote = mode === 'replace';
-  const conn = await hocuspocus.openDirectConnection(docId, { docId, user: req.user });
+  const conn = await hocuspocus.openDirectConnection(docId, { docId, user });
   try {
     await conn.transact((doc) => {
       if (mode === 'append' && appendMarkdownToDoc(doc, markdown)) {
         // appended in place
       } else {
-        rewriteDoc(doc, buildDocState(d.rows[0].title, markdown));
+        rewriteDoc(doc, buildDocState(title, markdown));
         rewrote = true;
       }
       state = Buffer.from(Y.encodeStateAsUpdate(doc));
@@ -1058,8 +1099,24 @@ app.post('/api/docs/:id/content', requireUser, wrap(async (req, res) => {
   // integration is searchable on what it now says.
   try {
     const { text } = extractText(state);
-    await pool.query('UPDATE docs SET search_text = $1, updated_at = now(), updated_by = $3, updated_via = $4 WHERE id = $2', [text.slice(0, 100000), docId, req.user.id, req.via]);
+    await pool.query('UPDATE docs SET search_text = $1, updated_at = now(), updated_by = $3, updated_via = $4 WHERE id = $2', [text.slice(0, 100000), docId, user.id, via]);
   } catch { /* an odd state still saves; only the search text goes stale */ }
+}
+
+app.post('/api/docs/:id/content', requireUser, wrap(async (req, res) => {
+  const docId = req.params.id;
+  if (!(await grantOn(docId, req.user.id))) return res.status(403).json({ error: 'forbidden' });
+  const d = await pool.query('SELECT title FROM docs WHERE id = $1 AND deleted_at IS NULL', [docId]);
+  if (!d.rows[0]) return res.status(404).json({ error: 'not found' });
+
+  await writeDocMarkdown({
+    docId,
+    title: d.rows[0].title,
+    markdown: String(req.body?.markdown || ''),
+    mode: req.body?.mode === 'replace' ? 'replace' : 'append',
+    user: req.user,
+    via: req.via,
+  });
   res.json({ ok: true });
 }));
 

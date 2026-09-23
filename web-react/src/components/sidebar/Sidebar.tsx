@@ -42,14 +42,12 @@ import {
   Table2,
   Tag as TagIcon,
   Trash2,
-  Upload,
 } from 'lucide-react';
 import { Children, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { cn } from '../../lib/cn';
 import { SECTION_LIMIT, collapsedSections, railSection, setRailSection, toggleSection, type RailSection } from '../../lib/sidebarPrefs';
 import { copyLink } from '../../lib/clipboard';
 import { dbUrl } from '../../lib/route';
-import { pickImportFiles } from '../../lib/docFiles';
 import { avatarFor } from '../../lib/avatar';
 import { nestByParent } from '../../lib/pageTree';
 import { swatch } from '../../lib/tagColors';
@@ -62,6 +60,7 @@ import { workspaces } from '../../data/mock';
 import { templates } from '../../data/templates';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { useAuth } from '../../store/auth';
+import { useImportToFolder } from '../../hooks/useImportMenu';
 import { useWorkspace } from '../../store/workspace';
 import { IconButton } from '../ui/IconButton';
 import { Menu } from '../ui/Menu';
@@ -696,6 +695,7 @@ function Rail({
 export function Sidebar() {
   const ws = useWorkspace();
   const auth = useAuth();
+  const importTo = useImportToFolder();
   const activeWs = workspaces[0];
   const av = avatarFor(auth.user?.name || auth.user?.username || 'You');
   const dragging = useRef(false);
@@ -836,14 +836,9 @@ export function Sidebar() {
           width={248}
           items={[
             { label: `${activeWs.icon}  ${activeWs.name}` },
-            {
-              icon: Upload,
-              label: 'Import…',
-              separatorBefore: true,
-              // No folder: an import from here lands beside the other unfiled
-              // documents, and the per-folder menu is where you say otherwise.
-              onSelect: () => { pickImportFiles().then((f) => { if (f.length) ws.importFiles(f, null); }); },
-            },
+            // Where it lands is chosen here, so filing an import no longer
+            // means finding the folder in the tree and using its own menu.
+            { ...importTo, separatorBefore: true },
             { icon: Settings, label: 'Settings', separatorBefore: true, onSelect: () => ws.setSettingsOpen(true) },
             { icon: LogOut, label: 'Log out', danger: true, onSelect: () => auth.logout() },
           ]}

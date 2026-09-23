@@ -264,6 +264,14 @@ export interface DeliveryRow {
   created_at: string;
 }
 
+/**
+ * What an import comes back as. A new page is a whole DocRow; one appended to
+ * an existing page is that page, which the caller already has — so only the
+ * identity and whatever the converter wanted to say are promised for both.
+ */
+export type ImportedDoc = Pick<DocRow, 'id' | 'title'> &
+  Partial<DocRow> & { appended?: boolean; warnings?: string[] };
+
 export const docsApi = {
   list: (): Promise<DocRow[]> => req('/docs'),
   myDocs: (offset: number, limit = 8): Promise<{ total: number; rows: MyDocRow[] }> =>
@@ -278,15 +286,19 @@ export const docsApi = {
     req('/folders/reorder', { method: 'POST', body: JSON.stringify({ parentId, ids }) }),
   removeFolder: (id: string) => req(`/folders/${id}`, { method: 'DELETE' }),
   /**
-   * Import one file as a new doc: .md, .txt, .docx or .pdf.
+   * Import one file: .md, .txt, .docx or .pdf.
+   *
+   * A new doc, in `folderId` or at the top level — or, with `docId`, appended
+   * to the body of a page that already exists.
    *
    * Raw bytes, not multipart — one file per request, so the name and
    * destination ride on the query string. Everything format-specific happens
    * server-side (server/src/import.js); .docx and .pdf cannot be read here.
    */
-  import: (file: File, folderId: string | null): Promise<DocRow & { warnings?: string[] }> => {
+  import: (file: File, folderId: string | null, docId?: string | null): Promise<ImportedDoc> => {
     const q = new URLSearchParams({ name: file.name });
-    if (folderId) q.set('folderId', folderId);
+    if (docId) q.set('docId', docId);
+    else if (folderId) q.set('folderId', folderId);
     return req(`/docs/import?${q}`, {
       method: 'POST',
       body: file,
