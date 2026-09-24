@@ -5,7 +5,7 @@
  */
 import { motion } from 'framer-motion';
 import { AlertCircle, Check, ChevronRight, Folder, FolderOpen, FolderPlus, Link2, MoreHorizontal, Plus, Star, Upload } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useDocMenu } from '../../hooks/useDocMenu';
 import { folderChain } from '../../lib/folderPath';
 import { folderTint } from '../../lib/tagColors';
@@ -21,6 +21,7 @@ import { DocIcon } from '../ui/DocIcon';
 import { EmptyState } from '../ui/EmptyState';
 import { IconButton } from '../ui/IconButton';
 import { Menu, type MenuItem } from '../ui/Menu';
+import { Pager, usePaged } from '../ui/Pager';
 
 /** "4 folders · 12 pages", with the halves that are zero left out entirely. */
 function countLine(folders: number, pages: number): string {
@@ -96,6 +97,12 @@ export function FolderView() {
   const id = ws.activeFolderId;
   const folder = id ? ws.folders[id] : null;
   const [copied, setCopied] = useState<'yes' | 'failed' | null>(null);
+  const scroller = useRef<HTMLDivElement>(null);
+  // Hooks run before the "folder is gone" return below, so this reads the
+  // folder defensively. Subfolders are not paged: there are few, and they
+  // are how a reader gets somewhere smaller.
+  const pages = (folder?.documentIds ?? []).map((pid) => ws.pages[pid]).filter(Boolean);
+  const paged = usePaged(pages, id);
 
   useEffect(() => {
     if (!copied) return;
@@ -120,7 +127,6 @@ export function FolderView() {
 
   const chain = folderChain(ws.folders, folder.id);
   const subfolders = folder.children.map((cid) => ws.folders[cid]).filter(Boolean);
-  const pages = folder.documentIds.map((pid) => ws.pages[pid]).filter(Boolean);
 
   // A browser can refuse the clipboard (permission, or a non-secure origin);
   // `copyText` falls back to the legacy path first and reports what happened.
@@ -129,7 +135,7 @@ export function FolderView() {
   };
 
   return (
-    <div className="scrollarea h-full overflow-y-auto bg-canvas">
+    <div ref={scroller} className="scrollarea h-full overflow-y-auto bg-canvas">
       <motion.div
         key={folder.id}
         initial={{ opacity: 0, y: 6 }}
@@ -218,10 +224,11 @@ export function FolderView() {
                   onOpen={() => ws.openFolder(f.id)}
                 />
               ))}
-              {pages.map((p) => <PageRow key={p.id} id={p.id} />)}
+              {paged.shown.map((p) => <PageRow key={p.id} id={p.id} />)}
             </>
           )}
         </div>
+        <Pager paged={paged} onPage={() => scroller.current?.scrollTo({ top: 0 })} />
       </motion.div>
     </div>
   );

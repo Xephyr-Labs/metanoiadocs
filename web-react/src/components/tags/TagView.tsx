@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Plus, Tag as TagIcon, X } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { swatch } from '../../lib/tagColors';
@@ -8,6 +8,7 @@ import { CheckList } from '../ui/CheckList';
 import { DocIcon } from '../ui/DocIcon';
 import { EmptyState } from '../ui/EmptyState';
 import { Modal, ModalBody } from '../ui/Modal';
+import { Pager, usePaged } from '../ui/Pager';
 
 /**
  * Docs carrying the chosen tags. Opened from the sidebar Tags list.
@@ -28,6 +29,8 @@ export function TagView() {
   const docs = Object.values(ws.pages)
     .filter((p) => p.tags.some((t) => chosen.includes(t.id)))
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  const paged = usePaged(docs, chosen.join());
+  const top = useRef<HTMLDivElement>(null);
 
   const choose = (id: string) => {
     ws.select(id);
@@ -101,10 +104,11 @@ export function TagView() {
       )}
 
       <ModalBody>
+        <div ref={top} />
         {docs.length === 0 ? (
           <EmptyState icon={TagIcon} title="No pages" hint="No pages carry these tags yet." />
         ) : (
-          docs.map((p) => (
+          paged.shown.map((p) => (
             <button key={p.id} onClick={() => choose(p.id)} className="flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-left transition-colors hover:bg-hover">
               <DocIcon hasChildren={p.children.length > 0} size={16} />
               <span className="min-w-0 flex-1 truncate text-sm text-ink">{p.title || 'Untitled'}</span>
@@ -112,6 +116,7 @@ export function TagView() {
             </button>
           ))
         )}
+        <Pager paged={paged} onPage={() => top.current?.scrollIntoView({ block: 'start' })} />
       </ModalBody>
     </Modal>
   );

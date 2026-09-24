@@ -4,8 +4,8 @@
  * states: default · row hover · row focus · searching · no matches ·
  *         empty workspace · filtered to unfiled · sorted
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, FileText, FolderOpen, MoreHorizontal, Search } from 'lucide-react';
+import { useMemo, useRef, useState } from 'react';
+import { FileText, FolderOpen, MoreHorizontal, Search } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { folderChain } from '../../lib/folderPath';
 import { swatch } from '../../lib/tagColors';
@@ -16,12 +16,11 @@ import type { Page } from '../../lib/types';
 import { EmptyState } from '../ui/EmptyState';
 import { IconButton } from '../ui/IconButton';
 import { Menu } from '../ui/Menu';
+import { Pager, usePaged } from '../ui/Pager';
 import { PageIcon } from '../ui/PageIcon';
 import { SegmentedControl } from '../ui/SegmentedControl';
 
 type Sort = 'updated' | 'title' | 'folder';
-
-const PAGE_SIZE = 50;
 
 /** A task's page belongs to a database row and is reached through it; a
  *  hundred of them in this list would bury the documents people wrote. */
@@ -77,20 +76,8 @@ export function AllDocsView() {
     return all.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }, [ws.pages, ws.folders, query, sort, scope]);
 
-  const [page, setPage] = useState(0);
   const scroller = useRef<HTMLDivElement>(null);
-  // A new filter or sort is a new list; staying on page 7 of the old one
-  // would open on an empty screen or somewhere in the middle.
-  useEffect(() => setPage(0), [query, sort, scope]);
-  const pages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
-  // Deleting the last page's only row must not strand the view past the end.
-  const current = Math.min(page, pages - 1);
-  const shown = rows.slice(current * PAGE_SIZE, (current + 1) * PAGE_SIZE);
-
-  const go = (p: number) => {
-    setPage(p);
-    scroller.current?.scrollTo({ top: 0 });
-  };
+  const paged = usePaged(rows, `${query}|${sort}|${scope}`);
 
   return (
     <div ref={scroller} className="scrollarea h-full overflow-y-auto bg-canvas">
@@ -146,17 +133,11 @@ export function AllDocsView() {
           />
         ) : (
           <div className="rounded-lg border border-line">
-            {shown.map((p) => <DocRow key={p.id} page={p} />)}
+            {paged.shown.map((p) => <DocRow key={p.id} page={p} />)}
           </div>
         )}
 
-        {pages > 1 && (
-          <nav aria-label="Pages" className="mt-3 flex items-center justify-end gap-1 text-2xs tabular-nums text-faint">
-            {current * PAGE_SIZE + 1}–{current * PAGE_SIZE + shown.length} of {rows.length}
-            <IconButton icon={<ChevronLeft size={14} />} label="Previous page" onClick={() => go(current - 1)} disabled={current === 0} />
-            <IconButton icon={<ChevronRight size={14} />} label="Next page" onClick={() => go(current + 1)} disabled={current >= pages - 1} />
-          </nav>
-        )}
+        <Pager paged={paged} onPage={() => scroller.current?.scrollTo({ top: 0 })} />
       </div>
     </div>
   );

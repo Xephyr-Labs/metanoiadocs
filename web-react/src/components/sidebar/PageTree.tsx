@@ -10,6 +10,7 @@ import { DocIcon } from '../ui/DocIcon';
 import { Menu } from '../ui/Menu';
 import { rowAction } from '../ui/styles';
 import { DOC_MIME, dragSource, useRowDrop } from './rowDrag';
+import { ShowMoreRow, useShowMore } from './showMore';
 
 function Row({ id, depth }: { id: PageId; depth: number }) {
   const ws = useWorkspace();
@@ -26,6 +27,7 @@ function Row({ id, depth }: { id: PageId; depth: number }) {
       else ws.reorderPage(draggedId, id, zone);
     },
   });
+  const kids = useShowMore(page?.children ?? [], ws.currentId);
   if (!page) return null;
   const selected = ws.currentId === id;
   const hasChildren = page.children.length > 0;
@@ -146,9 +148,10 @@ function Row({ id, depth }: { id: PageId; depth: number }) {
             transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
             className="overflow-hidden"
           >
-            {page.children.map((c) => (
+            {kids.shown.map((c) => (
               <Row key={c} id={c} depth={depth + 1} />
             ))}
+            <ShowMoreRow rest={kids.rest} depth={depth + 1} onClick={kids.more} />
           </motion.div>
         )}
       </AnimatePresence>
@@ -157,11 +160,14 @@ function Row({ id, depth }: { id: PageId; depth: number }) {
 }
 
 export function PageTree({ roots, depth = 0 }: { roots: PageId[]; depth?: number }) {
+  const ws = useWorkspace();
+  const top = useShowMore(roots, ws.currentId);
   return (
     <div role="tree" className="space-y-px">
-      {roots.map((id) => (
+      {top.shown.map((id) => (
         <Row key={id} id={id} depth={depth} />
       ))}
+      <ShowMoreRow rest={top.rest} depth={depth} onClick={top.more} />
     </div>
   );
 }
