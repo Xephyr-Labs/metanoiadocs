@@ -50,6 +50,7 @@ import { useMoveToFolder } from '../../hooks/useMoveToFolder';
 import { copyLink } from '../../lib/clipboard';
 import { useReducer } from 'react';
 import * as prefs from '../../lib/docPrefs';
+import { ProjectIcon } from '../ui/ProjectIcon';
 
 /** Google-Docs-style stack of everyone else currently in the open doc. */
 function PresenceStack() {
@@ -205,7 +206,7 @@ export function TopBar() {
             </Crumb>
           ))
         ) : project ? (
-          <Crumb icon={<span className="text-sm leading-none">{project.icon}</span>} current>
+          <Crumb icon={<ProjectIcon project={project} size={14} />} current>
             {project.name}
           </Crumb>
         ) : folder ? (

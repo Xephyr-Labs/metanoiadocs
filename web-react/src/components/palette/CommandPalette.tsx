@@ -21,6 +21,7 @@ import { swatch } from '../../lib/tagColors';
 import { useWorkspace } from '../../store/workspace';
 import { DocIcon } from '../ui/DocIcon';
 import { Modal } from '../ui/Modal';
+import { ProjectIcon } from '../ui/ProjectIcon';
 
 type Item =
   | { kind: 'page'; id: string; title: string; sub: string }
@@ -116,7 +117,7 @@ export function CommandPalette() {
     const rows = ws.projects.filter((p) => !query || p.name.toLowerCase().includes(query)
       || (p.key ?? '').toLowerCase().startsWith(query));
     return rows.slice(0, query ? 6 : 4)
-      .map((p) => ({ kind: 'database' as const, id: p.id, title: p.name, icon: p.icon || '📋' }));
+      .map((p) => ({ kind: 'database' as const, id: p.id, title: p.name, icon: p.icon }));
   }, [ws.projects, query]);
 
   const searchItems: Item[] = query
@@ -231,7 +232,7 @@ export function CommandPalette() {
                     ) : it.kind === 'task' ? (
                       <span className={cn('h-2 w-2 rounded-full', swatch(STATUS_COLOR[it.status] || 'gray').dot)} />
                     ) : it.kind === 'database' ? (
-                      <span className="text-base leading-none">{it.icon}</span>
+                      <ProjectIcon project={{ id: it.id, name: it.title, icon: it.icon }} size={16} />
                     ) : (
                       <span className="text-muted"><it.icon size={16} /></span>
                     )}

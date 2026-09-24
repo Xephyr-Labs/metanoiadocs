@@ -8,6 +8,7 @@ import { ActorMark } from '../ui/ActorMark';
 import { useDocMenu } from '../../hooks/useDocMenu';
 import { IconButton } from '../ui/IconButton';
 import { Menu } from '../ui/Menu';
+import { ProjectIcon } from '../ui/ProjectIcon';
 
 /** Panel shell every home card sits in. Hairline + soft, matching the app. */
 export function Card({ title, action, children, className }: {
@@ -84,7 +85,7 @@ export function ProjectCard({ project, onOpen }: { project: ProjectRow; onOpen: 
       onClick={onOpen}
       className="flex items-center gap-3 rounded-lg border border-line bg-canvas p-4 text-left transition-colors duration-120 hover:border-line-strong hover:bg-hover"
     >
-      <span className="text-xl leading-none">{project.icon}</span>
+      <ProjectIcon project={project} size={24} />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-medium text-ink">{project.name}</span>
         <span className="mt-0.5 block text-xs text-muted">

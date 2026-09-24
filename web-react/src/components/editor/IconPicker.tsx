@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useRef, useState, type ReactNode } from 'react';
 import { useOutsideClick } from '../../hooks/useOutsideClick';
 import { PageIcon } from '../ui/PageIcon';
 
@@ -117,7 +117,15 @@ const GROUPS: { name: string; emojis: string[] }[] = [
 ];
 
 /** Click the page glyph to pick an emoji. Grouped scrollable grid, no dependency. */
-export function IconPicker({ icon, onPick }: { icon: string; onPick: (icon: string) => void }) {
+export function IconPicker({ icon, onPick, trigger, label = 'Change page icon', onReset }: {
+  icon: string;
+  onPick: (icon: string) => void;
+  /** What the button shows; the page glyph when not given. */
+  trigger?: ReactNode;
+  label?: string;
+  /** Offers a way back to having no emoji — a database's initial tile. */
+  onReset?: { label: string; run: () => void };
+}) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useOutsideClick(ref, useCallback(() => setOpen(false), []), open);
@@ -127,13 +135,23 @@ export function IconPicker({ icon, onPick }: { icon: string; onPick: (icon: stri
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        aria-label="Change page icon"
-        className="flex h-7 w-7 items-center justify-center rounded-md transition-colors duration-120 hover:bg-hover"
+        aria-label={label}
+        title={label}
+        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors duration-120 hover:bg-hover"
       >
-        <PageIcon icon={icon} size={18} />
+        {trigger ?? <PageIcon icon={icon} size={18} />}
       </button>
       {open && (
         <div className="scrollarea absolute left-0 top-8 z-40 max-h-[340px] w-[312px] overflow-y-auto rounded-lg border border-line bg-canvas p-2 shadow-pop">
+          {onReset && (
+            <button
+              type="button"
+              onClick={() => { onReset.run(); setOpen(false); }}
+              className="mb-1 flex h-7 w-full items-center rounded px-1.5 text-sm text-muted hover:bg-hover hover:text-ink"
+            >
+              {onReset.label}
+            </button>
+          )}
           {GROUPS.map((g) => (
             <div key={g.name}>
               <div className="px-1 pb-1 pt-2 text-2xs font-medium text-faint first:pt-0.5">{g.name}</div>
