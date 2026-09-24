@@ -14,6 +14,7 @@ import { RowInput } from '../ui/RowInput';
 import { requestTitleFocus } from '../../lib/titleFocus';
 import { useDocMenu } from '../../hooks/useDocMenu';
 import { rowAction } from '../ui/styles';
+import { ShowMoreRow, useShowMore } from './showMore';
 
 const ColorDot = (color: string) =>
   function Dot({ className }: { size?: number | string; strokeWidth?: number | string; className?: string }) {
@@ -41,6 +42,7 @@ function DocumentRow({ id, depth }: { id: PageId; depth: number }) {
       else ws.reorderPage(draggedId, id, zone);
     },
   });
+  const kids = useShowMore(page?.children ?? [], ws.currentId);
   // The same list every other document row draws — this one had grown its own,
   // which is why the sidebar's folder-filed pages were the last place without
   // "Open in a new tab". Only the two rows that are genuinely about the tree
@@ -118,9 +120,10 @@ function DocumentRow({ id, depth }: { id: PageId; depth: number }) {
     </div>
     {canExpand && page.expanded && (
       <div role="group">
-        {nested.map((childId) => (
+        {kids.shown.map((childId) => (
           <DocumentRow key={childId} id={childId} depth={depth + 1} />
         ))}
+        <ShowMoreRow rest={kids.rest} depth={depth + 1} onClick={kids.more} />
       </div>
     )}
     </div>
@@ -144,13 +147,15 @@ function FolderRow({ id, depth }: { id: string; depth: number }) {
       else ws.reorderFolder(draggedId, id, zone);
     },
   });
+  const docs = useShowMore(folder?.documentIds ?? [], ws.currentId);
   if (!folder) return null;
   const hasChildren = folder.children.length > 0 || folder.documentIds.length > 0;
   const tint = folderTint(folder.color);
   const active = ws.view === 'folder' && ws.activeFolderId === id;
   const children = folder.expanded && (
     <div role="group">
-      {folder.documentIds.map((docId) => <DocumentRow key={docId} id={docId} depth={depth + 1} />)}
+      {docs.shown.map((docId) => <DocumentRow key={docId} id={docId} depth={depth + 1} />)}
+      <ShowMoreRow rest={docs.rest} depth={depth + 1} onClick={docs.more} />
       {folder.children.map((childId) => <FolderRow key={childId} id={childId} depth={depth + 1} />)}
     </div>
   );
@@ -255,10 +260,13 @@ function FolderRow({ id, depth }: { id: string; depth: number }) {
 }
 
 export function FolderTree({ roots, unfiled }: { roots: string[]; unfiled: PageId[] }) {
+  const ws = useWorkspace();
+  const loose = useShowMore(unfiled, ws.currentId);
   return (
     <div role="tree" className="space-y-px">
       {roots.map((id) => <FolderRow key={id} id={id} depth={0} />)}
-      {unfiled.map((id) => <DocumentRow key={id} id={id} depth={0} />)}
+      {loose.shown.map((id) => <DocumentRow key={id} id={id} depth={0} />)}
+      <ShowMoreRow rest={loose.rest} depth={0} onClick={loose.more} />
     </div>
   );
 }

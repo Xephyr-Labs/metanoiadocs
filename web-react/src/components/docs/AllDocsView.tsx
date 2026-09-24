@@ -4,7 +4,7 @@
  * states: default · row hover · row focus · searching · no matches ·
  *         empty workspace · filtered to unfiled · sorted
  */
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { FileText, FolderOpen, MoreHorizontal, Search } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { folderChain } from '../../lib/folderPath';
@@ -16,6 +16,7 @@ import type { Page } from '../../lib/types';
 import { EmptyState } from '../ui/EmptyState';
 import { IconButton } from '../ui/IconButton';
 import { Menu } from '../ui/Menu';
+import { Pager, usePaged } from '../ui/Pager';
 import { PageIcon } from '../ui/PageIcon';
 import { SegmentedControl } from '../ui/SegmentedControl';
 
@@ -75,8 +76,11 @@ export function AllDocsView() {
     return all.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }, [ws.pages, ws.folders, query, sort, scope]);
 
+  const scroller = useRef<HTMLDivElement>(null);
+  const paged = usePaged(rows, `${query}|${sort}|${scope}`);
+
   return (
-    <div className="scrollarea h-full overflow-y-auto bg-canvas">
+    <div ref={scroller} className="scrollarea h-full overflow-y-auto bg-canvas">
       <div className="mx-auto max-w-[1100px] px-6 py-8 md:px-10">
         <header className="mb-5">
           <h1 className="font-display text-2xl font-semibold leading-7 tracking-[-0.03em] text-ink md:text-3xl">
@@ -129,9 +133,11 @@ export function AllDocsView() {
           />
         ) : (
           <div className="rounded-lg border border-line">
-            {rows.map((p) => <DocRow key={p.id} page={p} />)}
+            {paged.shown.map((p) => <DocRow key={p.id} page={p} />)}
           </div>
         )}
+
+        <Pager paged={paged} onPage={() => scroller.current?.scrollTo({ top: 0 })} />
       </div>
     </div>
   );
