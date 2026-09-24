@@ -205,6 +205,13 @@ export function ProjectView() {
     downloadCsv(name, toCsv(tasksToRows(d.tasks, columns, p.users)));
   };
 
+  // A failed save leaves the old icon showing, which is the truth; refreshing
+  // either way keeps the sidebar and the top bar in step with the server.
+  const setIcon = (icon: string) => {
+    if (!project) return;
+    tasksApi.patchProject(project.id, { icon }).catch(() => {}).finally(ws.refreshProjects);
+  };
+
   // Keep the live task in the panel: patches land in p.tasks, not in `open`.
   const openTask = open ? p.tasks.find((t) => t.id === open.id) ?? null : null;
 
@@ -234,9 +241,9 @@ export function ProjectView() {
               icon={project.icon}
               label="Change database icon"
               trigger={<ProjectIcon project={project} size={18} />}
-              onPick={(icon) => { void tasksApi.patchProject(project.id, { icon }).then(ws.refreshProjects); }}
+              onPick={(icon) => setIcon(icon)}
               onReset={hasChosenIcon(project.icon)
-                ? { label: 'Use the initial instead', run: () => { void tasksApi.patchProject(project.id, { icon: DEFAULT_PROJECT_ICON }).then(ws.refreshProjects); } }
+                ? { label: 'Use the initial instead', run: () => setIcon(DEFAULT_PROJECT_ICON) }
                 : undefined}
             />
           )}

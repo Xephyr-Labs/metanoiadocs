@@ -45,8 +45,7 @@ function readShape(): Shape {
   }
 }
 
-/** null when this browser has never had a set here, which is not the same as
- *  having deliberately cleared one: only the first opens with a starting view. */
+/** Open / overdue / done / all, remembered per browser like the shape. */
 const SCOPE_KEY = 'mn-scope-all';
 const SCOPE_LABEL: Record<TaskScope, string> = { open: 'Open', overdue: 'Overdue', done: 'Done', all: 'All' };
 
@@ -59,6 +58,8 @@ function readScope(): TaskScope {
   }
 }
 
+/** null when this browser has never had a set here, which is not the same as
+ *  having deliberately cleared one: only the first opens with a starting view. */
 function readFilters(): Filter[] | null {
   try {
     const raw = localStorage.getItem(FILTER_KEY);
@@ -177,7 +178,15 @@ export function TasksView() {
   // called. Status is built-in, which is why a board over several projects can
   // be grouped by it at all — a custom property could not.
   const statusField = useMemo(() => fields.find((f) => f.key === 'status'), [fields]);
-  const boardGroups = useMemo(() => (statusField ? groupsFor(statusField) : []), [statusField]);
+  // Under Done the other columns can only ever say "Nothing here", and they
+  // pushed the one column with anything in it off the screen. Open and Overdue
+  // keep the Done column: it is empty, but dragging a card onto it is how a
+  // task gets finished from here.
+  const boardGroups = useMemo(
+    () => (statusField ? groupsFor(statusField) : [])
+      .filter((g) => scope !== 'done' || g.value === 'done'),
+    [statusField, scope],
+  );
 
   return (
     <div className="flex h-full flex-col bg-canvas">
@@ -252,6 +261,7 @@ export function TasksView() {
             icon={CheckSquare}
             title={
               !data.tasks.length ? 'No tasks yet'
+                : filtered.length && scope === 'open' ? 'Nothing open'
                 : filtered.length && scope === 'overdue' ? 'Nothing overdue'
                 : filtered.length && scope === 'done' ? 'Nothing done yet'
                 : 'Nothing matches these filters'
