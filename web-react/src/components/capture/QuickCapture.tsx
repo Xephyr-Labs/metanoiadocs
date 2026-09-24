@@ -15,6 +15,7 @@ import { useWorkspace } from '../../store/workspace';
 import { Modal } from '../ui/Modal';
 import { SearchSelect } from '../ui/SearchSelect';
 import { Kbd } from '../ui/Kbd';
+import { ProjectIcon } from '../ui/ProjectIcon';
 
 /** The database the last capture went to, so the next one does not ask again. */
 const LAST_KEY = 'mn-capture-db';
@@ -52,7 +53,7 @@ export function QuickCapture() {
   // captured into one lands as a row nobody is ever shown.
   const options = ws.projects
     .filter((p) => p.mode !== 'data')
-    .map((p) => ({ value: p.id, label: p.name, lead: <span className="text-sm leading-none">{p.icon || '📋'}</span> }));
+    .map((p) => ({ value: p.id, label: p.name, lead: <ProjectIcon project={p} size={14} /> }));
 
   // Opening is what resets it. The database it opens on is, in order: the one
   // you are looking at, the one you used last, the first one there is.

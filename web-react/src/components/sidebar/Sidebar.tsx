@@ -72,6 +72,7 @@ import { PageTree } from './PageTree';
 import { FolderTree } from './FolderTree';
 import { DOC_MIME, dragSource } from './rowDrag';
 import { useDocMenu } from '../../hooks/useDocMenu';
+import { ProjectIcon } from '../ui/ProjectIcon';
 
 /**
  * Only `alert` spends the accent. "You are here" is a neutral fill — where you
@@ -327,7 +328,7 @@ function ProjectRows({
                   ws.view === 'project' && ws.activeProjectId === p.id ? 'bg-selected font-medium text-ink' : 'text-ink hover:bg-hover',
                 )}
               >
-                <span className="flex h-5 w-5 shrink-0 items-center justify-center text-md leading-none">{p.icon}</span>
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center"><ProjectIcon project={p} size={16} /></span>
                 <span className="block h-5 min-w-0 flex-1 !self-center truncate leading-5 text-left">{p.name}</span>
                 {Number(p.overdue) > 0 ? (
                   <span className="shrink-0 text-2xs font-semibold text-danger-strong">{p.overdue}</span>

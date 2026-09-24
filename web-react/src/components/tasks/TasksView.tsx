@@ -17,6 +17,8 @@ import { Gantt } from '../project/Gantt';
 import { TagFilter } from '../project/TagFilter';
 import { SegmentedControl } from '../ui/SegmentedControl';
 import { groupOf, groupsFor } from '../../lib/grouping';
+import { TASK_SCOPES, dropLegacyOpenChip, inScope, scopeCounts, type TaskScope } from '../../lib/taskScope';
+import { ProjectIcon } from '../ui/ProjectIcon';
 
 /** One saved filter set for the whole workspace, per browser — the same
  *  arrangement each project's board already uses for its own. */
@@ -45,12 +47,24 @@ function readShape(): Shape {
 
 /** null when this browser has never had a set here, which is not the same as
  *  having deliberately cleared one: only the first opens with a starting view. */
+const SCOPE_KEY = 'mn-scope-all';
+const SCOPE_LABEL: Record<TaskScope, string> = { open: 'Open', overdue: 'Overdue', done: 'Done', all: 'All' };
+
+function readScope(): TaskScope {
+  try {
+    const v = localStorage.getItem(SCOPE_KEY) as TaskScope | null;
+    return v && TASK_SCOPES.includes(v) ? v : 'open';
+  } catch {
+    return 'open';
+  }
+}
+
 function readFilters(): Filter[] | null {
   try {
     const raw = localStorage.getItem(FILTER_KEY);
     if (raw === null) return null;
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    return Array.isArray(parsed) ? dropLegacyOpenChip(parsed) : [];
   } catch {
     return null;
   }
@@ -90,6 +104,7 @@ export function TasksView() {
   const [error, setError] = useState<string | null>(null);
   const [filters, setFilters] = useState<Filter[]>(() => readFilters() ?? []);
   const [shape, setShape] = useState<Shape>(readShape);
+  const [scope, setScope] = useState<TaskScope>(readScope);
   const seeded = useRef(readFilters() !== null);
 
   const load = () => {
@@ -117,7 +132,6 @@ export function TasksView() {
     seeded.current = true;
     save([
       { id: crypto.randomUUID(), field: 'assignee_id', op: 'is', value: auth.user.id },
-      { id: crypto.randomUUID(), field: 'status', op: 'is_none_of', value: 'done' },
     ]);
   }, [auth.user]);
 
@@ -152,14 +166,18 @@ export function TasksView() {
     if (kept.length !== filters.length) save(kept);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, users, fields]);
-  const visible = data ? applyFilters(data.tasks, pruneUnresolvable(filters, fields), fields) : [];
+  const now = todayISO();
+  // The chips decide whose and which; the scope decides open, overdue or done.
+  // Counts are taken after the chips, so each segment says what clicking it shows.
+  const filtered = data ? applyFilters(data.tasks, pruneUnresolvable(filters, fields), fields) : [];
+  const counts = scopeCounts(filtered, now);
+  const visible = filtered.filter((t) => inScope(t, scope, now));
   // The board's columns are the status field the filter bar already describes,
   // so the two never disagree about what the statuses are or what they are
   // called. Status is built-in, which is why a board over several projects can
   // be grouped by it at all — a custom property could not.
   const statusField = useMemo(() => fields.find((f) => f.key === 'status'), [fields]);
   const boardGroups = useMemo(() => (statusField ? groupsFor(statusField) : []), [statusField]);
-  const now = todayISO();
 
   return (
     <div className="flex h-full flex-col bg-canvas">
@@ -204,6 +222,20 @@ export function TasksView() {
             <IconButton icon={<RefreshCw size={16} />} label="Refresh" onClick={load} />
           </div>
         </div>
+        {/* Its own line: sharing the first one squeezed the filter chips until
+            they overlapped it. */}
+        <div className="mx-auto mt-2 w-full max-w-[1100px]">
+          <SegmentedControl
+            aria-label="Which tasks"
+            value={scope}
+            onChange={(v) => {
+              const next = v as TaskScope;
+              setScope(next);
+              try { localStorage.setItem(SCOPE_KEY, next); } catch { /* private mode */ }
+            }}
+            segments={TASK_SCOPES.map((s) => ({ value: s, label: data ? `${SCOPE_LABEL[s]} ${counts[s]}` : SCOPE_LABEL[s] }))}
+          />
+        </div>
       </header>
 
       <div className={cn('min-h-0 flex-1', shape === 'list' ? 'scrollarea overflow-y-auto px-4' : 'flex flex-col overflow-hidden p-3')}>
@@ -218,8 +250,17 @@ export function TasksView() {
         ) : visible.length === 0 ? (
           <EmptyState
             icon={CheckSquare}
-            title={data.tasks.length ? 'Nothing matches these filters' : 'No tasks yet'}
-            hint={data.tasks.length ? 'Drop a chip above to widen the list.' : 'Tasks from every project land here.'}
+            title={
+              !data.tasks.length ? 'No tasks yet'
+                : filtered.length && scope === 'overdue' ? 'Nothing overdue'
+                : filtered.length && scope === 'done' ? 'Nothing done yet'
+                : 'Nothing matches these filters'
+            }
+            hint={
+              !data.tasks.length ? 'Tasks from every project land here.'
+                : filtered.length && scope !== 'all' ? 'Switch to All to see every task these filters match.'
+                : 'Drop a chip above to widen the list.'
+            }
           />
         ) : shape === 'board' ? (
           <Board
@@ -241,7 +282,7 @@ export function TasksView() {
         ) : (
           <ul className="py-1.5">
             {visible.map((t) => {
-              const overdue = !!t.due_at && t.status !== 'done' && t.due_at.slice(0, 10) < now;
+              const overdue = inScope(t, 'overdue', now);
               return (
                 <li key={t.id}>
                   <button
@@ -258,7 +299,7 @@ export function TasksView() {
                     </span>
                     <TagChips names={t.tags ?? []} colorOf={tagColor} />
                     <span className="flex shrink-0 items-center gap-1 text-2xs text-muted">
-                      <span aria-hidden>{t.project_icon}</span>
+                      <ProjectIcon project={{ id: t.project_id, name: t.project_name, icon: t.project_icon }} size={14} />
                       <span className="max-w-[10rem] truncate">{t.project_name}</span>
                     </span>
                     <span className="w-[8.5rem] shrink-0 truncate text-2xs text-muted">

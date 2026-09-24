@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { CheckSquare } from 'lucide-react';
 import { STATUS_LABEL, tasksApi, type DocTask } from '../../lib/tasksApi';
 import { useWorkspace } from '../../store/workspace';
+import { ProjectIcon } from '../ui/ProjectIcon';
 
 /**
  * The way back from a page to the task it belongs to.
@@ -34,7 +35,7 @@ export function TaskLink({ docId }: { docId: string }) {
       title={`Open this ${isRow ? 'row' : 'task'} in ${task.project_name}`}
     >
       <CheckSquare size={12} className="shrink-0 text-faint" />
-      <span aria-hidden>{task.project_icon}</span>
+      <ProjectIcon project={{ id: task.project_id, name: task.project_name, icon: task.project_icon }} size={12} />
       <span className="truncate">{task.project_name}</span>
       {!isRow && (
         <>

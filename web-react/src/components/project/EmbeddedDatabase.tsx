@@ -34,6 +34,7 @@ import { TaskTable } from './TaskTable';
 import { useDatabaseView } from './useDatabaseView';
 import { useProject } from './useProject';
 import { useViews } from './useViews';
+import { ProjectIcon } from '../ui/ProjectIcon';
 
 const VIEW_ICON: Record<ViewKind, typeof Table2> = {
   backlog: ListTodo, board: KanbanSquare, table: Table2,
@@ -276,7 +277,7 @@ export function EmbeddedDatabase({
       <div className="rounded-md border border-line">
         {header ? (
           <header className="flex flex-wrap items-center gap-2 border-b border-line px-3 py-2">
-            <span>{project.icon}</span>
+            <ProjectIcon project={project} size={16} />
             {/* A floor, not just flex-1: at the page's reading measure the
                 controls are wider than the room left over, and without one
                 the name was squeezed to "We…" while they stayed whole. With
