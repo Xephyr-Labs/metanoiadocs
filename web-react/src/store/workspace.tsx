@@ -18,7 +18,7 @@ import { readRoute, showDatabase, showDoc, showFolder, showHome } from '../lib/r
 import { folderChain } from '../lib/folderPath';
 import { useDocSaveTick } from '../lib/docSignal';
 import { placeAt } from '../lib/reorder';
-import { nestByParent } from '../lib/pageTree';
+import { keepExpanded, nestByParent } from '../lib/pageTree';
 import { panelClosed, setPanelClosed } from '../lib/sidebarPrefs';
 import type { Template } from '../data/templates';
 import type { EditorMode, Folder, Page, PageId, Tag } from '../lib/types';
@@ -336,7 +336,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const applyRows = useCallback((rows: DocRow[], folderRows: FolderRow[]) => {
     const next = buildPages(rows);
     const nextFolders = buildFolders(folderRows, folderExpandedRef.current, next);
-    setPages(next);
+    setPages((prev) => keepExpanded(prev, next));
     setFolders(nextFolders);
     setCurrentId((cur) => {
       if (cur && next[cur]) return cur;

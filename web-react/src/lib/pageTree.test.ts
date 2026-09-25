@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { nestByParent } from './pageTree';
+import { keepExpanded, nestByParent } from './pageTree';
 
 const row = (id: string, parentId: string | null = null) => ({ id, parentId });
 
@@ -34,5 +34,16 @@ describe('nestByParent', () => {
     const t = nestByParent([row('a', 'a')]);
     expect(t.roots).toEqual(['a']);
     expect(t.childrenOf.get('a')).toBeUndefined();
+  });
+});
+
+describe('keepExpanded', () => {
+  // Every save and every drag refreshes the page list; without this the tree
+  // folded itself a couple of seconds after any nested page was opened.
+  it('keeps a page open across a refresh and forgets pages that are gone', () => {
+    type P = { id: string; expanded?: boolean };
+    const prev: Record<string, P> = { a: { id: 'a', expanded: true }, b: { id: 'b' }, gone: { id: 'gone', expanded: true } };
+    const next: Record<string, P> = { a: { id: 'a' }, b: { id: 'b' }, c: { id: 'c' } };
+    expect(keepExpanded(prev, next)).toEqual({ a: { id: 'a', expanded: true }, b: { id: 'b' }, c: { id: 'c' } });
   });
 });
