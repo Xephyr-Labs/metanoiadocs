@@ -44,3 +44,17 @@ export function nestByParent<T extends NestableRow>(rows: readonly T[]): {
   }
   return { roots, childrenOf };
 }
+
+/**
+ * The sidebar's open/closed state is the client's alone — no row carries it —
+ * so a refresh that rebuilds every page from its server row would close every
+ * nested page in the tree. Refreshes are frequent: one runs a couple of seconds
+ * after each save, and one after every drag. Carry the flag across.
+ */
+export function keepExpanded<T extends { expanded?: boolean }>(
+  prev: Record<string, T>,
+  next: Record<string, T>,
+): Record<string, T> {
+  for (const id in next) if (prev[id]?.expanded) next[id] = { ...next[id], expanded: true };
+  return next;
+}
