@@ -795,6 +795,16 @@ html.dark .mn-toc .outline-viewer-indicator {
   }
 }
 
+/* iOS zooms the whole page into any field under 16px when it takes focus, and
+ * the comment sheets then stay zoomed. Touch screens get 16px fields. */
+@media (hover: none) and (pointer: coarse) {
+  input:not([type='checkbox']):not([type='radio']):not([type='range']),
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}
+
 /* The editor bar folds by its own width, not the window's — with the side
  * panel open the column is narrow on a wide screen too. Three tiers: the mode
  * switch loses its words, the lists and link go into ⋯, then the marks do. */

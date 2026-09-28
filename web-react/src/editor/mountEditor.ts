@@ -240,6 +240,11 @@ export async function mountEditor(
     let done = false;
     const finish = (ok: boolean) => { if (!done) { done = true; resolve(ok); } };
     provider?.on('synced', () => finish(true));
+    // A copy cached on this device is enough to start editing; the server's
+    // updates merge in when they arrive (CRDT). Without this a phone on a slow
+    // link sat behind the skeleton for up to 20s before it could type. Still
+    // "not synced", so the no-root guard below never seeds over it.
+    idb?.whenSynced.then(() => { if (doc.spaceDoc.store.clients.size > 0) finish(false); });
     // Long enough for a big document over a slow link. It no longer authorises
     // a write, so waiting costs a spinner rather than the document.
     setTimeout(() => finish(false), 20000);
