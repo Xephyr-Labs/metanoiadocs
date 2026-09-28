@@ -45,7 +45,7 @@ import { registerMcpRoute } from './mcp-http.js';
 import { topTerms, extractSignals, findMentions, simhash, hamming, keyphrases, summarize, tokenize, coalesceByKey, blocksFromText } from './intelligence.js';
 import { docKind } from './props.js';
 import { registerTaskRoutes, kindsFor, isStatus } from './tasks.js';
-import { registerTaskCommentRoutes } from './task-comments.js';
+import { insertTaskComment, registerTaskCommentRoutes } from './task-comments.js';
 import { registerPropRoutes } from './props-routes.js';
 import { registerViewRoutes } from './views.js';
 import { registerDocPropRoutes } from './doc-props.js';
@@ -2405,6 +2405,20 @@ app.post('/api/docs/:id/comments', requireUser, async (req, res) => {
   if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
   const body = String(req.body?.body || '').trim().slice(0, 4000);
   if (!body) return res.status(400).json({ error: 'empty comment' });
+  // Replying to a task comment (e.g. an agent answering an @mention on a task,
+  // which it only knows by the task's page): keep the reply in the task thread.
+  if (req.body?.parentId) {
+    const { rows: [parent] } = await pool.query(
+      `SELECT t.id, t.title, t.doc_id, t.project_id, t.created_by
+         FROM comments c JOIN tasks t ON t.id = c.task_id
+        WHERE c.id = $1 AND t.doc_id = $2 AND t.deleted_at IS NULL`,
+      [req.body.parentId, req.params.id]
+    );
+    if (parent) {
+      const id = await insertTaskComment({ task: parent, body, user: req.user, parentId: req.body.parentId });
+      return res.json({ id });
+    }
+  }
   const id = crypto.randomUUID();
   await pool.query(
     `INSERT INTO comments (id, doc_id, block_id, quote, body, author_id, author_name, parent_id)
