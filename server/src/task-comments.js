@@ -123,6 +123,21 @@ async function notify({ commentId, task, body, actor }) {
   }
 }
 
+// Also used by the page-comment route: a reply whose parent is a task comment
+// belongs to the task's thread, or neither panel would ever show it.
+export async function insertTaskComment({ task, body, user, parentId }) {
+  const id = crypto.randomUUID();
+  await pool.query(
+    `INSERT INTO comments (id, task_id, body, author_id, author_name, parent_id)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    [id, task.id, body, user.id, user.name || user.email, parentId || null]
+  );
+  notify({ commentId: id, task, body, actor: user })
+    .catch((e) => console.error('[notify] task comment fanout failed:', e.message));
+  emit('comment.created', { id, task_id: task.id, body, author_id: user.id });
+  return id;
+}
+
 export function registerTaskCommentRoutes(app, { requireUser, wrap }) {
   app.get('/api/tasks/:id/comments', requireUser, wrap(async (req, res) => {
     const { rows } = await pool.query(
@@ -146,15 +161,7 @@ export function registerTaskCommentRoutes(app, { requireUser, wrap }) {
     );
     if (!task[0]) return res.status(404).json({ error: 'not found' });
 
-    const id = crypto.randomUUID();
-    await pool.query(
-      `INSERT INTO comments (id, task_id, body, author_id, author_name, parent_id)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [id, task[0].id, body, req.user.id, req.user.name || req.user.email, req.body?.parentId || null]
-    );
-    notify({ commentId: id, task: task[0], body, actor: req.user })
-      .catch((e) => console.error('[notify] task comment fanout failed:', e.message));
-    emit('comment.created', { id, task_id: task[0].id, body, author_id: req.user.id });
+    const id = await insertTaskComment({ task: task[0], body, user: req.user, parentId: req.body?.parentId });
     res.json({
       id,
       body,

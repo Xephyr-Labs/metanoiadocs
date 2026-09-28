@@ -92,8 +92,18 @@ export function TaskComments({
       .comments(taskId)
       .then((r) => alive && setRows(r))
       .catch(() => alive && setRows([]));
+    // Replies (an agent answering an @mention) arrive while the task is open;
+    // pick them up without a reopen. ponytail: polling, a push event if it ever matters.
+    const refresh = () => {
+      if (document.visibilityState !== 'visible') return;
+      tasksApi.comments(taskId).then((r) => alive && setRows(r)).catch(() => {});
+    };
+    const timer = window.setInterval(refresh, 20_000);
+    document.addEventListener('visibilitychange', refresh);
     return () => {
       alive = false;
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', refresh);
     };
   }, [taskId]);
 

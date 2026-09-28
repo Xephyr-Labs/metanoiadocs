@@ -495,6 +495,11 @@ export async function initSchema() {
         CHECK ((doc_id IS NULL) <> (task_id IS NULL));
     EXCEPTION WHEN duplicate_object THEN NULL; END $$;
     CREATE INDEX IF NOT EXISTS comments_task_idx ON comments(task_id, created_at);
+    -- Replies that were filed on a task's page under a task comment (before the
+    -- comment route learned to follow the parent) belong to the task thread.
+    UPDATE comments c SET task_id = p.task_id, doc_id = NULL, block_id = NULL
+      FROM comments p
+     WHERE c.parent_id = p.id AND p.task_id IS NOT NULL AND c.doc_id IS NOT NULL;
 
     -- Loves. A favourite is a private bookmark and a pin is the team's shelf;
     -- a love is public applause — everyone sees the count, one per person.
