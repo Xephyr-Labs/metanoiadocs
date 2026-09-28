@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Metanoia</title>
+<style>
+/* Hallmark · component: offline state (server unreachable at launch) · genre: modern-minimal · theme: project tokens
+ * states: default · focus · active · loading
+ */
+@font-face { font-family: 'Onest Variable'; src: url('fonts/onest-latin-wght-normal.woff2') format('woff2'); font-weight: 100 900; font-display: swap; }
+:root {
+  --canvas: #ffffff; --surface: #f7f7f5; --ink: #37352f; --muted: #6f6e6a; --line: #e9e9e7;
+  --accent: #2383e2; --accent-strong: #1a6fc4;
+  --font: 'Onest Variable', ui-sans-serif, system-ui, sans-serif;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --canvas: #191919; --surface: #232323; --ink: #e9e9e7; --muted: #a5a5a3; --line: #333331; --accent: #4a9eea; --accent-strong: #2276cf; color-scheme: dark; }
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; height: 100%; overflow-x: clip; }
+body { background: var(--canvas); color: var(--ink); font: 16px/1.5 var(--font); -webkit-font-smoothing: antialiased; }
+main {
+  min-height: 100%; max-width: 440px; margin: 0 auto;
+  display: flex; flex-direction: column; justify-content: center;
+  padding: calc(env(safe-area-inset-top) + 24px) 24px calc(env(safe-area-inset-bottom) + 24px);
+}
+.icon { width: 48px; height: 48px; border-radius: 14px; background: var(--surface); display: grid; place-items: center; color: var(--muted); }
+h1 { margin: 24px 0 8px; font-size: 24px; line-height: 1.2; font-weight: 700; letter-spacing: -0.02em; font-style: normal; overflow-wrap: anywhere; }
+p { margin: 0 0 32px; color: var(--muted); }
+button {
+  width: 100%; height: 52px; border-radius: 12px; font: inherit; font-weight: 600; font-size: 16px;
+  transition: transform 120ms var(--ease-out), opacity 120ms var(--ease-out);
+}
+button:active { transform: scale(0.98); }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+button:disabled { opacity: 0.6; }
+.primary { border: 0; background: var(--accent-strong); color: #fff; }
+.secondary { margin-top: 12px; border: 0; background: transparent; color: var(--accent-strong); }
+@media (prefers-reduced-motion: reduce) { * { transition-duration: 0ms !important; } }
+</style>
+</head>
+<body>
+<main>
+  <div class="icon" aria-hidden="true">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m2 2 20 20"/><path d="M5.782 5.782A7 7 0 0 0 9 19h8.5a4.5 4.5 0 0 0 1.307-.193"/><path d="M21.532 16.5A4.5 4.5 0 0 0 17.5 10h-1.79A7.008 7.008 0 0 0 10 5.07"/></svg>
+  </div>
+  <h1 id="title">Can't reach your server</h1>
+  <p id="lede">Check your connection. Anything you already opened on this phone is still here once it's back.</p>
+  <button class="primary" id="retry" type="button">Try again</button>
+  <button class="secondary" id="change" type="button">Use a different server</button>
+</main>
+<script>
+(() => {
+  const P = (window.Capacitor && window.Capacitor.Plugins) || {};
+  const retry = document.getElementById('retry');
+  P.Server?.get().then(({ url }) => {
+    if (url) document.getElementById('title').textContent = 'Can’t reach ' + url.replace(/^https:\/\//, '');
+  }).catch(() => {});
+  retry.addEventListener('click', () => {
+    retry.disabled = true;
+    retry.textContent = 'Trying…';
+    P.Server ? P.Server.reload() : location.reload();
+  });
+  document.getElementById('change').addEventListener('click', () => P.Server?.clear());
+})();
+</script>
+</body>
+</html>

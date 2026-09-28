@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { stopPush } from '../lib/nativeApp';
 
 export interface AuthUser {
   id: string;
@@ -156,6 +157,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const logout = useCallback(async () => {
+    // While the session still works: this phone stops getting the alerts.
+    await stopPush();
     await api('/auth/logout', {});
     // The service worker keeps the last answers to /api/me, /api/docs and the
     // rest so the app still renders on a train. On a shared machine that would

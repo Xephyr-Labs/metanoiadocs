@@ -1,5 +1,6 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
+import { isNativeApp, minimizeApp, onBackButton, startPush, syncStatusBar } from './lib/nativeApp';
 import { TabBar } from './components/mobile/TabBar';
 
 // Stable, so it runs when the drawer mounts, not on every App render (which
@@ -50,6 +51,33 @@ export default function App() {
   // lib/navSignal.
   const { openProject } = ws;
   useEffect(() => onOpenProjectRequest(openProject), [openProject]);
+
+  // The Android app (lib/nativeApp): push, the back button, the status bar.
+  // All no-ops in a browser.
+  const wsRef = useRef(ws);
+  wsRef.current = ws;
+  useEffect(() => {
+    if (!isNativeApp()) return;
+    // A notification's path goes through the same route handling as Back/Forward.
+    const open = (path: string) => {
+      history.pushState({}, '', path);
+      dispatchEvent(new PopStateEvent('popstate'));
+    };
+    const stops = [startPush(open), onBackButton((canGoBack) => {
+      const w = wsRef.current;
+      if (w.mobileDrawerOpen) return w.setMobileDrawer(false);
+      // Sheets and dialogs close on Escape, like on a keyboard.
+      if (document.querySelector('[role="dialog"]')) {
+        (document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        return;
+      }
+      if (w.rightPanel) return w.setRightPanel(null);
+      if (canGoBack) return history.back();
+      minimizeApp();
+    })];
+    return () => { stops.forEach((p) => p.then((stop) => stop())); };
+  }, []);
+  useEffect(() => syncStatusBar(ws.theme === 'dark'), [ws.theme]);
 
   const showInlineSidebar = !isMobile && !ws.sidebarCollapsed;
   // The column animates between three widths, not two: gone, the rail on its
