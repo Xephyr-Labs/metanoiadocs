@@ -1369,3 +1369,71 @@ affine-editor-container .doc-title-container {
   height: 100%;
   min-height: 0;
 }
+
+/* ── Phone shell ─────────────────────────────────────────────────────────────
+ * Below the drawer breakpoint the app is laid out like a native one: the top
+ * bar is the screen's title (the current place only, no path), clears the
+ * status bar when launched from the home screen, and its controls are thumb
+ * sized; the tab bar (components/mobile/TabBar) gets out of the way while the
+ * keyboard is up. */
+@media (max-width: 767px) {
+  header.mn-topbar {
+    height: calc(3rem + env(safe-area-inset-top));
+    padding-top: env(safe-area-inset-top);
+  }
+  header.mn-topbar .mn-crumbs {
+    font-size: 16px;
+    font-weight: 600;
+  }
+  header.mn-topbar .mn-crumbs > span:not(:last-child),
+  header.mn-topbar .mn-crumbs > span > span[aria-hidden] {
+    display: none;
+  }
+  header.mn-topbar .mn-crumbs button,
+  header.mn-topbar .mn-crumbs > span > span {
+    color: var(--ink);
+  }
+  header.mn-topbar button {
+    min-width: 40px;
+    min-height: 40px;
+  }
+  /* Columns page by swipe; the scrollbar under them is a desktop affordance. */
+  .mn-board {
+    scrollbar-width: none;
+  }
+  .mn-board::-webkit-scrollbar {
+    display: none;
+  }
+  /* The desktop search field is a bordered box; on a phone it is one icon among
+   * the others. */
+  header.mn-topbar button[aria-label='Search'] {
+    border-color: transparent;
+    background: transparent;
+    margin-right: 0;
+  }
+}
+html:has(:is(input:not([type='checkbox']):not([type='radio']), textarea, select, [contenteditable='true']):focus) .mn-tabbar {
+  display: none;
+}
+
+@media (hover: none) {
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+  /* A pressed control answers under the finger — there is no hover to say it
+   * is live. Opacity only, so nothing moves under the touch. */
+  button:active:not(:disabled),
+  [role='button']:active,
+  [role='treeitem']:active {
+    opacity: 0.6;
+  }
+}
+
+/* Installed to the home screen: no rubber-band of the whole shell, which pulls
+ * the tab bar and title off their edges. Lists still scroll and bounce. */
+@media (display-mode: standalone) {
+  html,
+  body {
+    overscroll-behavior: none;
+  }
+}

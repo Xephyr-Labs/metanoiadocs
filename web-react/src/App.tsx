@@ -1,5 +1,6 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { useEffect } from 'react';
+import { TabBar } from './components/mobile/TabBar';
 
 // Stable, so it runs when the drawer mounts, not on every App render (which
 // pulled focus, and the keyboard, out of fields inside the drawer).
@@ -85,6 +86,7 @@ export default function App() {
               : ws.view === 'folder' ? <FolderView />
               : <EditorArea />}
           </main>
+          {isMobile && <TabBar />}
         </div>
 
         {/* The panel's tabs are about the open document; only AI chat is not.
