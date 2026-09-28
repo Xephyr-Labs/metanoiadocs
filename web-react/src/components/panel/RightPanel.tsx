@@ -87,6 +87,7 @@ export function RightPanel() {
 }
 
 function PanelInner() {
+  const scrolledTab = useRef<string | null>(null);
   const ws = useWorkspace();
   const docId = ws.currentId;
   return (
@@ -98,7 +99,13 @@ function PanelInner() {
             <button
               type="button"
               // Keep the active tab visible — five tabs overflow the 320px strip.
-              ref={(el) => { if (ws.rightPanel === t.id) el?.scrollIntoView({ inline: 'nearest', block: 'nearest' }); }}
+              // Only when the active tab changes: on every render it scrolled the
+              // sheet and pushed a focused comment box out from above the keyboard.
+              ref={(el) => {
+                if (ws.rightPanel !== t.id || !el || scrolledTab.current === t.id) return;
+                scrolledTab.current = t.id;
+                el.scrollIntoView({ inline: 'nearest', block: 'nearest' });
+              }}
               onClick={() => ws.setRightPanel(t.id)}
               aria-label={t.label}
               className={cn('flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-sm font-medium transition-colors duration-120', ws.rightPanel === t.id ? 'bg-hover text-ink' : 'text-muted hover:bg-hover')}

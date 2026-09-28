@@ -13,6 +13,7 @@ import { Menu } from '../ui/Menu';
 import { RowInput } from '../ui/RowInput';
 import { requestTitleFocus } from '../../lib/titleFocus';
 import { useDocMenu } from '../../hooks/useDocMenu';
+import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { rowAction } from '../ui/styles';
 import { ShowMoreRow, useShowMore } from './showMore';
 
@@ -33,7 +34,9 @@ const ColorDot = (color: string) =>
 function DocumentRow({ id, depth }: { id: PageId; depth: number }) {
   const ws = useWorkspace();
   const page = ws.pages[id];
-  const [hover, setHover] = useState(false);
+  const [hovered, setHover] = useState(false);
+  // No pointer to hover with on a phone: chevrons and row actions stay shown.
+  const hover = useMediaQuery('(hover: none)') || hovered;
   const drop = useRowDrop({
     accept: { [DOC_MIME]: 'thirds' },
     onDrop: (_mime, draggedId, zone) => {
@@ -133,7 +136,9 @@ function DocumentRow({ id, depth }: { id: PageId; depth: number }) {
 function FolderRow({ id, depth }: { id: string; depth: number }) {
   const ws = useWorkspace();
   const folder = ws.folders[id];
-  const [hover, setHover] = useState(false);
+  const [hovered, setHover] = useState(false);
+  // No pointer to hover with on a phone: chevrons and row actions stay shown.
+  const hover = useMediaQuery('(hover: none)') || hovered;
   const [renaming, setRenaming] = useState(false);
   // A page dropped anywhere on a folder goes into it; a folder splits into
   // thirds so it can be both a neighbour to reorder against and a container.

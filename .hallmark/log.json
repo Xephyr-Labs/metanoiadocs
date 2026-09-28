@@ -1,5 +1,19 @@
 [
   {
+    "date": "2026-09-28",
+    "macrostructure": "Workbench (app chrome — phone editing), unchanged",
+    "theme": "project tokens (preserved) · editing review under real touch: BlockSuite's keyboard toolbar (insert, text styles, marks, lists, undo) turned on for phones and lifted above the iOS keyboard; Android resizes the page for the keyboard; room under the last line; the slash menu clamps inside the screen",
+    "enrichment": "none — typography only",
+    "brief": "metanoiadocs · on a phone there was no way to format text (the editor bar is hidden and its replacement was switched off), and the slash menu opened off the right edge"
+  },
+  {
+    "date": "2026-09-28",
+    "macrostructure": "Workbench (app chrome — phone shell: title bar + bottom tab bar)",
+    "theme": "project tokens (preserved) · below 768px the app reads as native: a five-tab bar (Home, Docs, Tasks, Inbox with badge, Menu) at the thumb edge, hidden while typing; the top bar becomes the screen title with Back (up one level) and 40px controls, clearing the notch; every dialog is a bottom sheet with a drag handle; board columns page by swipe; pressed controls dim under the finger",
+    "enrichment": "none — typography only",
+    "brief": "metanoiadocs · on a phone every destination sat behind a drawer in the top-left corner, dialogs floated as desktop cards, and the breadcrumb path squeezed the page title"
+  },
+  {
     "date": "2026-09-22",
     "macrostructure": "Workbench (app chrome — editor bar, top bar, chip toolbar), unchanged",
     "theme": "project tokens (preserved) · audit pass: the editor bar folds by its own width (container query, three tiers, a ⋯ menu) instead of clipping; the top bar sheds Edited/Team/Share before it crushes the breadcrumb; hover-only reveals are visible on touch; reference chips open in a new tab from their toolbar, middle- or ⌘-click; a database opens on its board",

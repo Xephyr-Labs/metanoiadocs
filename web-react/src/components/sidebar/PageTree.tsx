@@ -3,6 +3,7 @@ import { ChevronRight, MoreHorizontal, Plus } from 'lucide-react';
 import { useState } from 'react';
 import { cn } from '../../lib/cn';
 import { useDocMenu } from '../../hooks/useDocMenu';
+import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { requestTitleFocus } from '../../lib/titleFocus';
 import type { PageId } from '../../lib/types';
 import { useWorkspace } from '../../store/workspace';
@@ -15,7 +16,9 @@ import { ShowMoreRow, useShowMore } from './showMore';
 function Row({ id, depth }: { id: PageId; depth: number }) {
   const ws = useWorkspace();
   const page = ws.pages[id];
-  const [hover, setHover] = useState(false);
+  const [hovered, setHover] = useState(false);
+  // No pointer to hover with on a phone: chevrons and row actions stay shown.
+  const hover = useMediaQuery('(hover: none)') || hovered;
   const menu = useDocMenu(id);
   // Same gesture as the folder tree: the outer quarters place this page above or
   // below its neighbour, the middle nests it under them.

@@ -46,6 +46,9 @@ export function createVirtualKeyboardProvider(
     const height = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
     visible$.value = height > 0;
     height$.value = height;
+    // For CSS: iOS never shrinks the layout for the keyboard, so anything
+    // pinned to the bottom (the keyboard toolbar) has to be lifted by hand.
+    document.documentElement.style.setProperty('--kb', `${Math.round(height)}px`);
   };
 
   viewport?.addEventListener('resize', update);

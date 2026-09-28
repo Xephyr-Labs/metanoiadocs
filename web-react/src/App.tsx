@@ -1,5 +1,10 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { useEffect } from 'react';
+import { TabBar } from './components/mobile/TabBar';
+
+// Stable, so it runs when the drawer mounts, not on every App render (which
+// pulled focus, and the keyboard, out of fields inside the drawer).
+const focusOnMount = (el: HTMLElement | null) => el?.focus({ preventScroll: true });
 import { CommandPalette } from './components/palette/CommandPalette';
 import { AllDocsView } from './components/docs/AllDocsView';
 import { EditorArea } from './components/editor/EditorArea';
@@ -54,7 +59,7 @@ export default function App() {
 
   return (
     <TooltipProvider delayDuration={700} skipDelayDuration={300}>
-      <div className="flex h-screen w-full overflow-hidden bg-canvas text-ink">
+      <div className="flex h-dvh w-full overflow-hidden bg-canvas text-ink">
         {/* inline sidebar (desktop) */}
         <AnimatePresence initial={false}>
           {showInlineSidebar && (
@@ -81,6 +86,7 @@ export default function App() {
               : ws.view === 'folder' ? <FolderView />
               : <EditorArea />}
           </main>
+          {isMobile && <TabBar />}
         </div>
 
         {/* The panel's tabs are about the open document; only AI chat is not.
@@ -108,7 +114,7 @@ export default function App() {
                 aria-modal="true"
                 aria-label="Navigation"
                 tabIndex={-1}
-                ref={(el) => el?.focus({ preventScroll: true })}
+                ref={focusOnMount}
                 onKeyDown={(e) => { if (e.key === 'Escape') ws.setMobileDrawer(false); }}
                 // 300, not 280: the drawer holds the same rail as the inline sidebar, and a
                 // 72px rail inside 280 left the tree 208px to draw folder names in.

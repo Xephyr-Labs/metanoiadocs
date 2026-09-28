@@ -1,6 +1,7 @@
 import {
   ALargeSmall,
   ArrowUpRight,
+  ChevronLeft,
   BookOpen,
   ChevronDown,
   Cloud,
@@ -176,8 +177,25 @@ export function TopBar() {
   // at y=7.5 and every icon in it on a half pixel. The shadow draws the same
   // line without touching the box.
   return (
-    <header className="sticky top-0 z-30 flex h-11 shrink-0 items-center gap-1 bg-canvas px-2.5 shadow-[inset_0_-1px_0_var(--line)]">
-      {(isMobile || ws.sidebarCollapsed) && (
+    <header className="mn-topbar sticky top-0 z-30 flex h-11 shrink-0 items-center gap-1 bg-canvas px-2.5 shadow-[inset_0_-1px_0_var(--line)]">
+      {/* On a phone the tab bar is the way around, so the corner holds Back:
+          up one level — a sub-page to its parent, a page or folder to Docs, a
+          board to Tasks. Up rather than history.back(), which on a page opened
+          from a link would leave the app. */}
+      {isMobile && ws.view !== 'home' && ws.view !== 'docs' && ws.view !== 'tasks' && (
+        <IconButton
+          icon={<ChevronLeft size={22} />}
+          label="Back"
+          className="h-10 w-10"
+          onClick={() => {
+            const parent = page ? ancestry(ws.pages, page.id).at(-2) : undefined;
+            if (parent) ws.select(parent.id);
+            else if (ws.view === 'project') ws.openTasks();
+            else ws.openAllDocs();
+          }}
+        />
+      )}
+      {!isMobile && ws.sidebarCollapsed && (
         <IconButton
           icon={<PanelLeft size={16} />}
           label="Open sidebar"
@@ -185,8 +203,7 @@ export function TopBar() {
           onClick={() => {
             // On mobile the sidebar is a drawer (mobileDrawerOpen); toggling
             // sidebarCollapsed there would strand the button after a page open.
-            if (isMobile) ws.setMobileDrawer(true);
-            else ws.setSidebarCollapsed(false);
+            ws.setSidebarCollapsed(false);
           }}
         />
       )}
@@ -267,7 +284,7 @@ export function TopBar() {
       {/* Non-doc views keep a small global cluster: Ask AI + theme. Without it
           the top-right is empty on Home (the sign-in landing view). */}
       {!page && (
-        <div className="flex shrink-0 items-center gap-0.5 border-l border-line pl-1.5">
+        <div className="flex shrink-0 items-center gap-0.5 sm:border-l sm:border-line sm:pl-1.5">
           <IconButton
             icon={<Sparkles size={16} />}
             label="Ask AI"
@@ -275,6 +292,7 @@ export function TopBar() {
             onClick={() => ws.setRightPanel(ws.rightPanel === 'ai' ? null : 'ai')}
           />
           <IconButton
+            className="hidden sm:inline-flex"
             icon={ws.theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
             label={ws.theme === 'dark' ? 'Light mode' : 'Dark mode'}
             keys={['⌘', 'J']}
@@ -284,7 +302,7 @@ export function TopBar() {
       )}
 
       {page && (
-        <div className="flex shrink-0 items-center gap-0.5 border-l border-line pl-1.5">
+        <div className="flex shrink-0 items-center gap-0.5 sm:border-l sm:border-line sm:pl-1.5">
           {/* lg, not md: between 768 and 1024 with the side panel open, this
               cluster was squeezing the breadcrumb to its first letter. The
               save time is the least important thing on the bar. */}
@@ -304,7 +322,7 @@ export function TopBar() {
                 <button className="flex h-7 items-center gap-1.5 rounded-md px-2 text-sm font-medium text-muted transition-colors hover:bg-hover">
                   {page.visibility === 'private' ? <Lock size={14} /> : <Globe size={14} />}
                   <span className="hidden lg:inline">{page.visibility === 'private' ? 'Private' : 'Team'}</span>
-                  <ChevronDown size={14} className="text-faint" />
+                  <ChevronDown size={14} className="hidden text-faint sm:block" />
                 </button>
               }
             />
@@ -317,7 +335,9 @@ export function TopBar() {
           <Button variant="ghost" size="sm" onClick={() => ws.setShareOpen(true)} className="hidden lg:inline-flex">
             Share
           </Button>
+          {/* On a phone the title needs the room; the ⋯ menu carries this. */}
           <IconButton
+            className="hidden sm:inline-flex"
             icon={<Sparkles size={16} />}
             label="Chat with this page"
             active={ws.rightPanel === 'ai'}

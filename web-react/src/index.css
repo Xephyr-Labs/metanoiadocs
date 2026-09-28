@@ -795,6 +795,16 @@ html.dark .mn-toc .outline-viewer-indicator {
   }
 }
 
+/* iOS zooms the whole page into any field under 16px when it takes focus, and
+ * the comment sheets then stay zoomed. Touch screens get 16px fields. */
+@media (hover: none) and (pointer: coarse) {
+  input:not([type='checkbox']):not([type='radio']):not([type='range']),
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}
+
 /* The editor bar folds by its own width, not the window's — with the side
  * panel open the column is narrow on a wide screen too. Three tiers: the mode
  * switch loses its words, the lists and link go into ⋯, then the marks do. */
@@ -1358,4 +1368,95 @@ affine-editor-container .doc-title-container {
 .bs-fill affine-editor-container .affine-edgeless-viewport {
   height: 100%;
   min-height: 0;
+}
+
+/* ── Phone shell ─────────────────────────────────────────────────────────────
+ * Below the drawer breakpoint the app is laid out like a native one: the top
+ * bar is the screen's title (the current place only, no path), clears the
+ * status bar when launched from the home screen, and its controls are thumb
+ * sized; the tab bar (components/mobile/TabBar) gets out of the way while the
+ * keyboard is up. */
+@media (max-width: 767px) {
+  header.mn-topbar {
+    height: calc(3rem + env(safe-area-inset-top));
+    padding-top: env(safe-area-inset-top);
+  }
+  header.mn-topbar .mn-crumbs {
+    font-size: 16px;
+    font-weight: 600;
+  }
+  header.mn-topbar .mn-crumbs > span:not(:last-child),
+  header.mn-topbar .mn-crumbs > span > span[aria-hidden] {
+    display: none;
+  }
+  header.mn-topbar .mn-crumbs button,
+  header.mn-topbar .mn-crumbs > span > span {
+    color: var(--ink);
+  }
+  header.mn-topbar button {
+    min-width: 40px;
+    min-height: 40px;
+  }
+  /* Columns page by swipe; the scrollbar under them is a desktop affordance. */
+  .mn-board {
+    scrollbar-width: none;
+  }
+  .mn-board::-webkit-scrollbar {
+    display: none;
+  }
+  /* The desktop search field is a bordered box; on a phone it is one icon among
+   * the others. */
+  header.mn-topbar button[aria-label='Search'] {
+    border-color: transparent;
+    background: transparent;
+    margin-right: 0;
+  }
+}
+/* BlockSuite's phone toolbar (enabled in mountEditor) pins itself to bottom: 0
+ * of the layout viewport. Android is told to shrink that viewport for the
+ * keyboard (interactive-widget in index.html); iOS won't, so it is lifted by
+ * the keyboard's height (--kb, from editor/virtualKeyboard). The page gets the
+ * same room below its last line, so the end of a document can be scrolled up
+ * above the toolbar instead of typed into blind. */
+affine-keyboard-toolbar {
+  bottom: var(--kb, 0px) !important;
+}
+/* The slash menu keeps itself on screen by measuring its host element, which
+ * is inline and zero-wide while the 280px menu lives in its shadow root — so
+ * the clamp never fires, and a "/" typed past mid-line on a phone opened the
+ * menu half off the right edge. Give the host the menu's width to measure. */
+affine-slash-menu {
+  display: block;
+  width: 280px;
+  height: 0;
+}
+@media (max-width: 767px) {
+  affine-editor-container .affine-page-viewport {
+    padding-bottom: calc(96px + var(--kb, 0px));
+  }
+}
+html:has(:is(input:not([type='checkbox']):not([type='radio']), textarea, select, [contenteditable='true']):focus) .mn-tabbar {
+  display: none;
+}
+
+@media (hover: none) {
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+  /* A pressed control answers under the finger — there is no hover to say it
+   * is live. Opacity only, so nothing moves under the touch. */
+  button:active:not(:disabled),
+  [role='button']:active,
+  [role='treeitem']:active {
+    opacity: 0.6;
+  }
+}
+
+/* Installed to the home screen: no rubber-band of the whole shell, which pulls
+ * the tab bar and title off their edges. Lists still scroll and bounce. */
+@media (display-mode: standalone) {
+  html,
+  body {
+    overscroll-behavior: none;
+  }
 }

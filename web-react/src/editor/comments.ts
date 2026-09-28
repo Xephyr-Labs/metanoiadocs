@@ -297,12 +297,15 @@ export function attachComments(
     }
   };
 
-  // mousedown (not click): fires before the selection collapses.
-  btn.addEventListener('mousedown', (e) => { e.preventDefault(); pick(); });
+  // pointerdown (not click): fires before the selection collapses, and on touch.
+  btn.addEventListener('pointerdown', (e) => { e.preventDefault(); pick(); });
 
   // Click on a marked range -> open its comment.
   const onClick = (e: MouseEvent) => {
-    if (!applied.length) return;
+    // On touch a tap is how you place the cursor; opening the full-screen
+    // comments sheet instead made commented text impossible to edit. Phones
+    // reach threads through the margin dots and the top-bar button.
+    if (!applied.length || window.matchMedia('(hover: none)').matches) return;
     const d = document as Document & {
       caretRangeFromPoint?: (x: number, y: number) => Range | null;
       caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
@@ -328,9 +331,14 @@ export function attachComments(
   };
   root.addEventListener('click', onClick);
 
-  const onUp = () => setTimeout(onSelect, 10);
+  // A long-press selection on a phone fires neither mouseup nor keyup;
+  // selectionchange covers it (debounced, it fires per handle drag).
+  let selTimer: ReturnType<typeof setTimeout> | undefined;
+  const onUp = () => { clearTimeout(selTimer); selTimer = setTimeout(onSelect, 10); };
+  const onSelChange = () => { clearTimeout(selTimer); selTimer = setTimeout(onSelect, 250); };
   document.addEventListener('mouseup', onUp);
   document.addEventListener('keyup', onUp);
+  document.addEventListener('selectionchange', onSelChange);
   const onScroll = () => hide();
   document.addEventListener('scroll', onScroll, true);
 
@@ -340,6 +348,8 @@ export function attachComments(
   return () => {
     document.removeEventListener('mouseup', onUp);
     document.removeEventListener('keyup', onUp);
+    document.removeEventListener('selectionchange', onSelChange);
+    clearTimeout(selTimer);
     document.removeEventListener('scroll', onScroll, true);
     root.removeEventListener('click', onClick);
     timers.forEach(clearTimeout);

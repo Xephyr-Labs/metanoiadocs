@@ -1,7 +1,8 @@
 import * as Dialog from '@radix-ui/react-dialog';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, motion, useDragControls } from 'framer-motion';
 import { X } from 'lucide-react';
 import type { KeyboardEventHandler, ReactNode } from 'react';
+import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { cn } from '../../lib/cn';
 import { IconButton } from './IconButton';
 
@@ -14,6 +15,8 @@ const panelMotion = (placement: 'center' | 'top') => {
   const hidden = { opacity: 0, scale: 0.98, y: placement === 'top' ? -8 : 8 };
   return { initial: hidden, animate: { opacity: 1, scale: 1, y: 0 }, exit: hidden };
 };
+/** Phone sheets come up from the bottom edge and go back down it. */
+const SHEET_MOTION = { initial: { y: '100%' }, animate: { y: 0 }, exit: { y: '100%' } };
 
 interface Props {
   open: boolean;
@@ -51,6 +54,11 @@ export function Modal({
   children,
   focusPanel,
 }: Props) {
+  // On a phone every dialog is a sheet: a centered card with 4% gutters reads
+  // as a web page's popup, a sheet from the bottom edge reads as the app.
+  const phone = useMediaQuery('(max-width: 767px)');
+  const asSheet = sheet || phone;
+  const drag = useDragControls();
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <AnimatePresence>
@@ -78,22 +86,42 @@ export function Modal({
                 className={cn(
                   'fixed inset-0 z-50 flex justify-center',
                   // Padding first — tailwind-merge lets the later pt-[12vh] win.
-                  sheet ? 'items-end p-0 sm:items-center sm:p-4' : 'items-center p-4',
-                  placement === 'top' && 'items-start pt-[12vh]',
+                  asSheet ? 'items-end p-0 sm:items-center sm:p-4' : 'items-center p-4',
+                  placement === 'top' && !phone && 'items-start pt-[12vh]',
                 )}
               >
                 <motion.div
-                  {...panelMotion(placement)}
-                  transition={{ duration: 0.16, ease: EASE }}
+                  {...(phone ? SHEET_MOTION : panelMotion(placement))}
+                  transition={{ duration: phone ? 0.24 : 0.16, ease: EASE }}
+                  // Pulled down by its handle only: dragging the whole panel
+                  // would swallow the scroll of the list inside it.
+                  drag={phone ? 'y' : false}
+                  dragControls={drag}
+                  dragListener={false}
+                  dragConstraints={{ top: 0, bottom: 0 }}
+                  dragElastic={{ top: 0, bottom: 0.6 }}
+                  onDragEnd={(_, info) => { if (info.offset.y > 80 || info.velocity.y > 500) onOpenChange(false); }}
                   data-modal-panel
                   tabIndex={focusPanel ? -1 : undefined}
-                  style={{ maxWidth: `min(92vw, ${width}px)` }}
+                  style={{ maxWidth: phone ? undefined : `min(92vw, ${width}px)` }}
                   className={cn(
                     'pointer-events-auto flex w-full flex-col overflow-hidden border border-line bg-canvas shadow-modal outline-none',
-                    sheet ? 'max-h-[88dvh] rounded-t-2xl sm:rounded-xl' : 'rounded-xl',
+                    asSheet ? 'max-h-[88dvh] rounded-t-2xl pb-[env(safe-area-inset-bottom)] sm:rounded-xl sm:pb-0' : 'rounded-xl',
                     className,
+                    // After the call site's classes: a desktop width or height
+                    // must not turn the phone sheet back into a floating card.
+                    phone && 'w-full max-w-none rounded-b-none border-x-0 border-b-0',
                   )}
                 >
+                  {phone && (
+                    <div
+                      onPointerDown={(e) => drag.start(e)}
+                      className="flex h-6 shrink-0 cursor-grab touch-none items-center justify-center"
+                      aria-hidden
+                    >
+                      <span className="h-1 w-9 rounded-full bg-line-strong" />
+                    </div>
+                  )}
                   {bare ? (
                     <Dialog.Title className="sr-only">{title}</Dialog.Title>
                   ) : (

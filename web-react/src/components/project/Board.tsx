@@ -55,8 +55,10 @@ export function Board({ tasks, groups, groupOf, cardProps, users, onMove, onOpen
   // an edge each row carries, and asking it per card walks the list per card.
   const links = useMemo(() => buildLinkIndex(tasks), [tasks]);
 
+  // On a phone a column is most of the screen and swipes snap to the next
+  // one, like pages — a 280px column left a sliver of the next as the only hint.
   return (
-    <div className="scrollarea flex h-full gap-3 overflow-x-auto p-4">
+    <div className="mn-board scrollarea flex h-full snap-x snap-mandatory scroll-px-4 gap-3 overflow-x-auto p-4 md:snap-none">
       {groups.map((group) => {
         // Only the ungrouped board keeps the manual order a drag writes; any
         // other grouping has no position of its own, so the list arrives
@@ -76,7 +78,7 @@ export function Board({ tasks, groups, groupOf, cardProps, users, onMove, onOpen
               onMove(id, group.value, (last ? last.position : 0) + 1);
             }}
             className={cn(
-              'flex w-[280px] shrink-0 flex-col rounded-lg bg-surface p-2 transition-colors duration-120',
+              'flex w-[280px] shrink-0 snap-start flex-col rounded-lg bg-surface p-2 transition-colors duration-120 max-md:w-[84vw]',
               over === group.value && 'ring-2 ring-inset ring-accent',
             )}
           >

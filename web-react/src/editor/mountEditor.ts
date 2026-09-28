@@ -17,6 +17,7 @@ import {
   VirtualKeyboardProvider,
 } from '@blocksuite/affine/shared/services';
 import { ColorScheme } from '@blocksuite/affine/model';
+import { IS_MOBILE } from '@blocksuite/affine/global/env';
 import { HocuspocusProvider } from '@hocuspocus/provider';
 import { applyUpdate } from 'yjs';
 import { IndexeddbPersistence } from 'y-indexeddb';
@@ -240,6 +241,11 @@ export async function mountEditor(
     let done = false;
     const finish = (ok: boolean) => { if (!done) { done = true; resolve(ok); } };
     provider?.on('synced', () => finish(true));
+    // A copy cached on this device is enough to start editing; the server's
+    // updates merge in when they arrive (CRDT). Without this a phone on a slow
+    // link sat behind the skeleton for up to 20s before it could type. Still
+    // "not synced", so the no-root guard below never seeds over it.
+    idb?.whenSynced.then(() => { if (doc.spaceDoc.store.clients.size > 0) finish(false); });
     // Long enough for a big document over a slow link. It no longer authorises
     // a write, so waiting costs a spinner rather than the document.
     setTimeout(() => finish(false), 20000);
@@ -342,6 +348,10 @@ export async function mountEditor(
   // Callout ships switched off upstream. It is the block our Confluence-style
   // panels are built on, and its slash item is how a plain neutral one is made.
   store.get(FeatureFlagService).setFlag('enable_callout', true);
+  // On a phone the desktop editor bar is hidden (it would eat a tenth of the
+  // screen), so formatting lives in BlockSuite's own bar docked above the
+  // keyboard — bold, headings, lists, undo — which ships switched off.
+  if (IS_MOBILE) store.get(FeatureFlagService).setFlag('enable_mobile_keyboard_toolbar', true);
 
   // Follow the app's dark/light toggle (a `dark` class on <html>) so BlockSuite's
   // own themed surfaces — floating toolbars, slash/@ menus, popovers — switch too.
