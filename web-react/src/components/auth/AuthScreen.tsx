@@ -1,4 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion';
+import { changeServer, isNativeApp, serverHost } from '../../lib/nativeApp';
 import { AlertCircle, ArrowLeft, AtSign, Eye, EyeOff, Loader2, Lock, Mail, MailCheck, User } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { cn } from '../../lib/cn';
@@ -253,6 +254,17 @@ export function AuthScreen() {
               className="font-medium text-accent-strong hover:underline"
             >
               {mode === 'login' ? 'Accept invite' : 'Sign in'}
+            </button>
+          </p>
+        )}
+
+        {/* In the Android app the server was picked on first launch; this is
+            the way back to that screen, and says which one this is. */}
+        {isNativeApp() && (
+          <p className="mt-6 text-center text-sm text-muted">
+            Server: <span className="font-medium text-ink">{serverHost()}</span>{' · '}
+            <button type="button" onClick={changeServer} className="font-medium text-accent-strong hover:underline">
+              Change
             </button>
           </p>
         )}

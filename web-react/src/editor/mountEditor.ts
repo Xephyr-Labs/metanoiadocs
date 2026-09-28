@@ -17,7 +17,7 @@ import {
   VirtualKeyboardProvider,
 } from '@blocksuite/affine/shared/services';
 import { ColorScheme } from '@blocksuite/affine/model';
-import { IS_MOBILE } from '@blocksuite/affine/global/env';
+import { IS_ANDROID, IS_MOBILE } from '@blocksuite/affine/global/env';
 import { HocuspocusProvider } from '@hocuspocus/provider';
 import { applyUpdate } from 'yjs';
 import { IndexeddbPersistence } from 'y-indexeddb';
@@ -50,6 +50,8 @@ import {
   MetanoiaColumnBlockSchema, MetanoiaColumnBlockSchemaExtension,
 } from './columns';
 import { createVirtualKeyboardProvider } from './virtualKeyboard';
+import { keepCaretVisible } from './keepCaretVisible';
+import { fixAndroidRecompose } from './androidRecompose';
 
 let effectsInstalled = false;
 function installEffects() {
@@ -537,6 +539,10 @@ export async function mountEditor(
     doc.spaceDoc.on('update', push);
     push();
   }
+  // Phones: the line being typed stays above the keyboard's formatting bar.
+  const detachCaret = IS_MOBILE && !share && !snapshot ? keepCaretVisible(editor as unknown as HTMLElement) : () => {};
+  // Android keyboards recompose the word under the caret; see androidRecompose.
+  const detachRecompose = IS_ANDROID && !share && !snapshot ? fixAndroidRecompose(editor as unknown as HTMLElement) : () => {};
 
   return {
     editor,
@@ -559,6 +565,8 @@ export async function mountEditor(
       try { detachMarkdownPaste?.(); } catch { /* noop */ }
       try { themeObserver.disconnect(); } catch { /* noop */ }
       try { virtualKeyboard.dispose(); } catch { /* noop */ }
+      try { detachCaret(); } catch { /* noop */ }
+      try { detachRecompose(); } catch { /* noop */ }
       try { doc.spaceDoc.off('update', push); } catch { /* noop */ }
       try { provider?.destroy(); } catch { /* noop */ }
       try { idb?.destroy(); } catch { /* noop */ }

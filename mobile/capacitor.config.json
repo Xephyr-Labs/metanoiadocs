@@ -1,0 +1,26 @@
+{
+  "appId": "com.xephyrlabs.metanoia",
+  "appName": "Metanoia",
+  "webDir": "www",
+  "android": {
+    "appendUserAgent": "MetanoiaApp",
+    "backgroundColor": "#ffffff"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 400,
+      "launchAutoHide": true,
+      "launchFadeOutDuration": 200,
+      "backgroundColor": "#ffffff",
+      "showSpinner": false
+    },
+    "StatusBar": {
+      "overlaysWebView": false,
+      "style": "LIGHT",
+      "backgroundColor": "#ffffff"
+    },
+    "PushNotifications": {
+      "presentationOptions": []
+    }
+  }
+}

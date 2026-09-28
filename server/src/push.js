@@ -7,6 +7,7 @@
 import webpush from 'web-push';
 import { pool, getSetting } from './db.js';
 import { hostOf, isGone, linkFor } from './push-rules.js';
+import { isFcmToken, sendFcm } from './fcm.js';
 
 /** Where the VAPID pair lives when it was not handed in by the environment. */
 const VAPID_SETTING = 'vapid';
@@ -65,12 +66,26 @@ function configure() {
 }
 
 /**
- * Push one notification to every device a person has switched alerts on in.
+ * Push one notification to every device a person has switched alerts on in:
+ * browsers through Web Push, the Android app through FCM.
  *
  * Best-effort in the same way the email is: a comment must still save when a
  * push service is down, so every caller fires this without awaiting it.
  */
-export async function sendPush(userId, { title, body, tag, docId, projectId }) {
+export async function sendPush(userId, message) {
+  const [web, app] = await Promise.all([
+    sendWebPush(userId, message),
+    sendFcm(userId, {
+      title: message.title,
+      body: String(message.body || '').slice(0, 400),
+      tag: message.tag,
+      url: linkFor({ docId: message.docId, projectId: message.projectId }),
+    }).catch((err) => { console.error('[fcm]', err.message); return 0; }),
+  ]);
+  return web + app;
+}
+
+async function sendWebPush(userId, { title, body, tag, docId, projectId }) {
   let key;
   try {
     key = await configure();
@@ -149,6 +164,28 @@ export function registerPushRoutes(app, { requireUser, wrap }) {
         'DELETE FROM push_subscriptions WHERE endpoint = $1 AND user_id = $2',
         [endpoint, req.user.id]
       );
+    }
+    res.json({ ok: true });
+  }));
+
+  // The Android app, after sign-in: this install's FCM token belongs to the
+  // caller now. Removed again on sign-out, so a shared phone stops getting the
+  // previous person's mentions.
+  app.post('/api/push/fcm', requireUser, wrap(async (req, res) => {
+    const token = req.body?.token;
+    if (!isFcmToken(token)) return res.status(400).json({ error: 'not an FCM token' });
+    await pool.query(
+      `INSERT INTO fcm_tokens (token, user_id) VALUES ($1, $2)
+       ON CONFLICT (token) DO UPDATE SET user_id = EXCLUDED.user_id`,
+      [token, req.user.id]
+    );
+    res.json({ ok: true });
+  }));
+
+  app.delete('/api/push/fcm', requireUser, wrap(async (req, res) => {
+    const token = req.body?.token;
+    if (isFcmToken(token)) {
+      await pool.query('DELETE FROM fcm_tokens WHERE token = $1 AND user_id = $2', [token, req.user.id]);
     }
     res.json({ ok: true });
   }));

@@ -140,7 +140,9 @@ app.get('/api/openapi.yaml', (_req, res) => {
 app.get('/health', async (_req, res) => {
   try {
     await pool.query('SELECT 1');
-    res.json({ ok: true });
+    // `app` lets the Android app tell a MetanoiaDocs server from any other
+    // address that answers /health before it signs in to it.
+    res.json({ ok: true, app: 'metanoiadocs' });
   } catch {
     res.status(503).json({ ok: false });
   }

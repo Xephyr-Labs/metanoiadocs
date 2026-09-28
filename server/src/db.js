@@ -324,6 +324,16 @@ export async function initSchema() {
     CREATE INDEX IF NOT EXISTS push_subscriptions_user_idx
       ON push_subscriptions(user_id);
 
+    -- The Android app's devices: an FCM token per signed-in install (see
+    -- fcm.js). Same shape of problem as an endpoint — the token is the
+    -- identity, and a phone that changes hands moves with the upsert.
+    CREATE TABLE IF NOT EXISTS fcm_tokens (
+      token      TEXT PRIMARY KEY,
+      user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS fcm_tokens_user_idx ON fcm_tokens(user_id);
+
     -- Personal access tokens for programmatic access (e.g. the MCP server).
     -- Only the sha256 hash is stored; the plaintext is shown once at creation.
     CREATE TABLE IF NOT EXISTS api_tokens (
