@@ -17,6 +17,7 @@ import {
   VirtualKeyboardProvider,
 } from '@blocksuite/affine/shared/services';
 import { ColorScheme } from '@blocksuite/affine/model';
+import { IS_MOBILE } from '@blocksuite/affine/global/env';
 import { HocuspocusProvider } from '@hocuspocus/provider';
 import { applyUpdate } from 'yjs';
 import { IndexeddbPersistence } from 'y-indexeddb';
@@ -347,6 +348,10 @@ export async function mountEditor(
   // Callout ships switched off upstream. It is the block our Confluence-style
   // panels are built on, and its slash item is how a plain neutral one is made.
   store.get(FeatureFlagService).setFlag('enable_callout', true);
+  // On a phone the desktop editor bar is hidden (it would eat a tenth of the
+  // screen), so formatting lives in BlockSuite's own bar docked above the
+  // keyboard — bold, headings, lists, undo — which ships switched off.
+  if (IS_MOBILE) store.get(FeatureFlagService).setFlag('enable_mobile_keyboard_toolbar', true);
 
   // Follow the app's dark/light toggle (a `dark` class on <html>) so BlockSuite's
   // own themed surfaces — floating toolbars, slash/@ menus, popovers — switch too.

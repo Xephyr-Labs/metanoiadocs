@@ -1412,6 +1412,29 @@ affine-editor-container .doc-title-container {
     margin-right: 0;
   }
 }
+/* BlockSuite's phone toolbar (enabled in mountEditor) pins itself to bottom: 0
+ * of the layout viewport. Android is told to shrink that viewport for the
+ * keyboard (interactive-widget in index.html); iOS won't, so it is lifted by
+ * the keyboard's height (--kb, from editor/virtualKeyboard). The page gets the
+ * same room below its last line, so the end of a document can be scrolled up
+ * above the toolbar instead of typed into blind. */
+affine-keyboard-toolbar {
+  bottom: var(--kb, 0px) !important;
+}
+/* The slash menu keeps itself on screen by measuring its host element, which
+ * is inline and zero-wide while the 280px menu lives in its shadow root — so
+ * the clamp never fires, and a "/" typed past mid-line on a phone opened the
+ * menu half off the right edge. Give the host the menu's width to measure. */
+affine-slash-menu {
+  display: block;
+  width: 280px;
+  height: 0;
+}
+@media (max-width: 767px) {
+  affine-editor-container .affine-page-viewport {
+    padding-bottom: calc(96px + var(--kb, 0px));
+  }
+}
 html:has(:is(input:not([type='checkbox']):not([type='radio']), textarea, select, [contenteditable='true']):focus) .mn-tabbar {
   display: none;
 }
