@@ -1,41 +1,81 @@
-// Android keyboards reopen the word under the cursor for editing.
+// Android keyboards compose over text that is already there.
 //
-// Tap into the middle of "onboarding" and Gboard marks the whole word as the
-// text being composed (so it can offer corrections). BlockSuite assumes every
-// composition starts empty at the caret: when this one ends it inserts the
-// composed word at the caret, next to the original, and "onboarding" becomes
-// "onboonboardingarding" — on hiding the keyboard, tapping away, or accepting
-// a suggestion.
+// BlockSuite (0.22.4) lets the browser change the DOM during a composition and
+// only touches the model when it ends: it re-renders the line from the model,
+// then INSERTS the composed word where the composition started. That is right
+// for a desktop IME, which only ever composes new text at the caret. Gboard and
+// friends also compose over existing words — backspace, autocorrect, a tapped
+// suggestion and tapping into a word all reopen the word under the caret — so
+// whatever the keyboard deleted or replaced never reaches the model: the old
+// word stays and the new one lands beside it ("hello" + backspace becomes
+// "hellohell"; deleting a whole word does nothing).
 //
-// The browser shows it: after compositionstart (whose data is empty on
-// Chrome for Android) comes a compositionupdate carrying the existing word,
-// with no beforeinput in between — nothing was typed, the keyboard just
-// picked the word up. Find that word around the caret, and when the
-// composition ends have BlockSuite replace it instead of inserting beside it.
-// Once anything is typed the reopened span stays as found, so an edited or
-// autocorrected word still replaces the original.
+// What the keyboard left in the DOM is the truth. When the composition ends,
+// read the line's text before BlockSuite re-renders it, diff it against the
+// model, and hand BlockSuite exactly that replacement instead.
 
 type Range = { index: number; length: number };
-type Ctx = { inlineRange: Range; data?: string | null };
+type Ctx = { inlineRange: Range; data?: string | null; raw?: Event };
+type Delta = { insert: string };
 type InlineEditorLike = {
   hooks: { compositionEnd?: (ctx: Ctx) => void };
-  getInlineRange: () => Range | null;
-  yText: { toString: () => string };
+  rootElement: HTMLElement | null;
+  yTextDeltas: Delta[];
+  isEmbed: (delta: Delta) => boolean;
+  deleteText: (range: Range) => void;
+  setInlineRange: (range: Range) => void;
 };
 
-/** The occurrence of `word` in `text` that the caret sits inside or at an edge of. */
-export function regionAround(text: string, caret: number, word: string): Range | null {
-  if (!word) return null;
-  for (let start = Math.max(0, caret - word.length); start <= caret; start++) {
-    if (text.startsWith(word, start)) return { index: start, length: word.length };
-  }
-  return null;
+// One character per embed (a page mention, a latex chip) on both sides, so the
+// two strings index alike; a change that touches one is left to BlockSuite.
+const EMBED = '\uFFFC';
+// BlockSuite's placeholders for an empty line and around embeds; never content.
+const FILLER = /[\u200B\u200C]/g;
+
+/** The smallest replacement turning `before` into `after`. Repeated letters
+ *  make that ambiguous ("hel|lo" + "l"), so the change is kept from reaching
+ *  past `caret` — where the keyboard actually typed. */
+export function diffText(before: string, after: string, caret: number | null): Range & { text: string } {
+  const suffixMax = Math.min(before.length, caret === null ? after.length : after.length - caret);
+  let suffix = 0;
+  while (suffix < suffixMax && before[before.length - 1 - suffix] === after[after.length - 1 - suffix]) suffix++;
+  const prefixMax = Math.min(before.length, after.length) - suffix;
+  let prefix = 0;
+  while (prefix < prefixMax && before[prefix] === after[prefix]) prefix++;
+  return { index: prefix, length: before.length - suffix - prefix, text: after.slice(prefix, after.length - suffix) };
 }
 
-const patched = new WeakSet<InlineEditorLike>();
+/** The line's text as the keyboard left it, plus the caret's offset in it. */
+function domText(root: HTMLElement, caretNode: Node | null, caretOffset: number) {
+  let text = '';
+  let caret: number | null = null;
+  let lines = 0;
+  let stray = false;
+  const walk = (node: Node, inText = false) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      // Outside <v-text> is Lit's template whitespace, not content — unless
+      // the browser put typed text there, which this walk cannot place.
+      if (!inText) { if ((node as Text).data.replace(FILLER, '').trim()) stray = true; return; }
+      const data = (node as Text).data;
+      if (node === caretNode) caret = text.length + data.slice(0, caretOffset).replace(FILLER, '').length;
+      text += data.replace(FILLER, '');
+      return;
+    }
+    if (!(node instanceof Element)) return;
+    if (node.getAttribute('data-v-embed') === 'true') { text += EMBED; return; }
+    if (node.tagName === 'V-LINE' && lines++) text += '\n';
+    // A caret between children counts the ones before it.
+    const childInText = inText || node.tagName === 'V-TEXT';
+    node.childNodes.forEach((child, i) => { if (node === caretNode && i === caretOffset) caret = text.length; walk(child, childInText); });
+    if (node === caretNode && caret === null) caret = text.length;
+  };
+  walk(root);
+  return { text, caret, stray };
+}
 
-type Composing = { editor: InlineEditorLike; caret: number; text: string; typed: boolean; region: Range | null };
-let composing: Composing | null = null;
+function modelText(editor: InlineEditorLike) {
+  return editor.yTextDeltas.map((d) => (editor.isEmbed(d) ? EMBED.repeat(d.insert.length) : d.insert)).join('');
+}
 
 /** The paragraph's inline editor under the caret. Not the event's target:
  *  the whole page is one contenteditable, so that is always the page root. */
@@ -46,41 +86,47 @@ function editorAtCaret(): InlineEditorLike | null {
   return root?.inlineEditor ?? null;
 }
 
+// Keyed by the compositionend event: BlockSuite calls the hook after an await,
+// so another composition may have ended in between.
+const ended = new WeakMap<Event, { editor: InlineEditorLike; change: Range & { text: string } }>();
+
+const patched = new WeakSet<InlineEditorLike>();
 function patch(editor: InlineEditorLike) {
   if (patched.has(editor)) return;
   patched.add(editor);
   const original = editor.hooks.compositionEnd;
   editor.hooks.compositionEnd = (ctx) => {
+    const state = ctx.raw ? ended.get(ctx.raw) : undefined;
+    if (state?.editor === editor) {
+      ctx.inlineRange = { index: state.change.index, length: state.change.length };
+      ctx.data = state.change.text;
+    }
     original?.(ctx);
-    const state = composing;
-    composing = null;
-    if (state?.editor === editor && state.region) ctx.inlineRange = state.region;
+    // BlockSuite only writes when there is text to insert; a pure deletion
+    // (backspacing a reopened word) is ours to apply.
+    if (state?.editor === editor && !ctx.data && ctx.inlineRange.length) {
+      editor.deleteText(ctx.inlineRange);
+      editor.setInlineRange({ index: ctx.inlineRange.index, length: 0 });
+    }
   };
 }
 
 export function fixAndroidRecompose(root: HTMLElement): () => void {
-  const onStart = () => {
-    composing = null;
+  // Capture on an ancestor runs before BlockSuite's own compositionend
+  // handler, which re-renders the line from the model and erases the evidence.
+  const onEnd = (event: Event) => {
     const editor = editorAtCaret();
-    const caret = editor?.getInlineRange();
-    if (!editor || !caret || caret.length) return;
+    const line = editor?.rootElement;
+    if (!editor || !line) return;
+    const before = modelText(editor);
+    const sel = document.getSelection();
+    const after = domText(line, sel?.anchorNode ?? null, sel?.anchorOffset ?? 0);
+    const change = diffText(before, after.text, after.caret);
+    // Leave embeds and anything unrecognisable to BlockSuite.
+    if (after.stray || /[\u200B\u200C]/.test(before) || before.slice(change.index, change.index + change.length).includes(EMBED) || change.text.includes(EMBED)) return;
     patch(editor);
-    composing = { editor, caret: caret.index, text: editor.yText.toString(), typed: false, region: null };
+    ended.set(event, { editor, change });
   };
-  const onBeforeInput = () => { if (composing) composing.typed = true; };
-  const onUpdate = (e: Event) => {
-    const data = (e as CompositionEvent).data;
-    if (!composing || composing.typed || !data) return;
-    const region = regionAround(composing.text, composing.caret, data);
-    if (region) composing.region = region;
-  };
-  // Capture, so these run before BlockSuite's own handlers.
-  root.addEventListener('compositionstart', onStart, true);
-  root.addEventListener('beforeinput', onBeforeInput, true);
-  root.addEventListener('compositionupdate', onUpdate, true);
-  return () => {
-    root.removeEventListener('compositionstart', onStart, true);
-    root.removeEventListener('beforeinput', onBeforeInput, true);
-    root.removeEventListener('compositionupdate', onUpdate, true);
-  };
+  root.addEventListener('compositionend', onEnd, true);
+  return () => root.removeEventListener('compositionend', onEnd, true);
 }
