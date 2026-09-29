@@ -15,7 +15,7 @@
 // model, and hand BlockSuite exactly that replacement instead.
 
 type Range = { index: number; length: number };
-type Ctx = { inlineRange: Range; data?: string | null };
+type Ctx = { inlineRange: Range; data?: string | null; raw?: Event };
 type Delta = { insert: string };
 type InlineEditorLike = {
   hooks: { compositionEnd?: (ctx: Ctx) => void };
@@ -50,10 +50,12 @@ function domText(root: HTMLElement, caretNode: Node | null, caretOffset: number)
   let text = '';
   let caret: number | null = null;
   let lines = 0;
+  let stray = false;
   const walk = (node: Node, inText = false) => {
     if (node.nodeType === Node.TEXT_NODE) {
-      // Outside <v-text> is Lit's template whitespace, not content.
-      if (!inText) return;
+      // Outside <v-text> is Lit's template whitespace, not content — unless
+      // the browser put typed text there, which this walk cannot place.
+      if (!inText) { if ((node as Text).data.replace(FILLER, '').trim()) stray = true; return; }
       const data = (node as Text).data;
       if (node === caretNode) caret = text.length + data.slice(0, caretOffset).replace(FILLER, '').length;
       text += data.replace(FILLER, '');
@@ -68,7 +70,7 @@ function domText(root: HTMLElement, caretNode: Node | null, caretOffset: number)
     if (node === caretNode && caret === null) caret = text.length;
   };
   walk(root);
-  return { text, caret };
+  return { text, caret, stray };
 }
 
 function modelText(editor: InlineEditorLike) {
@@ -84,8 +86,9 @@ function editorAtCaret(): InlineEditorLike | null {
   return root?.inlineEditor ?? null;
 }
 
-type Ended = { editor: InlineEditorLike; change: Range & { text: string } };
-let ended: Ended | null = null;
+// Keyed by the compositionend event: BlockSuite calls the hook after an await,
+// so another composition may have ended in between.
+const ended = new WeakMap<Event, { editor: InlineEditorLike; change: Range & { text: string } }>();
 
 const patched = new WeakSet<InlineEditorLike>();
 function patch(editor: InlineEditorLike) {
@@ -93,8 +96,7 @@ function patch(editor: InlineEditorLike) {
   patched.add(editor);
   const original = editor.hooks.compositionEnd;
   editor.hooks.compositionEnd = (ctx) => {
-    const state = ended;
-    ended = null;
+    const state = ctx.raw ? ended.get(ctx.raw) : undefined;
     if (state?.editor === editor) {
       ctx.inlineRange = { index: state.change.index, length: state.change.length };
       ctx.data = state.change.text;
@@ -112,8 +114,7 @@ function patch(editor: InlineEditorLike) {
 export function fixAndroidRecompose(root: HTMLElement): () => void {
   // Capture on an ancestor runs before BlockSuite's own compositionend
   // handler, which re-renders the line from the model and erases the evidence.
-  const onEnd = () => {
-    ended = null;
+  const onEnd = (event: Event) => {
     const editor = editorAtCaret();
     const line = editor?.rootElement;
     if (!editor || !line) return;
@@ -122,9 +123,9 @@ export function fixAndroidRecompose(root: HTMLElement): () => void {
     const after = domText(line, sel?.anchorNode ?? null, sel?.anchorOffset ?? 0);
     const change = diffText(before, after.text, after.caret);
     // Leave embeds and anything unrecognisable to BlockSuite.
-    if (/[\u200B\u200C]/.test(before) || before.slice(change.index, change.index + change.length).includes(EMBED) || change.text.includes(EMBED)) return;
+    if (after.stray || /[\u200B\u200C]/.test(before) || before.slice(change.index, change.index + change.length).includes(EMBED) || change.text.includes(EMBED)) return;
     patch(editor);
-    ended = { editor, change };
+    ended.set(event, { editor, change });
   };
   root.addEventListener('compositionend', onEnd, true);
   return () => root.removeEventListener('compositionend', onEnd, true);
