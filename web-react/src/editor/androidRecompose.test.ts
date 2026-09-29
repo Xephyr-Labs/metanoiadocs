@@ -1,18 +1,24 @@
 import { describe, expect, it } from 'vitest';
-import { regionAround } from './androidRecompose';
+import { diffText } from './androidRecompose';
 
-describe('regionAround', () => {
-  const text = 'The onboarding flow';
-  it('finds the word the caret sits inside', () => {
-    expect(regionAround(text, 8, 'onboarding')).toEqual({ index: 4, length: 10 });
+describe('diffText', () => {
+  it('turns a backspaced reopened word into a deletion', () => {
+    expect(diffText('hello world', 'hel world', 3)).toEqual({ index: 3, length: 2, text: '' });
   });
-  it('accepts a caret at either edge of the word', () => {
-    expect(regionAround(text, 4, 'onboarding')).toEqual({ index: 4, length: 10 });
-    expect(regionAround(text, 14, 'onboarding')).toEqual({ index: 4, length: 10 });
+  it('replaces an autocorrected word', () => {
+    expect(diffText('teh cat', 'the cat', 3)).toEqual({ index: 1, length: 2, text: 'he' });
   });
-  it('ignores the same word elsewhere, and nothing at all', () => {
-    expect(regionAround('flow and flow', 12, 'flow')).toEqual({ index: 9, length: 4 });
-    expect(regionAround(text, 2, 'onboarding')).toBeNull();
-    expect(regionAround(text, 8, '')).toBeNull();
+  it('is empty when the keyboard only picked a word up', () => {
+    expect(diffText('The onboarding flow', 'The onboarding flow', 14)).toMatchObject({ length: 0, text: '' });
+  });
+  it('puts a repeated letter at the caret', () => {
+    expect(diffText('hello', 'helllo', 4)).toEqual({ index: 3, length: 0, text: 'l' });
+    expect(diffText('hello', 'hello', 2)).toMatchObject({ length: 0, text: '' });
+  });
+  it('inserts new text at the end', () => {
+    expect(diffText('hello ', 'hello wor', 9)).toEqual({ index: 6, length: 0, text: 'wor' });
+  });
+  it('works without a caret', () => {
+    expect(diffText('hello world', ' world', null)).toEqual({ index: 0, length: 5, text: '' });
   });
 });
