@@ -314,7 +314,16 @@ export async function mountEditor(
   // covers every caller (peek, full page, sidebar) through one path. Typing
   // into the title block continues to win going forward: that's the push
   // below, which fires on every subsequent Yjs change, this block does not.
-  if (!share && !snapshot && store.root) {
+  //
+  // Only against the server's copy, never a cached one. A device that mounted
+  // from IndexedDB saw the title as it was when it last looked (often ""), so
+  // its replace was an insert, and when the server's copy merged in a moment
+  // later the document held the name twice — LAT-80 in prod, one insert per
+  // stale device. So until the provider syncs, nothing here writes: `live`
+  // gates this and the push below alike.
+  let live = synced;
+  const reconcileTitle = () => {
+    if (share || snapshot || !store.root) return;
     try {
       const titleModel = (store.root as { props?: { title?: InstanceType<typeof Text> } }).props?.title;
       const yjsTitle = titleModel ? titleModel.toString() : '';
@@ -322,7 +331,8 @@ export async function mountEditor(
         titleModel.replace(0, yjsTitle.length, title);
       }
     } catch { /* best effort — a save from the user's own typing still works */ }
-  }
+  };
+  if (live) reconcileTitle();
 
   // Docs the server built (API, markdown import, templates) had no surface until
   // now, and edgeless/slides mount into the surface — without one the canvas is
@@ -502,6 +512,9 @@ export async function mountEditor(
   const push = () => {
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
+      // A cached copy's title and text are stale until the server's arrive;
+      // writing them back would rename the page and prune its backlinks.
+      if (!live) return;
       // From the MODEL, never the DOM: <doc-title> is a container others can
       // render into (our metadata band does), and innerText swept that chrome
       // into the title and saved it. The model has exactly one title in it.
@@ -538,6 +551,14 @@ export async function mountEditor(
   if (!share && !snapshot) {
     doc.spaceDoc.on('update', push);
     push();
+    if (!live) {
+      provider?.on('synced', () => {
+        if (live) return;
+        live = true;
+        reconcileTitle();
+        push();
+      });
+    }
   }
   // Phones: the line being typed stays above the keyboard's formatting bar.
   const detachCaret = IS_MOBILE && !share && !snapshot ? keepCaretVisible(editor as unknown as HTMLElement) : () => {};
