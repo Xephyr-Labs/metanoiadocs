@@ -66,6 +66,40 @@ async function accessToken(sa) {
 export const isDeadToken = (status, text) =>
   status === 404 || /UNREGISTERED|registration-token-not-registered/.test(text);
 
+/**
+ * The Android channel alerts are posted to. The app creates it at high
+ * importance (MainActivity), so an alert drops down over whatever is on screen
+ * and makes a sound. Without it FCM falls back to its own "Miscellaneous"
+ * channel at default importance, where an alert lands silently in the shade
+ * and is only noticed the next time someone opens the phone — or the app.
+ * Must match MainActivity.ALERTS_CHANNEL.
+ */
+export const ALERTS_CHANNEL = 'metanoia_alerts';
+
+/** The FCM v1 message for one alert, kept pure so its shape can be tested. */
+export function fcmMessage(token, { title, body, tag, url }) {
+  return {
+    token,
+    notification: { title, body },
+    // The app opens this path on the server it is signed in to.
+    data: { url },
+    android: {
+      // HIGH wakes a phone in Doze; NORMAL waits for it to wake on its own.
+      priority: 'HIGH',
+      // A day, the same as Web Push: past that the inbox is the better place.
+      ttl: '86400s',
+      notification: {
+        tag,
+        icon: 'ic_stat_metanoia',
+        color: '#2383e2',
+        channel_id: ALERTS_CHANNEL,
+        notification_priority: 'PRIORITY_HIGH',
+        default_sound: true,
+      },
+    },
+  };
+}
+
 /** Send one alert to every phone the person has the app signed in on. */
 export async function sendFcm(userId, { title, body, tag, url }) {
   const sa = serviceAccount();
@@ -86,15 +120,7 @@ export async function sendFcm(userId, { title, body, tag, url }) {
       const res = await fetch(`https://fcm.googleapis.com/v1/projects/${sa.project_id}/messages:send`, {
         method: 'POST',
         headers: { authorization: `Bearer ${auth}`, 'content-type': 'application/json' },
-        body: JSON.stringify({
-          message: {
-            token,
-            notification: { title, body },
-            // The app opens this path on the server it is signed in to.
-            data: { url },
-            android: { priority: 'HIGH', notification: { tag, icon: 'ic_stat_metanoia', color: '#2383e2' } },
-          },
-        }),
+        body: JSON.stringify({ message: fcmMessage(token, { title, body, tag, url }) }),
       });
       if (res.ok) return;
       const text = await res.text();

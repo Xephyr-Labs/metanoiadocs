@@ -141,6 +141,17 @@ export function coercePropValue(type, value) {
       const s = String(value).slice(0, 10);
       return DATE.test(s) && !Number.isNaN(Date.parse(s)) ? s : undefined;
     }
+    case 'person': {
+      // A list, like the built-in Assignees: a task can have more than one
+      // reviewer. A bare id is still accepted — that is what every stored
+      // value written before this looked like, and what a board column drop
+      // or an older client still sends.
+      const ids = (Array.isArray(value) ? value : [value])
+        .filter((v) => typeof v === 'string' && v)
+        .map((v) => v.slice(0, 64));
+      const unique = [...new Set(ids)].slice(0, 50);
+      return unique.length ? unique : null;
+    }
     case 'multi_select':
       return Array.isArray(value)
         ? [...new Set(value.filter((v) => typeof v === 'string'))].slice(0, 100)

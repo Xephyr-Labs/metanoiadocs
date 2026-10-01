@@ -172,6 +172,7 @@ export async function sweepReminders(now = new Date()) {
         body: line,
         tag: id,
         docId: task.docId,
+        projectId: task.projectId,
       }).catch((e) => console.error('[push] reminder:', e.message));
     }
 

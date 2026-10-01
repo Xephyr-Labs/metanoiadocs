@@ -40,6 +40,9 @@ test('coercePropValue stores what the type says and rejects the rest', () => {
   assert.equal(coercePropValue('date', '2026-08-29'), '2026-08-29');
   assert.equal(coercePropValue('date', '29/08/2026'), undefined);
   assert.deepEqual(coercePropValue('multi_select', ['a', 'b', 'a']), ['a', 'b']);
+  assert.deepEqual(coercePropValue('person', ['u1', 'u2', 'u1']), ['u1', 'u2']);
+  assert.deepEqual(coercePropValue('person', 'u1'), ['u1']);
+  assert.equal(coercePropValue('person', []), null);
   assert.equal(coercePropValue('url', 'javascript:alert(1)'), undefined);
   assert.equal(coercePropValue('url', 'https://x.dev'), 'https://x.dev');
   assert.equal(coercePropValue('text', null), null);

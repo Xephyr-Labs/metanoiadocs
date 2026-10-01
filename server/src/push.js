@@ -50,6 +50,22 @@ function contact() {
   return address ? `mailto:${address}` : 'mailto:no-reply@metanoiadocs.local';
 }
 
+/**
+ * How every alert is handed to the push service.
+ *
+ * Urgency is the one that matters. Left at the default ("normal"), FCM — which
+ * carries Chrome and Edge on Android — holds the message while the phone is
+ * idle and delivers the batch when it next wakes, which in practice is the
+ * moment someone opens the app: exactly "notifications only arrive when I open
+ * it". "high" is what a mention or an assignment is: something a person would
+ * want to be interrupted for.
+ *
+ * A day of TTL rather than the library's four weeks: an alert for something
+ * that happened last week is noise by the time a laptop comes back online, and
+ * the inbox still has it.
+ */
+export const PUSH_OPTIONS = { urgency: 'high', TTL: 24 * 60 * 60 };
+
 let ready = null;
 /** Configure web-push once per process, and hand back the public key. */
 function configure() {
@@ -114,7 +130,8 @@ async function sendWebPush(userId, { title, body, tag, docId, projectId }) {
     try {
       await webpush.sendNotification(
         { endpoint: row.endpoint, keys: { p256dh: row.p256dh, auth: row.auth } },
-        payload
+        payload,
+        PUSH_OPTIONS
       );
     } catch (err) {
       if (isGone(err.statusCode)) {

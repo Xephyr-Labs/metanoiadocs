@@ -20,7 +20,7 @@
       "backgroundColor": "#ffffff"
     },
     "PushNotifications": {
-      "presentationOptions": []
+      "presentationOptions": ["badge", "sound", "alert"]
     }
   }
 }

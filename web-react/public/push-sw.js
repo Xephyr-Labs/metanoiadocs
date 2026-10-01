@@ -14,20 +14,27 @@ self.addEventListener('push', (event) => {
   }
 
   const title = data.title || 'MetanoiaDocs';
-  event.waitUntil(
-    self.registration.showNotification(title, {
+  const tag = data.tag || 'metanoia';
+  event.waitUntil((async () => {
+    await self.registration.showNotification(title, {
       body: data.body || (data.title ? '' : 'Something new landed in your inbox.'),
       // The id of the notification row it came from. The open tab's own poll
       // uses the same one, so a push and a poll that both catch the same
       // mention replace each other instead of stacking up two alerts. The
       // fallback is a fixed string for the same reason: without a tag, every
       // unreadable push would pile up its own alert.
-      tag: data.tag || 'metanoia',
+      tag,
       icon: '/pwa-192.png',
       badge: '/pwa-192.png',
       data: { url: data.url || '/' },
-    }),
-  );
+    });
+    // Tell any open tab this one is on screen already. Its own poll would
+    // otherwise raise the same alert again a minute later — after the person
+    // dismissed this one, as a second alert; before, as a silent replacement
+    // that on Windows pulls the toast off the screen it just appeared on.
+    const open = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const client of open) client.postMessage({ type: 'mn-push-shown', tag });
+  })());
 });
 
 self.addEventListener('notificationclick', (event) => {
