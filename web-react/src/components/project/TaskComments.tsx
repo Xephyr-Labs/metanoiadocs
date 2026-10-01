@@ -13,6 +13,7 @@ import { tasksApi, type TaskComment } from '../../lib/tasksApi';
 import { useAuth } from '../../store/auth';
 import { ActorMark } from '../ui/ActorMark';
 import { IconButton } from '../ui/IconButton';
+import { CommentBox, savedDraft, type CommentBoxHandle } from '../ui/CommentBox';
 
 /**
  * The handle being typed, if the caret is inside one.
@@ -75,12 +76,13 @@ export function TaskComments({
 }) {
   const auth = useAuth();
   const [rows, setRows] = useState<TaskComment[] | null>(null);
-  const [draft, setDraft] = useState('');
+  const draftKey = `task:${taskId}`;
+  const [draft, setDraft] = useState(() => savedDraft(draftKey));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dismissed, setDismissed] = useState(false);
   const [editing, setEditing] = useState<{ id: string; text: string } | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<CommentBoxHandle>(null);
   // Escape clears the draft, but the blur it causes still runs with the old
   // state — this tells that late save to stand down.
   const cancelEdit = useRef(false);
@@ -266,31 +268,30 @@ export function TaskComments({
             ))}
           </div>
         )}
-        <div className="flex items-center gap-2 rounded-md ring-1 ring-inset ring-line focus-within:ring-2 focus-within:ring-accent">
-          <input
+        <div className="flex items-end gap-2 rounded-md ring-1 ring-inset ring-line focus-within:ring-2 focus-within:ring-accent">
+          <CommentBox
             ref={inputRef}
+            draftKey={draftKey}
             value={draft}
-            onChange={(e) => {
-              setDraft(e.target.value);
+            onChange={(v) => {
+              setDraft(v);
               setDismissed(false);
             }}
-            onKeyDown={(e) => {
-              if (e.key !== 'Enter') return;
+            onEnter={() => {
               if (suggestions.length > 0) {
-                e.preventDefault();
                 pick(suggestions[0]);
                 return;
               }
               send();
             }}
             placeholder="Add a comment…  @ to mention"
-            className="h-8 flex-1 bg-transparent px-2.5 text-sm outline-none placeholder:text-faint"
+            className="px-2.5 py-1.5"
           />
           <IconButton
             icon={busy ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
             label="Post comment"
             onClick={send}
-            className="mr-0.5"
+            className="mb-0.5 mr-0.5"
           />
         </div>
         {error && <p className="mt-1 text-2xs text-danger-strong">{error}</p>}

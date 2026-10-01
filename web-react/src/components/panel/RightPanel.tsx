@@ -19,6 +19,7 @@ import { cn } from '../../lib/cn';
 import { EmptyState } from '../ui/EmptyState';
 import { IconButton } from '../ui/IconButton';
 import { Tooltip } from '../ui/Tooltip';
+import { CommentBox, savedDraft, type CommentBoxHandle } from '../ui/CommentBox';
 
 const TABS: { id: RightTab; label: string; icon: typeof Info }[] = [
   { id: 'intel', label: 'Intelligence', icon: Sparkles },
@@ -133,7 +134,7 @@ function PanelInner() {
         ) : ws.rightPanel === 'intel' ? (
           <IntelligenceTab docId={docId} />
         ) : ws.rightPanel === 'comments' ? (
-          <CommentsTab docId={docId} />
+          <CommentsTab key={docId} docId={docId} />
         ) : ws.rightPanel === 'outline' ? (
           <OutlineTab />
         ) : ws.rightPanel === 'details' ? (
@@ -155,7 +156,8 @@ function CommentsTab({ docId }: { docId: string }) {
   const auth = useAuth();
   const [comments, setComments] = useState<CommentRow[] | null>(null);
   const [editing, setEditing] = useState<{ id: string; text: string } | null>(null);
-  const [draft, setDraft] = useState('');
+  const draftKey = `doc:${docId}`;
+  const [draft, setDraft] = useState(() => savedDraft(draftKey));
   const [busy, setBusy] = useState(false);
   const [members, setMembers] = useState<UserRow[]>([]);
   // The row this page belongs to, if any. Its comments live on the task, not
@@ -164,7 +166,7 @@ function CommentsTab({ docId }: { docId: string }) {
   const [task, setTask] = useState<DocTask | null>(null);
   const [mentionDismissed, setMentionDismissed] = useState(false);
   const composerRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<CommentBoxHandle>(null);
   const cardRefs = useRef(new Map<string, HTMLDivElement>());
   // Escape clears the draft, but the blur it causes still runs with the old
   // state — this tells that late save to stand down.
@@ -257,7 +259,7 @@ function CommentsTab({ docId }: { docId: string }) {
     ) : (
       // "(edited)" trails the text rather than sitting in the header: the
       // panel is narrow, and one more chip up there wraps the author's name.
-      <p className={className}>
+      <p className={cn('whitespace-pre-wrap break-words', className)}>
         {c.body}
         {c.edited_at && <span className="ml-1 text-2xs text-faint">(edited)</span>}
       </p>
@@ -290,7 +292,7 @@ function CommentsTab({ docId }: { docId: string }) {
             comment was meant for. */}
         {task && (
           <div className="-mx-3 -mt-3 border-b border-line">
-            <TaskComments taskId={task.id} users={members} title="On this task" />
+            <TaskComments key={task.id} taskId={task.id} users={members} title="On this task" />
           </div>
         )}
         {task && <h3 className="text-2xs font-semibold uppercase text-muted">On this page</h3>}
@@ -371,23 +373,22 @@ function CommentsTab({ docId }: { docId: string }) {
             ))}
           </div>
         )}
-        <div className="flex items-center gap-2 rounded-md ring-1 ring-inset ring-line focus-within:ring-2 focus-within:ring-accent">
-          <input
+        <div className="flex items-end gap-2 rounded-md ring-1 ring-inset ring-line focus-within:ring-2 focus-within:ring-accent">
+          <CommentBox
             ref={inputRef}
+            draftKey={draftKey}
             value={draft}
-            onChange={(e) => { setDraft(e.target.value); setMentionDismissed(false); }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                // If the mention menu is open, Enter picks the top suggestion
-                // instead of submitting a half-typed handle.
-                if (suggestions.length > 0) { e.preventDefault(); pickMention(suggestions[0]); return; }
-                add();
-              }
+            onChange={(v) => { setDraft(v); setMentionDismissed(false); }}
+            onEnter={() => {
+              // If the mention menu is open, Enter picks the top suggestion
+              // instead of submitting a half-typed handle.
+              if (suggestions.length > 0) { pickMention(suggestions[0]); return; }
+              add();
             }}
             placeholder={anchor ? 'Comment on selection…' : 'Add a comment…  @ to mention'}
-            className="h-9 flex-1 bg-transparent px-3 text-sm outline-none placeholder:text-faint"
+            className="px-3 py-2"
           />
-          <IconButton icon={busy ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />} label="Send" onClick={add} className="mr-0.5" />
+          <IconButton icon={busy ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />} label="Send" onClick={add} className="mb-0.5 mr-0.5" />
         </div>
       </div>
     </div>

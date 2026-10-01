@@ -6,7 +6,7 @@
 // one registration per flavour.
 import { toast } from '@blocksuite/affine/components/toast';
 import { ActionPlacement, ToolbarModuleExtension, type ToolbarContext } from '@blocksuite/affine/shared/services';
-import { BlockFlavourIdentifier } from '@blocksuite/affine/std';
+import { BlockFlavourIdentifier, TextSelection } from '@blocksuite/affine/std';
 import { LinkIcon } from '@blocksuite/icons/lit';
 import { docUrl } from '../lib/route';
 import { copyText } from '../lib/clipboard';
@@ -27,8 +27,19 @@ export function blockLinkExtensions(docId: string) {
             label: 'Copy link to block',
             icon: LinkIcon(),
             run: (ctx: ToolbarContext) => {
-              const blockId = ctx.getCurrentModel()?.id;
-              if (!blockId) return;
+              // `getCurrentModel()` only reads a *block* selection (an image,
+              // a code block, a dragged-over row). The toolbar most people see
+              // is the one over selected text, and there it returned null — so
+              // the item closed the menu and silently did nothing. Fall back to
+              // the block the text selection starts in.
+              const blockId =
+                ctx.getCurrentModel()?.id ??
+                ctx.getCurrentModelBy(TextSelection)?.id ??
+                ctx.selection.find(TextSelection)?.from.blockId;
+              if (!blockId) {
+                toast(ctx.host, 'Select a block to copy its link');
+                return;
+              }
               const url = docUrl(docId, blockId);
               // Clipboard writes need a user gesture and a secure context; a
               // toolbar click is one, but http:// on a LAN address is not —

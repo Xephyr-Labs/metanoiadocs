@@ -419,7 +419,7 @@ export function TaskPeek({
             and the page under it is one thing the row happens to have. A data
             database's records are not work and have nobody to discuss them
             with, so they get the same silence they get from the agent rail. */}
-        {mode !== 'data' && <TaskComments taskId={task.id} users={users} />}
+        {mode !== 'data' && <TaskComments key={task.id} taskId={task.id} users={users} />}
 
         {!!detail?.backlinks.length && (
           <section className="px-4 py-3">

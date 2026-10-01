@@ -126,12 +126,27 @@ export function BlockSuiteEditor({
   // The fragment is consumed rather than left in the address: it describes how
   // this page was opened, not where it is, and leaving it would re-scroll on
   // every remount.
+  //
+  // Also on `hashchange`: a block link to the page that is already open (pasted
+  // into this tab's address bar, or clicked inside the document) changes only
+  // the fragment, which never remounts anything — so the effect alone left the
+  // reader exactly where they were and the link looked broken.
   useEffect(() => {
-    if (loading) return;
-    const { docId: routedDoc, blockId } = readRoute();
-    if (snapshot || !blockId || routedDoc !== docId) return;
-    history.replaceState(history.state, '', location.pathname);
-    return revealBlock(blockId, instRef.current?.editor ?? document);
+    if (loading || snapshot) return;
+    let cancel: (() => void) | undefined;
+    const reveal = () => {
+      const { docId: routedDoc, blockId } = readRoute();
+      if (!blockId || routedDoc !== docId) return;
+      history.replaceState(history.state, '', location.pathname);
+      cancel?.();
+      cancel = revealBlock(blockId, instRef.current?.editor ?? document);
+    };
+    reveal();
+    window.addEventListener('hashchange', reveal);
+    return () => {
+      window.removeEventListener('hashchange', reveal);
+      cancel?.();
+    };
   }, [loading, docId, snapshot]);
 
   const edgeless = mode !== 'page';
