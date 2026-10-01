@@ -317,6 +317,8 @@ function CommentsTab({ docId }: { docId: string }) {
             <div className="flex items-center gap-2">
               <Avatar name={c.author_name} />
               <span className="text-sm font-medium text-ink">{c.author_name}</span>
+              {/* Written through a public link by someone with no account. */}
+              {c.guest && <span className="rounded bg-hover px-1 py-px text-[10px] font-medium uppercase tracking-wide text-muted">Guest</span>}
               <span className="text-2xs text-faint">{relativeTime(c.created_at)}</span>
               {renderEdit(c)}
               {c.resolved ? (
@@ -333,6 +335,7 @@ function CommentsTab({ docId }: { docId: string }) {
                 <div className="min-w-0 flex-1">
                   <p className="flex items-center gap-1.5 text-2xs font-medium text-ink">
                     {r.author_name}
+                    {r.guest && <span className="rounded bg-hover px-1 py-px text-[10px] font-medium uppercase tracking-wide text-muted">Guest</span>}
                     <span className="font-normal text-faint">· {relativeTime(r.created_at)}</span>
                     {renderEdit(r)}
                   </p>

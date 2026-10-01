@@ -17,7 +17,14 @@ const shareOf = (model: { props?: { width?: number } }): number => {
 
 export class MetanoiaColumnsBlockComponent extends BlockComponent<MetanoiaColumnsBlockModel> {
   override renderBlock() {
-    return html`<div class="mn-cols">${this.renderChildren(this.model)}</div>`;
+    // The same highlight every built-in block draws when it is selected. A
+    // bare BlockComponent draws nothing, so a selected row — Ctrl+A twice, a
+    // box drawn over the page, a click on its handle — looked exactly like an
+    // unselected one, and selecting a page with columns in it looked broken.
+    return html`<div class="mn-cols-frame">
+      <div class="mn-cols">${this.renderChildren(this.model)}</div>
+      <affine-block-selection .selected=${this.selected$.value}></affine-block-selection>
+    </div>`;
   }
 }
 

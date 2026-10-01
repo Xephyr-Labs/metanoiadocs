@@ -70,6 +70,16 @@ export function groupsFor(field: FilterField, colors: Record<string, string> = {
   return [...groups, { value: '', label: `No ${field.label.toLowerCase()}`, dot: 'bg-line' }];
 }
 
+/**
+ * What dropping a card into a column writes to a property. A person or
+ * multi-select property holds a list, so the column's one value goes in as a
+ * list of one — a bare string there is not a valid value for either.
+ */
+export function groupValue(field: FilterField, value: string): unknown {
+  if (!value) return null;
+  return field.kind === 'person' || field.kind === 'multi_select' ? [value] : value;
+}
+
 /** The column a task belongs in. A multi-value cell lands in its first value's
  *  column, the same choice the sort makes for the same reason. */
 export function groupOf(task: TaskRow, field: FilterField): string {

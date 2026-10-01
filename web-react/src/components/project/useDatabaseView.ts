@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import type { UserRow } from '../../lib/docsApi';
 import { builtinProps, visibleProps, defaultPropIds, defaultTableProps } from '../../lib/builtinProps';
-import { canGroupBy, groupOf, groupsFor, type BoardGroup } from '../../lib/grouping';
+import { canGroupBy, groupOf, groupValue, groupsFor, type BoardGroup } from '../../lib/grouping';
 import { withComputed } from '../../lib/computed';
 import { applyFilters, fieldsFor, pruneUnresolvable, type Filter, type FilterField } from '../../lib/taskFilter';
 import { applySort, pruneSort, type SortRule } from '../../lib/taskSort';
@@ -153,7 +153,7 @@ export function useDatabaseView({
       return;
     }
     if (groupField.key.startsWith('prop:')) {
-      source.setProp(id, groupField.key.slice(5), value || null);
+      source.setProp(id, groupField.key.slice(5), groupValue(groupField, value));
       return;
     }
     const patch: TaskPatch = groupField.key === 'kind' ? { kind: value }
@@ -167,7 +167,7 @@ export function useDatabaseView({
   const groupSeed = (value: string): { status?: TaskStatus; props?: Record<string, unknown> } => {
     if (!groupField || !value) return {};
     if (groupField.key === 'status') return { status: value as TaskStatus };
-    if (groupField.key.startsWith('prop:')) return { props: { [groupField.key.slice(5)]: value } };
+    if (groupField.key.startsWith('prop:')) return { props: { [groupField.key.slice(5)]: groupValue(groupField, value) } };
     return {};
   };
 

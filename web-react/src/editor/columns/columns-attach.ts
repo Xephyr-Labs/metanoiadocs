@@ -8,7 +8,10 @@ import {
   applyColumnDrop, planColumnDrop, sideForDrop, tidyColumns,
   type ColumnDropPlan, type ModelLike, type StoreLike,
 } from './columns-dnd';
-import { crossColumnRow, exitColumn, type OpsStore, type TextModelLike } from './columns-ops';
+import { COLUMNS_FLAVOUR } from './columns-model';
+import {
+  blocksUnderBox, crossColumnRow, exitColumn, type Box, type OpsStore, type TextModelLike,
+} from './columns-ops';
 
 interface DropTargetLike {
   element?: (Element & { model?: ModelLike; std?: unknown }) | null;
@@ -42,7 +45,7 @@ interface DragWatcher { _getDropResult: DropResultFn }
 interface DragHandleWidget { _dragEventWatcher?: DragWatcher }
 
 interface SelectionLike {
-  value: { type: string; from?: { blockId: string; length: number } }[];
+  value: { type: string; blockId?: string; from?: { blockId: string; length: number } }[];
   create(type: typeof BlockSelection, args: { blockId: string }): BlockSelection;
   setGroup(group: string, selections: BlockSelection[]): void;
 }
@@ -190,20 +193,87 @@ export function attachColumns({
     const id = blockIdAt(node);
     return id ? store.getModelById(id) : null;
   };
-  const claimCrossColumn = () => {
+  /** True when it turned the selection into the row's. */
+  const claimCrossColumn = (): boolean => {
     const selection = document.getSelection();
-    if (!selection || selection.isCollapsed || !selection.rangeCount) return;
+    if (!selection || selection.isCollapsed || !selection.rangeCount) return false;
     const range = selection.getRangeAt(0);
     const row = crossColumnRow(store, modelAt(range.startContainer), modelAt(range.endContainer));
     const api = editor.std?.selection;
-    if (!row || !api) return;
+    if (!row || !api) return false;
     selection.removeAllRanges();
     api.setGroup('note', [api.create(BlockSelection, { blockId: row.id })]);
+    return true;
   };
+  // ── a box drawn over a row ─────────────────────────────────────────────────
+  // The editor's box selection only picks blocks that sit directly in the page,
+  // so a box drawn down one column selected the whole row. Once it is drawn,
+  // the row is swapped for the blocks inside it the box actually touched —
+  // unless the box covered the row top to bottom, which does mean the row.
+  // Positions are kept relative to the editor so a scroll mid-drag cannot
+  // shift the box.
+  let pressed: { x: number; y: number } | null = null;
+  const onPointerDown = (event: PointerEvent) => {
+    // Only a box started on the page: a drag elsewhere (the sidebar, a panel
+    // resize) must not reshape a row selection that is merely still standing.
+    if (event.button !== 0 || !(event.target instanceof Node) || !editor.contains(event.target)) {
+      pressed = null;
+      return;
+    }
+    const at = editor.getBoundingClientRect();
+    pressed = { x: event.clientX - at.left, y: event.clientY - at.top };
+  };
+  const boxOf = (element: Element): Box => {
+    const r = element.getBoundingClientRect();
+    return { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
+  };
+  const narrowBoxSelection = (released: { x: number; y: number }) => {
+    const api = editor.std?.selection;
+    const view = editor.std?.view;
+    const start = pressed;
+    pressed = null;
+    if (!api || !view || !start) return;
+    const at = editor.getBoundingClientRect();
+    const from = { x: start.x + at.left, y: start.y + at.top };
+    // A click on a block's handle selects it too; only a drawn box counts.
+    if (Math.hypot(released.x - from.x, released.y - from.y) < 5) return;
+    const chosen = api.value;
+    if (!chosen.length || chosen.some((s) => s.type !== 'block' || !s.blockId)) return;
+    const drawn: Box = {
+      left: Math.min(from.x, released.x), right: Math.max(from.x, released.x),
+      top: Math.min(from.y, released.y), bottom: Math.max(from.y, released.y),
+    };
+    let changed = false;
+    const ids: string[] = [];
+    for (const { blockId } of chosen) {
+      const model = store.getModelById(blockId!);
+      const element = view.getBlock(blockId!);
+      if (model?.flavour !== COLUMNS_FLAVOUR || !element) { ids.push(blockId!); continue; }
+      const inner = (model.children ?? []).flatMap((column) => (column.children ?? []).map((child) => {
+        const el = view.getBlock(child.id);
+        return el ? { id: child.id, box: boxOf(el) } : null;
+      })).filter((b): b is { id: string; box: Box } => !!b);
+      const narrowed = blocksUnderBox(boxOf(element), inner, drawn);
+      if (!narrowed) { ids.push(blockId!); continue; }
+      ids.push(...narrowed);
+      changed = true;
+    }
+    if (changed) api.setGroup('note', ids.map((blockId) => api.create(BlockSelection, { blockId })));
+  };
+
   // Capture on document: the drag ends wherever the pointer happens to be, and
   // a release outside the editor still has to settle the selection it left.
-  const onPointerUp = () => { requestAnimationFrame(claimCrossColumn); };
+  const onPointerUp = (event: PointerEvent) => {
+    const released = { x: event.clientX, y: event.clientY };
+    requestAnimationFrame(() => {
+      // A text drag across the gutter was just made the row on purpose; the
+      // box rule below would undo that straight away.
+      if (claimCrossColumn()) { pressed = null; return; }
+      narrowBoxSelection(released);
+    });
+  };
   const onKeyUp = (event: KeyboardEvent) => { if (event.key === 'Shift') claimCrossColumn(); };
+  document.addEventListener('pointerdown', onPointerDown, true);
   document.addEventListener('pointerup', onPointerUp, true);
   document.addEventListener('keyup', onKeyUp, true);
 
@@ -247,6 +317,7 @@ export function attachColumns({
   return () => {
     if (frame) cancelAnimationFrame(frame);
     document.removeEventListener('dragover', trackPointer, true);
+    document.removeEventListener('pointerdown', onPointerDown, true);
     document.removeEventListener('pointerup', onPointerUp, true);
     document.removeEventListener('keyup', onKeyUp, true);
     document.removeEventListener('keydown', onKeyDown, true);

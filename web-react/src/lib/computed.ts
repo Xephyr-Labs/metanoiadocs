@@ -71,7 +71,10 @@ function plainValue(task: TaskRow, prop: PropRow, users: { id: string; name: str
       // see in the cell, and an option id is a uuid.
       return selectedOptions(prop, raw).map((o) => o.label).join(', ') || null;
     case 'person':
-      return users.find((u) => u.id === raw)?.name ?? null;
+      return (Array.isArray(raw) ? raw : [raw])
+        .map((id) => users.find((u) => u.id === id)?.name)
+        .filter(Boolean)
+        .join(', ') || null;
     case 'file':
       return Array.isArray(raw) ? raw.length : 0;
     case 'checkbox':

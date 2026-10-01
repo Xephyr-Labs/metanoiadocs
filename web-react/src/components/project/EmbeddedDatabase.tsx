@@ -5,7 +5,7 @@
  *         (share/snapshot) · default · header hidden · full width · resizing
  */
 import { createElement } from 'react';
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useState, type CSSProperties } from 'react';
 import {
   CalendarDays, Columns3, ExternalLink, GanttChartSquare, KanbanSquare, LayoutGrid,
   ListTodo, Maximize2, Minimize2, MoreHorizontal, PieChart, Table2,
@@ -78,15 +78,19 @@ interface Props {
  * The measurement is taken from `.mn-db` — the block's own wrapper, which keeps
  * the note's width — and applied to a child, so applying it never moves what is
  * being measured.
+ *
+ * Takes the element, not a ref: the block first renders a loading skeleton, so
+ * at mount there is nothing to measure, and an effect keyed on a ref object
+ * never runs again once the real element arrives. "Full width" did nothing for
+ * exactly that reason.
  */
-function useBreakout(ref: React.RefObject<HTMLDivElement | null>, enabled: boolean): CSSProperties {
+function useBreakout(el: HTMLElement | null, enabled: boolean): CSSProperties {
   const [style, setStyle] = useState<CSSProperties>({});
   useLayoutEffect(() => {
     if (!enabled) {
       setStyle({});
       return;
     }
-    const el = ref.current;
     const anchor = el?.closest('.mn-db') as HTMLElement | null;
     const host = el?.closest('affine-editor-container') as HTMLElement | null;
     if (!anchor || !host) return;
@@ -105,7 +109,46 @@ function useBreakout(ref: React.RefObject<HTMLDivElement | null>, enabled: boole
     const ro = new ResizeObserver(measure);
     ro.observe(host);
     return () => ro.disconnect();
-  }, [enabled, ref]);
+  }, [enabled, el]);
+  return style;
+}
+
+/**
+ * Let an inline table run past the text column to the editor's right edge.
+ *
+ * Notion's inline table works this way: it starts where the text starts and
+ * spends the page's right-hand margin before it resorts to scrolling sideways.
+ * Kept at the text width, a table of eight columns scrolled inside a box the
+ * width of a paragraph, its scrollbar a page's height away at the bottom.
+ *
+ * Returns the bleed for the scroller, and the text width as a custom property
+ * the table reads as its minimum — so a narrow table still fills the column.
+ */
+function useBleed(el: HTMLElement | null, enabled: boolean): CSSProperties {
+  const [style, setStyle] = useState<CSSProperties>({});
+  useLayoutEffect(() => {
+    if (!enabled) {
+      setStyle({});
+      return;
+    }
+    const anchor = el?.closest('.mn-db') as HTMLElement | null;
+    const host = el?.closest('affine-editor-container') as HTMLElement | null;
+    if (!anchor || !host) return;
+    const GUTTER = 24;
+    const measure = () => {
+      const a = anchor.getBoundingClientRect();
+      const h = host.getBoundingClientRect();
+      if (!h.width) return;
+      setStyle({
+        marginRight: -Math.max(0, h.right - GUTTER - a.right),
+        ['--mn-db-text' as string]: `${a.width}px`,
+      });
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(host);
+    return () => ro.disconnect();
+  }, [enabled, el]);
   return style;
 }
 
@@ -129,7 +172,7 @@ export function EmbeddedDatabase({
 }: Props) {
   const [projects, setProjects] = useState<ProjectRow[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(!unavailable);
-  const root = useRef<HTMLDivElement>(null);
+  const [root, setRoot] = useState<HTMLDivElement | null>(null);
   const breakout = useBreakout(root, width === 'full');
 
   const fetchProjects = useCallback(
@@ -208,6 +251,10 @@ export function EmbeddedDatabase({
   // viewport by nature (a board scrolls sideways, a gantt both ways), and
   // those keep an explicit height you can drag.
   const scrolls = d.kind !== 'table';
+  // A table sits in the page like Notion's: no box around it, the name as a
+  // heading over it, and room to grow into the right margin. Every other view
+  // is a viewport with an edge of its own, and keeps its frame.
+  const inline = d.kind === 'table';
   const ViewIcon = VIEW_ICON[d.kind] ?? Table2;
 
   const settings = [
@@ -273,10 +320,10 @@ export function EmbeddedDatabase({
     // project list is fetched over REST rather than read from the store.
     <TooltipProvider delayDuration={700} skipDelayDuration={300}>
     <KindsProvider kinds={p.kinds}>
-    <div ref={root} style={breakout} className="group/db relative">
-      <div className="rounded-md border border-line">
+    <div ref={setRoot} style={breakout} className="group/db relative">
+      <div className={cn(!inline && 'rounded-md border border-line')}>
         {header ? (
-          <header className="flex flex-wrap items-center gap-2 border-b border-line px-3 py-2">
+          <header className={cn('flex flex-wrap items-center gap-2', inline ? 'pb-1.5' : 'border-b border-line px-3 py-2')}>
             <ProjectIcon project={project} size={16} />
             {/* A floor, not just flex-1: at the page's reading measure the
                 controls are wider than the room left over, and without one
@@ -286,7 +333,10 @@ export function EmbeddedDatabase({
               type="button"
               onClick={() => requestOpenProject(projectId)}
               title="Open this database"
-              className="min-w-[140px] flex-1 truncate rounded px-1 text-left text-sm font-medium text-ink hover:bg-hover"
+              className={cn(
+                'min-w-[140px] flex-1 truncate rounded px-1 text-left text-ink hover:bg-hover',
+                inline ? 'text-lg font-semibold' : 'text-sm font-medium',
+              )}
             >
               {project.name}
             </button>
@@ -302,6 +352,7 @@ export function EmbeddedDatabase({
           )
         )}
 
+        <BleedArea enabled={inline && width === 'column'}>
         <div className={cn(scrolls && 'min-h-0')} style={scrolls ? { height } : undefined}>
           {v.loading ? (
             <Skeleton className="h-24 w-full" />
@@ -371,6 +422,7 @@ export function EmbeddedDatabase({
             />
           )}
         </div>
+        </BleedArea>
       </div>
 
       {scrolls && !readonly && (
@@ -385,4 +437,11 @@ export function EmbeddedDatabase({
     </KindsProvider>
     </TooltipProvider>
   );
+}
+
+/** The table's scroller, widened into the right margin when `enabled`. */
+function BleedArea({ enabled, children }: { enabled: boolean; children: React.ReactNode }) {
+  const [el, setEl] = useState<HTMLDivElement | null>(null);
+  const style = useBleed(el, enabled);
+  return <div ref={setEl} style={style}>{children}</div>;
 }

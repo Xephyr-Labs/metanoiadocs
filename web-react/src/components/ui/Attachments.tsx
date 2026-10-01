@@ -74,6 +74,9 @@ export function Attachments({
    *  the property rail must not cost the gesture that was the fastest way to
    *  attach one. Drag events fire on children, hence the depth count. */
   const dropZone = {
+    // Marks a drop target of its own, so the editor's margin-drop forwarding
+    // (editor/fileDrop.ts) leaves a file dropped here alone.
+    'data-file-drop': '',
     onDragEnter: (e: React.DragEvent) => {
       if (readOnly || !e.dataTransfer.types.includes('Files')) return;
       depth.current += 1;

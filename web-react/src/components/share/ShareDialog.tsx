@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { AlertCircle, Check, Copy, Globe, Link2, Loader2, Lock, Users } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { docsApi, type AccessRow } from '../../lib/docsApi';
+import { docsApi, type AccessRow, type ShareAccess } from '../../lib/docsApi';
 import { copyText } from '../../lib/clipboard';
 import { sendInvite } from '../../lib/api';
 import { avatarFor } from '../../lib/avatar';
@@ -10,12 +10,14 @@ import { cn } from '../../lib/cn';
 import { Button } from '../ui/Button';
 import { field } from '../ui/styles';
 import { Modal } from '../ui/Modal';
+import { SegmentedControl } from '../ui/SegmentedControl';
 
 export function ShareDialog() {
   const ws = useWorkspace();
   const docId = ws.currentId;
   const [access, setAccess] = useState<AccessRow[]>([]);
   const [token, setToken] = useState<string | null>(null);
+  const [linkAccess, setLinkAccess] = useState<ShareAccess>('view');
   const [copied, setCopied] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviting, setInviting] = useState(false);
@@ -26,7 +28,9 @@ export function ShareDialog() {
     if (!ws.shareOpen || !docId) return;
     setMsg(null);
     docsApi.access(docId).then(setAccess).catch(() => setAccess([]));
-    docsApi.publicGet(docId).then((r) => setToken(r.token)).catch(() => setToken(null));
+    docsApi.publicGet(docId)
+      .then((r) => { setToken(r.token); setLinkAccess(r.access ?? 'view'); })
+      .catch(() => setToken(null));
   }, [ws.shareOpen, docId]);
 
   const invite = async () => {
@@ -61,6 +65,25 @@ export function ShareDialog() {
       if (token) { await docsApi.publicDisable(docId); setToken(null); }
       else { const r = await docsApi.publicEnable(docId); setToken(r.token); }
       ws.refresh();
+    } finally {
+      setBusyLink(false);
+    }
+  };
+
+  // Same link either way: what it allows is a setting on the page, so a link
+  // already sent out gains or loses commenting without being re-sent.
+  const changeLinkAccess = async (next: ShareAccess) => {
+    if (!docId || busyLink || next === linkAccess) return;
+    const previous = linkAccess;
+    setLinkAccess(next);
+    setBusyLink(true);
+    try {
+      const r = await docsApi.publicEnable(docId, next);
+      setToken(r.token);
+      setLinkAccess(r.access);
+    } catch {
+      setLinkAccess(previous);
+      setMsg({ ok: false, text: 'Could not change what the link allows.' });
     } finally {
       setBusyLink(false);
     }
@@ -126,7 +149,11 @@ export function ShareDialog() {
           </span>
           <div className="flex-1">
             <p className="text-sm font-medium text-ink">{token ? 'Anyone with the link' : 'Only invited people'}</p>
-            <p className="text-2xs text-faint">{token ? 'Can view this page' : 'Link sharing is off'}</p>
+            <p className="text-2xs text-faint">
+              {!token ? 'Link sharing is off'
+                : linkAccess === 'comment' ? 'Can view and comment — no account needed'
+                : 'Can view this page'}
+            </p>
           </div>
           <button type="button" role="switch" aria-checked={!!token} onClick={togglePublic} disabled={busyLink} className={cn('relative h-[22px] w-[38px] rounded-full transition-colors duration-180', token ? 'bg-accent' : 'bg-line-strong')}>
             <motion.span layout transition={{ type: 'spring', stiffness: 500, damping: 34 }} className={cn('absolute top-[3px] h-4 w-4 rounded-full bg-white shadow', token ? 'left-[19px]' : 'left-[3px]')} />
@@ -136,6 +163,15 @@ export function ShareDialog() {
         <AnimatePresence>
           {token && (
             <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+              <div className="mt-3 flex items-center justify-between gap-2">
+                <span className="text-2xs text-muted">People with the link</span>
+                <SegmentedControl
+                  aria-label="What people with the link can do"
+                  value={linkAccess}
+                  onChange={(v) => changeLinkAccess(v as ShareAccess)}
+                  segments={[{ value: 'view', label: 'Can view' }, { value: 'comment', label: 'Can comment' }]}
+                />
+              </div>
               <div className="mt-3 flex items-center gap-2 rounded-md bg-canvas px-2.5 py-1.5 ring-1 ring-inset ring-line">
                 <Link2 size={14} className="shrink-0 text-faint" />
                 <span className="flex-1 truncate text-sm text-muted">{link}</span>

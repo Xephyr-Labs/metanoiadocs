@@ -54,6 +54,7 @@ import { registerPushRoutes, sendPush } from './push.js';
 import { linkFor } from './push-rules.js';
 import { registerFolderRoutes, visibleFolder } from './folders-routes.js';
 import { registerWebhookRoutes, emit, startWebhookWorker } from './webhooks.js';
+import { registerGuestCommentRoutes, shareAccess } from './guest-comments.js';
 import { registerAgentRoutes, enqueueRun } from './agent-runs.js';
 import { registerAutomationRoutes, startAutomationSweeper } from './automations.js';
 import { registerFormRoutes } from './forms.js';
@@ -1435,20 +1436,27 @@ app.delete('/api/docs/:id', requireUser, async (req, res) => {
 app.get('/api/docs/:id/public', requireUser, async (req, res) => {
   if (!(await grantOn(req.params.id, req.user.id)))
     return res.status(403).json({ error: 'forbidden' });
-  const { rows } = await pool.query('SELECT share_token FROM docs WHERE id = $1', [req.params.id]);
-  res.json({ token: rows[0]?.share_token || null });
+  const { rows } = await pool.query('SELECT share_token, share_access FROM docs WHERE id = $1', [req.params.id]);
+  res.json({ token: rows[0]?.share_token || null, access: shareAccess(rows[0]?.share_access) });
 });
 
 app.post('/api/docs/:id/public', requireUser, async (req, res) => {
   if ((await grantOn(req.params.id, req.user.id)) !== 'owner')
     return res.status(403).json({ error: 'forbidden' });
-  const cur = await pool.query('SELECT share_token FROM docs WHERE id = $1', [req.params.id]);
+  const cur = await pool.query('SELECT share_token, share_access FROM docs WHERE id = $1', [req.params.id]);
   let token = cur.rows[0]?.share_token;
   if (!token) {
     token = crypto.randomBytes(16).toString('base64url');
     await pool.query('UPDATE docs SET share_token = $1 WHERE id = $2', [token, req.params.id]);
   }
-  res.json({ token });
+  // What the link allows. Left as it was when the call does not say, so
+  // turning the link on again does not quietly change who may comment.
+  let access = shareAccess(cur.rows[0]?.share_access);
+  if (req.body?.access !== undefined) {
+    access = shareAccess(req.body.access);
+    await pool.query('UPDATE docs SET share_access = $1 WHERE id = $2', [access, req.params.id]);
+  }
+  res.json({ token, access });
 });
 
 app.delete('/api/docs/:id/public', requireUser, async (req, res) => {
@@ -1461,11 +1469,11 @@ app.delete('/api/docs/:id/public', requireUser, async (req, res) => {
 // Resolve a public share token to its doc — the only unauthenticated doc read.
 app.get('/api/public/:token', async (req, res) => {
   const { rows } = await pool.query(
-    `SELECT id, title FROM docs WHERE share_token = $1 AND deleted_at IS NULL`,
+    `SELECT id, title, share_access FROM docs WHERE share_token = $1 AND deleted_at IS NULL`,
     [req.params.token]
   );
   if (!rows[0]) return res.status(404).json({ error: 'not found' });
-  res.json({ id: rows[0].id, title: rows[0].title });
+  res.json({ id: rows[0].id, title: rows[0].title, access: shareAccess(rows[0].share_access) });
 });
 
 // Invite someone to the workspace. Invite-only means this is how new people
@@ -2396,7 +2404,7 @@ app.get('/api/docs/:id/comments', requireUser, async (req, res) => {
   if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
   const { rows } = await pool.query(
     `SELECT id, block_id, quote, body, author_id, author_name, parent_id, resolved,
-            created_at, edited_at
+            created_at, edited_at, guest
        FROM comments WHERE doc_id = $1 ORDER BY created_at ASC`,
     [req.params.id]
   );
@@ -2437,13 +2445,14 @@ app.post('/api/docs/:id/comments', requireUser, async (req, res) => {
 
 // Notify @-mentioned members (with access) plus the doc owner, minus the author.
 // A recipient can only be notified once per comment (mention wins over owner).
-async function createCommentNotifications({ commentId, docId, body, actor }) {
+// `mentions: false` is a guest's comment: its "@name" is text, not a summons.
+async function createCommentNotifications({ commentId, docId, body, actor, mentions = true }) {
   const doc = await pool.query('SELECT id, title FROM docs WHERE id = $1', [docId]);
   if (!doc.rows[0]) return;
   const docTitle = doc.rows[0].title || 'Untitled';
 
   // Resolve @usernames in the body against members who have access to this doc.
-  const handles = mentionHandles(body);
+  const handles = mentions ? mentionHandles(body) : [];
   const recipients = new Map(); // user_id -> { kind, email }
   if (handles.length) {
     // A member can be @-mentioned if they can access the doc: an explicit grant,
@@ -2652,6 +2661,9 @@ app.delete('/api/comments/:cid', requireUser, async (req, res) => {
   await pool.query('DELETE FROM comments WHERE id = $1 OR parent_id = $1', [req.params.cid]);
   res.json({ ok: true });
 });
+
+// Comments from guests through a public link (see guest-comments.js).
+registerGuestCommentRoutes(app, { wrap, notify: createCommentNotifications, emit });
 
 app.use(express.static(WEB_DIST));
 // Projects/tasks and the home dashboard live in their own modules — this file

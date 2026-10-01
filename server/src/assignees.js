@@ -51,8 +51,9 @@ export async function notifyAssignees(task, actor, userIds) {
       body: title,
       tag: rowId,
       // Null until someone opens the task, which is when its page is made —
-      // linkFor sends those to the dashboard rather than to /d/null.
+      // linkFor then opens the task's database rather than /d/null.
       docId: task.doc_id,
+      projectId: task.project_id,
     }).catch((e) => console.error('[push] assign:', e.message));
     if (!user.email) continue;
     await sendNotificationEmail(
@@ -77,7 +78,7 @@ export async function notifyAssignees(task, actor, userIds) {
 export async function notifyAssigneesById(taskId, actorId, userIds) {
   if (!userIds?.length) return;
   const [{ rows: task }, { rows: actor }] = await Promise.all([
-    pool.query('SELECT id, title, doc_id FROM tasks WHERE id = $1', [taskId]),
+    pool.query('SELECT id, title, doc_id, project_id FROM tasks WHERE id = $1', [taskId]),
     pool.query('SELECT id, name, email FROM users WHERE id = $1', [actorId ?? '']),
   ]);
   if (!task[0]) return;

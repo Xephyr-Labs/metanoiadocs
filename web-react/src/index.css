@@ -216,6 +216,12 @@ html.dark {
 ::highlight(mn-comment) {
   background-color: var(--comment-mark);
 }
+/* An image with an open thread: the same mark as commented text, as a frame. */
+affine-image[data-mn-commented] .resizable-img {
+  outline: 3px solid var(--comment-mark);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
 
 html,
 body,
@@ -1122,11 +1128,16 @@ affine-editor-container .mn-db { position: relative; width: 100%; margin: 10px 0
 affine-editor-container .mn-db-host { display: block; }
 
 /* metanoia:columns / metanoia:column — a row of side-by-side blocks. */
+affine-editor-container .mn-cols-frame {
+  /* The frame, not the row, carries the margin: the selection highlight is
+   * absolutely placed inside it and must cover the row and nothing else. */
+  position: relative;
+  margin: 10px 0;
+}
 affine-editor-container .mn-cols {
   display: flex;
   align-items: flex-start;
   gap: 24px;
-  margin: 10px 0;
 }
 affine-editor-container metanoia-column {
   /* The flex item is the host element; the stored share is written onto it as

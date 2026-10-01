@@ -366,7 +366,7 @@ function Preferences() {
     const { devices } = await sendTestPush().catch(() => ({ devices: 0 }));
     setTested(
       devices > 0
-        ? `Sent to ${devices} device${devices === 1 ? '' : 's'}. Nothing shown? Check your system notification settings.`
+        ? `Sent to ${devices} device${devices === 1 ? '' : 's'}. Nothing shown? Check that your system allows notifications from this browser and that Do not disturb / Focus is off — and, for alerts with the browser closed, that it may keep running in the background.`
         : 'No device is registered for background alerts on this account yet.',
     );
   };

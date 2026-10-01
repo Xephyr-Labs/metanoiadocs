@@ -68,9 +68,26 @@ export function usePendingFocus(): string | null {
 // ---- highlight painting
 let hlRoot: HTMLElement | null = null;
 let hlDocId: string | null = null;
+
+/** The rows a comment highlight is drawn from. */
+export type CommentRows = Parameters<typeof applyCommentHighlights>[0];
+/** Where they come from: the member API, or — on a public link that allows
+ *  comments — the guest one. */
+let hlLoad: (() => Promise<CommentRows>) | null = null;
+
+/** Whether this page takes comments at all — false for a read-only link, a
+ *  version preview, or before the editor has mounted. */
+export const commentsEnabled = () => !!hlDocId;
 // Live ranges (they track DOM edits) paired with their comment ids, so a
-// click can be resolved back to the comment it belongs to.
-let applied: { range: Range; id: string }[] = [];
+// click can be resolved back to the comment it belongs to. A thread on an
+// image has no text to range over; it carries the image's element instead.
+let applied: { range?: Range; el?: Element; id: string }[] = [];
+
+/** Blocks a thread hangs on as a whole rather than on a passage of text. */
+const WHOLE_BLOCK = new Set(['AFFINE-IMAGE']);
+const MARK_ATTR = 'data-mn-commented';
+/** The quote a thread on an image carries (see commentOnBlock's callers). */
+const IMAGE_LABEL = /^Image(: |$)/;
 
 /** Find `quote` inside one block element and return a Range over it. */
 function rangeForQuote(block: Element, quote: string): Range | null {
@@ -108,8 +125,23 @@ export function applyCommentHighlights(rows: { id: string; quote: string | null;
   if (!supported || !hlRoot) return;
   applied = [];
   authors = new Map(rows.map((c) => [c.id, c.author_name ?? '']));
+  hlRoot.querySelectorAll(`[${MARK_ATTR}]`).forEach((el) => el.removeAttribute(MARK_ATTR));
   for (const c of rows) {
-    if (!c.quote || c.resolved || c.parent_id) continue;
+    if (c.resolved || c.parent_id) continue;
+    // A thread on an image: mark the image itself. Checked before the quote,
+    // which for an image is only a label ("Image") and must never be searched
+    // for in the page's text.
+    const whole = c.block_id ? hlRoot.querySelector(`[data-block-id="${CSS.escape(c.block_id)}"]`) : null;
+    if (whole && WHOLE_BLOCK.has(whole.tagName)) {
+      whole.setAttribute(MARK_ATTR, '');
+      applied.push({ el: whole, id: c.id });
+      continue;
+    }
+    if (!c.quote) continue;
+    // An image's thread whose image is not on the page (deleted, or not drawn
+    // in this mode): its label is not text to look for, and searching for it
+    // would mark the first "Image" anywhere in the prose.
+    if (!whole && IMAGE_LABEL.test(c.quote)) continue;
     const quote = c.quote.replace(/\s+/g, ' ').trim();
     if (!quote) continue;
     // Prefer the anchored block; fall back to scanning every block (text may
@@ -126,7 +158,9 @@ export function applyCommentHighlights(rows: { id: string; quote: string | null;
   }
   (CSS as unknown as { highlights: Map<string, unknown> }).highlights.set(
     HL_NAME,
-    new (window as unknown as { Highlight: new (...r: Range[]) => unknown }).Highlight(...applied.map((a) => a.range)),
+    new (window as unknown as { Highlight: new (...r: Range[]) => unknown }).Highlight(
+      ...applied.flatMap((a) => (a.range ? [a.range] : [])),
+    ),
   );
   markerListeners.forEach((l) => l());
 }
@@ -146,7 +180,7 @@ export function commentMarkers(container: HTMLElement | null): CommentMarker[] {
   const base = container.getBoundingClientRect().top;
   const out: CommentMarker[] = [];
   for (const a of applied) {
-    const r = a.range.getBoundingClientRect();
+    const r = (a.range ?? a.el)!.getBoundingClientRect();
     // A collapsed rect means the range's text is no longer laid out (collapsed
     // block, switched mode) — skip rather than pile every marker at the top.
     if (!r.height) continue;
@@ -159,6 +193,17 @@ export function commentMarkers(container: HTMLElement | null): CommentMarker[] {
 export function onMarkersChanged(l: () => void): () => void {
   markerListeners.add(l);
   return () => { markerListeners.delete(l); };
+}
+
+/**
+ * Start a thread on a whole block — an image, from its toolbar. `label` is
+ * what the thread quotes, since there is no text to quote: "Image", or the
+ * image's caption when it has one.
+ */
+export function commentOnBlock(blockId: string, label: string) {
+  if (!hlDocId) return; // a public viewer or a version preview: no comments here
+  setPending({ quote: label.slice(0, 500), blockId });
+  openListeners.forEach((l) => l());
 }
 
 /** Focus a thread from outside the editor (a gutter pip). */
@@ -191,8 +236,8 @@ export function refreshCommentHighlights() {
   if (!supported || !hlDocId) return;
   if (refreshTimer) clearTimeout(refreshTimer);
   refreshTimer = setTimeout(() => {
-    if (!hlDocId) return;
-    docsApi.comments(hlDocId).then(applyCommentHighlights).catch(() => {});
+    if (!hlDocId || !hlLoad) return;
+    hlLoad().then(applyCommentHighlights).catch(() => {});
   }, 400);
 }
 
@@ -236,9 +281,15 @@ export function attachComments(
   root: HTMLElement,
   docId: string,
   onDocUpdate: (cb: () => void) => () => void,
+  load: () => Promise<CommentRows> = () => docsApi.comments(docId),
+  /** A read-only page that still takes comments (a guest on a public link).
+   *  BlockSuite draws no image toolbar there, so a click on an image offers
+   *  the floating Comment button instead. */
+  { readonly = false }: { readonly?: boolean } = {},
 ): () => void {
   hlRoot = root;
   hlDocId = docId;
+  hlLoad = load;
   // Zero out the previous doc's state immediately — otherwise its badge count
   // and gutter pips linger over the new page until the fetch below lands.
   applied = [];
@@ -247,7 +298,7 @@ export function attachComments(
   // Load once on open. The highlights, the gutter pips and the top-bar count
   // all come from this, so waiting for someone to open the comments panel
   // would mean a page with threads looks like a page without any.
-  docsApi.comments(docId).then(applyCommentHighlights).catch(() => {});
+  load().then(applyCommentHighlights).catch(() => {});
 
   // Fallback button for when BlockSuite's toolbar doesn't show (e.g. mobile).
   const btn = document.createElement('button');
@@ -272,9 +323,17 @@ export function attachComments(
     hide();
   };
 
+  // When an image's Comment button was last put up (read-only pages). The
+  // click that did it may also have cleared an old text selection, and the
+  // debounced selectionchange check would then take the button down again.
+  let imageShownAt = 0;
+
   const onSelect = () => {
     const sel = document.getSelection();
-    if (!sel || sel.isCollapsed || sel.rangeCount === 0) return hide();
+    if (!sel || sel.isCollapsed || sel.rangeCount === 0) {
+      if (Date.now() - imageShownAt < 400) return;
+      return hide();
+    }
     const range = sel.getRangeAt(0);
     const container = range.commonAncestorContainer;
     const el = container instanceof Element ? container : container.parentElement;
@@ -306,6 +365,15 @@ export function attachComments(
     // comments sheet instead made commented text impossible to edit. Phones
     // reach threads through the margin dots and the top-bar button.
     if (!applied.length || window.matchMedia('(hover: none)').matches) return;
+    // A commented image: a click on it opens its thread, like marked text.
+    const onImage = e.target instanceof Node
+      ? applied.find((a) => a.el?.contains(e.target as Node))
+      : undefined;
+    if (onImage) {
+      setFocus(onImage.id);
+      openListeners.forEach((l) => l());
+      return;
+    }
     const d = document as Document & {
       caretRangeFromPoint?: (x: number, y: number) => Range | null;
       caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
@@ -321,7 +389,7 @@ export function attachComments(
     if (!node) return;
     for (const a of applied) {
       try {
-        if (a.range.isPointInRange(node, offset)) {
+        if (a.range?.isPointInRange(node, offset)) {
           setFocus(a.id);
           openListeners.forEach((l) => l());
           return;
@@ -330,6 +398,26 @@ export function attachComments(
     }
   };
   root.addEventListener('click', onClick);
+
+  // Read-only: an image's Comment button, since its toolbar never appears.
+  const onImageClick = (e: MouseEvent) => {
+    const image = e.target instanceof Element ? e.target.closest('affine-image') : null;
+    const blockId = image?.getAttribute('data-block-id');
+    if (!image || !blockId) return;
+    const caption = image.querySelector('block-caption-editor')?.textContent?.trim();
+    // After the selection check that every mouseup schedules (10ms): a plain
+    // click leaves no text selected, and that check would hide this at once.
+    timers.push(setTimeout(() => {
+      anchor = { quote: caption ? `Image: ${caption}` : 'Image', blockId };
+      imageShownAt = Date.now();
+      const r = image.querySelector('img')?.getBoundingClientRect() ?? image.getBoundingClientRect();
+      btn.style.display = 'flex';
+      btn.style.top = `${Math.max(8, r.top + 8)}px`;
+      btn.style.left = `${Math.min(window.innerWidth - 120, r.right - 112)}px`;
+    }, 40));
+  };
+  // Capture: the image block stops its own clicks from bubbling.
+  if (readonly) root.addEventListener('click', onImageClick, true);
 
   // A long-press selection on a phone fires neither mouseup nor keyup;
   // selectionchange covers it (debounced, it fires per handle drag).
@@ -352,11 +440,13 @@ export function attachComments(
     clearTimeout(selTimer);
     document.removeEventListener('scroll', onScroll, true);
     root.removeEventListener('click', onClick);
+    root.removeEventListener('click', onImageClick, true);
     timers.forEach(clearTimeout);
     offUpdate();
     btn.remove();
     if (supported) (CSS as unknown as { highlights: Map<string, unknown> }).highlights.delete(HL_NAME);
-    if (hlRoot === root) { hlRoot = null; hlDocId = null; applied = []; }
+    root.querySelectorAll(`[${MARK_ATTR}]`).forEach((el) => el.removeAttribute(MARK_ATTR));
+    if (hlRoot === root) { hlRoot = null; hlDocId = null; hlLoad = null; applied = []; }
     setPending(null);
     setFocus(null);
   };

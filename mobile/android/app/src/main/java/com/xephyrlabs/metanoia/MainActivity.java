@@ -1,5 +1,8 @@
 package com.xephyrlabs.metanoia;
 
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.os.Build;
 import android.os.Bundle;
 import android.webkit.CookieManager;
 import com.getcapacitor.BridgeActivity;
@@ -19,8 +22,12 @@ import org.json.JSONObject;
  */
 public class MainActivity extends BridgeActivity {
 
+    /** Must match ALERTS_CHANNEL in server/src/fcm.js. */
+    static final String ALERTS_CHANNEL = "metanoia_alerts";
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        createAlertsChannel();
         registerPlugin(ServerPlugin.class);
         String server = ServerPlugin.saved(this);
         if (server != null) {
@@ -50,6 +57,25 @@ public class MainActivity extends BridgeActivity {
         // kills a backgrounded app without warning — which signed people out
         // whenever it happened between the two. Save the session on the way out.
         CookieManager.getInstance().flush();
+    }
+
+    /**
+     * The channel every alert is posted to, at high importance so it pops up
+     * over whatever is on screen and makes a sound. Without one FCM uses its
+     * own fallback channel at default importance, where a mention arrives
+     * silently in the shade and goes unnoticed until the app is next opened.
+     * Creating a channel that already exists is a no-op, and once made its
+     * importance belongs to the person — so this never overrides their choice.
+     */
+    private void createAlertsChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
+        NotificationManager manager = getSystemService(NotificationManager.class);
+        if (manager == null) return;
+        NotificationChannel channel = new NotificationChannel(
+            ALERTS_CHANNEL, "Mentions and assignments", NotificationManager.IMPORTANCE_HIGH);
+        channel.setDescription("Mentions, comments, assigned tasks and reminders");
+        channel.enableVibration(true);
+        manager.createNotificationChannel(channel);
     }
 
     private String readAsset(String name) throws Exception {

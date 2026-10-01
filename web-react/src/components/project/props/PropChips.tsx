@@ -161,8 +161,20 @@ function chipFor(
       // of every task that never touched the property.
       return value ? <Chip color="green" title={prop.label}>✓ {prop.label}</Chip> : null;
     case 'person': {
-      const u = users?.find((x) => x.id === value);
-      return u ? <Chip color="blue" title={`${prop.label}: ${u.name || u.username}`}>{u.name || u.username}</Chip> : null;
+      // A list now; a value saved before reviewers could be several people is
+      // a single id.
+      const ids = Array.isArray(value) ? value : value ? [value] : [];
+      const people = ids
+        .map((id) => users?.find((x) => x.id === id))
+        .filter((u): u is NonNullable<typeof u> => !!u);
+      if (!people.length) return null;
+      return (
+        <>
+          {people.map((u) => (
+            <Chip key={u.id} color="blue" title={`${prop.label}: ${u.name || u.username}`}>{u.name || u.username}</Chip>
+          ))}
+        </>
+      );
     }
     case 'number':
       return typeof value === 'number' ? <Chip color="gray" title={`${prop.label}: ${value}`}>{value}</Chip> : null;

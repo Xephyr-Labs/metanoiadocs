@@ -22,6 +22,9 @@ async function req(path: string, opts: RequestInit = {}): Promise<any> {
   return ct.includes('application/json') ? res.json() : res.text();
 }
 
+/** What a public link lets its holder do: read, or read and comment under a name. */
+export type ShareAccess = 'view' | 'comment';
+
 export interface TagRow {
   id: string;
   name: string;
@@ -137,6 +140,8 @@ export interface CommentRow {
   created_at: string;
   /** Set once the author has rewritten it; null while untouched. */
   edited_at: string | null;
+  /** Written through a public link by someone with no account. */
+  guest?: boolean;
 }
 
 export interface VersionRow {
@@ -380,8 +385,10 @@ export const docsApi = {
   love: (id: string, loved: boolean): Promise<{ count: number; loved: boolean }> =>
     req(`/docs/${id}/love`, { method: 'PUT', body: JSON.stringify({ loved }) }),
 
-  publicGet: (id: string): Promise<{ token: string | null }> => req(`/docs/${id}/public`),
-  publicEnable: (id: string): Promise<{ token: string }> => req(`/docs/${id}/public`, { method: 'POST' }),
+  publicGet: (id: string): Promise<{ token: string | null; access: ShareAccess }> => req(`/docs/${id}/public`),
+  /** Turn the link on; with `access`, also set what it allows. */
+  publicEnable: (id: string, access?: ShareAccess): Promise<{ token: string; access: ShareAccess }> =>
+    req(`/docs/${id}/public`, { method: 'POST', body: JSON.stringify(access ? { access } : {}) }),
   publicDisable: (id: string) => req(`/docs/${id}/public`, { method: 'DELETE' }),
 
   search: (q: string): Promise<SearchRow[]> => req(`/search?q=${encodeURIComponent(q)}`),

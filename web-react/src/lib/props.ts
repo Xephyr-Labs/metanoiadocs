@@ -29,7 +29,7 @@ export function formatPropValue(
     case 'multi_select':
       return selectedOptions(prop, value).map((o) => o.label).join(', ');
     case 'person':
-      return users.find((u) => u.id === value)?.name ?? String(value);
+      return ids(value).map((id) => users.find((u) => u.id === id)?.name ?? id).join(', ');
     default:
       return String(value);
   }

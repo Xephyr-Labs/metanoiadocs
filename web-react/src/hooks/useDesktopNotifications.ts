@@ -8,6 +8,31 @@ import { useWorkspace } from '../store/workspace';
 /** How often the inbox is re-read while the app is open. */
 const POLL_MS = 60_000;
 
+/** Inbox rows the service worker has already shown from a push, this session. */
+const pushed = new Set<string>();
+
+async function registration(): Promise<ServiceWorkerRegistration | null> {
+  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return null;
+  return (await navigator.serviceWorker.getRegistration().catch(() => undefined)) ?? null;
+}
+
+/**
+ * Whether this alert is already on screen or was already shown.
+ *
+ * A pushed alert and the poll's own both carry the row id as their tag. When
+ * the push got there first, raising it again either stacks a second alert (if
+ * the first was dismissed) or silently replaces the first — and on Windows a
+ * replaced toast is pulled off the screen, so the alert someone was about to
+ * read vanishes. The poll is the fallback for a device push cannot reach; it
+ * should never compete with a push that worked.
+ */
+async function alreadyShown(rowId: string, reg: ServiceWorkerRegistration | null): Promise<boolean> {
+  if (pushed.has(rowId)) return true;
+  if (!reg?.getNotifications) return false;
+  const showing = await reg.getNotifications({ tag: rowId }).catch(() => []);
+  return showing.length > 0;
+}
+
 /**
  * Raise the alert for one inbox row.
  *
@@ -62,8 +87,32 @@ export function useDesktopNotifications(): void {
 
   useEffect(() => {
     let alive = true;
+    // The first read of this page session. Anything already in the inbox then
+    // arrived while no tab was open: a device with a push subscription was
+    // shown it at the time, and replaying the lot the moment the app opens is
+    // what made alerts look like they "only arrive when I open the app".
+    let first = true;
 
+    const onMessage = (e: MessageEvent) => {
+      const d = e.data as { type?: string; tag?: string } | null;
+      if (d?.type === 'mn-push-shown' && d.tag) pushed.add(d.tag);
+    };
+    navigator.serviceWorker?.addEventListener('message', onMessage);
+
+    // One read at a time: the interval and a tab coming back into view can
+    // land together, and two passes over the same unseen rows raise each twice.
+    let running = false;
     const tick = async () => {
+      if (running) return;
+      running = true;
+      try {
+        await read();
+      } finally {
+        running = false;
+      }
+    };
+
+    const read = async () => {
       const rows = await docsApi.inbox().catch(() => null);
       if (!alive || !rows) return;
       refreshUnread();
@@ -75,7 +124,12 @@ export function useDesktopNotifications(): void {
       if (!canNotify) return;
 
       const seen = readSeen();
-      for (const row of unseen(rows, seen)) {
+      const reg = await registration();
+      const backlog = first && !!(await reg?.pushManager?.getSubscription().catch(() => null));
+      first = false;
+      if (!alive) return;
+      for (const row of backlog ? [] : unseen(rows, seen)) {
+        if (await alreadyShown(row.id, reg)) continue;
         raise(row, selfId, () => {
           if (row.kind === 'digest') {
             ws.openTasks();
@@ -111,6 +165,7 @@ export function useDesktopNotifications(): void {
       alive = false;
       clearInterval(timer);
       document.removeEventListener('visibilitychange', onVisible);
+      navigator.serviceWorker?.removeEventListener('message', onMessage);
     };
     // ws is rebuilt on every store change; the handlers it carries are stable
     // enough for a click, and re-subscribing each render would reset the timer.

@@ -24,7 +24,7 @@ import { IndexeddbPersistence } from 'y-indexeddb';
 import { Signal } from '@preact/signals-core';
 import { avatarFor } from '../lib/avatar';
 import { attachPresence, primeRemoteSelections } from './presence';
-import { attachComments } from './comments';
+import { attachComments, type CommentRows } from './comments';
 import { takePendingSeed } from './pendingSeed';
 import { docPlainText } from './docText';
 import { attachMermaidPreviews } from './mermaidPreview';
@@ -35,6 +35,8 @@ import { attachLinkedDocMenu } from './linkedDocMenu';
 import { missingDocMetas } from './docMetas';
 import { blockLinkExtensions } from './blockLinks';
 import { attachImageAlign } from './imageAlign';
+import { attachBlockGaps } from './blockGaps';
+import { attachFileDrop } from './fileDrop';
 import { imageToolbarExtensions } from './imageToolbar';
 import { pageViewportExtension } from './pageViewport';
 import { attachCalloutPanels, calloutExtensions } from './callout';
@@ -103,6 +105,9 @@ interface MountArgs {
   mode: 'page' | 'edgeless';
   userName: string;
   share?: string; // public read-only share token
+  /** On a public link that allows comments: where the page's comments come
+   *  from. The page stays read-only; this only switches the comment layer on. */
+  guestComments?: () => Promise<CommentRows>;
   /** Render an archived version instead of the live document: the snapshot's
    *  Yjs state is applied to a detached doc with no provider and no local
    *  cache behind it, and the editor is read-only. Nothing is ever written
@@ -136,7 +141,7 @@ function docModeService(editor: { mode: string }, mode: 'page' | 'edgeless') {
 
 export async function mountEditor(
   root: HTMLElement,
-  { docId, title, mode, userName, share, snapshot, onTitle, onSaved, pages, createPage, onOpenDoc, onRemoteRewrite }: MountArgs,
+  { docId, title, mode, userName, share, guestComments, snapshot, onTitle, onSaved, pages, createPage, onOpenDoc, onRemoteRewrite }: MountArgs,
 ) {
   installEffects();
   chartEffects(); // register the metanoia:chart custom elements once
@@ -443,14 +448,17 @@ export async function mountEditor(
     provider.on('synced', () => primeRemoteSelections(awareness));
   }
 
-  // Inline comments: selection button + quote highlights. Not for public
-  // viewers (comments API needs a member session).
-  const detachComments = share || snapshot
+  // Inline comments: selection button + quote highlights. Members always; a
+  // public viewer only when the link allows comments, read from the guest API.
+  const onDocUpdate = (cb: () => void) => {
+    doc.spaceDoc.on('update', cb);
+    return () => doc.spaceDoc.off('update', cb);
+  };
+  const detachComments = snapshot
     ? null
-    : attachComments(editor, docId, (cb) => {
-        doc.spaceDoc.on('update', cb);
-        return () => doc.spaceDoc.off('update', cb);
-      });
+    : share
+      ? (guestComments ? attachComments(editor, docId, onDocUpdate, guestComments, { readonly: true }) : null)
+      : attachComments(editor, docId, onDocUpdate);
 
   // Clicking a reference chip opens that page in the app; BlockSuite's own
   // handler would look for the doc in this collection and find nothing.
@@ -484,6 +492,17 @@ export async function mountEditor(
     store: store as unknown as Parameters<typeof attachColumns>[0]['store'],
     onChange: (cb) => { doc.spaceDoc.on('update', cb); return () => doc.spaceDoc.off('update', cb); },
   });
+
+  // A click in the gap above or below an image opens a line there, instead of
+  // sending the caret to the top of the page (see blockGaps.ts).
+  const detachBlockGaps = attachBlockGaps(editor as unknown as Parameters<typeof attachBlockGaps>[0]);
+
+  // A file dropped in the margin or under the last line lands where it was
+  // dropped, not at the end of the page (see fileDrop.ts). Not for viewers:
+  // nothing can be dropped into a read-only page.
+  const detachFileDrop = share || snapshot
+    ? null
+    : attachFileDrop(editor as unknown as Parameters<typeof attachFileDrop>[0]);
 
   // Paint each callout's stored panel type onto the DOM (see callout.ts).
   const detachCalloutPanels = attachCalloutPanels({
@@ -581,6 +600,8 @@ export async function mountEditor(
       try { detachLinkedDocMenu?.(); } catch { /* noop */ }
       try { detachImageAlign(); } catch { /* noop */ }
       try { detachColumns(); } catch { /* noop */ }
+      try { detachBlockGaps(); } catch { /* noop */ }
+      try { detachFileDrop?.(); } catch { /* noop */ }
       try { detachCalloutPanels(); } catch { /* noop */ }
       try { detachMermaid(); } catch { /* noop */ }
       try { detachMarkdownPaste?.(); } catch { /* noop */ }

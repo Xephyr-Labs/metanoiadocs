@@ -420,20 +420,33 @@ export function TaskTable({
 
   return (
     <div className={cn('scrollarea flex flex-col', auto ? 'min-w-0' : 'h-full overflow-hidden')}>
-      <div className="flex items-center justify-end gap-2 px-4 pt-3">
-        <SegmentedControl
-          aria-label="Long text"
-          value={wrap ? 'wrap' : 'clip'}
-          onChange={(v) => pick(v === 'wrap')}
-          segments={[{ value: 'clip', label: 'Clip' }, { value: 'wrap', label: 'Wrap' }]}
-        />
-      </div>
+      {/* The full screen's toolbar. A table on a page is a block among
+          paragraphs and keeps the reader's own choice without the control —
+          another row of chrome above every inline database was what made it
+          read as a widget dropped into the page rather than part of it. */}
+      {!auto && (
+        <div className="flex items-center justify-end gap-2 px-4 pt-3">
+          <SegmentedControl
+            aria-label="Long text"
+            value={wrap ? 'wrap' : 'clip'}
+            onChange={(v) => pick(v === 'wrap')}
+            segments={[{ value: 'clip', label: 'Clip' }, { value: 'wrap', label: 'Wrap' }]}
+          />
+        </div>
+      )}
 
-      {/* overflow-x only when the grid is allowed to grow: an embedded table
-          that scrolls vertically inside the page is the second scrollbar
-          nobody asked for. */}
-      <div className={cn('scrollarea p-4', auto ? 'overflow-x-auto' : 'flex-1 overflow-auto')}>
-      <table className="w-full border-collapse text-sm">
+      {/* Embedded, the grid scrolls sideways only, and says so for both axes:
+          `overflow-x: auto` alone quietly makes the box a vertical scroller
+          too, which is the second scrollbar people saw on a page and the
+          reason the column names never stuck while the page scrolled. Flush,
+          no padding: the first column lines up with the text above it. */}
+      <div className={cn('scrollarea', auto ? 'overflow-x-auto overflow-y-hidden pb-1' : 'flex-1 overflow-auto p-4')}>
+      <table
+        className={cn('border-collapse text-sm', auto ? 'w-auto' : 'w-full')}
+        // At least the text column wide, wider only when the columns need it —
+        // set by the embedding block, which knows how wide the text is.
+        style={auto ? { minWidth: 'var(--mn-db-text, 100%)' } : undefined}
+      >
         <thead>
           {/* sticky: the column names are the only thing telling you what a
               value means, and they used to scroll away at row twenty. */}

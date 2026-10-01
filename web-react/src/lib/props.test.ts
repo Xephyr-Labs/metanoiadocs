@@ -22,6 +22,13 @@ describe('formatPropValue', () => {
     expect(formatPropValue(p, 'u9', [{ id: 'u1', name: 'Ada' }])).toBe('u9');
   });
 
+  it('lists every person when several are set', () => {
+    const p = prop({ type: 'person' });
+    const users = [{ id: 'u1', name: 'Ada' }, { id: 'u2', name: 'Grace' }];
+    expect(formatPropValue(p, ['u1', 'u2'], users)).toBe('Ada, Grace');
+    expect(formatPropValue(p, [], users)).toBe('');
+  });
+
   it('shows an empty string for a missing value', () => {
     expect(formatPropValue(prop({}), null)).toBe('');
     expect(formatPropValue(prop({ type: 'multi_select' }), undefined)).toBe('');

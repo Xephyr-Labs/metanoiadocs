@@ -237,12 +237,15 @@ export function PropertyValue({ prop, users, value, onChange, onEditOptions, dan
     // The same picker the built-in Assignees column uses: chips, a search, a
     // "+". A native select here was the one control in the grid the platform
     // drew, so it agreed with nothing around it in either theme.
+    //
+    // Several people, like Assignees: a task can have more than one reviewer.
+    // A value stored before that is a bare id, which asAssignees still reads.
     case 'person':
       return (
         <AssigneePicker
           assignees={asAssignees(value, users)}
           users={users}
-          onChange={(ids) => onChange(prop.id === 'sys:assignees' ? ids : ids[ids.length - 1] ?? null)}
+          onChange={(ids) => onChange(prop.id === 'sys:assignees' ? ids : ids.length ? ids : null)}
         />
       );
     // Both go through the same menu: it is the only place an option can be
