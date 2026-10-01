@@ -193,15 +193,17 @@ export function attachColumns({
     const id = blockIdAt(node);
     return id ? store.getModelById(id) : null;
   };
-  const claimCrossColumn = () => {
+  /** True when it turned the selection into the row's. */
+  const claimCrossColumn = (): boolean => {
     const selection = document.getSelection();
-    if (!selection || selection.isCollapsed || !selection.rangeCount) return;
+    if (!selection || selection.isCollapsed || !selection.rangeCount) return false;
     const range = selection.getRangeAt(0);
     const row = crossColumnRow(store, modelAt(range.startContainer), modelAt(range.endContainer));
     const api = editor.std?.selection;
-    if (!row || !api) return;
+    if (!row || !api) return false;
     selection.removeAllRanges();
     api.setGroup('note', [api.create(BlockSelection, { blockId: row.id })]);
+    return true;
   };
   // ── a box drawn over a row ─────────────────────────────────────────────────
   // The editor's box selection only picks blocks that sit directly in the page,
@@ -212,8 +214,14 @@ export function attachColumns({
   // shift the box.
   let pressed: { x: number; y: number } | null = null;
   const onPointerDown = (event: PointerEvent) => {
+    // Only a box started on the page: a drag elsewhere (the sidebar, a panel
+    // resize) must not reshape a row selection that is merely still standing.
+    if (event.button !== 0 || !(event.target instanceof Node) || !editor.contains(event.target)) {
+      pressed = null;
+      return;
+    }
     const at = editor.getBoundingClientRect();
-    pressed = event.button === 0 ? { x: event.clientX - at.left, y: event.clientY - at.top } : null;
+    pressed = { x: event.clientX - at.left, y: event.clientY - at.top };
   };
   const boxOf = (element: Element): Box => {
     const r = element.getBoundingClientRect();
@@ -258,7 +266,9 @@ export function attachColumns({
   const onPointerUp = (event: PointerEvent) => {
     const released = { x: event.clientX, y: event.clientY };
     requestAnimationFrame(() => {
-      claimCrossColumn();
+      // A text drag across the gutter was just made the row on purpose; the
+      // box rule below would undo that straight away.
+      if (claimCrossColumn()) { pressed = null; return; }
       narrowBoxSelection(released);
     });
   };

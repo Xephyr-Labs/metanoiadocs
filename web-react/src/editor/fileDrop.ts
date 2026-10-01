@@ -45,14 +45,22 @@ function scrollPane(element: Element): Element {
 const carriesFiles = (event: DragEvent) => !!event.dataTransfer?.types.includes('Files');
 
 export function attachFileDrop(editor: Element & { std?: StdLike }): () => void {
+  // Found once, on the first file drag: dragover fires every few dozen ms, and
+  // walking the ancestors through getComputedStyle each time is wasted layout.
+  let pane: Element | null = null;
   const forward = (event: DragEvent) => {
     // Our own re-sent copy is untrusted; let it through to BlockSuite.
     if (!event.isTrusted || !carriesFiles(event)) return;
     const std = editor.std;
     if (!std || !(event.target instanceof Node)) return;
+    // A drop zone of its own (a page or task's File property, which sits
+    // above the first block or beside the editor) takes its files itself.
+    const targetEl = event.target instanceof Element ? event.target : event.target.parentElement;
+    if (targetEl?.closest('[data-file-drop]')) return;
     // Page mode only: on the canvas a drop goes where it lands.
     if (!editor.querySelector('affine-page-root')) return;
-    if (!scrollPane(editor).contains(event.target)) return;
+    pane ??= scrollPane(editor);
+    if (!pane.contains(event.target)) return;
 
     const note = std.store.root?.children.find((c) => c.flavour === 'affine:note');
     const noteElement = note && std.view.getBlock(note.id);

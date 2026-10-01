@@ -148,6 +148,10 @@ export function attachBlockGaps(editor: Element & { std?: StdLike }): () => void
     if (!std || std.store.readonly || event.key !== 'Enter' || event.isComposing) return;
     if (event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return;
     if (event.target instanceof Node && !editor.contains(event.target) && event.target !== document.body) return;
+    // Typing into a field inside a card (an inline table's cell, a caption)
+    // can leave the card itself block-selected; that Enter belongs to the field.
+    if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement
+      || event.target instanceof HTMLSelectElement) return;
     const chosen = std.selection.value;
     if (chosen.length !== 1 || !chosen[0].blockId || chosen[0].type === 'text') return;
     const card = std.store.getModelById(chosen[0].blockId);

@@ -169,7 +169,13 @@ export function registerGuestCommentRoutes(app, { wrap, notify, emit }) {
   app.delete('/api/public/:token/comments/:cid', wrap(async (req, res) => {
     const c = await own(req, res);
     if (!c) return;
-    await pool.query('DELETE FROM comments WHERE id = $1 OR parent_id = $1', [c.id]);
+    // A thread's replies are other people's words. A member's delete takes the
+    // replies with it because only the author or the page's owner may do it; a
+    // guest may only ever remove what they wrote, so a thread someone has
+    // answered stays.
+    const { rowCount: replies } = await pool.query('SELECT 1 FROM comments WHERE parent_id = $1 LIMIT 1', [c.id]);
+    if (replies) return res.status(409).json({ error: 'Someone has replied to this comment, so it can no longer be deleted.' });
+    await pool.query('DELETE FROM comments WHERE id = $1', [c.id]);
     res.json({ ok: true });
   }));
 }

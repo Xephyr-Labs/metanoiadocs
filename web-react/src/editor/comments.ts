@@ -86,6 +86,8 @@ let applied: { range?: Range; el?: Element; id: string }[] = [];
 /** Blocks a thread hangs on as a whole rather than on a passage of text. */
 const WHOLE_BLOCK = new Set(['AFFINE-IMAGE']);
 const MARK_ATTR = 'data-mn-commented';
+/** The quote a thread on an image carries (see commentOnBlock's callers). */
+const IMAGE_LABEL = /^Image(: |$)/;
 
 /** Find `quote` inside one block element and return a Range over it. */
 function rangeForQuote(block: Element, quote: string): Range | null {
@@ -136,6 +138,10 @@ export function applyCommentHighlights(rows: { id: string; quote: string | null;
       continue;
     }
     if (!c.quote) continue;
+    // An image's thread whose image is not on the page (deleted, or not drawn
+    // in this mode): its label is not text to look for, and searching for it
+    // would mark the first "Image" anywhere in the prose.
+    if (!whole && IMAGE_LABEL.test(c.quote)) continue;
     const quote = c.quote.replace(/\s+/g, ' ').trim();
     if (!quote) continue;
     // Prefer the anchored block; fall back to scanning every block (text may
@@ -317,9 +323,17 @@ export function attachComments(
     hide();
   };
 
+  // When an image's Comment button was last put up (read-only pages). The
+  // click that did it may also have cleared an old text selection, and the
+  // debounced selectionchange check would then take the button down again.
+  let imageShownAt = 0;
+
   const onSelect = () => {
     const sel = document.getSelection();
-    if (!sel || sel.isCollapsed || sel.rangeCount === 0) return hide();
+    if (!sel || sel.isCollapsed || sel.rangeCount === 0) {
+      if (Date.now() - imageShownAt < 400) return;
+      return hide();
+    }
     const range = sel.getRangeAt(0);
     const container = range.commonAncestorContainer;
     const el = container instanceof Element ? container : container.parentElement;
@@ -395,6 +409,7 @@ export function attachComments(
     // click leaves no text selected, and that check would hide this at once.
     timers.push(setTimeout(() => {
       anchor = { quote: caption ? `Image: ${caption}` : 'Image', blockId };
+      imageShownAt = Date.now();
       const r = image.querySelector('img')?.getBoundingClientRect() ?? image.getBoundingClientRect();
       btn.style.display = 'flex';
       btn.style.top = `${Math.max(8, r.top + 8)}px`;

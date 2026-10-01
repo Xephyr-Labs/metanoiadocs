@@ -43,6 +43,9 @@ test('coercePropValue stores what the type says and rejects the rest', () => {
   assert.deepEqual(coercePropValue('person', ['u1', 'u2', 'u1']), ['u1', 'u2']);
   assert.deepEqual(coercePropValue('person', 'u1'), ['u1']);
   assert.equal(coercePropValue('person', []), null);
+  // Not an id at all is refused, not taken as "clear the reviewers".
+  assert.equal(coercePropValue('person', 42), undefined);
+  assert.equal(coercePropValue('person', ['u1', { id: 'u2' }]), undefined);
   assert.equal(coercePropValue('url', 'javascript:alert(1)'), undefined);
   assert.equal(coercePropValue('url', 'https://x.dev'), 'https://x.dev');
   assert.equal(coercePropValue('text', null), null);

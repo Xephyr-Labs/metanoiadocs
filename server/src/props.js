@@ -146,9 +146,11 @@ export function coercePropValue(type, value) {
       // reviewer. A bare id is still accepted — that is what every stored
       // value written before this looked like, and what a board column drop
       // or an older client still sends.
-      const ids = (Array.isArray(value) ? value : [value])
-        .filter((v) => typeof v === 'string' && v)
-        .map((v) => v.slice(0, 64));
+      const list = Array.isArray(value) ? value : [value];
+      // Something that is not an id at all is a bad request, not "clear it":
+      // null is the one way to empty the property.
+      if (list.some((v) => typeof v !== 'string')) return undefined;
+      const ids = list.filter(Boolean).map((v) => v.slice(0, 64));
       const unique = [...new Set(ids)].slice(0, 50);
       return unique.length ? unique : null;
     }
