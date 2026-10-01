@@ -69,8 +69,13 @@ export function usePendingFocus(): string | null {
 let hlRoot: HTMLElement | null = null;
 let hlDocId: string | null = null;
 // Live ranges (they track DOM edits) paired with their comment ids, so a
-// click can be resolved back to the comment it belongs to.
-let applied: { range: Range; id: string }[] = [];
+// click can be resolved back to the comment it belongs to. A thread on an
+// image has no text to range over; it carries the image's element instead.
+let applied: { range?: Range; el?: Element; id: string }[] = [];
+
+/** Blocks a thread hangs on as a whole rather than on a passage of text. */
+const WHOLE_BLOCK = new Set(['AFFINE-IMAGE']);
+const MARK_ATTR = 'data-mn-commented';
 
 /** Find `quote` inside one block element and return a Range over it. */
 function rangeForQuote(block: Element, quote: string): Range | null {
@@ -108,8 +113,19 @@ export function applyCommentHighlights(rows: { id: string; quote: string | null;
   if (!supported || !hlRoot) return;
   applied = [];
   authors = new Map(rows.map((c) => [c.id, c.author_name ?? '']));
+  hlRoot.querySelectorAll(`[${MARK_ATTR}]`).forEach((el) => el.removeAttribute(MARK_ATTR));
   for (const c of rows) {
-    if (!c.quote || c.resolved || c.parent_id) continue;
+    if (c.resolved || c.parent_id) continue;
+    // A thread on an image: mark the image itself. Checked before the quote,
+    // which for an image is only a label ("Image") and must never be searched
+    // for in the page's text.
+    const whole = c.block_id ? hlRoot.querySelector(`[data-block-id="${CSS.escape(c.block_id)}"]`) : null;
+    if (whole && WHOLE_BLOCK.has(whole.tagName)) {
+      whole.setAttribute(MARK_ATTR, '');
+      applied.push({ el: whole, id: c.id });
+      continue;
+    }
+    if (!c.quote) continue;
     const quote = c.quote.replace(/\s+/g, ' ').trim();
     if (!quote) continue;
     // Prefer the anchored block; fall back to scanning every block (text may
@@ -126,7 +142,9 @@ export function applyCommentHighlights(rows: { id: string; quote: string | null;
   }
   (CSS as unknown as { highlights: Map<string, unknown> }).highlights.set(
     HL_NAME,
-    new (window as unknown as { Highlight: new (...r: Range[]) => unknown }).Highlight(...applied.map((a) => a.range)),
+    new (window as unknown as { Highlight: new (...r: Range[]) => unknown }).Highlight(
+      ...applied.flatMap((a) => (a.range ? [a.range] : [])),
+    ),
   );
   markerListeners.forEach((l) => l());
 }
@@ -146,7 +164,7 @@ export function commentMarkers(container: HTMLElement | null): CommentMarker[] {
   const base = container.getBoundingClientRect().top;
   const out: CommentMarker[] = [];
   for (const a of applied) {
-    const r = a.range.getBoundingClientRect();
+    const r = (a.range ?? a.el)!.getBoundingClientRect();
     // A collapsed rect means the range's text is no longer laid out (collapsed
     // block, switched mode) — skip rather than pile every marker at the top.
     if (!r.height) continue;
@@ -159,6 +177,17 @@ export function commentMarkers(container: HTMLElement | null): CommentMarker[] {
 export function onMarkersChanged(l: () => void): () => void {
   markerListeners.add(l);
   return () => { markerListeners.delete(l); };
+}
+
+/**
+ * Start a thread on a whole block — an image, from its toolbar. `label` is
+ * what the thread quotes, since there is no text to quote: "Image", or the
+ * image's caption when it has one.
+ */
+export function commentOnBlock(blockId: string, label: string) {
+  if (!hlDocId) return; // a public viewer or a version preview: no comments here
+  setPending({ quote: label.slice(0, 500), blockId });
+  openListeners.forEach((l) => l());
 }
 
 /** Focus a thread from outside the editor (a gutter pip). */
@@ -306,6 +335,15 @@ export function attachComments(
     // comments sheet instead made commented text impossible to edit. Phones
     // reach threads through the margin dots and the top-bar button.
     if (!applied.length || window.matchMedia('(hover: none)').matches) return;
+    // A commented image: a click on it opens its thread, like marked text.
+    const onImage = e.target instanceof Node
+      ? applied.find((a) => a.el?.contains(e.target as Node))
+      : undefined;
+    if (onImage) {
+      setFocus(onImage.id);
+      openListeners.forEach((l) => l());
+      return;
+    }
     const d = document as Document & {
       caretRangeFromPoint?: (x: number, y: number) => Range | null;
       caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
@@ -321,7 +359,7 @@ export function attachComments(
     if (!node) return;
     for (const a of applied) {
       try {
-        if (a.range.isPointInRange(node, offset)) {
+        if (a.range?.isPointInRange(node, offset)) {
           setFocus(a.id);
           openListeners.forEach((l) => l());
           return;
@@ -356,6 +394,7 @@ export function attachComments(
     offUpdate();
     btn.remove();
     if (supported) (CSS as unknown as { highlights: Map<string, unknown> }).highlights.delete(HL_NAME);
+    root.querySelectorAll(`[${MARK_ATTR}]`).forEach((el) => el.removeAttribute(MARK_ATTR));
     if (hlRoot === root) { hlRoot = null; hlDocId = null; applied = []; }
     setPending(null);
     setFocus(null);

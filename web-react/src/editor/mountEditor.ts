@@ -35,6 +35,8 @@ import { attachLinkedDocMenu } from './linkedDocMenu';
 import { missingDocMetas } from './docMetas';
 import { blockLinkExtensions } from './blockLinks';
 import { attachImageAlign } from './imageAlign';
+import { attachBlockGaps } from './blockGaps';
+import { attachFileDrop } from './fileDrop';
 import { imageToolbarExtensions } from './imageToolbar';
 import { pageViewportExtension } from './pageViewport';
 import { attachCalloutPanels, calloutExtensions } from './callout';
@@ -485,6 +487,17 @@ export async function mountEditor(
     onChange: (cb) => { doc.spaceDoc.on('update', cb); return () => doc.spaceDoc.off('update', cb); },
   });
 
+  // A click in the gap above or below an image opens a line there, instead of
+  // sending the caret to the top of the page (see blockGaps.ts).
+  const detachBlockGaps = attachBlockGaps(editor as unknown as Parameters<typeof attachBlockGaps>[0]);
+
+  // A file dropped in the margin or under the last line lands where it was
+  // dropped, not at the end of the page (see fileDrop.ts). Not for viewers:
+  // nothing can be dropped into a read-only page.
+  const detachFileDrop = share || snapshot
+    ? null
+    : attachFileDrop(editor as unknown as Parameters<typeof attachFileDrop>[0]);
+
   // Paint each callout's stored panel type onto the DOM (see callout.ts).
   const detachCalloutPanels = attachCalloutPanels({
     store: store as unknown as Parameters<typeof attachCalloutPanels>[0]['store'],
@@ -581,6 +594,8 @@ export async function mountEditor(
       try { detachLinkedDocMenu?.(); } catch { /* noop */ }
       try { detachImageAlign(); } catch { /* noop */ }
       try { detachColumns(); } catch { /* noop */ }
+      try { detachBlockGaps(); } catch { /* noop */ }
+      try { detachFileDrop?.(); } catch { /* noop */ }
       try { detachCalloutPanels(); } catch { /* noop */ }
       try { detachMermaid(); } catch { /* noop */ }
       try { detachMarkdownPaste?.(); } catch { /* noop */ }

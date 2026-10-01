@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  addColumn, columnOf, deleteColumn, ensureTrailingParagraph, evenWidths,
+  addColumn, blocksUnderBox, columnOf, deleteColumn, ensureTrailingParagraph, evenWidths,
   crossColumnRow, exitColumn, MAX_COLUMNS, rowOf, setColumnCount, type OpsStore, type TextModelLike,
 } from './columns-ops';
 import { COLUMN_FLAVOUR, COLUMNS_FLAVOUR } from './columns-model';
@@ -252,5 +252,31 @@ describe('rowOf / columnOf', () => {
     const loose = store.add('affine:paragraph', {}, note);
     expect(rowOf(store, loose)).toBeNull();
     expect(columnOf(store, loose)).toBeNull();
+  });
+});
+
+describe('blocksUnderBox', () => {
+  const row = { left: 0, top: 100, right: 600, bottom: 300 };
+  const blocks = [
+    { id: 'l1', box: { left: 0, top: 100, right: 280, bottom: 150 } },
+    { id: 'l2', box: { left: 0, top: 160, right: 280, bottom: 210 } },
+    { id: 'r1', box: { left: 320, top: 100, right: 600, bottom: 150 } },
+    { id: 'r2', box: { left: 320, top: 160, right: 600, bottom: 210 } },
+  ];
+
+  it('keeps the row when the box covers it top to bottom', () => {
+    expect(blocksUnderBox(row, blocks, { left: 400, top: 50, right: 700, bottom: 350 })).toBeNull();
+  });
+
+  it('takes only the blocks of the column the box was drawn down', () => {
+    expect(blocksUnderBox(row, blocks, { left: 350, top: 90, right: 700, bottom: 200 })).toEqual(['r1', 'r2']);
+  });
+
+  it('takes blocks from both columns when the box crosses the gutter', () => {
+    expect(blocksUnderBox(row, blocks, { left: 100, top: 140, right: 400, bottom: 170 })).toEqual(['l1', 'l2', 'r1', 'r2']);
+  });
+
+  it('drops the row when the box only clipped its empty edge', () => {
+    expect(blocksUnderBox(row, blocks, { left: 100, top: 250, right: 400, bottom: 290 })).toEqual([]);
   });
 });

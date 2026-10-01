@@ -21,10 +21,12 @@
 // `group()`), so this is a replacement rather than a second button.
 import { ActionPlacement, ToolbarModuleExtension, type ToolbarContext } from '@blocksuite/affine/shared/services';
 import { BlockFlavourIdentifier } from '@blocksuite/affine/std';
-import { DownloadIcon } from '@blocksuite/icons/lit';
+import { CommentIcon, DownloadIcon } from '@blocksuite/icons/lit';
+import { commentOnBlock } from './comments';
 import { imageAlignActions } from './imageAlign';
 
 interface ImageModelLike {
+  id?: string;
   props?: { sourceId?: string; caption?: string };
   store?: { blobSync?: { get(key: string): Promise<Blob | null> } };
 }
@@ -91,6 +93,20 @@ export function imageToolbarExtensions() {
             run: (ctx: ToolbarContext) => {
               const model = ctx.getCurrentModel() as unknown as ImageModelLike | null;
               downloadImage(model).catch(console.error);
+            },
+          },
+          {
+            placement: ActionPlacement.Normal,
+            id: 'b.comment',
+            tooltip: 'Comment',
+            icon: CommentIcon(),
+            // Nothing to comment with on a public page or a version preview.
+            when: (ctx: ToolbarContext) => !ctx.store.readonly,
+            run: (ctx: ToolbarContext) => {
+              const model = ctx.getCurrentModel() as unknown as ImageModelLike | null;
+              if (!model?.id) return;
+              const caption = model.props?.caption?.trim();
+              commentOnBlock(model.id, caption ? `Image: ${caption}` : 'Image');
             },
           },
           ...imageAlignActions(),

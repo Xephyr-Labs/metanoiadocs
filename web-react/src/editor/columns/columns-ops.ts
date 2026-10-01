@@ -203,3 +203,26 @@ export function exitColumn(store: OpsStore, block: TextModelLike | null): string
   tidyColumns(store, row);
   return block.id;
 }
+
+/** A rectangle in screen coordinates, edges rather than size. */
+export interface Box { left: number; top: number; right: number; bottom: number }
+
+const overlaps = (a: Box, b: Box) =>
+  a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+
+/**
+ * What a box drawn over the page selected inside a row.
+ *
+ * The editor's box selection only ever picks blocks that sit directly in the
+ * page, so a box drawn down one column selected the whole row — both columns —
+ * or, drawn inside a column, the row and nothing the person could see. Notion's
+ * rule is the one people expect: a box that covers the row from its top to its
+ * bottom takes the row as a block; anything shorter takes the blocks inside the
+ * columns it actually touches — none, when it only clipped the row's margin.
+ *
+ * Returns the ids to select instead of the row, or null to keep the row.
+ */
+export function blocksUnderBox(row: Box, blocks: { id: string; box: Box }[], drawn: Box): string[] | null {
+  if (drawn.top <= row.top && drawn.bottom >= row.bottom) return null;
+  return blocks.filter((b) => overlaps(b.box, drawn)).map((b) => b.id);
+}
