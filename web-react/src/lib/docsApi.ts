@@ -125,6 +125,18 @@ export interface UserRow {
   kind?: 'person' | 'agent';
 }
 
+/** What a page's public link lets a guest do. */
+export type ShareRole = 'view' | 'comment' | 'edit';
+
+/** The no-account side of a public link. */
+export const publicApi = {
+  resolve: (token: string): Promise<{ id: string; title: string; role: ShareRole }> =>
+    req(`/public/${encodeURIComponent(token)}`),
+  comments: (token: string): Promise<CommentRow[]> => req(`/public/${encodeURIComponent(token)}/comments`),
+  addComment: (token: string, body: { body: string; name: string; parentId?: string }): Promise<{ id: string }> =>
+    req(`/public/${encodeURIComponent(token)}/comments`, { method: 'POST', body: JSON.stringify(body) }),
+};
+
 export interface CommentRow {
   id: string;
   block_id: string | null;
@@ -380,8 +392,10 @@ export const docsApi = {
   love: (id: string, loved: boolean): Promise<{ count: number; loved: boolean }> =>
     req(`/docs/${id}/love`, { method: 'PUT', body: JSON.stringify({ loved }) }),
 
-  publicGet: (id: string): Promise<{ token: string | null }> => req(`/docs/${id}/public`),
-  publicEnable: (id: string): Promise<{ token: string }> => req(`/docs/${id}/public`, { method: 'POST' }),
+  publicGet: (id: string): Promise<{ token: string | null; role: ShareRole }> => req(`/docs/${id}/public`),
+  /** Turns the link on, changes what it allows, or (`reset`) replaces it. */
+  publicEnable: (id: string, opts: { role?: ShareRole; reset?: boolean } = {}): Promise<{ token: string; role: ShareRole }> =>
+    req(`/docs/${id}/public`, { method: 'POST', body: JSON.stringify(opts) }),
   publicDisable: (id: string) => req(`/docs/${id}/public`, { method: 'DELETE' }),
 
   search: (q: string): Promise<SearchRow[]> => req(`/search?q=${encodeURIComponent(q)}`),

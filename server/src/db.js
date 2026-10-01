@@ -201,6 +201,9 @@ export async function initSchema() {
     ALTER TABLE docs ADD COLUMN IF NOT EXISTS share_token TEXT;
     CREATE UNIQUE INDEX IF NOT EXISTS docs_share_token_idx
       ON docs(share_token) WHERE share_token IS NOT NULL;
+    -- What the public link lets a guest do: view | comment | edit (guest.js).
+    -- Links that predate it stay view-only.
+    ALTER TABLE docs ADD COLUMN IF NOT EXISTS share_role TEXT NOT NULL DEFAULT 'view';
     -- Full-text search. The client posts extracted plain text (decoding Yjs
     -- server-side would mean shipping the BlockSuite schema here); the tsvector
     -- is generated from title + that text so title matches always count.

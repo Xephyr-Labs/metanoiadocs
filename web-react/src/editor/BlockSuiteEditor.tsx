@@ -13,6 +13,7 @@ export interface EditorProps {
   mode: EditorMode;
   userName: string;
   share?: string;
+  shareEdit?: boolean;
   /** Render this archived Yjs state read-only instead of connecting to the live
    *  document (version history). Changing it remounts the editor. */
   snapshot?: Uint8Array;
@@ -36,7 +37,7 @@ export interface EditorProps {
  * flips mode in place. Content persists + syncs via Hocuspocus inside mountEditor.
  */
 export function BlockSuiteEditor({
-  docId, title, mode, userName, share, snapshot, fullWidth,
+  docId, title, mode, userName, share, shareEdit, snapshot, fullWidth,
   onTitle, onSaved, pages, createPage, onOpenDoc, onRemoteRewrite, onEditor,
 }: EditorProps) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -77,6 +78,7 @@ export function BlockSuiteEditor({
       mode: 'page',
       userName,
       share,
+      shareEdit,
       snapshot,
       onTitle: (t) => onTitleRef.current?.(t),
       onSaved: () => onSavedRef.current?.(),
@@ -107,7 +109,7 @@ export function BlockSuiteEditor({
       instRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [docId, userName, share, snapshot]);
+  }, [docId, userName, share, shareEdit, snapshot]);
 
   useEffect(() => {
     instRef.current?.setMode(mode === 'page' ? 'page' : 'edgeless');

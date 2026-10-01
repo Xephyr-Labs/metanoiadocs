@@ -56,7 +56,8 @@ import { registerFolderRoutes, visibleFolder } from './folders-routes.js';
 import { registerWebhookRoutes, emit, startWebhookWorker } from './webhooks.js';
 import { registerAgentRoutes, enqueueRun } from './agent-runs.js';
 import { registerAutomationRoutes, startAutomationSweeper } from './automations.js';
-import { registerFormRoutes } from './forms.js';
+import { allow, registerFormRoutes } from './forms.js';
+import { canComment, connectionRole, guestName, shareRole } from './guest.js';
 import { registerTemplateRoutes } from './templates.js';
 import { registerCsvRoutes } from './csv-import.js';
 import { TRASH_RETENTION_DAYS, startTrashSweeper } from './retention.js';
@@ -1435,20 +1436,22 @@ app.delete('/api/docs/:id', requireUser, async (req, res) => {
 app.get('/api/docs/:id/public', requireUser, async (req, res) => {
   if (!(await grantOn(req.params.id, req.user.id)))
     return res.status(403).json({ error: 'forbidden' });
-  const { rows } = await pool.query('SELECT share_token FROM docs WHERE id = $1', [req.params.id]);
-  res.json({ token: rows[0]?.share_token || null });
+  const { rows } = await pool.query('SELECT share_token, share_role FROM docs WHERE id = $1', [req.params.id]);
+  res.json({ token: rows[0]?.share_token || null, role: shareRole(rows[0]?.share_role) });
 });
 
 app.post('/api/docs/:id/public', requireUser, async (req, res) => {
   if ((await grantOn(req.params.id, req.user.id)) !== 'owner')
     return res.status(403).json({ error: 'forbidden' });
-  const cur = await pool.query('SELECT share_token FROM docs WHERE id = $1', [req.params.id]);
-  let token = cur.rows[0]?.share_token;
-  if (!token) {
-    token = crypto.randomBytes(16).toString('base64url');
-    await pool.query('UPDATE docs SET share_token = $1 WHERE id = $2', [token, req.params.id]);
-  }
-  res.json({ token });
+  const cur = await pool.query('SELECT share_token, share_role FROM docs WHERE id = $1', [req.params.id]);
+  // `reset` mints a new token, which is how a leaked link is taken back without
+  // turning sharing off for everyone else who should keep it.
+  let token = req.body?.reset ? null : cur.rows[0]?.share_token;
+  const role = req.body?.role === undefined ? shareRole(cur.rows[0]?.share_role) : req.body.role;
+  if (shareRole(role) !== role) return res.status(400).json({ error: 'bad role' });
+  if (!token) token = crypto.randomBytes(16).toString('base64url');
+  await pool.query('UPDATE docs SET share_token = $1, share_role = $2 WHERE id = $3', [token, role, req.params.id]);
+  res.json({ token, role });
 });
 
 app.delete('/api/docs/:id/public', requireUser, async (req, res) => {
@@ -1461,12 +1464,63 @@ app.delete('/api/docs/:id/public', requireUser, async (req, res) => {
 // Resolve a public share token to its doc — the only unauthenticated doc read.
 app.get('/api/public/:token', async (req, res) => {
   const { rows } = await pool.query(
-    `SELECT id, title FROM docs WHERE share_token = $1 AND deleted_at IS NULL`,
+    `SELECT id, title, share_role FROM docs WHERE share_token = $1 AND deleted_at IS NULL`,
     [req.params.token]
   );
   if (!rows[0]) return res.status(404).json({ error: 'not found' });
-  res.json({ id: rows[0].id, title: rows[0].title });
+  res.json({ id: rows[0].id, title: rows[0].title, role: shareRole(rows[0].share_role) });
 });
+
+// A guest's comment thread. Only a comment or edit link sees the page's
+// comments at all — on a view link they are the team's conversation, not part
+// of what was published.
+async function sharedDoc(token) {
+  const { rows } = await pool.query(
+    'SELECT id, share_role FROM docs WHERE share_token = $1 AND deleted_at IS NULL', [token]);
+  return rows[0] && canComment(rows[0].share_role) ? rows[0] : null;
+}
+
+app.get('/api/public/:token/comments', wrap(async (req, res) => {
+  const doc = await sharedDoc(req.params.token);
+  if (!doc) return res.status(404).json({ error: 'not found' });
+  const { rows } = await pool.query(
+    `SELECT id, block_id, quote, body, author_name, parent_id, resolved, created_at, edited_at
+       FROM comments WHERE doc_id = $1 ORDER BY created_at ASC`,
+    [doc.id]
+  );
+  res.json(rows);
+}));
+
+app.post('/api/public/:token/comments', wrap(async (req, res) => {
+  const doc = await sharedDoc(req.params.token);
+  if (!doc) return res.status(404).json({ error: 'not found' });
+  // ponytail: per-link, per-process window shared with intake forms; a
+  // determined spammer is stopped by resetting the link.
+  if (!allow(`share:${req.params.token}`)) return res.status(429).json({ error: 'Too many comments — try again later.' });
+  const body = String(req.body?.body || '').trim().slice(0, 4000);
+  if (!body) return res.status(400).json({ error: 'empty comment' });
+  let parentId = null;
+  if (req.body?.parentId) {
+    // Only a thread on this page — not a task's, and not another page's.
+    const { rowCount } = await pool.query(
+      'SELECT 1 FROM comments WHERE id = $1 AND doc_id = $2', [req.body.parentId, doc.id]);
+    if (!rowCount) return res.status(400).json({ error: 'no such thread' });
+    parentId = req.body.parentId;
+  }
+  const id = crypto.randomUUID();
+  const name = guestName(req.body?.name);
+  await pool.query(
+    `INSERT INTO comments (id, doc_id, body, author_id, author_name, parent_id)
+     VALUES ($1, $2, $3, NULL, $4, $5)`,
+    [id, doc.id, body, name, parentId]
+  );
+  // The owner hears about it; a guest's @-handles are not resolved, so a link
+  // cannot be used to page the team or set an agent running.
+  createCommentNotifications({ commentId: id, docId: doc.id, body, actor: { id: null, name }, guest: true })
+    .catch((e) => console.error('[notify] guest comment:', e.message));
+  emit('comment.created', { id, doc_id: doc.id, body, author_id: null });
+  res.json({ id });
+}));
 
 // Invite someone to the workspace. Invite-only means this is how new people
 // get in; any signed-in member may invite (trusted internal team).
@@ -2437,13 +2491,13 @@ app.post('/api/docs/:id/comments', requireUser, async (req, res) => {
 
 // Notify @-mentioned members (with access) plus the doc owner, minus the author.
 // A recipient can only be notified once per comment (mention wins over owner).
-async function createCommentNotifications({ commentId, docId, body, actor }) {
+async function createCommentNotifications({ commentId, docId, body, actor, guest = false }) {
   const doc = await pool.query('SELECT id, title FROM docs WHERE id = $1', [docId]);
   if (!doc.rows[0]) return;
   const docTitle = doc.rows[0].title || 'Untitled';
 
   // Resolve @usernames in the body against members who have access to this doc.
-  const handles = mentionHandles(body);
+  const handles = guest ? [] : mentionHandles(body);
   const recipients = new Map(); // user_id -> { kind, email }
   if (handles.length) {
     // A member can be @-mentioned if they can access the doc: an explicit grant,
@@ -2696,6 +2750,12 @@ app.use((err, req, res, next) => {
 
 // ── realtime sync ─────────────────────────────────────────────────────────
 const hocuspocus = new Hocuspocus({
+  // A viewer's updates are refused by the sync protocol itself. Skipping them
+  // in `store` alone was not enough: the server applied them to its in-memory
+  // copy and broadcast them, and the next editor's save persisted them.
+  async onConnect({ context, connection }) {
+    if (context?.role === 'viewer') connection.readOnly = true;
+  },
   extensions: [
     new Database({
       fetch: async ({ documentName, context }) => {
@@ -2728,6 +2788,21 @@ const hocuspocus = new Hocuspocus({
         // Record who saved, so the activity feed can attribute a plain edit.
         // 'public' is the share-link guest — not a real user row.
         const actor = context?.user?.id && context.user.id !== 'public' ? context.user.id : null;
+        // A member's own tab writes title and search text back over REST; a
+        // guest's is not trusted with those routes, so they are read from the
+        // saved state here. Without it the next member to open the page would
+        // put the old database title back over the guest's rename.
+        // ponytail: docs row only — a task page renamed by a guest leaves the
+        // task's own title until a member next edits it.
+        if (context?.user?.id === 'public') {
+          try {
+            const { title, text } = extractText(buf);
+            await pool.query(
+              `UPDATE docs SET search_text = $2, title = CASE WHEN $3 <> '' THEN $3 ELSE title END WHERE id = $1`,
+              [documentName, String(text || '').slice(0, 100000), String(title || '').trim().slice(0, 200)]
+            );
+          } catch (e) { console.error('[sync] guest text:', e.message); }
+        }
         await pool.query(
           'UPDATE docs SET updated_at = now(), updated_by = coalesce($2, updated_by) WHERE id = $1',
           [documentName, actor]
@@ -2785,12 +2860,14 @@ server.on('upgrade', async (request, socket, head) => {
     const share = reqUrl.searchParams.get('share');
     if (share) {
       const s = await pool.query(
-        'SELECT 1 FROM docs WHERE id = $1 AND share_token = $2 AND deleted_at IS NULL',
+        'SELECT share_role FROM docs WHERE id = $1 AND share_token = $2 AND deleted_at IS NULL',
         [docId, share]
       );
       if (!s.rowCount) return socket.destroy();
+      const role = connectionRole(s.rows[0].share_role);
+      const name = guestName(reqUrl.searchParams.get('name'));
       return wss.handleUpgrade(request, socket, head, ws => {
-        hocuspocus.handleConnection(ws, request, { user: { id: 'public', name: 'Guest' }, role: 'viewer', docId });
+        hocuspocus.handleConnection(ws, request, { user: { id: 'public', name }, role, docId });
       });
     }
 

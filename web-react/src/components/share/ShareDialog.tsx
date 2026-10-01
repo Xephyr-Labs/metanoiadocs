@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { AlertCircle, Check, Copy, Globe, Link2, Loader2, Lock, Users } from 'lucide-react';
+import { AlertCircle, Check, Copy, Globe, Link2, Loader2, Lock, RefreshCw, Users } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { docsApi, type AccessRow } from '../../lib/docsApi';
+import { docsApi, type AccessRow, type ShareRole } from '../../lib/docsApi';
 import { copyText } from '../../lib/clipboard';
 import { sendInvite } from '../../lib/api';
 import { avatarFor } from '../../lib/avatar';
@@ -11,11 +11,18 @@ import { Button } from '../ui/Button';
 import { field } from '../ui/styles';
 import { Modal } from '../ui/Modal';
 
+const ROLES: { id: ShareRole; label: string; hint: string }[] = [
+  { id: 'view', label: 'View', hint: 'Can read this page' },
+  { id: 'comment', label: 'Comment', hint: 'Can read and comment' },
+  { id: 'edit', label: 'Edit', hint: 'Can edit this page' },
+];
+
 export function ShareDialog() {
   const ws = useWorkspace();
   const docId = ws.currentId;
   const [access, setAccess] = useState<AccessRow[]>([]);
   const [token, setToken] = useState<string | null>(null);
+  const [role, setRole] = useState<ShareRole>('view');
   const [copied, setCopied] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviting, setInviting] = useState(false);
@@ -26,7 +33,7 @@ export function ShareDialog() {
     if (!ws.shareOpen || !docId) return;
     setMsg(null);
     docsApi.access(docId).then(setAccess).catch(() => setAccess([]));
-    docsApi.publicGet(docId).then((r) => setToken(r.token)).catch(() => setToken(null));
+    docsApi.publicGet(docId).then((r) => { setToken(r.token); setRole(r.role); }).catch(() => setToken(null));
   }, [ws.shareOpen, docId]);
 
   const invite = async () => {
@@ -59,8 +66,25 @@ export function ShareDialog() {
     setBusyLink(true);
     try {
       if (token) { await docsApi.publicDisable(docId); setToken(null); }
-      else { const r = await docsApi.publicEnable(docId); setToken(r.token); }
+      else { const r = await docsApi.publicEnable(docId, { role }); setToken(r.token); }
       ws.refresh();
+    } finally {
+      setBusyLink(false);
+    }
+  };
+
+  // Changing the role or resetting keeps sharing on; only the switch turns it off.
+  const updateLink = async (opts: { role?: ShareRole; reset?: boolean }) => {
+    if (!docId || busyLink) return;
+    setBusyLink(true);
+    setMsg(null);
+    try {
+      const r = await docsApi.publicEnable(docId, opts);
+      setToken(r.token);
+      setRole(r.role);
+      if (opts.reset) setMsg({ ok: true, text: 'New link made — the old one no longer works.' });
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof Error ? e.message : 'Could not update the link.' });
     } finally {
       setBusyLink(false);
     }
@@ -126,7 +150,7 @@ export function ShareDialog() {
           </span>
           <div className="flex-1">
             <p className="text-sm font-medium text-ink">{token ? 'Anyone with the link' : 'Only invited people'}</p>
-            <p className="text-2xs text-faint">{token ? 'Can view this page' : 'Link sharing is off'}</p>
+            <p className="text-2xs text-faint">{token ? ROLES.find((r) => r.id === role)?.hint : 'Link sharing is off'}</p>
           </div>
           <button type="button" role="switch" aria-checked={!!token} onClick={togglePublic} disabled={busyLink} className={cn('relative h-[22px] w-[38px] rounded-full transition-colors duration-180', token ? 'bg-accent' : 'bg-line-strong')}>
             <motion.span layout transition={{ type: 'spring', stiffness: 500, damping: 34 }} className={cn('absolute top-[3px] h-4 w-4 rounded-full bg-white shadow', token ? 'left-[19px]' : 'left-[3px]')} />
@@ -141,6 +165,27 @@ export function ShareDialog() {
                 <span className="flex-1 truncate text-sm text-muted">{link}</span>
                 <Button size="sm" variant="ghost" leftIcon={copied ? <Check size={14} /> : <Copy size={14} />} onClick={copy}>{copied ? 'Copied' : 'Copy'}</Button>
               </div>
+              <div className="mt-2.5 flex items-center gap-2">
+                <div role="radiogroup" aria-label="Anyone with the link can" className="flex flex-1 rounded-md bg-canvas p-0.5 ring-1 ring-inset ring-line">
+                  {ROLES.map((r) => (
+                    <button
+                      key={r.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={role === r.id}
+                      disabled={busyLink}
+                      onClick={() => role !== r.id && updateLink({ role: r.id })}
+                      className={cn('h-7 flex-1 rounded text-sm font-medium transition-colors', role === r.id ? 'bg-surface-2 text-ink shadow-sm' : 'text-muted hover:text-ink')}
+                    >
+                      {r.label}
+                    </button>
+                  ))}
+                </div>
+                <Button size="sm" variant="ghost" leftIcon={<RefreshCw size={14} />} onClick={() => updateLink({ reset: true })} disabled={busyLink}>Reset link</Button>
+              </div>
+              <p className="mt-2 text-2xs text-faint">
+                No account needed. Guests give a name, shown with “(guest)”. Anyone holding the link gets this access — reset it to cut off a leaked link; version history undoes edits.
+              </p>
             </motion.div>
           )}
         </AnimatePresence>

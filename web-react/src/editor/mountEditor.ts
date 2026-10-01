@@ -102,7 +102,9 @@ interface MountArgs {
   title: string;
   mode: 'page' | 'edgeless';
   userName: string;
-  share?: string; // public read-only share token
+  share?: string; // public share token
+  /** The share link allows editing; without it a share mount is read-only. */
+  shareEdit?: boolean;
   /** Render an archived version instead of the live document: the snapshot's
    *  Yjs state is applied to a detached doc with no provider and no local
    *  cache behind it, and the editor is read-only. Nothing is ever written
@@ -136,7 +138,7 @@ function docModeService(editor: { mode: string }, mode: 'page' | 'edgeless') {
 
 export async function mountEditor(
   root: HTMLElement,
-  { docId, title, mode, userName, share, snapshot, onTitle, onSaved, pages, createPage, onOpenDoc, onRemoteRewrite }: MountArgs,
+  { docId, title, mode, userName, share, shareEdit, snapshot, onTitle, onSaved, pages, createPage, onOpenDoc, onRemoteRewrite }: MountArgs,
 ) {
   installEffects();
   chartEffects(); // register the metanoia:chart custom elements once
@@ -184,14 +186,14 @@ export async function mountEditor(
   if (snapshot) applyUpdate(doc.spaceDoc, snapshot);
 
   // Live sync to our server. Cookie authenticates a member; a share token
-  // authenticates a read-only public viewer.
+  // authenticates a guest, whose name rides along for their cursor.
   const provider = snapshot
     ? null
     : new HocuspocusProvider({
         url: wsBase(),
         name: docId,
         document: doc.spaceDoc,
-        parameters: share ? { doc: docId, share } : { doc: docId },
+        parameters: share ? { doc: docId, share, name: userName } : { doc: docId },
         awareness: collection.awarenessStore.awareness,
       });
 
@@ -257,7 +259,8 @@ export async function mountEditor(
 
   // Public viewer and version preview alike: read-only. Set before the editor
   // mounts so no caret or tools show.
-  if (share || snapshot) store.readonly = true;
+  // The server refuses a non-edit guest's writes too; this keeps the caret away.
+  if ((share && !shareEdit) || snapshot) store.readonly = true;
 
   // An archived state that decodes to nothing is a broken snapshot, not an
   // empty page — say so rather than rendering a blank sheet that looks like
