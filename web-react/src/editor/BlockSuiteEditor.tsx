@@ -5,6 +5,7 @@ import { readRoute, revealBlock } from '../lib/route';
 import { PageSkeleton } from '../components/ui/Skeleton';
 import { mountEditor } from './mountEditor';
 import { keepGrammarlyOut } from './noGrammarly';
+import type { CommentRows } from './comments';
 import type { LinkTarget } from './pageLinks';
 
 export interface EditorProps {
@@ -13,6 +14,10 @@ export interface EditorProps {
   mode: EditorMode;
   userName: string;
   share?: string;
+  /** A public link that allows comments: loads the page's threads for the
+   *  comment layer. Read once, at mount — the link's setting cannot change
+   *  under an open page without a reload. */
+  guestComments?: () => Promise<CommentRows>;
   /** Render this archived Yjs state read-only instead of connecting to the live
    *  document (version history). Changing it remounts the editor. */
   snapshot?: Uint8Array;
@@ -36,7 +41,7 @@ export interface EditorProps {
  * flips mode in place. Content persists + syncs via Hocuspocus inside mountEditor.
  */
 export function BlockSuiteEditor({
-  docId, title, mode, userName, share, snapshot, fullWidth,
+  docId, title, mode, userName, share, guestComments, snapshot, fullWidth,
   onTitle, onSaved, pages, createPage, onOpenDoc, onRemoteRewrite, onEditor,
 }: EditorProps) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -77,6 +82,7 @@ export function BlockSuiteEditor({
       mode: 'page',
       userName,
       share,
+      guestComments,
       snapshot,
       onTitle: (t) => onTitleRef.current?.(t),
       onSaved: () => onSavedRef.current?.(),

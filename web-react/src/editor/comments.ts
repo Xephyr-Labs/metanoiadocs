@@ -68,6 +68,16 @@ export function usePendingFocus(): string | null {
 // ---- highlight painting
 let hlRoot: HTMLElement | null = null;
 let hlDocId: string | null = null;
+
+/** The rows a comment highlight is drawn from. */
+export type CommentRows = Parameters<typeof applyCommentHighlights>[0];
+/** Where they come from: the member API, or — on a public link that allows
+ *  comments — the guest one. */
+let hlLoad: (() => Promise<CommentRows>) | null = null;
+
+/** Whether this page takes comments at all — false for a read-only link, a
+ *  version preview, or before the editor has mounted. */
+export const commentsEnabled = () => !!hlDocId;
 // Live ranges (they track DOM edits) paired with their comment ids, so a
 // click can be resolved back to the comment it belongs to. A thread on an
 // image has no text to range over; it carries the image's element instead.
@@ -220,8 +230,8 @@ export function refreshCommentHighlights() {
   if (!supported || !hlDocId) return;
   if (refreshTimer) clearTimeout(refreshTimer);
   refreshTimer = setTimeout(() => {
-    if (!hlDocId) return;
-    docsApi.comments(hlDocId).then(applyCommentHighlights).catch(() => {});
+    if (!hlDocId || !hlLoad) return;
+    hlLoad().then(applyCommentHighlights).catch(() => {});
   }, 400);
 }
 
@@ -265,9 +275,15 @@ export function attachComments(
   root: HTMLElement,
   docId: string,
   onDocUpdate: (cb: () => void) => () => void,
+  load: () => Promise<CommentRows> = () => docsApi.comments(docId),
+  /** A read-only page that still takes comments (a guest on a public link).
+   *  BlockSuite draws no image toolbar there, so a click on an image offers
+   *  the floating Comment button instead. */
+  { readonly = false }: { readonly?: boolean } = {},
 ): () => void {
   hlRoot = root;
   hlDocId = docId;
+  hlLoad = load;
   // Zero out the previous doc's state immediately — otherwise its badge count
   // and gutter pips linger over the new page until the fetch below lands.
   applied = [];
@@ -276,7 +292,7 @@ export function attachComments(
   // Load once on open. The highlights, the gutter pips and the top-bar count
   // all come from this, so waiting for someone to open the comments panel
   // would mean a page with threads looks like a page without any.
-  docsApi.comments(docId).then(applyCommentHighlights).catch(() => {});
+  load().then(applyCommentHighlights).catch(() => {});
 
   // Fallback button for when BlockSuite's toolbar doesn't show (e.g. mobile).
   const btn = document.createElement('button');
@@ -369,6 +385,25 @@ export function attachComments(
   };
   root.addEventListener('click', onClick);
 
+  // Read-only: an image's Comment button, since its toolbar never appears.
+  const onImageClick = (e: MouseEvent) => {
+    const image = e.target instanceof Element ? e.target.closest('affine-image') : null;
+    const blockId = image?.getAttribute('data-block-id');
+    if (!image || !blockId) return;
+    const caption = image.querySelector('block-caption-editor')?.textContent?.trim();
+    // After the selection check that every mouseup schedules (10ms): a plain
+    // click leaves no text selected, and that check would hide this at once.
+    timers.push(setTimeout(() => {
+      anchor = { quote: caption ? `Image: ${caption}` : 'Image', blockId };
+      const r = image.querySelector('img')?.getBoundingClientRect() ?? image.getBoundingClientRect();
+      btn.style.display = 'flex';
+      btn.style.top = `${Math.max(8, r.top + 8)}px`;
+      btn.style.left = `${Math.min(window.innerWidth - 120, r.right - 112)}px`;
+    }, 40));
+  };
+  // Capture: the image block stops its own clicks from bubbling.
+  if (readonly) root.addEventListener('click', onImageClick, true);
+
   // A long-press selection on a phone fires neither mouseup nor keyup;
   // selectionchange covers it (debounced, it fires per handle drag).
   let selTimer: ReturnType<typeof setTimeout> | undefined;
@@ -390,12 +425,13 @@ export function attachComments(
     clearTimeout(selTimer);
     document.removeEventListener('scroll', onScroll, true);
     root.removeEventListener('click', onClick);
+    root.removeEventListener('click', onImageClick, true);
     timers.forEach(clearTimeout);
     offUpdate();
     btn.remove();
     if (supported) (CSS as unknown as { highlights: Map<string, unknown> }).highlights.delete(HL_NAME);
     root.querySelectorAll(`[${MARK_ATTR}]`).forEach((el) => el.removeAttribute(MARK_ATTR));
-    if (hlRoot === root) { hlRoot = null; hlDocId = null; applied = []; }
+    if (hlRoot === root) { hlRoot = null; hlDocId = null; hlLoad = null; applied = []; }
     setPending(null);
     setFocus(null);
   };

@@ -524,6 +524,15 @@ export async function initSchema() {
     -- Null means never touched since it was posted — the common case.
     ALTER TABLE comments ADD COLUMN IF NOT EXISTS edited_at TIMESTAMPTZ;
 
+    -- What a public link lets its holder do: 'view' (read-only, the only kind
+    -- there used to be) or 'comment' (read, plus comment under a name).
+    ALTER TABLE docs ADD COLUMN IF NOT EXISTS share_access TEXT NOT NULL DEFAULT 'view';
+    -- A comment written through a public link by someone with no account.
+    -- author_id is null for those; the key hash is how that same browser
+    -- proves it wrote the comment, to edit or delete it. Never the key itself.
+    ALTER TABLE comments ADD COLUMN IF NOT EXISTS guest BOOLEAN NOT NULL DEFAULT false;
+    ALTER TABLE comments ADD COLUMN IF NOT EXISTS guest_key_hash TEXT;
+
     -- Task types, per project and editable by anyone who can see the project.
     -- Epic/Story/Task/Bug are seeded defaults, not built-ins.
     --

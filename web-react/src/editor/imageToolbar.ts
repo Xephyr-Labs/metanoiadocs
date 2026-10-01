@@ -22,7 +22,7 @@
 import { ActionPlacement, ToolbarModuleExtension, type ToolbarContext } from '@blocksuite/affine/shared/services';
 import { BlockFlavourIdentifier } from '@blocksuite/affine/std';
 import { CommentIcon, DownloadIcon } from '@blocksuite/icons/lit';
-import { commentOnBlock } from './comments';
+import { commentOnBlock, commentsEnabled } from './comments';
 import { imageAlignActions } from './imageAlign';
 
 interface ImageModelLike {
@@ -100,8 +100,9 @@ export function imageToolbarExtensions() {
             id: 'b.comment',
             tooltip: 'Comment',
             icon: CommentIcon(),
-            // Nothing to comment with on a public page or a version preview.
-            when: (ctx: ToolbarContext) => !ctx.store.readonly,
+            // Wherever the page takes comments — a member's page, or a public
+            // link that allows them. Not a read-only link or a version preview.
+            when: () => commentsEnabled(),
             run: (ctx: ToolbarContext) => {
               const model = ctx.getCurrentModel() as unknown as ImageModelLike | null;
               if (!model?.id) return;
