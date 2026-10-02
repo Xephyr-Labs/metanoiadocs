@@ -37,6 +37,7 @@ import * as Y from 'yjs';
 import { mentionHandles } from './mentions.js';
 import { buildDocState, appendMarkdownToDoc, appendPageReference, extractText, extractBlocks, docToMarkdown } from './blocks.js';
 import { rewriteDoc } from './restore.js';
+import { applyTextSuggestion, parseDraftName, registerSuggestionRoutes } from './suggestions.js';
 import { wouldFolderCycle } from './folders.js';
 import { printHtml } from './print.js';
 import { docxFromMarkdown } from './docx.js';
@@ -845,7 +846,7 @@ const NO_BODY_TO_NEST_IN = 'That page has no body to add a child to yet — open
 
 app.post('/api/docs/:id/children', requireUser, wrap(async (req, res) => {
   const parentId = req.params.id;
-  if (!(await grantOn(parentId, req.user.id))) return res.status(403).json({ error: 'forbidden' });
+  if (!(await editGrant(parentId, req.user.id))) return res.status(403).json({ error: 'forbidden' });
   const parent = await pool.query(
     'SELECT title, folder_id, visibility FROM docs WHERE id = $1 AND deleted_at IS NULL',
     [parentId],
@@ -893,7 +894,7 @@ app.post('/api/docs/:id/links', requireUser, wrap(async (req, res) => {
   const childId = String(req.body?.childId || '');
   if (!childId) return res.status(400).json({ error: 'childId required' });
   if (childId === parentId) return res.status(400).json({ error: 'a page cannot be nested under itself' });
-  if (!(await grantOn(parentId, req.user.id))) return res.status(403).json({ error: 'forbidden' });
+  if (!(await editGrant(parentId, req.user.id))) return res.status(403).json({ error: 'forbidden' });
   if (!(await grantOn(childId, req.user.id))) return res.status(403).json({ error: 'forbidden' });
 
   const child = await pool.query('SELECT 1 FROM docs WHERE id = $1 AND deleted_at IS NULL', [childId]);
@@ -1021,7 +1022,7 @@ app.get('/api/docs/:id/print', requireUser, async (req, res) => {
 // persisted by the path a typed edit already takes.
 app.post('/api/docs/:id/content', requireUser, wrap(async (req, res) => {
   const docId = req.params.id;
-  if (!(await grantOn(docId, req.user.id))) return res.status(403).json({ error: 'forbidden' });
+  if (!(await editGrant(docId, req.user.id))) return res.status(403).json({ error: 'forbidden' });
   const markdown = String(req.body?.markdown || '');
   const mode = req.body?.mode === 'replace' ? 'replace' : 'append';
   const d = await pool.query('SELECT title FROM docs WHERE id = $1 AND deleted_at IS NULL', [docId]);
@@ -1182,7 +1183,7 @@ app.delete('/api/tags/:id', requireUser, async (req, res) => {
 
 // Attach a tag to a doc. Body: { tagId } or { name, color } to create+attach.
 app.post('/api/docs/:id/tags', requireUser, async (req, res) => {
-  if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
+  if (!(await editGrant(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
   let tagId = req.body?.tagId;
   if (!tagId) {
     const name = String(req.body?.name || '').trim().slice(0, 50);
@@ -1205,7 +1206,7 @@ app.post('/api/docs/:id/tags', requireUser, async (req, res) => {
 
 // Detach a tag from a doc.
 app.delete('/api/docs/:id/tags/:tagId', requireUser, async (req, res) => {
-  if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
+  if (!(await editGrant(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
   await pool.query('DELETE FROM doc_tags WHERE doc_id = $1 AND tag_id = $2', [req.params.id, req.params.tagId]);
   res.json({ ok: true });
 });
@@ -1235,18 +1236,46 @@ app.post('/api/docs/:id/share', requireUser, async (req, res) => {
   const target = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
   if (!target.rows[0]) return res.status(404).json({ error: 'user has not signed in yet' });
 
+  // What they may do; editor when unsaid, which is what sharing always meant.
+  const role = SHAREABLE_ROLES.includes(req.body?.role) ? req.body.role : 'editor';
+  // Sharing again with someone already on the page changes their role — the
+  // owner's own row is never touched from here.
   await pool.query(
-    `INSERT INTO doc_access (doc_id, user_id, role) VALUES ($1, $2, 'editor')
-     ON CONFLICT (doc_id, user_id) DO NOTHING`,
-    [req.params.id, target.rows[0].id]
+    `INSERT INTO doc_access (doc_id, user_id, role) VALUES ($1, $2, $3)
+     ON CONFLICT (doc_id, user_id) DO UPDATE SET role = EXCLUDED.role
+       WHERE doc_access.role <> 'owner'`,
+    [req.params.id, target.rows[0].id, role]
+  );
+  res.json({ ok: true, role });
+});
+
+// Change what a collaborator may do, or take them off the page. Owner only, and
+// never the owner's own row: a page with no owner has nobody to manage it.
+app.put('/api/docs/:id/access/:userId', requireUser, wrap(async (req, res) => {
+  if ((await grantOn(req.params.id, req.user.id)) !== 'owner') return res.status(403).json({ error: 'forbidden' });
+  const role = req.body?.role;
+  if (!SHAREABLE_ROLES.includes(role)) return res.status(400).json({ error: 'unknown role' });
+  const { rowCount } = await pool.query(
+    `UPDATE doc_access SET role = $3 WHERE doc_id = $1 AND user_id = $2 AND role <> 'owner'`,
+    [req.params.id, req.params.userId, role]
+  );
+  if (!rowCount) return res.status(404).json({ error: 'not shared with that person' });
+  res.json({ ok: true, role });
+}));
+
+app.delete('/api/docs/:id/access/:userId', requireUser, wrap(async (req, res) => {
+  if ((await grantOn(req.params.id, req.user.id)) !== 'owner') return res.status(403).json({ error: 'forbidden' });
+  await pool.query(
+    `DELETE FROM doc_access WHERE doc_id = $1 AND user_id = $2 AND role <> 'owner'`,
+    [req.params.id, req.params.userId]
   );
   res.json({ ok: true });
-});
+}));
 
 // Rename and/or move a doc in the sidebar tree. Any grant lets you edit;
 // move guards against making a doc its own ancestor (a cycle).
 app.patch('/api/docs/:id', requireUser, async (req, res) => {
-  if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
+  if (!(await editGrant(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
 
   const sets = [];
   const vals = [];
@@ -1364,6 +1393,22 @@ async function trashGrantOn(docId, userId) {
   return t.rowCount ? 'editor' : null;
 }
 
+// What a grant lets you do, weakest first. 'viewer' reads; 'commenter' also
+// comments; 'suggester' also proposes changes (a suggestion card, or a draft in
+// Suggesting mode) that someone who can edit reviews; 'editor' and 'owner'
+// change the page itself. Anything unrecognised ranks below viewer.
+const ROLE_RANK = { viewer: 0, commenter: 1, suggester: 2, editor: 3, owner: 4 };
+const SHAREABLE_ROLES = ['viewer', 'commenter', 'suggester', 'editor'];
+const rankOf = (role) => (role in ROLE_RANK ? ROLE_RANK[role] : -1);
+const canComment = (role) => rankOf(role) >= ROLE_RANK.commenter;
+const canSuggest = (role) => rankOf(role) >= ROLE_RANK.suggester;
+const canEdit = (role) => rankOf(role) >= ROLE_RANK.editor;
+/** Grant check for routes that change the page: 403 unless the caller can edit. */
+async function editGrant(docId, userId) {
+  const role = await grantOn(docId, userId);
+  return canEdit(role) ? role : null;
+}
+
 // Restore a trashed doc (any grant on it).
 app.post('/api/docs/:id/restore', requireUser, async (req, res) => {
   if (!(await trashGrantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
@@ -1411,7 +1456,7 @@ app.delete('/api/docs/:id', requireUser, async (req, res) => {
   // Delete is a soft-delete to trash (recoverable), so any member who can edit
   // the doc may remove it — team docs by any member, private docs by the owner
   // or anyone it's shared with. Matches the team-editable model (grantOn).
-  if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
+  if (!(await editGrant(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
   // Detach children then soft-delete atomically, so a crash between the two can't
   // leave children orphaned under a still-live parent.
   const client = await pool.connect();
@@ -1848,7 +1893,7 @@ async function storeLinks(fromId, ids) {
 }
 
 app.put('/api/docs/:id/text', requireUser, wrap(async (req, res) => {
-  if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
+  if (!(await editGrant(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
   const text = String(req.body?.text || '').slice(0, 100000);
   // Absent `links` means "this client doesn't know about links" — leave the
   // existing ones alone. An empty array means the doc genuinely has none now.
@@ -2271,7 +2316,7 @@ app.get('/api/docs/:id/versions', requireUser, async (req, res) => {
 
 // Manual named snapshot of the current state.
 app.post('/api/docs/:id/versions', requireUser, async (req, res) => {
-  if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
+  if (!(await editGrant(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
   const cur = await pool.query('SELECT state FROM doc_states WHERE doc_id = $1', [req.params.id]);
   if (!cur.rows[0]) return res.status(400).json({ error: 'nothing to snapshot yet' });
   const id = crypto.randomUUID();
@@ -2316,8 +2361,7 @@ app.get('/api/docs/:id/versions/:vid/state', requireUser, wrap(async (req, res) 
  * a crash before that debounced save lands.
  */
 app.post('/api/docs/:id/versions/:vid/restore-in-place', requireUser, wrap(async (req, res) => {
-  const role = await grantOn(req.params.id, req.user.id);
-  if (!role || role === 'viewer') return res.status(403).json({ error: 'forbidden' });
+  if (!(await editGrant(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
   const docId = req.params.id;
   const v = await pool.query('SELECT state FROM doc_versions WHERE id = $1 AND doc_id = $2', [req.params.vid, docId]);
   if (!v.rows[0]) return res.status(404).json({ error: 'version not found' });
@@ -2403,18 +2447,30 @@ app.post('/api/docs/:id/versions/:vid/restore', requireUser, async (req, res) =>
 app.get('/api/docs/:id/comments', requireUser, async (req, res) => {
   if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
   const { rows } = await pool.query(
-    `SELECT id, block_id, quote, body, author_id, author_name, parent_id, resolved,
-            created_at, edited_at, guest
-       FROM comments WHERE doc_id = $1 ORDER BY created_at ASC`,
+    `SELECT c.id, c.block_id, c.quote, c.body, c.author_id, c.author_name, c.parent_id, c.resolved,
+            c.created_at, c.edited_at, c.guest, c.kind, c.suggestion, c.suggestion_status,
+            u.name AS decided_by_name
+       FROM comments c LEFT JOIN users u ON u.id = c.decided_by
+      WHERE c.doc_id = $1 ORDER BY c.created_at ASC`,
     [req.params.id]
   );
   res.json(rows);
 });
 
 app.post('/api/docs/:id/comments', requireUser, async (req, res) => {
-  if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
+  const role = await grantOn(req.params.id, req.user.id);
+  if (!canComment(role)) return res.status(403).json({ error: 'forbidden' });
+  const suggestion = req.body?.kind === 'suggestion';
+  // A suggestion proposes new text for a passage; the note beside it is optional.
   const body = String(req.body?.body || '').trim().slice(0, 4000);
-  if (!body) return res.status(400).json({ error: 'empty comment' });
+  const replacement = suggestion ? String(req.body?.suggestion ?? '').slice(0, 4000) : null;
+  if (!body && !suggestion) return res.status(400).json({ error: 'empty comment' });
+  if (suggestion) {
+    if (!canSuggest(role)) return res.status(403).json({ error: 'You can comment on this page, but not suggest changes.' });
+    if (!req.body?.blockId || !String(req.body?.quote || '').trim()) {
+      return res.status(400).json({ error: 'Select the text you want to change first.' });
+    }
+  }
   // Replying to a task comment (e.g. an agent answering an @mention on a task,
   // which it only knows by the task's page): keep the reply in the task thread.
   if (req.body?.parentId) {
@@ -2429,24 +2485,68 @@ app.post('/api/docs/:id/comments', requireUser, async (req, res) => {
       return res.json({ id });
     }
   }
+  // A reply belongs to a thread on this page, and threads are one level deep:
+  // answering a reply files the answer under that reply's thread. A parent from
+  // another page (or none at all) was stored as given before, and the panel
+  // never showed it anywhere.
+  let parentId = null;
+  if (req.body?.parentId) {
+    const { rows: [p] } = await pool.query(
+      'SELECT id, parent_id FROM comments WHERE id = $1 AND doc_id = $2',
+      [String(req.body.parentId), req.params.id]
+    );
+    if (!p) return res.status(400).json({ error: 'That thread is not on this page.' });
+    parentId = p.parent_id || p.id;
+    if (suggestion) return res.status(400).json({ error: 'A suggestion starts its own thread.' });
+  }
   const id = crypto.randomUUID();
   await pool.query(
-    `INSERT INTO comments (id, doc_id, block_id, quote, body, author_id, author_name, parent_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-    [id, req.params.id, req.body?.blockId || null, String(req.body?.quote || '').slice(0, 500),
-     body, req.user.id, req.user.name || req.user.email, req.body?.parentId || null]
+    `INSERT INTO comments (id, doc_id, block_id, quote, body, author_id, author_name, parent_id, kind, suggestion)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+    [id, req.params.id, parentId ? null : (req.body?.blockId || null),
+     parentId ? '' : String(req.body?.quote || '').slice(0, 500),
+     body, req.user.id, req.user.name || req.user.email, parentId,
+     suggestion ? 'suggestion' : 'comment', replacement]
   );
   // Fan out notifications for this comment (best-effort; never fails the comment).
-  createCommentNotifications({ commentId: id, docId: req.params.id, body, actor: req.user })
-    .catch((e) => console.error('[notify] fanout failed', e.message));
+  createCommentNotifications({
+    commentId: id, docId: req.params.id, body: suggestion ? suggestionSnippet(req.body.quote, replacement, body) : body,
+    actor: req.user, parentId, kind: suggestion ? 'suggestion' : null,
+  }).catch((e) => console.error('[notify] fanout failed', e.message));
   emit('comment.created', { id, doc_id: req.params.id, body, author_id: req.user.id });
+  commentsChanged(req.params.id);
   res.json({ id });
 });
+
+const COMMENT_VERBS = {
+  mention: 'mentioned you in',
+  comment: 'commented on',
+  reply: 'replied to a thread on',
+  suggestion: 'suggested a change to',
+};
+
+/** What a suggestion reads as in an inbox or an email. */
+function suggestionSnippet(quote, replacement, note) {
+  const q = String(quote || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+  const r = String(replacement || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+  const change = r ? `"${q}" → "${r}"` : `Delete "${q}"`;
+  return note ? `${change} — ${note}` : change;
+}
+
+/**
+ * Tell everyone with the page open that its comments changed, so the panel,
+ * the highlights and the badge refresh without a reload. Rides the page's own
+ * sync connection, which every open editor already holds.
+ */
+function commentsChanged(docId) {
+  try { hocuspocus.documents.get(docId)?.broadcastStateless(JSON.stringify({ type: 'comments-changed' })); }
+  catch { /* nobody has it open; the next open reads the rows anyway */ }
+}
 
 // Notify @-mentioned members (with access) plus the doc owner, minus the author.
 // A recipient can only be notified once per comment (mention wins over owner).
 // `mentions: false` is a guest's comment: its "@name" is text, not a summons.
-async function createCommentNotifications({ commentId, docId, body, actor, mentions = true }) {
+async function createCommentNotifications({ commentId, docId, body, actor, mentions = true, parentId = null, kind: eventKind = null }) {
   const doc = await pool.query('SELECT id, title FROM docs WHERE id = $1', [docId]);
   if (!doc.rows[0]) return;
   const docTitle = doc.rows[0].title || 'Untitled';
@@ -2488,6 +2588,19 @@ async function createCommentNotifications({ commentId, docId, body, actor, menti
       recipients.set(r.id, { kind: 'mention', email: r.email });
     }
   }
+  // A reply reaches everyone already in the thread — whoever started it and
+  // whoever answered before — not only the page's owner. Members only: a
+  // guest has no inbox.
+  if (parentId) {
+    const { rows } = await pool.query(
+      `SELECT DISTINCT u.id, u.email FROM comments c JOIN users u ON u.id = c.author_id
+        WHERE (c.id = $1 OR c.parent_id = $1) AND u.kind IS DISTINCT FROM 'agent'`,
+      [parentId]
+    );
+    for (const r of rows) {
+      if (r.id !== actor.id && !recipients.has(r.id)) recipients.set(r.id, { kind: 'reply', email: r.email });
+    }
+  }
   // Doc owner also hears about any comment (unless they wrote it / already mentioned).
   const owner = await pool.query(
     `SELECT u.id, u.email FROM doc_access a JOIN users u ON u.id = a.user_id
@@ -2495,12 +2608,12 @@ async function createCommentNotifications({ commentId, docId, body, actor, menti
     [docId]
   );
   if (owner.rows[0] && !recipients.has(owner.rows[0].id)) {
-    recipients.set(owner.rows[0].id, { kind: 'comment', email: owner.rows[0].email });
+    recipients.set(owner.rows[0].id, { kind: eventKind === 'suggestion' ? 'suggestion' : 'comment', email: owner.rows[0].email });
   }
   // @-tagging yourself is deliberate — people do it to leave themselves a
   // reminder — so it still lands in your inbox. What never does is the owner
   // rule firing on a comment you just wrote on your own page.
-  if (recipients.get(actor.id)?.kind === 'comment') recipients.delete(actor.id);
+  if (recipients.has(actor.id) && recipients.get(actor.id).kind !== 'mention') recipients.delete(actor.id);
 
   const actorName = actor.name || actor.email;
   const snippet = body.slice(0, 280);
@@ -2514,7 +2627,7 @@ async function createCommentNotifications({ commentId, docId, body, actor, menti
     // Tagged in the id of the row it came from, so a push and the open tab's
     // own poll raise one notification between them rather than two.
     const self = userId === actor.id;
-    const verb = kind === 'mention' ? 'mentioned you in' : 'commented on';
+    const verb = COMMENT_VERBS[kind] || 'commented on';
     sendPush(userId, {
       title: self ? `You tagged yourself in ${docTitle}` : `${actorName} ${verb} "${docTitle}"`,
       body: snippet,
@@ -2626,11 +2739,95 @@ const commentOwner = async (row, userId) => {
 
 app.post('/api/comments/:cid/resolve', requireUser, async (req, res) => {
   const c = await pool.query('SELECT doc_id, task_id, author_id FROM comments WHERE id = $1', [req.params.cid]);
-  if (!c.rows[0] || !(await commentOwner(c.rows[0], req.user.id))) return res.status(403).json({ error: 'forbidden' });
+  const row = c.rows[0];
+  if (!row) return res.status(403).json({ error: 'forbidden' });
+  // A page thread is closed by whoever started it or by someone who can edit
+  // the page — not by every reader, which is what a bare grant check allowed.
+  const allowed = row.task_id
+    ? row.author_id === req.user.id
+    : row.author_id === req.user.id || canEdit(await grantOn(row.doc_id, req.user.id));
+  if (!allowed) return res.status(403).json({ error: 'forbidden' });
   await pool.query('UPDATE comments SET resolved = $1 WHERE id = $2 OR parent_id = $2',
     [req.body?.resolved !== false, req.params.cid]);
+  if (row.doc_id) commentsChanged(row.doc_id);
   res.json({ ok: true });
 });
+
+/**
+ * Accept or reject a suggested change. Accepting writes the replacement into
+ * the page — here, through the sync server, so it lands in every open editor
+ * as an ordinary edit and is saved by the same path typing takes. Only someone
+ * who can edit the page decides; the suggester waits for them.
+ */
+app.post('/api/comments/:cid/decision', requireUser, wrap(async (req, res) => {
+  const accept = req.body?.decision === 'accept';
+  if (!accept && req.body?.decision !== 'reject') return res.status(400).json({ error: 'accept or reject' });
+  const { rows: [c] } = await pool.query(
+    `SELECT id, doc_id, block_id, quote, suggestion, suggestion_status, author_id, kind
+       FROM comments WHERE id = $1 AND doc_id IS NOT NULL`,
+    [req.params.cid]
+  );
+  if (!c || c.kind !== 'suggestion') return res.status(404).json({ error: 'not a suggestion' });
+  if (!(await editGrant(c.doc_id, req.user.id))) {
+    return res.status(403).json({ error: 'Only people who can edit this page can accept or reject suggestions.' });
+  }
+  if (c.suggestion_status) return res.status(409).json({ error: `This suggestion was already ${c.suggestion_status}.` });
+
+  if (accept) {
+    let applied = false;
+    const conn = await hocuspocus.openDirectConnection(c.doc_id, { docId: c.doc_id, user: req.user });
+    try {
+      await conn.transact((doc) => { applied = applyTextSuggestion(doc, c.block_id, c.quote, c.suggestion ?? ''); });
+    } finally {
+      await conn.disconnect();
+    }
+    if (!applied) {
+      return res.status(409).json({
+        error: 'The text this suggestion changes has been edited since, so it can no longer be applied. Reject it, or make the change by hand.',
+      });
+    }
+    await pool.query('UPDATE docs SET updated_at = now(), updated_by = $2, updated_via = $3 WHERE id = $1', [c.doc_id, req.user.id, req.via]);
+  }
+  await pool.query(
+    `UPDATE comments SET suggestion_status = $2, decided_by = $3, resolved = true WHERE id = $1`,
+    [c.id, accept ? 'accepted' : 'rejected', req.user.id]
+  );
+  await pool.query('UPDATE comments SET resolved = true WHERE parent_id = $1', [c.id]);
+  // The suggester hears what became of it.
+  if (c.author_id && c.author_id !== req.user.id) {
+    notifyUser({
+      userId: c.author_id, actor: req.user, docId: c.doc_id, commentId: c.id,
+      kind: accept ? 'suggestion_accepted' : 'suggestion_rejected',
+      body: suggestionSnippet(c.quote, c.suggestion, ''),
+    }).catch((e) => console.error('[notify] decision:', e.message));
+  }
+  commentsChanged(c.doc_id);
+  res.json({ ok: true, status: accept ? 'accepted' : 'rejected' });
+}));
+
+/** One inbox row plus a push, for events aimed at a single person. */
+async function notifyUser({ userId, actor, docId, commentId = null, kind, body, title }) {
+  const doc = await pool.query('SELECT title FROM docs WHERE id = $1', [docId]);
+  const docTitle = doc.rows[0]?.title || 'Untitled';
+  const actorName = actor.name || actor.email;
+  const rowId = crypto.randomUUID();
+  await pool.query(
+    `INSERT INTO notifications (id, user_id, actor_id, actor_name, doc_id, comment_id, kind, body)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+    [rowId, userId, actor.id, actorName, docId, commentId, kind, String(body || '').slice(0, 280)]
+  );
+  const heading = title || `${actorName} ${NOTIFY_VERBS[kind] || 'updated'} "${docTitle}"`;
+  sendPush(userId, { title: heading, body: String(body || '').slice(0, 280), tag: rowId, docId })
+    .catch((e) => console.error('[push] notify:', e.message));
+  const { rows: [u] } = await pool.query('SELECT email FROM users WHERE id = $1', [userId]);
+  if (u?.email) sendNotificationEmail(u.email, heading, String(body || '').slice(0, 280), `${BASE_URL}${linkFor({ docId })}`);
+}
+const NOTIFY_VERBS = {
+  suggestion_accepted: 'accepted your suggestion on',
+  suggestion_rejected: 'declined your suggestion on',
+  review_requested: 'asked you to review changes to',
+  review_done: 'reviewed your changes to',
+};
 
 // Rewrite a comment. The author's own only — an owner may delete a comment on
 // their page, but putting words in someone else's mouth is a different thing.
@@ -2650,6 +2847,7 @@ app.patch('/api/comments/:cid', requireUser, async (req, res) => {
     'UPDATE comments SET body = $1, edited_at = now() WHERE id = $2 RETURNING body, edited_at',
     [body, req.params.cid]
   );
+  if (c.rows[0].doc_id) commentsChanged(c.rows[0].doc_id);
   res.json(rows[0]);
 });
 
@@ -2659,11 +2857,12 @@ app.delete('/api/comments/:cid', requireUser, async (req, res) => {
   if ((await commentOwner(c.rows[0], req.user.id)) !== 'author')
     return res.status(403).json({ error: 'forbidden' });
   await pool.query('DELETE FROM comments WHERE id = $1 OR parent_id = $1', [req.params.cid]);
+  if (c.rows[0].doc_id) commentsChanged(c.rows[0].doc_id);
   res.json({ ok: true });
 });
 
 // Comments from guests through a public link (see guest-comments.js).
-registerGuestCommentRoutes(app, { wrap, notify: createCommentNotifications, emit });
+registerGuestCommentRoutes(app, { wrap, notify: createCommentNotifications, emit, changed: commentsChanged });
 
 app.use(express.static(WEB_DIST));
 // Projects/tasks and the home dashboard live in their own modules — this file
@@ -2688,6 +2887,11 @@ registerCsvRoutes(app, {
 startWebhookWorker();
 registerAgentRoutes(app, { requireUser, wrap, createDocRow });
 registerAutomationRoutes(app, { requireUser, wrap });
+registerSuggestionRoutes(app, {
+  requireUser, wrap, pool, grantOn, canEdit, canSuggest, notifyUser,
+  // The sync server is built further down; the routes only reach it per request.
+  getHocuspocus: () => hocuspocus,
+});
 
 // A build's files are content-hashed and the previous build's are gone, so a tab
 // that has been open across a deploy asks for chunk names that no longer exist.
@@ -2707,8 +2911,20 @@ app.use((err, req, res, next) => {
 });
 
 // ── realtime sync ─────────────────────────────────────────────────────────
+// The role a draft's own author connects with: the one person who may write
+// to that draft, whatever their role on the page itself.
+const DRAFT_AUTHOR = 'draft-author';
+
 const hocuspocus = new Hocuspocus({
   extensions: [
+    {
+      // Read-only is enforced by the sync server, not by trusting the client to
+      // set its store readonly: an update from a connection that can't edit is
+      // refused and never reaches the document or anyone else's screen.
+      async onConnect({ connection, context }) {
+        if (context?.role !== DRAFT_AUTHOR && !canEdit(context?.role)) connection.readOnly = true;
+      },
+    },
     new Database({
       fetch: async ({ documentName, context }) => {
         // A connection is authorized for exactly one doc at the WS upgrade. The
@@ -2716,6 +2932,16 @@ const hocuspocus = new Hocuspocus({
         // than the authorized one — don't authorize one id and serve another.
         if (context?.docId && documentName !== context.docId) {
           throw new Error('document mismatch');
+        }
+        // A Suggesting-mode draft lives beside the page, not in doc_states.
+        const draft = parseDraftName(documentName);
+        if (draft) {
+          const { rows } = await pool.query(
+            "SELECT state FROM doc_suggestions WHERE id = $1 AND doc_id = $2 AND status <> 'closed'",
+            [draft.sid, draft.docId]
+          );
+          if (!rows[0]) throw new Error('draft not found');
+          return new Uint8Array(rows[0].state);
         }
         const { rows } = await pool.query(
           'SELECT state FROM doc_states WHERE doc_id = $1',
@@ -2726,11 +2952,24 @@ const hocuspocus = new Hocuspocus({
       store: async ({ documentName, state, context }) => {
         // Read-only viewers (public share links, or a 'viewer' doc_access grant)
         // must never persist edits — enforce server-side, not just client-side.
-        if (context?.role === 'viewer') return;
+        // The same for every role that can't edit (commenter, suggester) —
+        // their connections are read-only below, and this is the second lock.
+        // Server-side direct connections carry no role and always persist.
+        if (context?.role && !canEdit(context.role) && context.role !== DRAFT_AUTHOR) return;
         // Refuse to persist to any doc other than the one this connection was
         // authorized for at the WS upgrade.
         if (context?.docId && documentName !== context.docId) return;
         const buf = Buffer.from(state);
+        // A draft saves into its own row: no versions, no mention mail, and the
+        // page it was drafted from is untouched until a reviewer accepts.
+        const draft = parseDraftName(documentName);
+        if (draft) {
+          await pool.query(
+            "UPDATE doc_suggestions SET state = $2, updated_at = now() WHERE id = $1 AND status <> 'closed'",
+            [draft.sid, buf]
+          );
+          return;
+        }
         await pool.query(
           `INSERT INTO doc_states (doc_id, state, updated_at)
            VALUES ($1, $2, now())
@@ -2811,7 +3050,23 @@ server.on('upgrade', async (request, socket, head) => {
     const user = await userForSession(token);
     if (!user) return socket.destroy();
 
-    const role = await grantOn(docId, user.id);
+    // A Suggesting-mode draft: its author writes to it, and anyone who can
+    // edit the page may watch it (read-only) while reviewing.
+    const draft = parseDraftName(docId);
+    let role;
+    if (draft) {
+      const pageRole = await grantOn(draft.docId, user.id);
+      const { rows: [s] } = await pool.query(
+        "SELECT author_id FROM doc_suggestions WHERE id = $1 AND doc_id = $2 AND status <> 'closed'",
+        [draft.sid, draft.docId]
+      );
+      if (!s || !pageRole) return socket.destroy();
+      if (s.author_id === user.id && canSuggest(pageRole)) role = DRAFT_AUTHOR;
+      else if (canEdit(pageRole)) role = 'viewer';
+      else return socket.destroy();
+    } else {
+      role = await grantOn(docId, user.id);
+    }
     if (!role) return socket.destroy();
 
     wss.handleUpgrade(request, socket, head, ws => {
