@@ -52,6 +52,7 @@ import { copyLink } from '../../lib/clipboard';
 import { useReducer } from 'react';
 import * as prefs from '../../lib/docPrefs';
 import { ProjectIcon } from '../ui/ProjectIcon';
+import { EditModeSwitch } from './EditModeSwitch';
 
 /** Google-Docs-style stack of everyone else currently in the open doc. */
 function PresenceStack() {
@@ -310,6 +311,7 @@ export function TopBar() {
             <Cloud size={14} /> Edited {relativeTime(page.updatedAt)}
           </span>
           <PresenceStack />
+          <EditModeSwitch page={page} />
           {page.role === 'owner' ? (
             <Menu
               align="end"

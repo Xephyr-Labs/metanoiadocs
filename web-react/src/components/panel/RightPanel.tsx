@@ -1,25 +1,19 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { Bot, Check, Info, ListTree, Loader2, MessageSquareText, Pencil, Send, Sparkles, X } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { docsApi, type CommentRow, type UserRow } from '../../lib/docsApi';
-import { applyCommentHighlights, clearPendingAnchor, clearPendingFocus, onCommentRequest, usePendingAnchor, usePendingFocus } from '../../editor/comments';
-import { tasksApi, type DocTask } from '../../lib/tasksApi';
-import { TaskComments } from '../project/TaskComments';
+import { Bot, Info, ListTree, MessageSquareText, Sparkles, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { onCommentRequest } from '../../editor/comments';
+import { CommentsTab } from './CommentsTab';
 import { AIChat } from './AIChat';
 import { IntelligenceRail } from '../intelligence/IntelligenceRail';
 import { useIntelligence } from '../../hooks/useIntelligence';
 import { useDocSaveTick } from '../../lib/docSignal';
-import { useOutsideClick } from '../../hooks/useOutsideClick';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
-import { avatarFor } from '../../lib/avatar';
 import { relativeTime } from '../../lib/time';
 import { useWorkspace, type RightTab } from '../../store/workspace';
-import { useAuth } from '../../store/auth';
 import { cn } from '../../lib/cn';
 import { EmptyState } from '../ui/EmptyState';
 import { IconButton } from '../ui/IconButton';
 import { Tooltip } from '../ui/Tooltip';
-import { CommentBox, savedDraft, type CommentBoxHandle } from '../ui/CommentBox';
 
 const TABS: { id: RightTab; label: string; icon: typeof Info }[] = [
   { id: 'intel', label: 'Intelligence', icon: Sparkles },
@@ -28,15 +22,6 @@ const TABS: { id: RightTab; label: string; icon: typeof Info }[] = [
   { id: 'details', label: 'Details', icon: Info },
   { id: 'ai', label: 'AI', icon: Bot },
 ];
-
-function Avatar({ name, size = 22 }: { name: string; size?: number }) {
-  const a = avatarFor(name);
-  return (
-    <span className="flex shrink-0 items-center justify-center rounded-full font-semibold text-white" style={{ width: size, height: size, background: a.color, fontSize: size * 0.42 }}>
-      {a.initials}
-    </span>
-  );
-}
 
 export function RightPanel() {
   const ws = useWorkspace();
@@ -150,249 +135,6 @@ function PanelInner() {
 function IntelligenceTab({ docId }: { docId: string }) {
   const intel = useIntelligence(docId, useDocSaveTick());
   return <IntelligenceRail data={intel.data} loading={intel.loading} error={intel.error} />;
-}
-
-function CommentsTab({ docId }: { docId: string }) {
-  const auth = useAuth();
-  const [comments, setComments] = useState<CommentRow[] | null>(null);
-  const [editing, setEditing] = useState<{ id: string; text: string } | null>(null);
-  const draftKey = `doc:${docId}`;
-  const [draft, setDraft] = useState(() => savedDraft(draftKey));
-  const [busy, setBusy] = useState(false);
-  const [members, setMembers] = useState<UserRow[]>([]);
-  // The row this page belongs to, if any. Its comments live on the task, not
-  // on the page — without this they are only visible from the board, which is
-  // not where somebody reading the page looks for them.
-  const [task, setTask] = useState<DocTask | null>(null);
-  const [mentionDismissed, setMentionDismissed] = useState(false);
-  const composerRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<CommentBoxHandle>(null);
-  const cardRefs = useRef(new Map<string, HTMLDivElement>());
-  // Escape clears the draft, but the blur it causes still runs with the old
-  // state — this tells that late save to stand down.
-  const cancelEdit = useRef(false);
-  const anchor = usePendingAnchor();
-  const focusId = usePendingFocus();
-
-  const load = () =>
-    docsApi.comments(docId)
-      .then((rows) => { setComments(rows); applyCommentHighlights(rows); })
-      .catch(() => setComments([]));
-  useEffect(() => { setComments(null); load(); /* eslint-disable-next-line */ }, [docId]);
-  useEffect(() => {
-    let alive = true;
-    setTask(null);
-    tasksApi.docTask(docId).then((r) => alive && setTask(r.task)).catch(() => {});
-    return () => { alive = false; };
-  }, [docId]);
-  useEffect(() => { docsApi.users().then(setMembers).catch(() => {}); }, []);
-  // Selection just landed here — put the caret in the composer. Delay past the
-  // panel slide-in, which otherwise steals focus back.
-  useEffect(() => {
-    if (!anchor) return;
-    const t = setTimeout(() => inputRef.current?.focus(), 300);
-    return () => clearTimeout(t);
-  }, [anchor]);
-  // A marked range was clicked in the doc — bring its card into view, flash it.
-  useEffect(() => {
-    if (!focusId || !comments) return;
-    const el = cardRefs.current.get(focusId);
-    el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    const t = setTimeout(clearPendingFocus, 1800);
-    return () => clearTimeout(t);
-  }, [focusId, comments]);
-
-  // Active @-mention being typed: an "@" + word chars at the end of the draft.
-  const mentionMatch = draft.match(/@([a-z0-9._-]*)$/i);
-  const mentionQuery = mentionMatch ? mentionMatch[1].toLowerCase() : null;
-  const suggestions = mentionQuery !== null && !mentionDismissed
-    ? members
-        .filter((m) => m.username && (m.username.toLowerCase().includes(mentionQuery) || (m.name || '').toLowerCase().includes(mentionQuery)))
-        .slice(0, 6)
-    : [];
-  useOutsideClick(composerRef, useCallback(() => setMentionDismissed(true), []), suggestions.length > 0);
-
-  const pickMention = (m: UserRow) => {
-    setDraft((d) => d.replace(/@([a-z0-9._-]*)$/i, `@${m.username} `));
-  };
-
-  const add = async () => {
-    const body = draft.trim();
-    if (!body || busy) return;
-    setBusy(true);
-    try {
-      await docsApi.addComment(docId, body, anchor ? { blockId: anchor.blockId, quote: anchor.quote } : undefined);
-      setDraft('');
-      clearPendingAnchor();
-      await load();
-    } finally { setBusy(false); }
-  };
-
-  const saveEdit = async () => {
-    if (cancelEdit.current) { cancelEdit.current = false; return; }
-    if (!editing) return;
-    const body = editing.text.trim();
-    const { id } = editing;
-    setEditing(null);
-    if (!body) return;
-    setComments((r) => (r ?? []).map((c) => (c.id === id ? { ...c, body } : c)));
-    await docsApi.editComment(id, body).catch(() => {});
-    await load();
-  };
-
-  // Plain functions, not components: a component declared here gets a new
-  // identity every render, so the open input would remount on each keystroke.
-  /** A comment's text, or the box it is being rewritten in. */
-  const renderBody = (c: CommentRow, className: string) =>
-    editing?.id === c.id ? (
-      <input
-        autoFocus
-        value={editing.text}
-        onChange={(e) => setEditing({ id: c.id, text: e.target.value })}
-        onBlur={saveEdit}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') saveEdit();
-          if (e.key === 'Escape') { cancelEdit.current = true; setEditing(null); }
-        }}
-        className="mt-1.5 h-7 w-full rounded-md bg-transparent px-1.5 text-sm text-ink outline-none ring-1 ring-inset ring-line focus:ring-2 focus:ring-accent"
-      />
-    ) : (
-      // "(edited)" trails the text rather than sitting in the header: the
-      // panel is narrow, and one more chip up there wraps the author's name.
-      <p className={cn('whitespace-pre-wrap break-words', className)}>
-        {c.body}
-        {c.edited_at && <span className="ml-1 text-2xs text-faint">(edited)</span>}
-      </p>
-    );
-
-  /** The pencil, for your own words only. */
-  const renderEdit = (c: CommentRow) =>
-    c.author_id && c.author_id === auth.user?.id ? (
-      <button
-        type="button"
-        onClick={() => setEditing({ id: c.id, text: c.body })}
-        aria-label="Edit this comment"
-        className="shrink-0 text-faint hover:text-ink"
-      >
-        <Pencil size={12} />
-      </button>
-    ) : null;
-
-  if (comments === null) return <div className="flex justify-center py-10"><Loader2 size={18} className="animate-spin text-faint" /></div>;
-
-  const roots = comments.filter((c) => !c.parent_id);
-  const replies = (id: string) => comments.filter((c) => c.parent_id === id);
-
-  return (
-    <div className="flex h-full flex-col">
-      <div className="flex-1 space-y-3 p-3">
-        {/* Two conversations, kept apart. The task thread is about the work;
-            the page's own comments hang off a paragraph in it. Each keeps its
-            own box, because a single composer could only guess which one a
-            comment was meant for. */}
-        {task && (
-          <div className="-mx-3 -mt-3 border-b border-line">
-            <TaskComments key={task.id} taskId={task.id} users={members} title="On this task" />
-          </div>
-        )}
-        {task && <h3 className="text-2xs font-semibold uppercase text-muted">On this page</h3>}
-        {roots.length === 0 &&
-          // Under a task thread this is a second empty state on one screen, and
-          // the tall centred one turns the panel into mostly nothing. A line.
-          (task ? (
-            <p className="flex items-center gap-1.5 text-xs text-faint">
-              <MessageSquareText size={14} /> Select text in the page to comment on it.
-            </p>
-          ) : (
-            <EmptyState icon={MessageSquareText} title="No comments yet" hint="Add the first comment below." compact />
-          ))}
-        {roots.map((c) => (
-          <div
-            key={c.id}
-            ref={(el) => { if (el) cardRefs.current.set(c.id, el); else cardRefs.current.delete(c.id); }}
-            className={cn(
-              'rounded-lg border border-line bg-comment p-3 transition-shadow duration-220',
-              c.resolved && 'bg-transparent opacity-55',
-              focusId === c.id && 'ring-2 ring-accent',
-            )}
-          >
-            <div className="flex items-center gap-2">
-              <Avatar name={c.author_name} />
-              <span className="text-sm font-medium text-ink">{c.author_name}</span>
-              {/* Written through a public link by someone with no account. */}
-              {c.guest && <span className="rounded bg-hover px-1 py-px text-[10px] font-medium uppercase tracking-wide text-muted">Guest</span>}
-              <span className="text-2xs text-faint">{relativeTime(c.created_at)}</span>
-              {renderEdit(c)}
-              {c.resolved ? (
-                <span className="ml-auto flex items-center gap-1 text-2xs text-faint"><Check size={12} /> Resolved</span>
-              ) : (
-                <button onClick={() => docsApi.resolveComment(c.id, true).then(load)} className="ml-auto text-2xs text-muted hover:text-ink">Resolve</button>
-              )}
-            </div>
-            {c.quote && <p className="mt-1.5 border-l-2 border-comment-mark pl-2 text-2xs italic text-muted">{c.quote}</p>}
-            {renderBody(c, "mt-1.5 text-sm leading-relaxed text-ink")}
-            {replies(c.id).map((r) => (
-              <div key={r.id} className="mt-2.5 flex items-start gap-2 border-l-2 border-line pl-2.5">
-                <Avatar name={r.author_name} size={18} />
-                <div className="min-w-0 flex-1">
-                  <p className="flex items-center gap-1.5 text-2xs font-medium text-ink">
-                    {r.author_name}
-                    {r.guest && <span className="rounded bg-hover px-1 py-px text-[10px] font-medium uppercase tracking-wide text-muted">Guest</span>}
-                    <span className="font-normal text-faint">· {relativeTime(r.created_at)}</span>
-                    {renderEdit(r)}
-                  </p>
-                  {renderBody(r, "text-sm text-ink")}
-                </div>
-              </div>
-            ))}
-          </div>
-        ))}
-      </div>
-      <div ref={composerRef} className="relative border-t border-line p-3">
-        {anchor && (
-          <div className="mb-2 flex items-center gap-2 rounded-md bg-comment px-2.5 py-1.5">
-            <span className="min-w-0 flex-1 truncate text-2xs italic text-muted">“{anchor.quote}”</span>
-            <button type="button" onClick={clearPendingAnchor} aria-label="Remove quote" className="shrink-0 text-faint hover:text-ink">
-              <X size={12} />
-            </button>
-          </div>
-        )}
-        {suggestions.length > 0 && (
-          <div className="absolute bottom-[52px] left-3 right-3 z-10 overflow-hidden rounded-lg border border-line bg-canvas shadow-pop">
-            {suggestions.map((m) => (
-              <button
-                key={m.id}
-                type="button"
-                onMouseDown={(e) => { e.preventDefault(); pickMention(m); }}
-                className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-sm hover:bg-hover"
-              >
-                <Avatar name={m.name || m.username || m.email} size={18} />
-                <span className="font-medium text-ink">{m.name || m.username}</span>
-                <span className="truncate text-2xs text-faint">@{m.username}</span>
-              </button>
-            ))}
-          </div>
-        )}
-        <div className="flex items-end gap-2 rounded-md ring-1 ring-inset ring-line focus-within:ring-2 focus-within:ring-accent">
-          <CommentBox
-            ref={inputRef}
-            draftKey={draftKey}
-            value={draft}
-            onChange={(v) => { setDraft(v); setMentionDismissed(false); }}
-            onEnter={() => {
-              // If the mention menu is open, Enter picks the top suggestion
-              // instead of submitting a half-typed handle.
-              if (suggestions.length > 0) { pickMention(suggestions[0]); return; }
-              add();
-            }}
-            placeholder={anchor ? 'Comment on selection…' : 'Add a comment…  @ to mention'}
-            className="px-3 py-2"
-          />
-          <IconButton icon={busy ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />} label="Send" onClick={add} className="mb-0.5 mr-0.5" />
-        </div>
-      </div>
-    </div>
-  );
 }
 
 function OutlineTab() {

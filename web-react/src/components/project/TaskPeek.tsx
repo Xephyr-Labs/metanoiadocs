@@ -465,6 +465,10 @@ export function TaskPeek({
               mode="page"
               userName={auth.user?.name ?? 'You'}
               fullWidth
+              // Someone who may only view or comment on the page gets it read-only
+              // here too. Unknown (not in the sidebar index) keeps it editable,
+              // as before — the server still refuses a write it doesn't allow.
+              role={ws.pages[docId]?.role}
               // Typing into the page's own title block writes docs.title (and,
               // server-side, tasks.title) but never touches this component's
               // `tasks` list — onPatch is what keeps that cache in step, the

@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { AlertCircle, Check, Copy, Globe, Link2, Loader2, Lock, Users } from 'lucide-react';
+import { AlertCircle, Check, Copy, Globe, Link2, Loader2, Lock, Users, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { docsApi, type AccessRow, type ShareAccess } from '../../lib/docsApi';
+import { docsApi, type AccessRow, type DocRole, type ShareAccess } from '../../lib/docsApi';
 import { copyText } from '../../lib/clipboard';
 import { sendInvite } from '../../lib/api';
 import { avatarFor } from '../../lib/avatar';
@@ -12,6 +12,29 @@ import { field } from '../ui/styles';
 import { Modal } from '../ui/Modal';
 import { SegmentedControl } from '../ui/SegmentedControl';
 
+/** What each role may do, in the words the picker uses. */
+const ROLES: { id: Exclude<DocRole, 'owner'>; label: string; hint: string }[] = [
+  { id: 'editor', label: 'Can edit', hint: 'Change the page directly' },
+  { id: 'suggester', label: 'Can suggest', hint: 'Propose changes for review' },
+  { id: 'commenter', label: 'Can comment', hint: 'Read and comment' },
+  { id: 'viewer', label: 'Can view', hint: 'Read only' },
+];
+const roleLabel = (r: string) => ROLES.find((x) => x.id === r)?.label ?? (r === 'owner' ? 'Owner' : r);
+
+function RoleSelect({ value, onChange, disabled, label }: { value: string; onChange: (r: DocRole) => void; disabled?: boolean; label: string }) {
+  return (
+    <select
+      aria-label={label}
+      value={value}
+      disabled={disabled}
+      onChange={(e) => onChange(e.target.value as DocRole)}
+      className="h-8 shrink-0 rounded-md bg-transparent px-1.5 text-sm text-muted outline-none ring-1 ring-inset ring-line hover:text-ink focus:ring-2 focus:ring-accent"
+    >
+      {ROLES.map((r) => <option key={r.id} value={r.id} title={r.hint}>{r.label}</option>)}
+    </select>
+  );
+}
+
 export function ShareDialog() {
   const ws = useWorkspace();
   const docId = ws.currentId;
@@ -20,6 +43,7 @@ export function ShareDialog() {
   const [linkAccess, setLinkAccess] = useState<ShareAccess>('view');
   const [copied, setCopied] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState<DocRole>('editor');
   const [inviting, setInviting] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [busyLink, setBusyLink] = useState(false);
@@ -40,8 +64,8 @@ export function ShareDialog() {
     // Try to grant access to an existing user; if they haven't signed up yet,
     // fall back to a workspace invite email.
     try {
-      await docsApi.shareWith(docId, inviteEmail.trim());
-      setMsg({ ok: true, text: `${inviteEmail.trim()} now has access.` });
+      await docsApi.shareWith(docId, inviteEmail.trim(), inviteRole);
+      setMsg({ ok: true, text: `${inviteEmail.trim()} ${roleLabel(inviteRole).toLowerCase()}.` });
       setInviteEmail('');
       docsApi.access(docId).then(setAccess).catch(() => {});
     } catch (e) {
@@ -56,6 +80,22 @@ export function ShareDialog() {
     } finally {
       setInviting(false);
     }
+  };
+
+  const isOwner = ws.currentPage?.role === 'owner';
+  const changeRole = async (userId: string, role: DocRole) => {
+    if (!docId) return;
+    const before = access;
+    setAccess((rows) => rows.map((r) => (r.id === userId ? { ...r, role } : r)));
+    try { await docsApi.setAccessRole(docId, userId, role); }
+    catch { setAccess(before); setMsg({ ok: false, text: 'Could not change their access.' }); }
+  };
+  const removePerson = async (r: AccessRow) => {
+    if (!docId || !confirm(`Remove ${r.name || r.email} from this page?`)) return;
+    try {
+      await docsApi.removeAccess(docId, r.id);
+      setAccess((rows) => rows.filter((x) => x.id !== r.id));
+    } catch { setMsg({ ok: false, text: 'Could not remove them.' }); }
   };
 
   const togglePublic = async () => {
@@ -114,8 +154,9 @@ export function ShareDialog() {
             onKeyDown={(e) => e.key === 'Enter' && invite()}
             type="email"
             placeholder="Invite by email…"
-            className={cn(field, "flex-1")}
+            className={cn(field, "min-w-0 flex-1")}
           />
+          {isOwner && <RoleSelect label="Access for the person you invite" value={inviteRole} onChange={setInviteRole} />}
           <Button variant="primary" onClick={invite} disabled={inviting} leftIcon={inviting ? <Loader2 size={14} className="animate-spin" /> : undefined}>Invite</Button>
         </div>
         {msg && (
@@ -135,7 +176,16 @@ export function ShareDialog() {
                   <p className="truncate text-sm font-medium text-ink">{r.name || r.email}</p>
                   <p className="truncate text-2xs text-faint">{r.email}</p>
                 </div>
-                <span className="text-sm capitalize text-muted">{r.role}</span>
+                {isOwner && r.role !== 'owner' ? (
+                  <>
+                    <RoleSelect label={`Access for ${r.name || r.email}`} value={r.role} onChange={(role) => void changeRole(r.id, role)} />
+                    <button type="button" onClick={() => void removePerson(r)} aria-label={`Remove ${r.name || r.email}`} className="shrink-0 rounded p-1 text-faint hover:bg-hover hover:text-danger-strong">
+                      <X size={14} />
+                    </button>
+                  </>
+                ) : (
+                  <span className="text-sm text-muted">{roleLabel(r.role)}</span>
+                )}
               </div>
             );
           })}

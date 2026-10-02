@@ -19,6 +19,10 @@ import { PageProperties } from './PageProperties';
 import { PageHeader } from './PageHeader';
 import { SlidesRail } from './SlidesRail';
 import { focusDocTitle, takeTitleFocus } from '../../lib/titleFocus';
+import { canEditRole } from '../../lib/docsApi';
+import { useReviewState } from '../../lib/reviewMode';
+import { SuggestingBanner } from '../review/SuggestingBanner';
+import { ReviewView } from '../review/ReviewView';
 
 export function EditorArea() {
   const ws = useWorkspace();
@@ -59,6 +63,8 @@ export function EditorArea() {
   // document, so the caret has to land in the editor for the edit to stick —
   // see lib/titleFocus. Declared above the early return below: it is a hook.
   const pageId = page?.id;
+  // Editing / Suggesting / Viewing, and the review takeover.
+  const review = useReviewState(pageId, page?.role, auth.user?.id);
   useEffect(() => {
     if (!editorEl || !pageId || !takeTitleFocus(pageId)) return;
     return focusDocTitle(editorEl);
@@ -87,6 +93,19 @@ export function EditorArea() {
   // Slides render the same canvas as edgeless, with the deck rail beside it.
   const canvas = mode !== 'page';
   const slides = mode === 'slides';
+  // In Suggesting mode the editor syncs the suggester's draft, not the page;
+  // in Viewing mode it opens read-only. Either remounts it (the key below).
+  const draft = review.mode === 'suggesting' ? review.myDraft?.draft : undefined;
+  const editorRole = review.effectiveRole;
+  const editorKey = `${page.id}:${rewriteKey}:${draft ?? editorRole ?? ''}`;
+
+  if (review.reviewing) {
+    return (
+      <div className="relative flex h-full flex-col bg-canvas">
+        <ReviewView key={review.reviewing} sid={review.reviewing} docId={page.id} />
+      </div>
+    );
+  }
 
   return (
     <div className="relative flex h-full flex-col bg-canvas">
@@ -104,6 +123,13 @@ export function EditorArea() {
         />
       </div>
 
+      {draft && review.myDraft && <SuggestingBanner draft={review.myDraft} canEdit={canEditRole(page.role)} />}
+      {review.mode === 'viewing' && review.allowed.includes('suggesting') && (
+        <div className="shrink-0 border-b border-line bg-surface px-3 py-1.5 text-xs text-muted">
+          Viewing — the page is read-only here. Switch to <button type="button" className="font-medium text-accent-strong hover:underline" onClick={() => review.setMode('suggesting')}>Suggesting</button> to propose changes.
+        </div>
+      )}
+
       <div className="relative min-h-0 flex-1">
         {canvas ? (
           <div className="absolute inset-0 flex">
@@ -113,10 +139,12 @@ export function EditorArea() {
                 (sidebar, rail, top bar) is excluded while presenting. */}
             <div data-slides-pane className="relative min-w-0 flex-1 bg-canvas">
             <LazyEditor
-              key={`${page.id}:${rewriteKey}`}
+              key={editorKey}
               docId={page.id}
               title={page.title}
               mode={mode}
+              role={editorRole}
+              draft={draft}
               userName={auth.user?.name ?? 'You'}
               onTitle={(t) => ws.applyTitleFromEditor(page.id, t)}
               onSaved={bumpSoon}
@@ -154,10 +182,12 @@ export function EditorArea() {
                 <PageProperties editor={editorEl} page={page} />
                 <div className="relative pb-40">
                   <LazyEditor
-                    key={`${page.id}:${rewriteKey}`}
+                    key={editorKey}
                     docId={page.id}
                     title={page.title}
                     mode="page"
+                    role={editorRole}
+                    draft={draft}
                     userName={auth.user?.name ?? 'You'}
                     fullWidth={ws.fullWidth}
                     onTitle={(t) => ws.applyTitleFromEditor(page.id, t)}

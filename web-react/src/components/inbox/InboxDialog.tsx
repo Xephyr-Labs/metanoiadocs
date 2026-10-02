@@ -103,6 +103,18 @@ const SYSTEM: Record<string, { icon: LucideIcon; tone: string }> = {
   digest: { icon: ListChecks, tone: 'text-muted' },
 };
 
+
+/** How each kind of notification reads after the person's name. */
+const INBOX_VERBS: Partial<Record<string, string>> = {
+  comment: 'commented on',
+  reply: 'replied in',
+  suggestion: 'suggested a change to',
+  suggestion_accepted: 'accepted your suggestion on',
+  suggestion_rejected: 'declined your suggestion on',
+  review_requested: 'asked you to review changes to',
+  review_done: 'reviewed your changes to',
+};
+
 export function InboxDialog() {
   const ws = useWorkspace();
   const auth = useAuth();
@@ -198,7 +210,7 @@ export function InboxDialog() {
                         ? (self ? ' took on ' : ' assigned you ')
                         : it.kind === 'mention'
                           ? (self ? ' tagged yourself in ' : ' mentioned you in ')
-                          : ' commented on '}
+                          : ` ${INBOX_VERBS[it.kind] ?? 'commented on'} `}
                     </span>
                     <span className="font-medium">
                       {it.kind === 'assigned'

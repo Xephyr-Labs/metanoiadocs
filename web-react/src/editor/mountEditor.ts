@@ -24,7 +24,7 @@ import { IndexeddbPersistence } from 'y-indexeddb';
 import { Signal } from '@preact/signals-core';
 import { avatarFor } from '../lib/avatar';
 import { attachPresence, primeRemoteSelections } from './presence';
-import { attachComments, type CommentRows } from './comments';
+import { attachComments, commentToolbarExtensions, notifyCommentsChanged, type CommentRows } from './comments';
 import { takePendingSeed } from './pendingSeed';
 import { docPlainText } from './docText';
 import { attachMermaidPreviews } from './mermaidPreview';
@@ -125,7 +125,18 @@ interface MountArgs {
    *  The Yjs state has already converged; the editor has to be rebuilt for the
    *  screen to agree with it. */
   onRemoteRewrite?: () => void;
+  /** The viewer's role on the page. Anything below editor ('suggester',
+   *  'commenter', 'viewer') opens the page read-only — the sync server refuses
+   *  their writes anyway, and an editable page that silently never saves is
+   *  worse than one that says it can't be edited. Unset means editor. */
+  role?: string;
+  /** Suggesting mode: sync this draft (its sync name) instead of the page.
+   *  It renders and edits like the page, but nothing here writes to the page,
+   *  its title, its search text or its comments. */
+  draft?: string;
 }
+
+const EDIT_ROLES = new Set(['owner', 'editor']);
 
 function docModeService(editor: { mode: string }, mode: 'page' | 'edgeless') {
   let current = mode;
@@ -141,9 +152,13 @@ function docModeService(editor: { mode: string }, mode: 'page' | 'edgeless') {
 
 export async function mountEditor(
   root: HTMLElement,
-  { docId, title, mode, userName, share, guestComments, snapshot, onTitle, onSaved, pages, createPage, onOpenDoc, onRemoteRewrite }: MountArgs,
+  { docId, title, mode, userName, share, guestComments, snapshot, onTitle, onSaved, pages, createPage, onOpenDoc, onRemoteRewrite, role, draft }: MountArgs,
 ) {
   installEffects();
+  // Read-only for this viewer: a public link, a version preview, or a role
+  // that can't edit. A draft is the suggester's own and always writable.
+  const readonlyRole = !share && !snapshot && !draft && !!role && !EDIT_ROLES.has(role);
+  const noWrite = !!(share || snapshot || readonlyRole);
   chartEffects(); // register the metanoia:chart custom elements once
   databaseEffects(); // register the metanoia:database custom element once
   columnsEffects(); // register the column elements + widen the schema once
@@ -194,21 +209,26 @@ export async function mountEditor(
     ? null
     : new HocuspocusProvider({
         url: wsBase(),
-        name: docId,
+        name: draft ?? docId,
         document: doc.spaceDoc,
-        parameters: share ? { doc: docId, share } : { doc: docId },
+        parameters: share ? { doc: docId, share } : { doc: draft ?? docId },
         awareness: collection.awarenessStore.awareness,
       });
 
   provider?.on('stateless', ({ payload }: { payload: string }) => {
-    try { if (JSON.parse(payload)?.type === 'doc-restored') onRemoteRewrite?.(); } catch { /* not ours */ }
+    try {
+      const type = JSON.parse(payload)?.type;
+      if (type === 'doc-restored') onRemoteRewrite?.();
+      // Someone added, answered, resolved or decided a comment on this page.
+      else if (type === 'comments-changed') notifyCommentsChanged();
+    } catch { /* not ours */ }
   });
 
   // Local-first persistence: edits are written to IndexedDB, so the doc opens
   // instantly and survives being offline; Hocuspocus merges everything back on
   // reconnect (Yjs is a CRDT, so offline + remote edits combine without conflict).
   // Public read-only viewers don't need a local cache.
-  const idb = share || snapshot ? null : new IndexeddbPersistence(`mn-doc-${docId}`, doc.spaceDoc);
+  const idb = share || snapshot ? null : new IndexeddbPersistence(`mn-doc-${draft ?? docId}`, doc.spaceDoc);
 
   // Name + color ride on awareness: BlockSuite paints remote carets/selections
   // with them, and the TopBar avatar stack reads them via attachPresence.
@@ -262,7 +282,7 @@ export async function mountEditor(
 
   // Public viewer and version preview alike: read-only. Set before the editor
   // mounts so no caret or tools show.
-  if (share || snapshot) store.readonly = true;
+  if (noWrite) store.readonly = true;
 
   // An archived state that decodes to nothing is a broken snapshot, not an
   // empty page — say so rather than rendering a blank sheet that looks like
@@ -281,7 +301,7 @@ export async function mountEditor(
   // Only the first client to reach a still-empty doc seeds the skeleton (page ->
   // surface + note + blocks). A read-only viewer never seeds. If the doc was
   // created from a template, seed its blocks; otherwise a single empty paragraph.
-  if (!share && !snapshot && !store.root) {
+  if (!noWrite && !draft && !store.root) {
     const seed = takePendingSeed(docId);
     try {
       const pageId = store.addBlock('affine:page', { title: new Text(title) });
@@ -328,7 +348,8 @@ export async function mountEditor(
   // gates this and the push below alike.
   let live = synced;
   const reconcileTitle = () => {
-    if (share || snapshot || !store.root) return;
+    // A draft's title is the suggester's proposal, not the page's to restore.
+    if (noWrite || draft || !store.root) return;
     try {
       const titleModel = (store.root as { props?: { title?: InstanceType<typeof Text> } }).props?.title;
       const yjsTitle = titleModel ? titleModel.toString() : '';
@@ -347,7 +368,7 @@ export async function mountEditor(
   // Two clients switching to canvas at the same instant would add two surfaces;
   // BlockSuite reads the first, so the loser is inert.
   const ensureSurface = () => {
-    if (share || snapshot) return;
+    if (noWrite) return;
     const pageRoot = store.root as { id: string; children?: { flavour: string }[] } | null;
     if (!pageRoot || (pageRoot.children ?? []).some((c) => c.flavour === 'affine:surface')) return;
     try { store.addBlock('affine:surface', {}, pageRoot.id, 0); } catch { /* raced, fine */ }
@@ -406,6 +427,10 @@ export async function mountEditor(
     // Panel colours are a property of the document, so a public viewer must see
     // them too; the toolbar they are set from never opens for them.
     ...calloutExtensions(),
+    // Comment and Suggest edit on the text toolbar. Not on a public link (its
+    // floating buttons cover it), a version or a draft — a draft's comments
+    // would have nowhere to live.
+    ...(share || snapshot || draft ? [] : commentToolbarExtensions()),
     // "@" page references. These carry the title resolver as well as the menu,
     // so a version preview keeps them too — without the resolver every mention
     // in an old version renders struck through as a deleted page. The menu
@@ -454,11 +479,16 @@ export async function mountEditor(
     doc.spaceDoc.on('update', cb);
     return () => doc.spaceDoc.off('update', cb);
   };
-  const detachComments = snapshot
+  const detachComments = snapshot || draft
     ? null
     : share
       ? (guestComments ? attachComments(editor, docId, onDocUpdate, guestComments, { readonly: true }) : null)
-      : attachComments(editor, docId, onDocUpdate);
+      : attachComments(editor, docId, onDocUpdate, undefined, {
+        readonly: readonlyRole,
+        // A viewer reads the threads; everyone above can start one.
+        canComment: role !== 'viewer',
+        canSuggest: !role || (role !== 'viewer' && role !== 'commenter'),
+      });
 
   // Clicking a reference chip opens that page in the app; BlockSuite's own
   // handler would look for the doc in this collection and find nothing.
@@ -500,7 +530,7 @@ export async function mountEditor(
   // A file dropped in the margin or under the last line lands where it was
   // dropped, not at the end of the page (see fileDrop.ts). Not for viewers:
   // nothing can be dropped into a read-only page.
-  const detachFileDrop = share || snapshot
+  const detachFileDrop = noWrite
     ? null
     : attachFileDrop(editor as unknown as Parameters<typeof attachFileDrop>[0]);
 
@@ -523,7 +553,7 @@ export async function mountEditor(
   // Markdown pasted from a code editor, a terminal or a fenced block arrives
   // with syntax-highlight HTML beside it, which outranks the plain text and
   // reproduces `## Heading` verbatim. See markdownPaste.ts.
-  const detachMarkdownPaste = share || snapshot ? null : attachMarkdownPaste(editor);
+  const detachMarkdownPaste = noWrite ? null : attachMarkdownPaste(editor);
 
   // Debounced sync of title (sidebar) + plain text (search) back to the server.
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -566,8 +596,9 @@ export async function mountEditor(
       }
     }, 1200);
   };
-  // A read-only viewer never writes back title/search text.
-  if (!share && !snapshot) {
+  // A read-only viewer never writes back title/search text, and nor does a
+  // draft: the page it was drafted from keeps its own until changes are accepted.
+  if (!noWrite && !draft) {
     doc.spaceDoc.on('update', push);
     push();
     if (!live) {
@@ -580,9 +611,9 @@ export async function mountEditor(
     }
   }
   // Phones: the line being typed stays above the keyboard's formatting bar.
-  const detachCaret = IS_MOBILE && !share && !snapshot ? keepCaretVisible(editor as unknown as HTMLElement) : () => {};
+  const detachCaret = IS_MOBILE && !noWrite ? keepCaretVisible(editor as unknown as HTMLElement) : () => {};
   // Android keyboards recompose the word under the caret; see androidRecompose.
-  const detachRecompose = IS_ANDROID && !share && !snapshot ? fixAndroidRecompose(editor as unknown as HTMLElement) : () => {};
+  const detachRecompose = IS_ANDROID && !noWrite ? fixAndroidRecompose(editor as unknown as HTMLElement) : () => {};
 
   return {
     editor,
