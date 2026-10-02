@@ -38,6 +38,7 @@ import { mentionHandles } from './mentions.js';
 import { buildDocState, appendMarkdownToDoc, appendPageReference, extractText, extractBlocks, docToMarkdown } from './blocks.js';
 import { rewriteDoc } from './restore.js';
 import { applyTextSuggestion, parseDraftName, registerSuggestionRoutes } from './suggestions.js';
+import { registerReactionRoutes, withReactions } from './reactions.js';
 import { wouldFolderCycle } from './folders.js';
 import { printHtml } from './print.js';
 import { docxFromMarkdown } from './docx.js';
@@ -1246,6 +1247,7 @@ app.post('/api/docs/:id/share', requireUser, async (req, res) => {
        WHERE doc_access.role <> 'owner'`,
     [req.params.id, target.rows[0].id, role]
   );
+  dropLiveConnections(req.params.id);
   res.json({ ok: true, role });
 });
 
@@ -1257,6 +1259,7 @@ app.put('/api/docs/:id/team-role', requireUser, wrap(async (req, res) => {
   const role = req.body?.role;
   if (!SHAREABLE_ROLES.includes(role)) return res.status(400).json({ error: 'unknown role' });
   await pool.query('UPDATE docs SET team_role = $2 WHERE id = $1', [req.params.id, role]);
+  dropLiveConnections(req.params.id);
   res.json({ ok: true, role });
 }));
 
@@ -1271,6 +1274,7 @@ app.put('/api/docs/:id/access/:userId', requireUser, wrap(async (req, res) => {
     [req.params.id, req.params.userId, role]
   );
   if (!rowCount) return res.status(404).json({ error: 'not shared with that person' });
+  dropLiveConnections(req.params.id);
   res.json({ ok: true, role });
 }));
 
@@ -1280,6 +1284,7 @@ app.delete('/api/docs/:id/access/:userId', requireUser, wrap(async (req, res) =>
     `DELETE FROM doc_access WHERE doc_id = $1 AND user_id = $2 AND role <> 'owner'`,
     [req.params.id, req.params.userId]
   );
+  dropLiveConnections(req.params.id);
   res.json({ ok: true });
 }));
 
@@ -1398,10 +1403,10 @@ async function trashGrantOn(docId, userId) {
   const g = await pool.query('SELECT role FROM doc_access WHERE doc_id = $1 AND user_id = $2', [docId, userId]);
   if (g.rows[0]) return g.rows[0].role;
   const t = await pool.query(
-    "SELECT 1 FROM docs WHERE id = $1 AND visibility = 'team' AND deleted_at IS NOT NULL",
+    "SELECT team_role FROM docs WHERE id = $1 AND visibility = 'team' AND deleted_at IS NOT NULL",
     [docId]
   );
-  return t.rowCount ? 'editor' : null;
+  return t.rows[0] ? teamRole(t.rows[0].team_role) : null;
 }
 
 // What a grant lets you do, weakest first. 'viewer' reads; 'commenter' also
@@ -1416,15 +1421,30 @@ const rankOf = (role) => (role in ROLE_RANK ? ROLE_RANK[role] : -1);
 const canComment = (role) => rankOf(role) >= ROLE_RANK.commenter;
 const canSuggest = (role) => rankOf(role) >= ROLE_RANK.suggester;
 const canEdit = (role) => rankOf(role) >= ROLE_RANK.editor;
+/**
+ * Make everyone on a page reconnect, so a role that just changed takes effect
+ * now: read-only is decided when a connection opens, and someone downgraded or
+ * removed would otherwise keep writing until they happened to reload. Their
+ * Suggesting-mode drafts of the page go too. The editor reconnects by itself.
+ */
+function dropLiveConnections(docId) {
+  try {
+    for (const name of hocuspocus.documents.keys()) {
+      if (name === docId || name.startsWith(`${docId}~draft~`)) hocuspocus.closeConnections(name);
+    }
+  } catch { /* nobody connected */ }
+}
+
 /** Grant check for routes that change the page: 403 unless the caller can edit. */
 async function editGrant(docId, userId) {
   const role = await grantOn(docId, userId);
   return canEdit(role) ? role : null;
 }
 
-// Restore a trashed doc (any grant on it).
+// Restore a trashed doc — whoever could have edited it, the same people who
+// could have deleted it.
 app.post('/api/docs/:id/restore', requireUser, async (req, res) => {
-  if (!(await trashGrantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
+  if (!canEdit(await trashGrantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
   await pool.query('UPDATE docs SET deleted_at = NULL, updated_at = now(), updated_by = $2, updated_via = $3 WHERE id = $1', [req.params.id, req.user.id, req.via]);
   res.json({ ok: true });
 });
@@ -2462,13 +2482,13 @@ app.get('/api/docs/:id/comments', requireUser, async (req, res) => {
   if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
   const { rows } = await pool.query(
     `SELECT c.id, c.block_id, c.quote, c.body, c.author_id, c.author_name, c.parent_id, c.resolved,
-            c.created_at, c.edited_at, c.guest, c.kind, c.suggestion, c.suggestion_status,
+            c.created_at, c.edited_at, c.guest, c.kind, c.suggestion, c.suggestion_status, c.quote_occurrence,
             u.name AS decided_by_name
        FROM comments c LEFT JOIN users u ON u.id = c.decided_by
       WHERE c.doc_id = $1 ORDER BY c.created_at ASC`,
     [req.params.id]
   );
-  res.json(rows);
+  res.json(await withReactions(rows, req.user.id));
 });
 
 app.post('/api/docs/:id/comments', requireUser, async (req, res) => {
@@ -2515,12 +2535,14 @@ app.post('/api/docs/:id/comments', requireUser, async (req, res) => {
   }
   const id = crypto.randomUUID();
   await pool.query(
-    `INSERT INTO comments (id, doc_id, block_id, quote, body, author_id, author_name, parent_id, kind, suggestion)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+    `INSERT INTO comments (id, doc_id, block_id, quote, body, author_id, author_name, parent_id, kind, suggestion, quote_occurrence)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
     [id, req.params.id, parentId ? null : (req.body?.blockId || null),
      parentId ? '' : String(req.body?.quote || '').slice(0, 500),
      body, req.user.id, req.user.name || req.user.email, parentId,
-     suggestion ? 'suggestion' : 'comment', replacement]
+     suggestion ? 'suggestion' : 'comment', replacement,
+     // Which copy of the quoted words in that block — "the" twice in a line.
+     Math.max(0, Math.min(1000, Number.parseInt(req.body?.occurrence, 10) || 0))]
   );
   // Fan out notifications for this comment (best-effort; never fails the comment).
   createCommentNotifications({
@@ -2612,7 +2634,11 @@ async function createCommentNotifications({ commentId, docId, body, actor, menti
       [parentId]
     );
     for (const r of rows) {
-      if (r.id !== actor.id && !recipients.has(r.id)) recipients.set(r.id, { kind: 'reply', email: r.email });
+      if (r.id === actor.id || recipients.has(r.id)) continue;
+      // Someone taken off the page since they joined the thread hears nothing
+      // more of it — the reply's text is the page's content.
+      if (!(await grantOn(docId, r.id))) continue;
+      recipients.set(r.id, { kind: 'reply', email: r.email });
     }
   }
   // Doc owner also hears about any comment (unless they wrote it / already mentioned).
@@ -2777,7 +2803,7 @@ app.post('/api/comments/:cid/decision', requireUser, wrap(async (req, res) => {
   const accept = req.body?.decision === 'accept';
   if (!accept && req.body?.decision !== 'reject') return res.status(400).json({ error: 'accept or reject' });
   const { rows: [c] } = await pool.query(
-    `SELECT id, doc_id, block_id, quote, suggestion, suggestion_status, author_id, kind
+    `SELECT id, doc_id, block_id, quote, quote_occurrence, suggestion, suggestion_status, author_id, kind
        FROM comments WHERE id = $1 AND doc_id IS NOT NULL`,
     [req.params.cid]
   );
@@ -2785,27 +2811,41 @@ app.post('/api/comments/:cid/decision', requireUser, wrap(async (req, res) => {
   if (!(await editGrant(c.doc_id, req.user.id))) {
     return res.status(403).json({ error: 'Only people who can edit this page can accept or reject suggestions.' });
   }
-  if (c.suggestion_status) return res.status(409).json({ error: `This suggestion was already ${c.suggestion_status}.` });
+  // Claim the decision before touching the page: two editors pressing Accept
+  // at once must not both write the replacement ("cat" → "black black cat").
+  const claim = await pool.query(
+    `UPDATE comments SET suggestion_status = $2, decided_by = $3, resolved = true
+      WHERE id = $1 AND suggestion_status IS NULL RETURNING id`,
+    [c.id, accept ? 'accepted' : 'rejected', req.user.id]
+  );
+  if (!claim.rowCount) {
+    const { rows: [now] } = await pool.query('SELECT suggestion_status FROM comments WHERE id = $1', [c.id]);
+    return res.status(409).json({ error: `This suggestion was already ${now?.suggestion_status || 'decided'}.` });
+  }
 
   if (accept) {
     let applied = false;
-    const conn = await hocuspocus.openDirectConnection(c.doc_id, { docId: c.doc_id, user: req.user });
     try {
-      await conn.transact((doc) => { applied = applyTextSuggestion(doc, c.block_id, c.quote, c.suggestion ?? ''); });
-    } finally {
-      await conn.disconnect();
+      const conn = await hocuspocus.openDirectConnection(c.doc_id, { docId: c.doc_id, user: req.user });
+      try {
+        await conn.transact((doc) => {
+          applied = applyTextSuggestion(doc, c.block_id, c.quote, c.suggestion ?? '', c.quote_occurrence ?? 0);
+        });
+      } finally {
+        await conn.disconnect();
+      }
+    } catch (e) {
+      console.error('[suggestion] apply failed:', e.message);
     }
     if (!applied) {
+      // Hand the decision back: nothing changed on the page.
+      await pool.query('UPDATE comments SET suggestion_status = NULL, decided_by = NULL, resolved = false WHERE id = $1', [c.id]);
       return res.status(409).json({
         error: 'The text this suggestion changes has been edited since, so it can no longer be applied. Reject it, or make the change by hand.',
       });
     }
     await pool.query('UPDATE docs SET updated_at = now(), updated_by = $2, updated_via = $3 WHERE id = $1', [c.doc_id, req.user.id, req.via]);
   }
-  await pool.query(
-    `UPDATE comments SET suggestion_status = $2, decided_by = $3, resolved = true WHERE id = $1`,
-    [c.id, accept ? 'accepted' : 'rejected', req.user.id]
-  );
   await pool.query('UPDATE comments SET resolved = true WHERE parent_id = $1', [c.id]);
   // The suggester hears what became of it.
   if (c.author_id && c.author_id !== req.user.id) {
@@ -2877,6 +2917,7 @@ app.delete('/api/comments/:cid', requireUser, async (req, res) => {
 
 // Comments from guests through a public link (see guest-comments.js).
 registerGuestCommentRoutes(app, { wrap, notify: createCommentNotifications, emit, changed: commentsChanged });
+registerReactionRoutes(app, { requireUser, wrap, grantOn, canComment, changed: commentsChanged });
 
 app.use(express.static(WEB_DIST));
 // Projects/tasks and the home dashboard live in their own modules — this file
@@ -2885,13 +2926,13 @@ registerTaskRoutes(app, { requireUser, wrap, createDocRow });
 registerTaskCommentRoutes(app, { requireUser, wrap });
 registerPropRoutes(app, { requireUser, wrap });
 registerViewRoutes(app, { requireUser, wrap });
-registerDocPropRoutes(app, { requireUser, wrap, grantOn });
+registerDocPropRoutes(app, { requireUser, wrap, grantOn, editGrant });
 registerHomeRoutes(app, { requireUser, wrap });
 registerPushRoutes(app, { requireUser, wrap });
 registerFolderRoutes(app, { requireUser, wrap });
 registerWebhookRoutes(app, { requireUser, requireAdmin, wrap });
 registerFormRoutes(app, { requireUser, wrap, baseUrl: BASE_URL });
-registerTemplateRoutes(app, { requireUser, wrap, grantOn, kindsFor, isStatus });
+registerTemplateRoutes(app, { requireUser, wrap, grantOn, editGrant, kindsFor, isStatus });
 registerCsvRoutes(app, {
   requireUser, wrap, createDocRow,
   // One file per request, same shape and same ceiling as the document import.
@@ -2935,7 +2976,13 @@ const hocuspocus = new Hocuspocus({
       // Read-only is enforced by the sync server, not by trusting the client to
       // set its store readonly: an update from a connection that can't edit is
       // refused and never reaches the document or anyone else's screen.
-      async onConnect({ connection, context }) {
+      async onConnect({ connection, context, documentName }) {
+        // One socket can name several documents. The upgrade authorized exactly
+        // one; refuse any other here, before Hocuspocus attaches the connection
+        // to it. The check in `fetch` below only runs for a document that isn't
+        // already in memory, so on its own it let a connection reach any page
+        // someone else had open — and write to it with this one's role.
+        if (context?.docId && documentName !== context.docId) throw new Error('document mismatch');
         if (context?.role !== DRAFT_AUTHOR && !canEdit(context?.role)) connection.readOnly = true;
       },
     },

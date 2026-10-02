@@ -65,6 +65,21 @@ export function forgetDraft(docId: string, sid: string) {
   changed();
 }
 
+// A draft closed on the server (reviewed, or discarded elsewhere): drop it here
+// too, or its author keeps typing into a draft that no longer saves anywhere.
+if (typeof window !== 'undefined') {
+  window.addEventListener('mn-draft-closed', (e) => {
+    const name = (e as CustomEvent<{ draft: string }>).detail?.draft;
+    for (const [docId, list] of state.drafts) {
+      const d = list.find((x) => x.draft === name);
+      if (!d) continue;
+      forgetDraft(docId, d.id);
+      toast('Your suggested changes were reviewed.');
+      void loadDrafts(docId);
+    }
+  });
+}
+
 export function useReviewState(docId: string | null | undefined, role: string | null | undefined, userId?: string | null) {
   const [, force] = useState(0);
   useEffect(() => {

@@ -12,6 +12,8 @@ import { avatarFor } from '../../lib/avatar';
 import { cn } from '../../lib/cn';
 import { relativeTime } from '../../lib/time';
 import { EmptyState } from '../ui/EmptyState';
+import { Reactions } from '../ui/Reactions';
+import { emojify } from '../../lib/emoji';
 import { field } from '../ui/styles';
 
 export interface GuestCommentRow {
@@ -29,6 +31,7 @@ export interface GuestCommentRow {
   kind?: 'comment' | 'suggestion';
   suggestion?: string | null;
   suggestion_status?: 'accepted' | 'rejected' | null;
+  reactions?: { emoji: string; count: number; names?: string[] }[];
 }
 
 const NAME_KEY = 'mn-guest-name';
@@ -217,7 +220,7 @@ export function GuestComments({ token, onClose }: { token: string; onClose?: () 
     />
   ) : (
     <p className={cn(className, 'whitespace-pre-wrap break-words')}>
-      {c.body}
+      {emojify(c.body)}
       {c.edited_at && <span className="ml-1 text-2xs text-faint">(edited)</span>}
     </p>
   );
@@ -247,6 +250,8 @@ export function GuestComments({ token, onClose }: { token: string; onClose?: () 
         </p>
       ) : c.quote && <p className="mt-1.5 border-l-2 border-comment-mark pl-2 text-2xs italic text-muted">{c.quote}</p>}
       {body(c, 'mt-1.5 text-sm leading-relaxed text-ink')}
+      {/* Read-only: reacting needs an account. */}
+      <Reactions reactions={c.reactions} />
       {replies(c.id).map((r) => (
         <div key={r.id} className="mt-2.5 flex items-start gap-2 border-l-2 border-line pl-2.5">
           <Avatar name={r.author_name} size={18} />
@@ -258,6 +263,7 @@ export function GuestComments({ token, onClose }: { token: string; onClose?: () 
               {ownTools(r)}
             </p>
             {body(r, 'text-sm text-ink')}
+            <Reactions reactions={r.reactions} />
           </div>
         </div>
       ))}

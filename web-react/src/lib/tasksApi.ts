@@ -1,4 +1,5 @@
 import type { StoredFile } from './uploads';
+import type { Reaction } from './emoji';
 import type { Filter } from './taskFilter';
 import type { SortRule } from './taskSort';
 
@@ -497,6 +498,7 @@ export interface TaskComment {
   created_at: string;
   /** Set once the author has rewritten it; null while untouched. */
   edited_at?: string | null;
+  reactions?: Reaction[];
 }
 
 export const tasksApi = {

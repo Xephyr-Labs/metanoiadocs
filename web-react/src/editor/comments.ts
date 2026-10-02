@@ -16,6 +16,8 @@ export interface CommentAnchor {
   blockId: string | null;
   /** 'suggest' opens the composer as a suggested change to the quoted text. */
   mode?: 'comment' | 'suggest';
+  /** Which copy of the quote in its block was selected (0 = first). */
+  occurrence?: number;
 }
 
 const HL_NAME = 'mn-comment';
@@ -160,12 +162,14 @@ function rangeFrom(idx: ReturnType<typeof indexText>, hit: { index: number; leng
  * when the block itself is gone is the rest of the page searched, and then
  * only an unambiguous, single match counts.
  */
-function rangeForThread(root: Element, blockId: string | null, quote: string): Range | null {
+function rangeForThread(root: Element, blockId: string | null, quote: string, occurrence = 0): Range | null {
   const anchored = blockId ? root.querySelector(`[data-block-id="${CSS.escape(blockId)}"]`) : null;
   if (anchored) {
     // Enough text past the block for a quote that runs into the next ones.
     const idx = indexText(root, anchored, quote.length * 2 + 400);
-    const hit = findQuote(idx.raw, quote);
+    // The copy that was selected; if edits left fewer copies, a sole one.
+    let hit = findQuote(idx.raw, quote, occurrence);
+    if (!hit && occurrence > 0 && !findQuote(idx.raw, quote, 1)) hit = findQuote(idx.raw, quote);
     return hit && hit.index < idx.anchorLen ? rangeFrom(idx, hit) : null;
   }
   const idx = indexText(root, null, Infinity);
@@ -184,6 +188,7 @@ interface HighlightRow {
   author_name?: string;
   kind?: string;
   suggestion_status?: string | null;
+  quote_occurrence?: number;
 }
 
 /** Open threads whose text is no longer on the page. */
@@ -220,7 +225,7 @@ export function applyCommentHighlights(rows: HighlightRow[]) {
     if (!whole && IMAGE_LABEL.test(c.quote)) { nextDetached.add(c.id); continue; }
     const quote = normalizeQuote(c.quote);
     if (!quote) continue;
-    const r = rangeForThread(hlRoot, c.block_id, quote);
+    const r = rangeForThread(hlRoot, c.block_id, quote, c.quote_occurrence ?? 0);
     if (!r) { nextDetached.add(c.id); continue; }
     applied.push({ range: r, id: c.id });
     if (c.kind === 'suggestion' && !c.suggestion_status) suggestionRanges.push(r);
@@ -354,7 +359,35 @@ function selectionAnchor(root: Element): CommentAnchor | null {
   if (!quote) return null;
   const endEl = range.endContainer instanceof Element ? range.endContainer : range.endContainer.parentElement;
   const endBlock = endEl?.closest('[data-block-id]')?.getAttribute('data-block-id') ?? null;
-  return { quote, blockId, ...(endBlock && endBlock !== blockId ? { multi: true } : {}) } as CommentAnchor & { multi?: boolean };
+  const blockEl = startEl?.closest('[data-block-id]') ?? null;
+  const occurrence = blockEl ? occurrenceAt(blockEl, range, quote) : 0;
+  return { quote, blockId, occurrence, ...(endBlock && endBlock !== blockId ? { multi: true } : {}) } as CommentAnchor & { multi?: boolean };
+}
+
+/**
+ * How many copies of `quote` come before the selection in its block — so a
+ * comment or suggestion on the second "the" in a line stays on the second.
+ */
+function occurrenceAt(block: Element, range: Range, quote: string): number {
+  const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+  let all = '';
+  let before = -1;
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    if (!n.parentElement?.closest('[data-v-text]')) continue;
+    const text = n.textContent || '';
+    if (n === range.startContainer) {
+      before = all.length + text.slice(0, range.startOffset).replace(new RegExp(INVISIBLE.source, 'g'), '').length;
+    }
+    all += text.replace(new RegExp(INVISIBLE.source, 'g'), '');
+  }
+  if (before < 0) return 0;
+  let count = 0;
+  for (let k = 0; k < 1000; k++) {
+    const hit = findQuote(all, quote, k);
+    if (!hit || hit.index >= before) break;
+    count++;
+  }
+  return count;
 }
 
 const hasTextSelection = (ctx: ToolbarContext) => {
@@ -457,7 +490,7 @@ export function attachComments(
     // A suggestion replaces one passage of one block; longer or wider
     // selections stay comments rather than becoming a change that can't apply.
     const suggest = mode === 'suggest' && !a.multi && a.quote.length < 500;
-    setPending({ quote: a.quote, blockId: a.blockId, mode: suggest ? 'suggest' : 'comment' });
+    setPending({ quote: a.quote, blockId: a.blockId, occurrence: a.occurrence, mode: suggest ? 'suggest' : 'comment' });
     // Collapse the selection: if it stays live, the editor treats the next
     // keystroke as "replace selection" and eats the selected text.
     document.getSelection()?.removeAllRanges();

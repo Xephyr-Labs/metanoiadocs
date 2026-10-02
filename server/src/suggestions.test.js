@@ -100,3 +100,47 @@ test('draft names round-trip', () => {
   assert.deepEqual(parseDraftName(draftName('doc-1', 's-2')), { docId: 'doc-1', sid: 's-2' });
   assert.equal(parseDraftName('doc-1'), null);
 });
+
+test('a suggestion card changes the occurrence that was selected', () => {
+  const doc = docFromState(buildDocState('T', 'the cat and the dog\n'));
+  const { id } = textBlock(doc, 'the cat and the dog');
+  assert.equal(applyTextSuggestion(doc, id, 'the', 'a', 1), true);
+  assert.ok(textBlock(doc, 'the cat and a dog'));
+});
+
+test('accepting a removed block keeps the children the page still has', () => {
+  const base = buildDocState('T', 'Parent line\n\nChild line\n');
+  const draft = docFromState(base);
+  const main = docFromState(base);
+  // On the page, nest Child under Parent (as an editor might after the fork).
+  const nest = (doc) => {
+    const p = textBlock(doc, 'Parent line');
+    const c = textBlock(doc, 'Child line');
+    doc.transact(() => {
+      for (const [, b] of doc.getMap('blocks')) {
+        const kids = b.get('sys:children');
+        if (kids instanceof Y.Array && kids.toArray().includes(c.id)) kids.delete(kids.toArray().indexOf(c.id), 1);
+      }
+      p.block.get('sys:children').push([c.id]);
+    });
+    return { p, c };
+  };
+  const { p } = nest(main);
+  // The draft deletes Parent only.
+  draft.transact(() => {
+    const dp = textBlock(draft, 'Parent line');
+    for (const [, b] of draft.getMap('blocks')) {
+      const kids = b.get('sys:children');
+      if (kids instanceof Y.Array && kids.toArray().includes(dp.id)) kids.delete(kids.toArray().indexOf(dp.id), 1);
+    }
+    draft.getMap('blocks').delete(dp.id);
+  });
+  const baseDoc = docFromState(base);
+  const changes = computeChanges(baseDoc, draft, main);
+  const removed = changes.find((c) => c.kind === 'removed' && c.id === p.id);
+  assert.ok(removed);
+  applyChange(main, draft, baseDoc, removed);
+  const text = extractText(state(main)).text;
+  assert.doesNotMatch(text, /Parent line/);
+  assert.match(text, /Child line/);
+});

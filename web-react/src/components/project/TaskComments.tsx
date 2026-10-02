@@ -7,13 +7,15 @@
 import { Loader2, MessageSquareText, Pencil, Send, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { avatarFor } from '../../lib/avatar';
-import type { UserRow } from '../../lib/docsApi';
+import { docsApi, type UserRow } from '../../lib/docsApi';
 import { relativeTime } from '../../lib/time';
 import { tasksApi, type TaskComment } from '../../lib/tasksApi';
 import { useAuth } from '../../store/auth';
 import { ActorMark } from '../ui/ActorMark';
 import { IconButton } from '../ui/IconButton';
 import { CommentBox, savedDraft, type CommentBoxHandle } from '../ui/CommentBox';
+import { Reactions } from '../ui/Reactions';
+import { emojify, toggleLocal } from '../../lib/emoji';
 
 /**
  * The handle being typed, if the caret is inside one.
@@ -160,6 +162,17 @@ export function TaskComments({
     }
   };
 
+  /** Toggle a reaction: shown at once, then the server's count. */
+  const react = async (cid: string, emoji: string) => {
+    setRows((r) => (r ?? []).map((c) => (c.id === cid ? { ...c, reactions: toggleLocal(c.reactions, emoji, auth.user?.name) } : c)));
+    try {
+      const out = await docsApi.react(cid, emoji);
+      setRows((r) => (r ?? []).map((c) => (c.id === cid ? { ...c, reactions: out.reactions } : c)));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not react.');
+    }
+  };
+
   const remove = async (id: string) => {
     setRows((r) => (r ?? []).filter((c) => c.id !== id));
     await tasksApi.deleteComment(id).catch(() => {
@@ -184,7 +197,7 @@ export function TaskComments({
       ) : (
         <ul className="space-y-2.5">
           {rows.map((c) => (
-            <li key={c.id} className="group/comment flex items-start gap-2">
+            <li key={c.id} className="group/comment group/card flex items-start gap-2">
               <Avatar name={c.author_name || '?'} size={20} />
               <div className="min-w-0 flex-1">
                 <p className="flex items-center gap-1.5 text-2xs text-faint">
@@ -236,10 +249,11 @@ export function TaskComments({
                   />
                 ) : (
                   <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-ink">
-                    {c.body}
+                    {emojify(c.body)}
                     {c.edited_at && <span className="ml-1 text-2xs text-faint">(edited)</span>}
                   </p>
                 )}
+                <Reactions reactions={c.reactions} onToggle={(e) => void react(c.id, e)} />
               </div>
             </li>
           ))}

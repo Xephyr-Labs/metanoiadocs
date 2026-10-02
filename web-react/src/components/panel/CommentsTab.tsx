@@ -15,6 +15,8 @@ import { useAuth } from '../../store/auth';
 import { cn } from '../../lib/cn';
 import { TaskComments } from '../project/TaskComments';
 import { Avatar } from '../ui/Avatar';
+import { Reactions } from '../ui/Reactions';
+import { emojify, toggleLocal } from '../../lib/emoji';
 import { EmptyState } from '../ui/EmptyState';
 import { IconButton } from '../ui/IconButton';
 import { CommentBox, savedDraft, type CommentBoxHandle } from '../ui/CommentBox';
@@ -138,7 +140,7 @@ export function CommentsTab({ docId }: { docId: string }) {
     if (suggesting && anchor) {
       if (replacement === anchor.quote) { toast('Change the text to suggest something different'); return; }
       await run('add', async () => {
-        await docsApi.addComment(docId, body, { blockId: anchor.blockId, quote: anchor.quote, kind: 'suggestion', suggestion: replacement });
+        await docsApi.addComment(docId, body, { blockId: anchor.blockId, quote: anchor.quote, occurrence: anchor.occurrence, kind: 'suggestion', suggestion: replacement });
         setDraft('');
         setReplacement('');
         clearPendingAnchor();
@@ -147,7 +149,7 @@ export function CommentsTab({ docId }: { docId: string }) {
     }
     if (!body) return;
     await run('add', async () => {
-      await docsApi.addComment(docId, body, anchor ? { blockId: anchor.blockId, quote: anchor.quote } : undefined);
+      await docsApi.addComment(docId, body, anchor ? { blockId: anchor.blockId, quote: anchor.quote, occurrence: anchor.occurrence } : undefined);
       setDraft('');
       clearPendingAnchor();
     }, 'Could not post the comment');
@@ -175,6 +177,18 @@ export function CommentsTab({ docId }: { docId: string }) {
     await load();
   };
 
+  /** Toggle a reaction: shown at once, then the server's count. */
+  const react = async (cid: string, emoji: string) => {
+    setComments((rows) => (rows ?? []).map((c) => (c.id === cid ? { ...c, reactions: toggleLocal(c.reactions, emoji, auth.user?.name) } : c)));
+    try {
+      const r = await docsApi.react(cid, emoji);
+      setComments((rows) => (rows ?? []).map((c) => (c.id === cid ? { ...c, reactions: r.reactions } : c)));
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Could not react');
+      void load();
+    }
+  };
+
   const remove = (c: CommentRow) => {
     if (!confirm(c.parent_id ? 'Delete this reply?' : 'Delete this thread and its replies?')) return;
     void run(`del:${c.id}`, () => docsApi.deleteComment(c.id), 'Could not delete');
@@ -200,7 +214,7 @@ export function CommentsTab({ docId }: { docId: string }) {
       // "(edited)" trails the text rather than sitting in the header: the
       // panel is narrow, and one more chip up there wraps the author's name.
       <p className={cn('whitespace-pre-wrap break-words', className)}>
-        {c.body}
+        {emojify(c.body)}
         {c.edited_at && <span className="ml-1 text-2xs text-faint">(edited)</span>}
       </p>
     ) : null;
@@ -362,7 +376,7 @@ export function CommentsTab({ docId }: { docId: string }) {
               key={c.id}
               ref={(el) => { if (el) cardRefs.current.set(c.id, el); else cardRefs.current.delete(c.id); }}
               className={cn(
-                'rounded-lg border border-line bg-comment p-3 transition-shadow duration-220',
+                'group/card rounded-lg border border-line bg-comment p-3 transition-shadow duration-220',
                 c.resolved && 'bg-transparent',
                 focusId === c.id && 'ring-2 ring-accent',
               )}
@@ -397,6 +411,7 @@ export function CommentsTab({ docId }: { docId: string }) {
                 <p className="mt-1 text-2xs text-faint">The text this was about has since changed.</p>
               )}
               {renderBody(c, 'mt-1.5 text-sm leading-relaxed text-ink')}
+              <Reactions reactions={c.reactions} onToggle={mayComment ? (e) => void react(c.id, e) : undefined} />
 
               {thread.map((r) => (
                 <div key={r.id} className="mt-2.5 flex items-start gap-2 border-l-2 border-line pl-2.5">
@@ -409,6 +424,7 @@ export function CommentsTab({ docId }: { docId: string }) {
                       {renderActions(r)}
                     </p>
                     {renderBody(r, 'text-sm text-ink')}
+                    <Reactions reactions={r.reactions} onToggle={mayComment ? (e) => void react(r.id, e) : undefined} />
                   </div>
                 </div>
               ))}

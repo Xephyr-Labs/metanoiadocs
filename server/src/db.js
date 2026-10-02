@@ -541,6 +541,18 @@ export async function initSchema() {
     ALTER TABLE comments ADD COLUMN IF NOT EXISTS suggestion TEXT;
     ALTER TABLE comments ADD COLUMN IF NOT EXISTS suggestion_status TEXT;
     ALTER TABLE comments ADD COLUMN IF NOT EXISTS decided_by TEXT REFERENCES users(id) ON DELETE SET NULL;
+    -- Which occurrence of the quote in its block the selection was (0 = first),
+    -- so "the" chosen the second time it appears isn't applied to the first.
+    ALTER TABLE comments ADD COLUMN IF NOT EXISTS quote_occurrence INTEGER NOT NULL DEFAULT 0;
+
+    -- Emoji reactions on comments (see reactions.js): one per person per emoji.
+    CREATE TABLE IF NOT EXISTS comment_reactions (
+      comment_id TEXT NOT NULL REFERENCES comments(id) ON DELETE CASCADE,
+      user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      emoji      TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (comment_id, user_id, emoji)
+    );
 
     -- Suggesting mode: someone's private draft of a page, edited like the page
     -- itself and reviewed change by change by whoever can edit the original.

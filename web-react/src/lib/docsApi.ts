@@ -1,5 +1,6 @@
 // Typed client for the MetanoiaDocs server. Same-origin (vite proxies /api),
 // so the session cookie authenticates every call.
+import type { Reaction } from './emoji';
 
 async function req(path: string, opts: RequestInit = {}): Promise<any> {
   const res = await fetch(`/api${path}`, {
@@ -147,9 +148,13 @@ export interface CommentRow {
   /** 'suggestion': proposes `suggestion` as the new text for `quote`. */
   kind?: 'comment' | 'suggestion';
   suggestion?: string | null;
+  /** Which copy of the quote in its block was selected (0 = first). */
+  quote_occurrence?: number;
   /** Null while a suggestion waits for a decision. */
   suggestion_status?: 'accepted' | 'rejected' | null;
   decided_by_name?: string | null;
+  /** Emoji reactions, in picker order. */
+  reactions?: Reaction[];
 }
 
 /** What someone may do on a page, weakest first. */
@@ -186,6 +191,8 @@ export interface DraftChange {
   mainChanged: boolean;
   /** The block is no longer on the page. */
   gone: boolean;
+  /** This exact version of the change; a decision names it, so a later edit isn't applied unseen. */
+  sig: string;
 }
 
 export interface SuggestionDetail extends SuggestionDraft {
@@ -455,13 +462,16 @@ export const docsApi = {
   intelligence: (id: string): Promise<Intelligence> => req(`/docs/${id}/intelligence`),
 
   comments: (id: string): Promise<CommentRow[]> => req(`/docs/${id}/comments`),
-  addComment: (id: string, body: string, opts?: { parentId?: string; blockId?: string | null; quote?: string; kind?: 'suggestion'; suggestion?: string }) =>
+  addComment: (id: string, body: string, opts?: { parentId?: string; blockId?: string | null; quote?: string; occurrence?: number; kind?: 'suggestion'; suggestion?: string }) =>
     req(`/docs/${id}/comments`, { method: 'POST', body: JSON.stringify({ body, ...opts }) }),
   resolveComment: (cid: string, resolved: boolean) =>
     req(`/comments/${cid}/resolve`, { method: 'POST', body: JSON.stringify({ resolved }) }),
   editComment: (cid: string, body: string): Promise<{ body: string; edited_at: string }> =>
     req(`/comments/${cid}`, { method: 'PATCH', body: JSON.stringify({ body }) }),
   deleteComment: (cid: string) => req(`/comments/${cid}`, { method: 'DELETE' }),
+  /** Toggle your emoji reaction on any comment — a page's or a task's. */
+  react: (cid: string, emoji: string): Promise<{ reacted: boolean; reactions: Reaction[] }> =>
+    req(`/comments/${cid}/reactions`, { method: 'POST', body: JSON.stringify({ emoji }) }),
   /** Accept (writes the new text into the page) or reject a suggested change. */
   decideSuggestion: (cid: string, decision: 'accept' | 'reject'): Promise<{ ok: true; status: string }> =>
     req(`/comments/${cid}/decision`, { method: 'POST', body: JSON.stringify({ decision }) }),
@@ -473,8 +483,13 @@ export const docsApi = {
   suggestion: (sid: string): Promise<SuggestionDetail> => req(`/suggestions/${sid}`),
   submitSuggestion: (sid: string, message?: string) =>
     req(`/suggestions/${sid}/submit`, { method: 'POST', body: JSON.stringify({ message }) }),
-  decideChanges: (sid: string, body: { accept?: string[]; reject?: string[]; all?: 'accept' | 'reject' }):
-    Promise<{ applied: number; skipped: number; remaining: number; closed: boolean }> =>
+  decideChanges: (sid: string, body: {
+    accept?: { id: string; sig: string }[];
+    reject?: { id: string; sig: string }[];
+    all?: 'accept' | 'reject';
+    /** With `all`: every change the review showed. */
+    seen?: { id: string; sig: string }[];
+  }): Promise<{ applied: number; skipped: number; stale: number; remaining: number; closed: boolean }> =>
     req(`/suggestions/${sid}/decide`, { method: 'POST', body: JSON.stringify(body) }),
   discardSuggestion: (sid: string) => req(`/suggestions/${sid}`, { method: 'DELETE' }),
 

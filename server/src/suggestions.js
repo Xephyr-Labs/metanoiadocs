@@ -35,12 +35,16 @@ function attributesAt(text, index) {
  * block or the quoted text is no longer there — the page moved on, and the
  * suggestion can't be applied blind.
  */
-export function applyTextSuggestion(doc, blockId, quote, replacement) {
+export function applyTextSuggestion(doc, blockId, quote, replacement, occurrence = 0) {
   const block = doc.getMap('blocks').get(blockId);
   if (!(block instanceof Y.Map)) return false;
   const text = block.get('prop:text');
   if (!(text instanceof Y.Text)) return false;
-  const hit = findQuote(text.toString(), quote);
+  const raw = text.toString();
+  // The copy that was selected. If edits since have left fewer copies, only
+  // an unambiguous single one is still safe to change.
+  let hit = findQuote(raw, quote, occurrence);
+  if (!hit && occurrence > 0 && !findQuote(raw, quote, 1)) hit = findQuote(raw, quote);
   if (!hit) return false;
   const attrs = attributesAt(text, hit.index);
   text.delete(hit.index, hit.length);
@@ -278,13 +282,25 @@ export function applyChange(mainDoc, draftDoc, baseDoc, change) {
   const { id } = change;
 
   if (change.kind === 'removed') {
+    // Only the block itself goes. Whatever sits inside it on the page now —
+    // children the draft moved out before deleting it, children added since,
+    // children whose own removal the reviewer hasn't accepted — moves up into
+    // its place. Each child's own removal, if the draft made one, is a change
+    // of its own to accept or decline.
+    const block = main.get(id);
+    const survivors = childrenOf(block).filter((k) => main.has(k));
     const pid = parentIn(main, id);
     if (pid) {
       const kids = main.get(pid).get('sys:children');
       const i = kids.toArray().indexOf(id);
-      if (i >= 0) kids.delete(i, 1);
+      if (i >= 0) {
+        kids.delete(i, 1);
+        if (survivors.length) kids.insert(i, survivors);
+      }
+      main.delete(id);
+    } else {
+      removeTree(main, id); // detached already: nowhere to move its children to
     }
-    removeTree(main, id);
     return true;
   }
 
@@ -367,6 +383,15 @@ export function registerSuggestionRoutes(app, { requireUser, wrap, pool, grantOn
     return rows[0]?.state ?? null;
   };
   const draftState = (row) => liveState(draftName(row.doc_id, row.id)) || row.state;
+
+  /** Tell an open draft it is finished, then cut it off. Without the message
+   *  its author's editor retried forever and kept their typing only locally. */
+  const closeDraft = (docId, sid) => {
+    const name = draftName(docId, sid);
+    try { getHocuspocus().documents.get(name)?.broadcastStateless(JSON.stringify({ type: 'draft-closed' })); } catch { /* nobody had it open */ }
+    // A beat for the message to go out before the socket does.
+    setTimeout(() => { try { getHocuspocus().closeConnections(name); } catch { /* gone already */ } }, 250);
+  };
 
   /** The draft, when this person may look at it: its author, or anyone who can edit the page. */
   async function visible(sid, user) {
@@ -505,20 +530,35 @@ export function registerSuggestionRoutes(app, { requireUser, wrap, pool, grantOn
     const baseDoc = docFromState(v.row.base_state);
     const draftDoc = docFromState(draftState(v.row));
     const decisions = { ...(v.row.decisions || {}) };
+    // A decision is about the version of a change the reviewer was shown. Each
+    // entry is { id, sig }; "all" carries every change the review listed, in
+    // `seen`. A change the suggester has edited since has a different sig and
+    // is left for another look rather than applied sight unseen.
+    const entries = (list) => (Array.isArray(list) ? list : [])
+      .map((e) => (typeof e === 'string' ? { id: e, sig: null } : { id: String(e?.id), sig: e?.sig ?? null }));
+    const seen = entries(req.body?.seen);
     const all = req.body?.all;
-    const acceptIds = new Set(Array.isArray(req.body?.accept) ? req.body.accept.map(String) : []);
-    const rejectIds = new Set(Array.isArray(req.body?.reject) ? req.body.reject.map(String) : []);
+    const acceptList = all === 'accept' ? seen : entries(req.body?.accept);
+    const rejectList = all === 'reject' ? seen : entries(req.body?.reject);
+    const acceptIds = new Map(acceptList.map((e) => [e.id, e.sig]));
+    const rejectIds = new Map(rejectList.map((e) => [e.id, e.sig]));
+    // "all" with no `seen` list (a direct API call, not the review page) means
+    // every change open right now.
+    const allNow = all && !Array.isArray(req.body?.seen) ? all : null;
+    const matches = (map, c) => map.has(c.id) && (map.get(c.id) === null || map.get(c.id) === c.sig);
 
     let applied = 0;
     let skipped = 0;
+    let stale = 0;
     let remaining = 0;
     const conn = await getHocuspocus().openDirectConnection(docId, { docId, user: req.user });
     try {
       await conn.transact((mainDoc) => {
         const open = pending(computeChanges(baseDoc, draftDoc, mainDoc), decisions);
         for (const c of open) {
-          const accept = all === 'accept' || acceptIds.has(c.id);
-          const reject = all === 'reject' || rejectIds.has(c.id);
+          const accept = allNow === 'accept' || matches(acceptIds, c);
+          const reject = !accept && (allNow === 'reject' || matches(rejectIds, c));
+          if (!accept && !reject && (acceptIds.has(c.id) || rejectIds.has(c.id))) stale++;
           if (accept) {
             if (applyChange(mainDoc, draftDoc, baseDoc, c)) { applied++; decisions[c.id] = { d: 'accepted', sig: c.sig }; }
             else { skipped++; decisions[c.id] = { d: 'rejected', sig: c.sig, reason: 'gone' }; }
@@ -547,7 +587,7 @@ export function registerSuggestionRoutes(app, { requireUser, wrap, pool, grantOn
       await pool.query('UPDATE docs SET updated_at = now(), updated_by = $2 WHERE id = $1', [docId, req.user.id]);
     }
     if (done) {
-      try { getHocuspocus().closeConnections(draftName(docId, v.row.id)); } catch { /* nobody had it open */ }
+      closeDraft(docId, v.row.id);
       if (v.row.author_id !== req.user.id) {
         const total = Object.values(decisions);
         const ok = total.filter((d) => d.d === 'accepted').length;
@@ -557,7 +597,7 @@ export function registerSuggestionRoutes(app, { requireUser, wrap, pool, grantOn
         }).catch((e) => console.error('[notify] review done:', e.message));
       }
     }
-    res.json({ ok: true, applied, skipped, remaining, closed: done });
+    res.json({ ok: true, applied, skipped, stale, remaining, closed: done });
   }));
 
   /** Discard a draft (its author), or close it unreviewed (an editor). */
@@ -569,7 +609,7 @@ export function registerSuggestionRoutes(app, { requireUser, wrap, pool, grantOn
       `UPDATE doc_suggestions SET status = 'closed', closed_at = now(), closed_by = $2, updated_at = now() WHERE id = $1`,
       [v.row.id, req.user.id]
     );
-    try { getHocuspocus().closeConnections(draftName(v.row.doc_id, v.row.id)); } catch { /* nobody had it open */ }
+    closeDraft(v.row.doc_id, v.row.id);
     res.json({ ok: true });
   }));
 }

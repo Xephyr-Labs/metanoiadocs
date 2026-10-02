@@ -29,6 +29,7 @@ import { takePendingSeed } from './pendingSeed';
 import { docPlainText } from './docText';
 import { attachMermaidPreviews } from './mermaidPreview';
 import { attachMarkdownPaste } from './markdownPaste';
+import { attachEmojiShortcodes } from './emojiShortcodes';
 import { attachRefClicks, collectPageLinks, pageLinkExtensions, type LinkTarget } from './pageLinks';
 import { attachLinkSearch } from './linkSearch';
 import { attachLinkedDocMenu } from './linkedDocMenu';
@@ -221,6 +222,8 @@ export async function mountEditor(
       if (type === 'doc-restored') onRemoteRewrite?.();
       // Someone added, answered, resolved or decided a comment on this page.
       else if (type === 'comments-changed') notifyCommentsChanged();
+      // This Suggesting-mode draft was reviewed or discarded: leave it (reviewMode.ts).
+      else if (type === 'draft-closed' && draft) window.dispatchEvent(new CustomEvent('mn-draft-closed', { detail: { draft } }));
     } catch { /* not ours */ }
   });
 
@@ -554,6 +557,8 @@ export async function mountEditor(
   // with syntax-highlight HTML beside it, which outranks the plain text and
   // reproduces `## Heading` verbatim. See markdownPaste.ts.
   const detachMarkdownPaste = noWrite ? null : attachMarkdownPaste(editor);
+  // ":tada:" becomes 🎉 as it is typed (see emojiShortcodes.ts).
+  const detachEmoji = noWrite ? null : attachEmojiShortcodes(editor as unknown as Parameters<typeof attachEmojiShortcodes>[0]);
 
   // Debounced sync of title (sidebar) + plain text (search) back to the server.
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -636,6 +641,7 @@ export async function mountEditor(
       try { detachCalloutPanels(); } catch { /* noop */ }
       try { detachMermaid(); } catch { /* noop */ }
       try { detachMarkdownPaste?.(); } catch { /* noop */ }
+      try { detachEmoji?.(); } catch { /* noop */ }
       try { themeObserver.disconnect(); } catch { /* noop */ }
       try { virtualKeyboard.dispose(); } catch { /* noop */ }
       try { detachCaret(); } catch { /* noop */ }

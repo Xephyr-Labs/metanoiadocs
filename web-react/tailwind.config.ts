@@ -42,10 +42,10 @@ export default {
         tooltip: 'var(--tooltip)',
       },
       fontFamily: {
-        sans: ['Onest Variable', 'Onest', 'ui-sans-serif', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'sans-serif'],
+        sans: ['Onest Variable', 'Onest', 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', 'ui-sans-serif', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'sans-serif'],
         // Display is the same face, carried by weight and tracking rather than
         // by a second family — see --font-display in index.css.
-        display: ['Onest Variable', 'Onest', 'ui-sans-serif', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'sans-serif'],
+        display: ['Onest Variable', 'Onest', 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', 'ui-sans-serif', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'sans-serif'],
         serif: ['Lyon-Text', 'Georgia', 'ui-serif', 'serif'],
         mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
       },

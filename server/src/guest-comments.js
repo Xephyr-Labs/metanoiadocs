@@ -19,6 +19,7 @@
 // here only as a hash.
 import crypto from 'node:crypto';
 import { pool } from './db.js';
+import { withReactions } from './reactions.js';
 
 export const SHARE_ACCESS = ['view', 'comment'];
 export const shareAccess = (value) => (value === 'comment' ? 'comment' : 'view');
@@ -100,7 +101,10 @@ export function registerGuestCommentRoutes(app, { wrap, notify, emit, changed = 
          FROM comments WHERE doc_id = $1 AND task_id IS NULL ORDER BY created_at ASC`,
       [doc.id],
     );
-    res.json(rows);
+    // Who reacted, by name only — a guest sees the same counts members do.
+    res.json((await withReactions(rows)).map(({ reactions, ...r }) => ({
+      ...r, reactions: reactions.map(({ emoji, count, names }) => ({ emoji, count, names })),
+    })));
   }));
 
   app.post('/api/public/:token/comments', wrap(async (req, res) => {

@@ -64,6 +64,7 @@ export function ReviewView({ sid, docId }: { sid: string; docId: string }) {
     setBusy(key);
     try {
       const r = await docsApi.decideChanges(sid, body);
+      if (r.stale) toast(`${r.stale} change${r.stale === 1 ? ' was' : 's were'} edited after you opened this review — here is the latest.`);
       if (r.skipped) toast(`${r.skipped} change${r.skipped === 1 ? '' : 's'} could not be applied — that part of the page was deleted.`);
       if (r.closed) {
         toast('Review finished');
@@ -106,10 +107,10 @@ export function ReviewView({ sid, docId }: { sid: string; docId: string }) {
         <div className="flex shrink-0 items-center gap-1.5">
           {reviewer && detail.changes.length > 0 && (
             <>
-              <Button variant="ghost" size="sm" leftIcon={<X size={14} />} disabled={!!busy} onClick={() => decide('all', { all: 'reject' })}>
+              <Button variant="ghost" size="sm" leftIcon={<X size={14} />} disabled={!!busy} onClick={() => decide('all', { all: 'reject', seen: detail.changes.map(({ id, sig }) => ({ id, sig })) })}>
                 Decline all
               </Button>
-              <Button variant="primary" size="sm" leftIcon={busy === 'all' ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} disabled={!!busy} onClick={() => decide('all', { all: 'accept' })}>
+              <Button variant="primary" size="sm" leftIcon={busy === 'all' ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} disabled={!!busy} onClick={() => decide('all', { all: 'accept', seen: detail.changes.map(({ id, sig }) => ({ id, sig })) })}>
                 Accept all
               </Button>
             </>
@@ -142,13 +143,13 @@ export function ReviewView({ sid, docId }: { sid: string; docId: string }) {
                 )}
                 {reviewer && (
                   <div className="mt-2.5 flex justify-end gap-1.5">
-                    <Button variant="ghost" size="sm" disabled={!!busy} onClick={() => decide(c.id, { reject: [c.id] })}>Decline</Button>
+                    <Button variant="ghost" size="sm" disabled={!!busy} onClick={() => decide(c.id, { reject: [{ id: c.id, sig: c.sig }] })}>Decline</Button>
                     <Button
                       variant="subtle"
                       size="sm"
                       disabled={!!busy || c.gone}
                       leftIcon={busy === c.id ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-                      onClick={() => decide(c.id, { accept: [c.id] })}
+                      onClick={() => decide(c.id, { accept: [{ id: c.id, sig: c.sig }] })}
                       className={cn(!c.gone && 'text-accent-strong')}
                     >
                       Accept
