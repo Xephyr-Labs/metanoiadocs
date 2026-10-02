@@ -16,7 +16,9 @@ export interface Page {
   position: number;
   shared: boolean;
   favorite: boolean;
-  role: string; // owner | editor | viewer
+  role: string; // owner | editor | suggester | commenter | viewer
+  /** What any workspace member may do here while the page is team-visible. */
+  teamRole: string;
   visibility: 'team' | 'private';
   /** A design opens on the canvas; a task is a database row's page. */
   kind: 'doc' | 'design' | 'task';

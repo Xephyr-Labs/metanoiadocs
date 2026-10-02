@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { docxFromMarkdown, inlineRuns } from './docx.js';
@@ -151,9 +151,10 @@ test('a missing image degrades to its alt text instead of a corrupt file', async
 });
 
 // The real test of a hand-built docx is whether a word processor opens it.
-// LibreOffice is on this machine and in no CI image, so this skips rather than
-// fails when it is absent.
-test('LibreOffice opens the file and reads the text back out', { skip: !hasSoffice() }, async () => {
+// LibreOffice is in no CI image, so this skips rather than fails when there is
+// no working copy — installed but unable to convert anything counts as absent,
+// or a broken install reads as a broken docx.
+test('LibreOffice opens the file and reads the text back out', { skip: sofficeSkip() }, async () => {
   const { dir, file } = extract(await build());
   execFileSync('soffice', ['--headless', '--convert-to', 'txt:Text', '--outdir', dir, file], {
     stdio: 'ignore',
@@ -169,11 +170,24 @@ test('LibreOffice opens the file and reads the text back out', { skip: !hasSoffi
   assert.match(text, /nested/);
 });
 
-function hasSoffice() {
+/** False when LibreOffice can convert a file here; otherwise why the test skips. */
+function sofficeSkip() {
   try {
     execFileSync('which', ['soffice'], { stdio: 'ignore' });
-    return true;
   } catch {
-    return false;
+    return 'LibreOffice is not installed';
+  }
+  // A plain-text file it must be able to round-trip, before any docx is blamed.
+  const dir = mkdtempSync(join(tmpdir(), 'soffice-probe-'));
+  try {
+    writeFileSync(join(dir, 'probe.txt'), 'probe');
+    execFileSync('soffice', ['--headless', '--convert-to', 'html', '--outdir', dir, join(dir, 'probe.txt')], {
+      stdio: 'ignore',
+      timeout: 60000,
+      env: { ...process.env, HOME: dir },
+    });
+    return existsSync(join(dir, 'probe.html')) ? false : 'LibreOffice is installed but cannot convert files here';
+  } catch {
+    return 'LibreOffice is installed but cannot convert files here';
   }
 }

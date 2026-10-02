@@ -80,6 +80,26 @@ export function groupValue(field: FilterField, value: string): unknown {
   return field.kind === 'person' || field.kind === 'multi_select' ? [value] : value;
 }
 
+/**
+ * What moving `task` into the column for `value` writes. For a single-value
+ * field that is just the column's value. A person or multi-select field holds
+ * a list, and the card sits in its first entry's column — so the move swaps
+ * that entry for the new one and keeps the rest. Writing the column's value
+ * alone (what this did) dropped every other reviewer the card had.
+ * Dropping into the empty column clears the field.
+ */
+export function movedValue(field: FilterField, task: TaskRow | undefined, value: string): unknown {
+  if (!value || !(field.kind === 'person' || field.kind === 'multi_select')) return groupValue(field, value);
+  const raw: unknown = field.key.startsWith('prop:')
+    ? task?.props?.[field.key.slice(5)] ?? null
+    : field.key === 'assignee_id'
+      ? (task?.assignees?.map((a) => a.id) ?? [])
+      : null;
+  const current = (Array.isArray(raw) ? raw : raw ? [raw] : []).map(String);
+  const from = current[0];
+  return [value, ...current.filter((v) => v !== value && v !== from)];
+}
+
 /** The column a task belongs in. A multi-value cell lands in its first value's
  *  column, the same choice the sort makes for the same reason. */
 export function groupOf(task: TaskRow, field: FilterField): string {

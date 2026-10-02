@@ -1,5 +1,6 @@
 // Typed client for the MetanoiaDocs server. Same-origin (vite proxies /api),
 // so the session cookie authenticates every call.
+import type { Reaction } from './emoji';
 
 async function req(path: string, opts: RequestInit = {}): Promise<any> {
   const res = await fetch(`/api${path}`, {
@@ -41,6 +42,8 @@ export interface DocRow {
   position: number;
   updated_at: string;
   role: string;
+  /** What any workspace member may do on this page when it is team-visible. */
+  team_role?: string;
   visibility: 'team' | 'private';
   /** 'design' opens on the canvas; 'task' is a database row's page. */
   kind: 'doc' | 'design' | 'task';
@@ -142,6 +145,62 @@ export interface CommentRow {
   edited_at: string | null;
   /** Written through a public link by someone with no account. */
   guest?: boolean;
+  /** 'suggestion': proposes `suggestion` as the new text for `quote`. */
+  kind?: 'comment' | 'suggestion';
+  suggestion?: string | null;
+  /** Which copy of the quote in its block was selected (0 = first). */
+  quote_occurrence?: number;
+  /** Null while a suggestion waits for a decision. */
+  suggestion_status?: 'accepted' | 'rejected' | null;
+  decided_by_name?: string | null;
+  /** Emoji reactions, in picker order. */
+  reactions?: Reaction[];
+}
+
+/** What someone may do on a page, weakest first. */
+export type DocRole = 'viewer' | 'commenter' | 'suggester' | 'editor' | 'owner';
+export const canEditRole = (role?: string | null) => !role || role === 'editor' || role === 'owner';
+export const canSuggestRole = (role?: string | null) => canEditRole(role) || role === 'suggester';
+export const canCommentRole = (role?: string | null) => canSuggestRole(role) || role === 'commenter';
+
+/** A Suggesting-mode draft of a page. */
+export interface SuggestionDraft {
+  id: string;
+  docId: string;
+  authorId: string;
+  authorName: string;
+  status: 'draft' | 'submitted' | 'closed';
+  message: string | null;
+  createdAt: string;
+  updatedAt: string;
+  submittedAt: string | null;
+  /** The draft's sync name — what the editor connects to in Suggesting mode. */
+  draft: string;
+}
+
+/** One change a draft makes, as the review lists it. */
+export interface DraftChange {
+  id: string;
+  kind: 'added' | 'removed' | 'modified';
+  flavour: string;
+  label: string;
+  type: string | null;
+  before: string;
+  after: string;
+  /** The page's own copy was edited since the draft began; accepting overwrites it. */
+  mainChanged: boolean;
+  /** The block is no longer on the page. */
+  gone: boolean;
+  /** This exact version of the change; a decision names it, so a later edit isn't applied unseen. */
+  sig: string;
+}
+
+export interface SuggestionDetail extends SuggestionDraft {
+  canReview: boolean;
+  mine: boolean;
+  changes: DraftChange[];
+  accepted: number;
+  rejected: number;
 }
 
 export interface VersionRow {
@@ -198,7 +257,8 @@ export interface InboxRow {
   /** 'reminder' and 'digest' come from the daily sweep rather than from a
    *  person, so they carry a body that already reads as a sentence and no
    *  actor to name. See server/src/reminders.js. */
-  kind: 'mention' | 'comment' | 'assigned' | 'due_soon' | 'due_today' | 'overdue' | 'digest';
+  kind: 'mention' | 'comment' | 'reply' | 'suggestion' | 'suggestion_accepted' | 'suggestion_rejected'
+    | 'review_requested' | 'review_done' | 'assigned' | 'due_soon' | 'due_today' | 'overdue' | 'digest';
   /** The comment that triggered it — null for notifications with no thread. */
   comment_id: string | null;
   /** Null for anything the system raised rather than a person. */
@@ -367,8 +427,15 @@ export const docsApi = {
   setVisibility: (id: string, visibility: 'team' | 'private') =>
     req(`/docs/${id}/visibility`, { method: 'PUT', body: JSON.stringify({ visibility }) }),
   access: (id: string): Promise<AccessRow[]> => req(`/docs/${id}/access`),
-  shareWith: (id: string, email: string) =>
-    req(`/docs/${id}/share`, { method: 'POST', body: JSON.stringify({ email }) }),
+  shareWith: (id: string, email: string, role?: DocRole) =>
+    req(`/docs/${id}/share`, { method: 'POST', body: JSON.stringify({ email, role }) }),
+  setAccessRole: (id: string, userId: string, role: DocRole) =>
+    req(`/docs/${id}/access/${userId}`, { method: 'PUT', body: JSON.stringify({ role }) }),
+  /** What every workspace member may do on the page when it is team-visible. */
+  setTeamRole: (id: string, role: DocRole) =>
+    req(`/docs/${id}/team-role`, { method: 'PUT', body: JSON.stringify({ role }) }),
+  removeAccess: (id: string, userId: string) =>
+    req(`/docs/${id}/access/${userId}`, { method: 'DELETE' }),
   users: (): Promise<UserRow[]> => req('/users'),
   updateMe: (name: string) => req('/me', { method: 'PATCH', body: JSON.stringify({ name }) }),
   listTokens: (): Promise<{ id: string; name: string; created_at: string; last_used_at: string | null }[]> => req('/tokens'),
@@ -395,13 +462,36 @@ export const docsApi = {
   intelligence: (id: string): Promise<Intelligence> => req(`/docs/${id}/intelligence`),
 
   comments: (id: string): Promise<CommentRow[]> => req(`/docs/${id}/comments`),
-  addComment: (id: string, body: string, opts?: { parentId?: string; blockId?: string | null; quote?: string }) =>
+  addComment: (id: string, body: string, opts?: { parentId?: string; blockId?: string | null; quote?: string; occurrence?: number; kind?: 'suggestion'; suggestion?: string }) =>
     req(`/docs/${id}/comments`, { method: 'POST', body: JSON.stringify({ body, ...opts }) }),
   resolveComment: (cid: string, resolved: boolean) =>
     req(`/comments/${cid}/resolve`, { method: 'POST', body: JSON.stringify({ resolved }) }),
   editComment: (cid: string, body: string): Promise<{ body: string; edited_at: string }> =>
     req(`/comments/${cid}`, { method: 'PATCH', body: JSON.stringify({ body }) }),
   deleteComment: (cid: string) => req(`/comments/${cid}`, { method: 'DELETE' }),
+  /** Toggle your emoji reaction on any comment — a page's or a task's. */
+  react: (cid: string, emoji: string): Promise<{ reacted: boolean; reactions: Reaction[] }> =>
+    req(`/comments/${cid}/reactions`, { method: 'POST', body: JSON.stringify({ emoji }) }),
+  /** Accept (writes the new text into the page) or reject a suggested change. */
+  decideSuggestion: (cid: string, decision: 'accept' | 'reject'): Promise<{ ok: true; status: string }> =>
+    req(`/comments/${cid}/decision`, { method: 'POST', body: JSON.stringify({ decision }) }),
+
+  /** Open Suggesting-mode drafts: your own, plus submitted ones if you can edit. */
+  suggestions: (docId: string): Promise<SuggestionDraft[]> => req(`/docs/${docId}/suggestions`),
+  /** Your open draft of the page, started now if there isn't one. */
+  startSuggesting: (docId: string): Promise<SuggestionDraft> => req(`/docs/${docId}/suggestions`, { method: 'POST' }),
+  suggestion: (sid: string): Promise<SuggestionDetail> => req(`/suggestions/${sid}`),
+  submitSuggestion: (sid: string, message?: string) =>
+    req(`/suggestions/${sid}/submit`, { method: 'POST', body: JSON.stringify({ message }) }),
+  decideChanges: (sid: string, body: {
+    accept?: { id: string; sig: string }[];
+    reject?: { id: string; sig: string }[];
+    all?: 'accept' | 'reject';
+    /** With `all`: every change the review showed. */
+    seen?: { id: string; sig: string }[];
+  }): Promise<{ applied: number; skipped: number; stale: number; remaining: number; closed: boolean }> =>
+    req(`/suggestions/${sid}/decide`, { method: 'POST', body: JSON.stringify(body) }),
+  discardSuggestion: (sid: string) => req(`/suggestions/${sid}`, { method: 'DELETE' }),
 
   versions: (id: string): Promise<VersionRow[]> => req(`/docs/${id}/versions`),
   /** A snapshot's plain text, for previewing it before restoring. */

@@ -56,6 +56,15 @@ export function renderPropValue(def, raw, peopleById) {
   return raw;
 }
 
+/** Custom field types an agent can write through `fields`. */
+const SETTABLE_FIELD_TYPES = new Set(['text', 'number', 'select', 'multi_select', 'date', 'checkbox', 'person', 'url', 'email', 'phone']);
+
+/** The `fields` input both task tools take. */
+const fieldsInput = z
+  .record(z.union([z.string(), z.number(), z.boolean(), z.array(z.string()), z.null()]))
+  .optional()
+  .describe("The board's own columns by label, e.g. { Reviewer: ['Amy', 'cal@example.com'], Priority: 'High' }. People are names, usernames or emails; selects take an option label; null clears.");
+
 export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZONE }) {
   const origin = String(base || '').replace(/\/+$/, '');
 
@@ -585,6 +594,48 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
   }
 
   /** Resolve people-ish strings to ids, for assigning a task. */
+  /**
+   * A board's own columns — Reviewer, Priority, Assignor — given by label, as
+   * stored values. People resolve the way assignees do; a select takes an
+   * option's label. Anything that can't be set (a formula, a rollup, a
+   * relation, files) or doesn't exist is an error naming what does.
+   */
+  async function fieldsToProps(boardId, fields) {
+    if (fields === undefined) return undefined;
+    const defs = (await api(`/projects/${encodeURIComponent(boardId)}/props`)).filter((p) => !p.is_inverse);
+    let users = null;
+    const out = {};
+    for (const [key, value] of Object.entries(fields)) {
+      const q = key.trim().toLowerCase();
+      const def = defs.find((p) => p.id === key) || defs.find((p) => (p.label || '').trim().toLowerCase() === q);
+      if (!def) {
+        const names = defs.filter((p) => SETTABLE_FIELD_TYPES.has(p.type)).map((p) => p.label);
+        throw new Error(`This board has no field "${key}". Its fields: ${names.join(', ') || 'none'}.`);
+      }
+      if (!SETTABLE_FIELD_TYPES.has(def.type)) throw new Error(`"${def.label}" is a ${def.type} field and can't be set here.`);
+      if (value === null || (Array.isArray(value) && !value.length)) { out[def.id] = null; continue; }
+      const list = Array.isArray(value) ? value : [value];
+      if (def.type === 'person') {
+        users ??= await api('/users');
+        out[def.id] = list.map((w) => findPerson(users, String(w)).id);
+      } else if (def.type === 'select' || def.type === 'multi_select') {
+        const ids = list.map((v) => {
+          const want = String(v).trim().toLowerCase();
+          const opt = (def.options || []).find((o) => o.id === v || (o.label || '').trim().toLowerCase() === want);
+          if (!opt) throw new Error(`"${v}" is not an option of ${def.label}. Options: ${(def.options || []).map((o) => o.label).join(', ')}.`);
+          return opt.id;
+        });
+        out[def.id] = def.type === 'select' ? ids[0] : ids;
+      } else if (def.type === 'date') {
+        checkDate(def.label, String(value));
+        out[def.id] = String(value);
+      } else {
+        out[def.id] = value;
+      }
+    }
+    return out;
+  }
+
   async function assigneeIds(who) {
     if (who === undefined) return undefined;
     const all = await api('/users');
@@ -764,6 +815,7 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
         body: z.string().optional().describe('Markdown written onto the task\'s own page — where the detail goes, since a task has no description field'),
         sprintId: z.string().optional().describe('From list_sprints; must be a sprint on this board'),
         docId: z.string().optional().describe('Write the task on an existing page instead of a new one'),
+        fields: fieldsInput,
       },
     },
     async (args) => {
@@ -789,10 +841,13 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
             sprintId: args.sprintId,
             docId: args.docId,
             assigneeIds: await assigneeIds(args.assignees),
+            props: await fieldsToProps(board.id, args.fields),
           },
         });
         const docId = args.body ? await writeTaskPage(created, args.body) : created.doc_id;
-        return ok({ ...taskRow(created), docId, board: board.name });
+        // Echo the board's own columns, so a Reviewer just set is confirmed by name.
+        const fieldsOf = args.fields ? await propRenderer([created]) : null;
+        return ok({ ...taskRow(created, fieldsOf?.(created)), docId, board: board.name });
       } catch (e) {
         return fail(e);
       }
@@ -804,7 +859,7 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
     {
       title: 'Update a task',
       description:
-        'Change a task: move it between todo/doing/review/done, retitle it, reassign it, set or clear a date, record progress, move it into a sprint. Only the fields you pass change. Pass assignees: [] to unassign everyone, dueAt: null to clear the date, sprintId: null to send it back to the backlog.',
+        'Change a task: move it between todo/doing/review/done, retitle it, reassign it, set or clear a date, record progress, move it into a sprint, or set the board\'s own columns (e.g. several Reviewers) through `fields`. Only the fields you pass change. Pass assignees: [] to unassign everyone, dueAt: null to clear the date, sprintId: null to send it back to the backlog.',
       inputSchema: {
         id: z.string().describe('Task id from list_tasks'),
         title: z.string().optional(),
@@ -820,6 +875,7 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
         milestone: z.boolean().optional(),
         kind: z.string().optional().describe("Task type — 'task', 'bug', 'story', 'epic'; see list_task_kinds"),
         sprintId: z.string().nullable().optional().describe('null returns it to the backlog'),
+        fields: fieldsInput,
       },
     },
     async (args) => {
@@ -833,8 +889,15 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
           if (args[key] !== undefined) body[key] = args[key];
         }
         if (args.assignees !== undefined) body.assigneeIds = await assigneeIds(args.assignees);
+        if (args.fields !== undefined) {
+          // Only the fields named change; the route merges them into the row.
+          const task = await api(`/tasks/${encodeURIComponent(args.id)}`);
+          body.props = await fieldsToProps(task.project_id, args.fields);
+        }
         if (!Object.keys(body).length) throw new Error('Nothing to change — pass at least one field.');
-        return ok(taskRow(await api(`/tasks/${encodeURIComponent(args.id)}`, { method: 'PATCH', body })));
+        const updated = await api(`/tasks/${encodeURIComponent(args.id)}`, { method: 'PATCH', body });
+        const fieldsOf = args.fields ? await propRenderer([updated]) : null;
+        return ok(taskRow(updated, fieldsOf?.(updated)));
       } catch (e) {
         return fail(e);
       }

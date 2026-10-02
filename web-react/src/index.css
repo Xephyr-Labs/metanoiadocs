@@ -131,15 +131,19 @@
    *
    * The three token names stay — everything downstream references them, and a
    * future brief can re-point one without touching call sites. */
-  --font-display: 'Onest Variable', 'Onest', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-display: 'Onest Variable', 'Onest', 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --font-ui: var(--font-display);
   --font-body: var(--font-display);
+  /* The colour-emoji fonts come straight after the brand face: Onest has no
+   * emoji, and when the system fonts came first, one of them (DejaVu on Linux,
+   * for one) drew 😢 as a grey outline before the emoji font was reached. The
+   * brand face still covers every letter and digit, so nothing else changes. */
   /* Code face — system mono, no webfont to download. */
-  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji', monospace;
   /* Reading face, offered per document from the page menu. System serifs only
    * — a webfont for a preference most pages never turn on is a download every
    * reader pays for. */
-  --font-serif: 'Lyon-Text', Georgia, 'Times New Roman', ui-serif, serif;
+  --font-serif: 'Lyon-Text', Georgia, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji', 'Times New Roman', ui-serif, serif;
 
   /* Code surface: a shade off the canvas so a block reads as a slab, not as
    * more prose. Warm gray in light, near-black in dark (shiki's dark-plus
@@ -215,6 +219,32 @@ html.dark {
 /* Commented text in the editor (CSS Custom Highlight API, set by editor/comments.ts). */
 ::highlight(mn-comment) {
   background-color: var(--comment-mark);
+}
+/* Text with a pending suggested change: struck through, so it reads as
+   "this is proposed to go" before anyone opens the card. */
+::highlight(mn-suggestion) {
+  background-color: var(--comment-mark);
+  text-decoration: line-through;
+  text-decoration-color: var(--danger-strong, #c2410c);
+}
+/* Emoji-only spots (reactions, the picker): always the colour font. */
+.mn-emoji {
+  font-family: 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', var(--font-ui);
+}
+
+/* Suggested changes in review cards: what goes, and what comes in. */
+.mn-diff-del {
+  color: var(--danger-strong);
+  text-decoration: line-through;
+  background: var(--danger-soft);
+  border-radius: 2px;
+}
+.mn-diff-add {
+  color: var(--accent-strong);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  background: var(--accent-soft);
+  border-radius: 2px;
 }
 /* An image with an open thread: the same mark as commented text, as a frame. */
 affine-image[data-mn-commented] .resizable-img {

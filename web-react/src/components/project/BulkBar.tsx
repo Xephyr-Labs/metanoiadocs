@@ -15,7 +15,7 @@ import { AlertCircle, Check, Loader2, Trash2, User, X, Zap } from 'lucide-react'
 import { cn } from '../../lib/cn';
 import { STATUS_COLOR } from '../../lib/builtinProps';
 import { swatch } from '../../lib/tagColors';
-import { STATUSES, STATUS_LABEL, type SprintRow, type TaskPatch, type TaskStatus } from '../../lib/tasksApi';
+import { STATUSES, STATUS_LABEL, type SprintRow, type TaskPatch, type TaskRow, type TaskStatus } from '../../lib/tasksApi';
 import type { UserRow } from '../../lib/docsApi';
 import { Menu, type MenuItem } from '../ui/Menu';
 
@@ -29,9 +29,18 @@ interface Props {
   isData?: boolean;
   /** Apply one patch to every selected row. Resolves when all of them are in. */
   onPatch: (ids: string[], body: TaskPatch) => Promise<void>;
+  /** The selected rows as they are now — what "add a reviewer" adds to. */
+  tasks?: TaskRow[];
+  /** The database's own people columns (Reviewer, Assignor…). */
+  personProps?: { id: string; label: string }[];
+  /** Per-row writes: each row gets its own list, since each started with its own. */
+  onEach?: (changes: PeopleChange[]) => Promise<void>;
   onDelete: (ids: string[]) => Promise<void>;
   onClear: () => void;
 }
+
+/** One row's new people for one field: the built-in assignees, or a person property. */
+export type PeopleChange = { id: string; field: 'assignees' | string; ids: string[] };
 
 const button =
   'flex h-7 items-center gap-1.5 rounded-md px-2 text-2xs font-medium text-ink transition-colors '
@@ -50,7 +59,7 @@ const button =
  * the second click is both cheaper and harder to do by accident than a dialog
  * whose confirm button lands under the pointer.
  */
-export function BulkBar({ count, ids, users, sprints, isData, onPatch, onDelete, onClear }: Props) {
+export function BulkBar({ count, ids, users, sprints, isData, onPatch, tasks, personProps, onEach, onDelete, onClear }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [armed, setArmed] = useState(false);
@@ -109,16 +118,51 @@ export function BulkBar({ count, ids, users, sprints, isData, onPatch, onDelete,
     onSelect: () => void apply({ status: s }),
   }));
 
-  const assigneeItems: MenuItem[] = [
-    { label: 'Nobody', onSelect: () => void apply({ assigneeIds: [] }) },
-    ...users.map((u) => ({
-      label: u.name || u.email,
-      // Replaces the list rather than adding to it, which is what the single
-      // "Assign to" reads as. Adding a person to twenty different teams of
-      // assignees is a different verb, and it would need its own row.
-      onSelect: () => void apply({ assigneeIds: [u.id] }),
-    })),
-  ];
+  // People fields — Assignees and every person column — each get the same four
+  // verbs. "Replace with" is what the old single "Assign to" did; "Add" and
+  // "Remove" are the ones a reviewer list needs, and they work row by row, so
+  // adding Cal to twenty tasks keeps each task's other reviewers.
+  const selected = (tasks ?? []).filter((t) => ids.includes(t.id));
+  const currentOf = (t: TaskRow, field: string): string[] => {
+    if (field === 'assignees') return (t.assignees ?? []).map((a) => a.id);
+    const raw = t.props?.[field];
+    return (Array.isArray(raw) ? raw : raw ? [raw] : []).map(String);
+  };
+  const nameOf = (u: UserRow) => u.name || u.email;
+  const writeEach = async (field: string, next: (cur: string[]) => string[]) => {
+    if (!onEach) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await onEach(selected.map((t) => ({ id: t.id, field, ids: next(currentOf(t, field)) })));
+      onClear();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Some rows did not change.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  const peopleVerbs = (field: string): MenuItem[] => {
+    const present = new Set(selected.flatMap((t) => currentOf(t, field)));
+    return [
+      { label: 'Add', items: users.map((u) => ({ label: nameOf(u), onSelect: () => void writeEach(field, (cur) => (cur.includes(u.id) ? cur : [...cur, u.id])) })) },
+      {
+        label: 'Remove',
+        items: users.filter((u) => present.has(u.id)).map((u) => ({ label: nameOf(u), onSelect: () => void writeEach(field, (cur) => cur.filter((x) => x !== u.id)) })),
+      },
+      { label: 'Replace with', items: users.map((u) => ({ label: nameOf(u), onSelect: () => void writeEach(field, () => [u.id]) })) },
+      { label: 'Clear', separatorBefore: true, onSelect: () => void writeEach(field, () => []) },
+    ].filter((it) => !it.items || it.items.length > 0);
+  };
+  const assigneeItems: MenuItem[] = onEach && tasks
+    ? [
+        { label: 'Assignees', items: peopleVerbs('assignees') },
+        ...(personProps ?? []).map((p) => ({ label: p.label, items: peopleVerbs(p.id) })),
+      ]
+    : [
+        { label: 'Nobody', onSelect: () => void apply({ assigneeIds: [] }) },
+        ...users.map((u) => ({ label: nameOf(u), onSelect: () => void apply({ assigneeIds: [u.id] }) })),
+      ];
 
   const sprintItems: MenuItem[] = [
     { label: 'Backlog', onSelect: () => void apply({ sprintId: null }) },
@@ -175,7 +219,7 @@ export function BulkBar({ count, ids, users, sprints, isData, onPatch, onDelete,
         align="center"
         side="top"
         items={assigneeItems}
-        trigger={<button type="button" disabled={busy || users.length === 0} className={cn(button, 'shrink-0')}><User size={13} className="text-faint" />Assign</button>}
+        trigger={<button type="button" disabled={busy || users.length === 0} className={cn(button, 'shrink-0')}><User size={13} className="text-faint" />People</button>}
       />
       {!isData && (
         <Menu

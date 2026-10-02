@@ -22,7 +22,7 @@ export async function docPropsAll() {
   return rows;
 }
 
-export function registerDocPropRoutes(app, { requireUser, wrap, grantOn }) {
+export function registerDocPropRoutes(app, { requireUser, wrap, grantOn, editGrant = grantOn }) {
   app.get('/api/doc-props', requireUser, wrap(async (_req, res) => {
     res.json(await docPropsAll());
   }));
@@ -112,7 +112,7 @@ export function registerDocPropRoutes(app, { requireUser, wrap, grantOn }) {
 
   /** Set values on one page. Merges, so an untouched property survives. */
   app.patch('/api/docs/:id/props', requireUser, wrap(async (req, res) => {
-    if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
+    if (!(await editGrant(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
     const checked = propsPatch(await docPropsAll(), req.body?.props ?? {});
     if (!checked.ok) return res.status(400).json({ error: checked.error });
     const { rows } = await pool.query(
@@ -126,7 +126,7 @@ export function registerDocPropRoutes(app, { requireUser, wrap, grantOn }) {
 
   /** Remove one property's value from one page, without deleting the property. */
   app.delete('/api/docs/:id/props/:propId', requireUser, wrap(async (req, res) => {
-    if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
+    if (!(await editGrant(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
     const { rows } = await pool.query(
       'UPDATE docs SET props = props - $1, updated_at = now(), updated_by = $3, updated_via = $4 WHERE id = $2 RETURNING props',
       [req.params.propId, req.params.id, req.user.id, req.via]

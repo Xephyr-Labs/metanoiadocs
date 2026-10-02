@@ -5,12 +5,15 @@
 import { MessageSquareText, Pencil, Send, Trash2, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import {
+  onCommentsChanged,
   applyCommentHighlights, clearPendingAnchor, clearPendingFocus, usePendingAnchor, usePendingFocus,
 } from '../../editor/comments';
 import { avatarFor } from '../../lib/avatar';
 import { cn } from '../../lib/cn';
 import { relativeTime } from '../../lib/time';
 import { EmptyState } from '../ui/EmptyState';
+import { Reactions } from '../ui/Reactions';
+import { emojify } from '../../lib/emoji';
 import { field } from '../ui/styles';
 
 export interface GuestCommentRow {
@@ -24,6 +27,11 @@ export interface GuestCommentRow {
   resolved: boolean;
   created_at: string;
   edited_at: string | null;
+  /** A suggested replacement for the quote, decided by the page's editors. */
+  kind?: 'comment' | 'suggestion';
+  suggestion?: string | null;
+  suggestion_status?: 'accepted' | 'rejected' | null;
+  reactions?: { emoji: string; count: number; names?: string[] }[];
 }
 
 const NAME_KEY = 'mn-guest-name';
@@ -100,6 +108,9 @@ export function GuestComments({ token, onClose }: { token: string; onClose?: () 
       .then((r) => { setRows(r); applyCommentHighlights(r); })
       .catch((e: Error) => { setRows([]); setError(e.message); });
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [token]);
+  // Someone commented, answered or decided a suggestion while this is open.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => onCommentsChanged(() => { load(); }), [token]);
 
   // A selection was just turned into a comment — put the caret in the box.
   useEffect(() => {
@@ -209,7 +220,7 @@ export function GuestComments({ token, onClose }: { token: string; onClose?: () 
     />
   ) : (
     <p className={cn(className, 'whitespace-pre-wrap break-words')}>
-      {c.body}
+      {emojify(c.body)}
       {c.edited_at && <span className="ml-1 text-2xs text-faint">(edited)</span>}
     </p>
   );
@@ -231,8 +242,16 @@ export function GuestComments({ token, onClose }: { token: string; onClose?: () 
         <span className="shrink-0 text-2xs text-faint">{relativeTime(c.created_at)}</span>
         {ownTools(c)}
       </div>
-      {c.quote && <p className="mt-1.5 border-l-2 border-comment-mark pl-2 text-2xs italic text-muted">{c.quote}</p>}
+      {c.kind === 'suggestion' ? (
+        <p className="mt-1.5 whitespace-pre-wrap break-words rounded-md bg-canvas p-2 text-sm ring-1 ring-inset ring-line">
+          <del className="mn-diff-del">{c.quote}</del>{' → '}
+          {c.suggestion ? <ins className="mn-diff-add">{c.suggestion}</ins> : <span className="text-2xs italic text-muted">delete it</span>}
+          {c.suggestion_status && <span className="ml-1.5 text-2xs text-faint">({c.suggestion_status})</span>}
+        </p>
+      ) : c.quote && <p className="mt-1.5 border-l-2 border-comment-mark pl-2 text-2xs italic text-muted">{c.quote}</p>}
       {body(c, 'mt-1.5 text-sm leading-relaxed text-ink')}
+      {/* Read-only: reacting needs an account. */}
+      <Reactions reactions={c.reactions} />
       {replies(c.id).map((r) => (
         <div key={r.id} className="mt-2.5 flex items-start gap-2 border-l-2 border-line pl-2.5">
           <Avatar name={r.author_name} size={18} />
@@ -244,6 +263,7 @@ export function GuestComments({ token, onClose }: { token: string; onClose?: () 
               {ownTools(r)}
             </p>
             {body(r, 'text-sm text-ink')}
+            <Reactions reactions={r.reactions} />
           </div>
         </div>
       ))}

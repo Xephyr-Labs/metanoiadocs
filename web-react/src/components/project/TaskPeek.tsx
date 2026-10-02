@@ -419,7 +419,7 @@ export function TaskPeek({
             and the page under it is one thing the row happens to have. A data
             database's records are not work and have nobody to discuss them
             with, so they get the same silence they get from the agent rail. */}
-        {mode !== 'data' && <TaskComments taskId={task.id} users={users} />}
+        {mode !== 'data' && <TaskComments key={task.id} taskId={task.id} users={users} />}
 
         {!!detail?.backlinks.length && (
           <section className="px-4 py-3">
@@ -465,6 +465,10 @@ export function TaskPeek({
               mode="page"
               userName={auth.user?.name ?? 'You'}
               fullWidth
+              // Someone who may only view or comment on the page gets it read-only
+              // here too. Unknown (not in the sidebar index) keeps it editable,
+              // as before — the server still refuses a write it doesn't allow.
+              role={ws.pages[docId]?.role}
               // Typing into the page's own title block writes docs.title (and,
               // server-side, tasks.title) but never touches this component's
               // `tasks` list — onPatch is what keeps that cache in step, the

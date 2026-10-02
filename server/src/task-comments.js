@@ -18,6 +18,7 @@ import { mentionHandles } from './mentions.js';
 import { sendPush } from './push.js';
 import { linkFor } from './push-rules.js';
 import { emit } from './webhooks.js';
+import { withReactions } from './reactions.js';
 
 const MAX_BODY = 4000;
 
@@ -149,7 +150,7 @@ export function registerTaskCommentRoutes(app, { requireUser, wrap }) {
         ORDER BY c.created_at ASC`,
       [req.params.id]
     );
-    res.json(rows);
+    res.json(await withReactions(rows, req.user.id));
   }));
 
   app.post('/api/tasks/:id/comments', requireUser, wrap(async (req, res) => {

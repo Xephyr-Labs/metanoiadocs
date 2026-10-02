@@ -34,6 +34,10 @@ export interface EditorProps {
    *  outside the editor (the formatting bar) drive it through BlockSuite's
    *  command chain. */
   onEditor?: (el: Element | null) => void;
+  /** The viewer's role on the page; below editor opens it read-only. */
+  role?: string;
+  /** Suggesting mode: edit this draft (its sync name) instead of the page. */
+  draft?: string;
 }
 
 /**
@@ -42,7 +46,7 @@ export interface EditorProps {
  */
 export function BlockSuiteEditor({
   docId, title, mode, userName, share, guestComments, snapshot, fullWidth,
-  onTitle, onSaved, pages, createPage, onOpenDoc, onRemoteRewrite, onEditor,
+  onTitle, onSaved, pages, createPage, onOpenDoc, onRemoteRewrite, onEditor, role, draft,
 }: EditorProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const instRef = useRef<Awaited<ReturnType<typeof mountEditor>> | null>(null);
@@ -84,6 +88,8 @@ export function BlockSuiteEditor({
       share,
       guestComments,
       snapshot,
+      role,
+      draft,
       onTitle: (t) => onTitleRef.current?.(t),
       onSaved: () => onSavedRef.current?.(),
       pages: pagesRef.current ? () => pagesRef.current?.() ?? [] : undefined,
@@ -113,7 +119,7 @@ export function BlockSuiteEditor({
       instRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [docId, userName, share, snapshot]);
+  }, [docId, userName, share, snapshot, role, draft]);
 
   useEffect(() => {
     instRef.current?.setMode(mode === 'page' ? 'page' : 'edgeless');
@@ -126,13 +132,28 @@ export function BlockSuiteEditor({
   // The fragment is consumed rather than left in the address: it describes how
   // this page was opened, not where it is, and leaving it would re-scroll on
   // every remount.
+  //
+  // Also on `hashchange`: a block link to the page that is already open (pasted
+  // into this tab's address bar, or clicked inside the document) changes only
+  // the fragment, which never remounts anything — so the effect alone left the
+  // reader exactly where they were and the link looked broken.
   useEffect(() => {
-    if (loading) return;
-    const { docId: routedDoc, blockId } = readRoute();
-    if (snapshot || !blockId || routedDoc !== docId) return;
-    history.replaceState(history.state, '', location.pathname);
-    return revealBlock(blockId, instRef.current?.editor ?? document);
-  }, [loading, docId, snapshot]);
+    if (loading || snapshot || draft) return;
+    let cancel: (() => void) | undefined;
+    const reveal = () => {
+      const { docId: routedDoc, blockId } = readRoute();
+      if (!blockId || routedDoc !== docId) return;
+      history.replaceState(history.state, '', location.pathname);
+      cancel?.();
+      cancel = revealBlock(blockId, instRef.current?.editor ?? document);
+    };
+    reveal();
+    window.addEventListener('hashchange', reveal);
+    return () => {
+      window.removeEventListener('hashchange', reveal);
+      cancel?.();
+    };
+  }, [loading, docId, snapshot, draft]);
 
   const edgeless = mode !== 'page';
   return (

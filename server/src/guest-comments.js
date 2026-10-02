@@ -19,6 +19,7 @@
 // here only as a hash.
 import crypto from 'node:crypto';
 import { pool } from './db.js';
+import { withReactions } from './reactions.js';
 
 export const SHARE_ACCESS = ['view', 'comment'];
 export const shareAccess = (value) => (value === 'comment' ? 'comment' : 'view');
@@ -80,7 +81,7 @@ async function linkedDoc(token) {
   return rows[0] ?? null;
 }
 
-export function registerGuestCommentRoutes(app, { wrap, notify, emit }) {
+export function registerGuestCommentRoutes(app, { wrap, notify, emit, changed = () => {} }) {
   /** The page, when its link lets a guest comment; otherwise answers for us. */
   const commentable = async (req, res) => {
     const doc = await linkedDoc(req.params.token);
@@ -95,11 +96,15 @@ export function registerGuestCommentRoutes(app, { wrap, notify, emit }) {
     const doc = await commentable(req, res);
     if (!doc) return;
     const { rows } = await pool.query(
-      `SELECT id, block_id, quote, body, author_name, guest, parent_id, resolved, created_at, edited_at
+      `SELECT id, block_id, quote, body, author_name, guest, parent_id, resolved, created_at, edited_at,
+              kind, suggestion, suggestion_status
          FROM comments WHERE doc_id = $1 AND task_id IS NULL ORDER BY created_at ASC`,
       [doc.id],
     );
-    res.json(rows);
+    // Who reacted, by name only — a guest sees the same counts members do.
+    res.json((await withReactions(rows)).map(({ reactions, ...r }) => ({
+      ...r, reactions: reactions.map(({ emoji, count, names }) => ({ emoji, count, names })),
+    })));
   }));
 
   app.post('/api/public/:token/comments', wrap(async (req, res) => {
@@ -136,6 +141,7 @@ export function registerGuestCommentRoutes(app, { wrap, notify, emit }) {
     notify({ commentId: id, docId: doc.id, body, actor: { id: null, name: `${name} (guest)` }, mentions: false })
       .catch((e) => console.error('[notify] guest comment:', e.message));
     emit('comment.created', { id, doc_id: doc.id, body, author_id: null, guest: true });
+    changed(doc.id);
     res.json({ id, key });
   }));
 
@@ -151,6 +157,7 @@ export function registerGuestCommentRoutes(app, { wrap, notify, emit }) {
       res.status(403).json({ error: 'You can only change your own comments.' });
       return null;
     }
+    req.guestDocId = doc.id;
     return rows[0];
   };
 
@@ -163,6 +170,7 @@ export function registerGuestCommentRoutes(app, { wrap, notify, emit }) {
       'UPDATE comments SET body = $1, edited_at = now() WHERE id = $2 RETURNING body, edited_at',
       [body, c.id],
     );
+    changed(req.guestDocId);
     res.json(rows[0]);
   }));
 
@@ -176,6 +184,7 @@ export function registerGuestCommentRoutes(app, { wrap, notify, emit }) {
     const { rowCount: replies } = await pool.query('SELECT 1 FROM comments WHERE parent_id = $1 LIMIT 1', [c.id]);
     if (replies) return res.status(409).json({ error: 'Someone has replied to this comment, so it can no longer be deleted.' });
     await pool.query('DELETE FROM comments WHERE id = $1', [c.id]);
+    changed(req.guestDocId);
     res.json({ ok: true });
   }));
 }

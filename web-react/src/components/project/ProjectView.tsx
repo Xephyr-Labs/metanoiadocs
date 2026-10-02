@@ -472,6 +472,16 @@ export function ProjectView() {
             for (const id of ids) await p.patch(id, body);
             ws.refreshProjects();
           }}
+          tasks={p.tasks}
+          personProps={p.props.filter((x) => x.type === 'person' && !x.is_inverse).map((x) => ({ id: x.id, label: x.label }))}
+          onEach={async (changes) => {
+            // Sequential for the same reason as onPatch above.
+            for (const c of changes) {
+              if (c.field === 'assignees') await p.patch(c.id, { assigneeIds: c.ids });
+              else await p.setProp(c.id, c.field, c.ids.length ? c.ids : null);
+            }
+            ws.refreshProjects();
+          }}
           onDelete={async (ids) => {
             for (const id of ids) await p.remove(id);
             ws.refreshProjects();

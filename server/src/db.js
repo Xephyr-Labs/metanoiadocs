@@ -533,6 +533,57 @@ export async function initSchema() {
     ALTER TABLE comments ADD COLUMN IF NOT EXISTS guest BOOLEAN NOT NULL DEFAULT false;
     ALTER TABLE comments ADD COLUMN IF NOT EXISTS guest_key_hash TEXT;
 
+    -- A comment can carry a proposed replacement for the text it quotes
+    -- ("suggest a change"). kind = 'suggestion' with the new text in
+    -- suggestion; suggestion_status is null while pending, then 'accepted'
+    -- or 'rejected' once someone who can edit the page decides.
+    ALTER TABLE comments ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'comment';
+    ALTER TABLE comments ADD COLUMN IF NOT EXISTS suggestion TEXT;
+    ALTER TABLE comments ADD COLUMN IF NOT EXISTS suggestion_status TEXT;
+    ALTER TABLE comments ADD COLUMN IF NOT EXISTS decided_by TEXT REFERENCES users(id) ON DELETE SET NULL;
+    -- Which occurrence of the quote in its block the selection was (0 = first),
+    -- so "the" chosen the second time it appears isn't applied to the first.
+    ALTER TABLE comments ADD COLUMN IF NOT EXISTS quote_occurrence INTEGER NOT NULL DEFAULT 0;
+
+    -- Emoji reactions on comments (see reactions.js): one per person per emoji.
+    CREATE TABLE IF NOT EXISTS comment_reactions (
+      comment_id TEXT NOT NULL REFERENCES comments(id) ON DELETE CASCADE,
+      user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      emoji      TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (comment_id, user_id, emoji)
+    );
+
+    -- Suggesting mode: someone's private draft of a page, edited like the page
+    -- itself and reviewed change by change by whoever can edit the original.
+    -- base_state is the page as it was when the draft was forked — the diff is
+    -- draft against that, so edits made to the page meanwhile are never shown
+    -- as the suggester's. state is the draft, persisted by the sync server.
+    CREATE TABLE IF NOT EXISTS doc_suggestions (
+      id           TEXT PRIMARY KEY,
+      doc_id       TEXT NOT NULL REFERENCES docs(id) ON DELETE CASCADE,
+      author_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      status       TEXT NOT NULL DEFAULT 'draft',
+      message      TEXT,
+      base_state   BYTEA NOT NULL,
+      state        BYTEA NOT NULL,
+      decisions    JSONB NOT NULL DEFAULT '{}',
+      created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+      submitted_at TIMESTAMPTZ,
+      closed_at    TIMESTAMPTZ,
+      closed_by    TEXT REFERENCES users(id) ON DELETE SET NULL
+    );
+    -- What a team-visible page lets every workspace member do without a grant
+    -- of their own: 'editor' (what team pages always meant), or 'suggester',
+    -- 'commenter', 'viewer'. Someone with an explicit doc_access row has that
+    -- role instead, so one person can still be given more or less.
+    ALTER TABLE docs ADD COLUMN IF NOT EXISTS team_role TEXT NOT NULL DEFAULT 'editor';
+    CREATE INDEX IF NOT EXISTS doc_suggestions_doc_idx ON doc_suggestions(doc_id, status);
+    -- One open draft per person per page: Suggesting mode reopens it.
+    CREATE UNIQUE INDEX IF NOT EXISTS doc_suggestions_one_open
+      ON doc_suggestions(doc_id, author_id) WHERE status <> 'closed';
+
     -- Task types, per project and editable by anyone who can see the project.
     -- Epic/Story/Task/Bug are seeded defaults, not built-ins.
     --
