@@ -41,6 +41,8 @@ export interface DocRow {
   position: number;
   updated_at: string;
   role: string;
+  /** What any workspace member may do on this page when it is team-visible. */
+  team_role?: string;
   visibility: 'team' | 'private';
   /** 'design' opens on the canvas; 'task' is a database row's page. */
   kind: 'doc' | 'design' | 'task';
@@ -422,6 +424,9 @@ export const docsApi = {
     req(`/docs/${id}/share`, { method: 'POST', body: JSON.stringify({ email, role }) }),
   setAccessRole: (id: string, userId: string, role: DocRole) =>
     req(`/docs/${id}/access/${userId}`, { method: 'PUT', body: JSON.stringify({ role }) }),
+  /** What every workspace member may do on the page when it is team-visible. */
+  setTeamRole: (id: string, role: DocRole) =>
+    req(`/docs/${id}/team-role`, { method: 'PUT', body: JSON.stringify({ role }) }),
   removeAccess: (id: string, userId: string) =>
     req(`/docs/${id}/access/${userId}`, { method: 'DELETE' }),
   users: (): Promise<UserRow[]> => req('/users'),

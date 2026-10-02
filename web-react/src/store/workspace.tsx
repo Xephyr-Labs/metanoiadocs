@@ -195,6 +195,7 @@ function buildPages(rows: DocRow[]): Record<PageId, Page> {
       pinned: !!r.pinned,
       isTemplate: !!r.is_template,
       role: r.role,
+      teamRole: r.team_role ?? 'editor',
       visibility: r.visibility === 'private' ? 'private' : 'team',
       kind: r.kind === 'design' ? 'design' : r.kind === 'task' ? 'task' : 'doc',
       updatedByName: r.updated_by_name ?? null,

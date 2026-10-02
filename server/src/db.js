@@ -562,6 +562,11 @@ export async function initSchema() {
       closed_at    TIMESTAMPTZ,
       closed_by    TEXT REFERENCES users(id) ON DELETE SET NULL
     );
+    -- What a team-visible page lets every workspace member do without a grant
+    -- of their own: 'editor' (what team pages always meant), or 'suggester',
+    -- 'commenter', 'viewer'. Someone with an explicit doc_access row has that
+    -- role instead, so one person can still be given more or less.
+    ALTER TABLE docs ADD COLUMN IF NOT EXISTS team_role TEXT NOT NULL DEFAULT 'editor';
     CREATE INDEX IF NOT EXISTS doc_suggestions_doc_idx ON doc_suggestions(doc_id, status);
     -- One open draft per person per page: Suggesting mode reopens it.
     CREATE UNIQUE INDEX IF NOT EXISTS doc_suggestions_one_open

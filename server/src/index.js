@@ -633,7 +633,7 @@ app.get('/api/docs/mine', requireUser, async (req, res) => {
 app.get('/api/docs', requireUser, async (req, res) => {
   const { rows } = await pool.query(
     `SELECT d.id, d.title, d.icon, d.folder_id, d.parent_id, d.position, d.updated_at,
-            coalesce(a.role, 'editor') AS role, d.visibility, d.kind, d.props, d.is_template,
+            coalesce(a.role, d.team_role, 'editor') AS role, d.team_role, d.visibility, d.kind, d.props, d.is_template,
             ub.name AS updated_by_name,
             coalesce(ub.kind, 'person') AS updated_by_kind,
             d.updated_via, d.created_at, cb.name AS created_by_name,
@@ -1249,6 +1249,17 @@ app.post('/api/docs/:id/share', requireUser, async (req, res) => {
   res.json({ ok: true, role });
 });
 
+// What every workspace member may do on a team-visible page without a grant of
+// their own — e.g. "everyone can suggest, only the people I add can edit".
+// Owner only. Stored on private pages too, so it applies if the page goes team.
+app.put('/api/docs/:id/team-role', requireUser, wrap(async (req, res) => {
+  if ((await grantOn(req.params.id, req.user.id)) !== 'owner') return res.status(403).json({ error: 'forbidden' });
+  const role = req.body?.role;
+  if (!SHAREABLE_ROLES.includes(role)) return res.status(400).json({ error: 'unknown role' });
+  await pool.query('UPDATE docs SET team_role = $2 WHERE id = $1', [req.params.id, role]);
+  res.json({ ok: true, role });
+}));
+
 // Change what a collaborator may do, or take them off the page. Owner only, and
 // never the owner's own row: a page with no owner has nobody to manage it.
 app.put('/api/docs/:id/access/:userId', requireUser, wrap(async (req, res) => {
@@ -1399,6 +1410,8 @@ async function trashGrantOn(docId, userId) {
 // change the page itself. Anything unrecognised ranks below viewer.
 const ROLE_RANK = { viewer: 0, commenter: 1, suggester: 2, editor: 3, owner: 4 };
 const SHAREABLE_ROLES = ['viewer', 'commenter', 'suggester', 'editor'];
+/** A stored team role, read defensively: anything unknown means editor, as before. */
+const teamRole = (r) => (SHAREABLE_ROLES.includes(r) ? r : 'editor');
 const rankOf = (role) => (role in ROLE_RANK ? ROLE_RANK[role] : -1);
 const canComment = (role) => rankOf(role) >= ROLE_RANK.commenter;
 const canSuggest = (role) => rankOf(role) >= ROLE_RANK.suggester;
@@ -2295,12 +2308,13 @@ async function grantOn(docId, userId) {
   const g = await pool.query('SELECT role FROM doc_access WHERE doc_id = $1 AND user_id = $2', [docId, userId]);
   if (g.rows[0]) return g.rows[0].role;
   // Team-visible docs are accessible to any signed-in workspace member without an
-  // explicit grant (implicit editor). Owners still hold an 'owner' doc_access row.
+  // explicit grant, with the role the owner set for the team (editor unless
+  // changed). Owners still hold an 'owner' doc_access row.
   const t = await pool.query(
-    "SELECT 1 FROM docs WHERE id = $1 AND visibility = 'team' AND deleted_at IS NULL",
+    "SELECT team_role FROM docs WHERE id = $1 AND visibility = 'team' AND deleted_at IS NULL",
     [docId]
   );
-  return t.rowCount ? 'editor' : null;
+  return t.rows[0] ? teamRole(t.rows[0].team_role) : null;
 }
 
 app.get('/api/docs/:id/versions', requireUser, async (req, res) => {

@@ -90,6 +90,16 @@ export function ShareDialog() {
     try { await docsApi.setAccessRole(docId, userId, role); }
     catch { setAccess(before); setMsg({ ok: false, text: 'Could not change their access.' }); }
   };
+  const page = ws.currentPage;
+  const [teamRole, setTeamRoleState] = useState<string>(page?.teamRole ?? 'editor');
+  useEffect(() => { setTeamRoleState(page?.teamRole ?? 'editor'); }, [page?.id, page?.teamRole]);
+  const changeTeamRole = async (role: DocRole) => {
+    if (!docId) return;
+    const before = teamRole;
+    setTeamRoleState(role);
+    try { await docsApi.setTeamRole(docId, role); ws.refresh(); }
+    catch { setTeamRoleState(before); setMsg({ ok: false, text: 'Could not change what the team can do.' }); }
+  };
   const removePerson = async (r: AccessRow) => {
     if (!docId || !confirm(`Remove ${r.name || r.email} from this page?`)) return;
     try {
@@ -167,6 +177,24 @@ export function ShareDialog() {
 
         <div className="mt-4 space-y-0.5">
           <p className="px-1 pb-1 text-2xs font-semibold uppercase tracking-wide text-faint">People with access</p>
+          {/* Everyone else in the workspace, on a team page. People listed
+              below keep the role they were given, more or less than this. */}
+          {page?.visibility === 'team' && (
+            <div className="flex items-center gap-2.5 rounded-md px-1 py-1.5">
+              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-hover text-muted"><Globe size={14} /></span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-ink">Everyone in the workspace</p>
+                <p className="truncate text-2xs text-faint">
+                  {teamRole === 'suggester' ? 'Their edits go to you for review' : 'Anyone not listed below'}
+                </p>
+              </div>
+              {isOwner ? (
+                <RoleSelect label="Access for everyone in the workspace" value={teamRole} onChange={(r) => void changeTeamRole(r)} />
+              ) : (
+                <span className="text-sm text-muted">{roleLabel(teamRole)}</span>
+              )}
+            </div>
+          )}
           {access.map((r) => {
             const a = avatarFor(r.name || r.email);
             return (
