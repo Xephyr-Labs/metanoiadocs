@@ -164,11 +164,19 @@ export function registerCsvRoutes(app, { requireUser, wrap, createDocRow, raw })
         if (col.kind !== 'prop') continue;
         const cell = String(row[at] ?? '').trim();
         if (!cell) continue;
-        // A multi_select cell is the one place a single string means a list,
-        // because that is how every spreadsheet writes one.
-        const value = col.type === 'multi_select'
-          ? cell.split(/[,;]/).map((s) => s.trim()).filter(Boolean)
-          : cell;
+        // A multi_select cell is a list written as one string, because that is
+        // how every spreadsheet writes one. So is a person cell — "Amy, Cal" in
+        // a Reviewer column is two reviewers, named the way the Assignees column
+        // names them, and stored as their ids. Storing the cell as given saved
+        // one unknown "person" called "Amy, Cal".
+        let value = cell;
+        if (col.type === 'multi_select') value = cell.split(/[,;]/).map((s) => s.trim()).filter(Boolean);
+        if (col.type === 'person') {
+          const named = matchPeople(cell, users);
+          if (named.missing.length) errors.push({ line, error: `no such person in ${col.header}: ${named.missing.join(', ')}` });
+          if (!named.found.length) continue;
+          value = named.found;
+        }
         const coerced = coercePropValue(col.type, value);
         if (coerced === undefined) { rowError = `${col.header} is not a valid ${col.type}`; break; }
         if (coerced !== null) values[col.propId] = coerced;

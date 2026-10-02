@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import type { UserRow } from '../../lib/docsApi';
 import { builtinProps, visibleProps, defaultPropIds, defaultTableProps } from '../../lib/builtinProps';
-import { canGroupBy, groupOf, groupValue, groupsFor, type BoardGroup } from '../../lib/grouping';
+import { canGroupBy, groupOf, groupValue, groupsFor, movedValue, type BoardGroup } from '../../lib/grouping';
 import { withComputed } from '../../lib/computed';
 import { applyFilters, fieldsFor, pruneUnresolvable, type Filter, type FilterField } from '../../lib/taskFilter';
 import { applySort, pruneSort, type SortRule } from '../../lib/taskSort';
@@ -148,12 +148,15 @@ export function useDatabaseView({
       source.patch(id, { status: value as TaskStatus, position });
       return;
     }
+    // A person or multi-select card keeps its other values; see movedValue.
+    const task = source.tasks.find((t) => t.id === id);
     if (groupField.key === 'assignee_id') {
-      source.patch(id, { assigneeIds: value ? [value] : [] });
+      const next = movedValue(groupField, task, value);
+      source.patch(id, { assigneeIds: Array.isArray(next) ? (next as string[]) : [] });
       return;
     }
     if (groupField.key.startsWith('prop:')) {
-      source.setProp(id, groupField.key.slice(5), groupValue(groupField, value));
+      source.setProp(id, groupField.key.slice(5), movedValue(groupField, task, value));
       return;
     }
     const patch: TaskPatch = groupField.key === 'kind' ? { kind: value }

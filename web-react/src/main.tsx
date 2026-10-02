@@ -9,6 +9,7 @@ import { WorkspaceProvider } from './store/workspace';
 import './index.css';
 import { installFilePickerFallback } from './editor/filePicker';
 import { applyDocFont, applySmallText } from './lib/docPrefs';
+import { installAppUpdates } from './lib/appUpdate';
 
 // Before anything renders: Brave (and Firefox, and Safari, and a locked-down
 // Chrome) has no showOpenFilePicker, and every upload path in the editor calls
@@ -31,6 +32,9 @@ window.addEventListener('vite:preloadError', (event) => {
   sessionStorage.setItem('mn-build-reload', String(Date.now()));
   location.reload();
 });
+
+// Notice new builds instead of running the precached old one indefinitely.
+installAppUpdates();
 
 // Apply the saved reading preferences before first paint (no flash of the
 // default face or size).
