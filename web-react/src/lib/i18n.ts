@@ -102,6 +102,46 @@ const zhTW: Record<string, string> = {
   Back: '返回',
   Next: '下一步',
 
+  Everything: '全部',
+  Documents: '文件',
+  Projects: '專案',
+  Designs: '設計',
+  Tags: '標籤',
+  Templates: '範本',
+  
+  Home: '首頁',
+  Inbox: '收件匣',
+  Tasks: '任務',
+  'All documents': '所有文件',
+  
+  Recent: '最近',
+  Pinned: '釘選',
+  Favorites: '收藏',
+  Folders: '資料夾',
+  Private: '私人',
+  'Public links': '公開連結',
+  'Shared with me': '與我分享',
+  
+  'New database': '新增資料庫',
+  'New data database': '新增資料資料庫',
+  'New project': '新增專案',
+  'New design': '新增設計',
+  'New folder': '新增資料夾',
+  
+  Trash: '垃圾桶',
+  'Show fewer': '顯示較少',
+  more: '更多',
+  
+  'Import…': '匯入…',
+  'Log out': '登出',
+  'Close sidebar': '關閉側邊欄',
+  'Resize sidebar': '調整側邊欄大小',
+  'Sidebar sections': '側邊欄區段',
+  
+  'Database name…': '資料庫名稱…',
+  'New database name': '新資料庫名稱',
+  'New page from': '從此範本新增頁面',
+
   'Create document': '建立文件',
   'Create task': '建立任務',
   'No documents yet.': '目前沒有文件。',
