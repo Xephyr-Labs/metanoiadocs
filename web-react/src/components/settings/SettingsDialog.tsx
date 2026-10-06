@@ -52,6 +52,7 @@ import { Switch } from '../ui/Switch';
 import { Webhooks } from './Webhooks';
 import { copyText } from '../../lib/clipboard';
 import { toast } from '../../lib/toast';
+import { LanguageSelector } from './LanguageSelector';
 
 function Avatar({ name, size = 32 }: { name: string; size?: number }) {
   const a = avatarFor(name);
@@ -375,6 +376,7 @@ function Preferences() {
       <SectionTitle>Preferences</SectionTitle>
       <p className="mb-5 text-sm text-muted">Customize how Metanoia looks and behaves for you.</p>
       <div className="divide-y divide-line border-t border-line">
+        <LanguageSelector />
         <Row
           title="Appearance"
           desc="Pick a light or dark theme."
