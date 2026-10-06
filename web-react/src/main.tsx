@@ -10,6 +10,7 @@ import './index.css';
 import { installFilePickerFallback } from './editor/filePicker';
 import { applyDocFont, applySmallText } from './lib/docPrefs';
 import { installAppUpdates } from './lib/appUpdate';
+import { initLanguage } from './lib/i18n';
 
 // Before anything renders: Brave (and Firefox, and Safari, and a locked-down
 // Chrome) has no showOpenFilePicker, and every upload path in the editor calls
@@ -40,7 +41,7 @@ installAppUpdates();
 // default face or size).
 applySmallText();
 applyDocFont();
-
+initLanguage();
 // Auth gate: no session -> login/signup; otherwise the workspace. WorkspaceProvider
 // mounts only when authenticated so per-user state starts fresh on login.
 function Root() {
