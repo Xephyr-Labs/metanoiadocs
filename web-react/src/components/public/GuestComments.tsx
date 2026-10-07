@@ -348,7 +348,7 @@ export function GuestComments({ token, onClose }: { token: string; onClose?: () 
                 placeholder="e.g. Sam from Acme"
                 className={cn(field, 'flex-1')}
               />
-              <button type="submit" className="rounded-md bg-accent px-3 text-sm font-medium text-white hover:opacity-90">Continue</button>
+              <button type="submit" className="rounded-md bg-accent-fill px-3 text-sm font-medium text-white hover:opacity-90">Continue</button>
             </div>
             <p className="text-2xs text-faint">No account needed. Anyone with this link can read what you write.</p>
           </form>
@@ -377,7 +377,7 @@ export function GuestComments({ token, onClose }: { token: string; onClose?: () 
                 placeholder={anchor ? 'Comment on selection…' : 'Add a comment…'}
                 className={cn(field, 'flex-1 resize-none py-1.5 text-sm')}
               />
-              <button type="submit" disabled={busy || !draft.trim()} aria-label="Send comment" className="flex h-9 w-9 items-center justify-center rounded-md bg-accent text-white hover:opacity-90 disabled:bg-line-strong"><Send size={14} /></button>
+              <button type="submit" disabled={busy || !draft.trim()} aria-label="Send comment" className="flex h-9 w-9 items-center justify-center rounded-md bg-accent-fill text-white hover:opacity-90 disabled:bg-line-strong"><Send size={14} /></button>
             </div>
             <p className="mt-1.5 text-2xs text-faint">
               Commenting as <span className="font-medium text-muted">{name}</span> ·{' '}
