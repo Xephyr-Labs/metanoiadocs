@@ -1403,12 +1403,15 @@ app.post('/api/docs/trash/empty', requireUser, wrap(async (req, res) => {
 // then could not restore. Trash actions use this instead.
 async function trashGrantOn(docId, userId) {
   const g = await pool.query('SELECT role FROM doc_access WHERE doc_id = $1 AND user_id = $2', [docId, userId]);
-  if (g.rows[0]) return g.rows[0].role;
   const t = await pool.query(
-    "SELECT team_role FROM docs WHERE id = $1 AND visibility = 'team' AND deleted_at IS NOT NULL",
+    "SELECT team_role, visibility, is_template FROM docs WHERE id = $1 AND deleted_at IS NOT NULL",
     [docId]
   );
-  return t.rows[0] ? teamRole(t.rows[0].team_role) : null;
+  const role = g.rows[0]?.role ?? (t.rows[0]?.visibility === 'team' ? teamRole(t.rows[0].team_role) : null);
+  // The template rule in grantOn, which let them trash it: a viewer of a
+  // template could put it in the trash and then not take it back out.
+  if (role && !canEdit(role) && t.rows[0]?.is_template) return 'editor';
+  return role;
 }
 
 // What a grant lets you do, weakest first. 'viewer' reads; 'commenter' also
@@ -2977,6 +2980,10 @@ registerFormRoutes(app, { requireUser, wrap, baseUrl: BASE_URL });
 // rule must not let someone who was given view access un-template the page.
 registerTemplateRoutes(app, {
   requireUser, wrap, grantOn, kindsFor, isStatus,
+  // Marking or unmarking changes what everyone below editor may do, and
+  // read-only is decided when a connection opens: an un-templated page would
+  // otherwise stay writable to its viewers until they reloaded.
+  rolesChanged: dropLiveConnections,
   editGrant: async (docId, userId) => {
     const role = await pageGrant(docId, userId);
     return canEdit(role) ? role : null;

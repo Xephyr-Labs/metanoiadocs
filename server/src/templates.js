@@ -100,7 +100,7 @@ export async function checkTemplateFields(raw, { kinds, isStatus }) {
 const VISIBLE = `(d.visibility = 'team'
                   OR EXISTS (SELECT 1 FROM doc_access a WHERE a.doc_id = d.id AND a.user_id = $1))`;
 
-export function registerTemplateRoutes(app, { requireUser, wrap, grantOn, editGrant = grantOn, kindsFor, isStatus }) {
+export function registerTemplateRoutes(app, { requireUser, wrap, grantOn, editGrant = grantOn, kindsFor, isStatus, rolesChanged = () => {} }) {
   // ── page templates ────────────────────────────────────────────────────
 
   /** Every page template this person can open. */
@@ -140,6 +140,7 @@ export function registerTemplateRoutes(app, { requireUser, wrap, grantOn, editGr
       }
     }
     if (!rows[0]) return res.status(404).json({ error: 'not found' });
+    rolesChanged(rows[0].id);
     res.json({ id: rows[0].id, isTemplate: rows[0].is_template });
   }));
 
