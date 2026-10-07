@@ -2,7 +2,7 @@
  * theme: project tokens (index.css) + tag palette (lib/tagColors)
  * pre-emit critique: P5 H5 E4 S4 R5 V4
  * states: default · empty (renders nothing) · truncated · media thumb ·
- *         overflow (+n) · overdue due-date · type-suppressed · cover-suppressed
+ *         overflow (+n) · overdue due-date · cover-suppressed
  * note: read-only — no hover/focus/active/disabled; the card owns those.
  * contrast: pass (40) — light ramp measured at 4.8-6.9:1, dark at 5.7-10.8:1
  */
@@ -15,7 +15,7 @@ import { isBuiltinProp, readBuiltin } from '../../../lib/builtinProps';
 import { fileUrl, isImageFile, isVideoFile, type StoredFile } from '../../../lib/uploads';
 import type { PropRow, TaskKindRow, TaskRow } from '../../../lib/tasksApi';
 import type { UserRow } from '../../../lib/docsApi';
-import { AssigneeStack, isOverdue, KindBadge, shortDate, showsKindBadge } from '../TaskBadges';
+import { AssigneeStack, isOverdue, KindBadge, shortDate } from '../TaskBadges';
 import { useKinds } from '../kinds';
 
 /**
@@ -52,8 +52,8 @@ export function PropChips({
   className?: string;
 }) {
   // Read here rather than inside the type branch: chipFor is a plain
-  // function, and whether the badge draws has to be known before the node is
-  // built — see showsKindBadge.
+  // function, and the type branch needs to know whether the types have
+  // loaded before it builds a node.
   const kinds = useKinds();
 
   const chips = props
@@ -106,15 +106,15 @@ function chipFor(
     ) : null;
   }
 
-  // The type badge knows when to say nothing: a project with one type, or a
-  // row typed plainly "task", has nothing to tell apart, and labelling every
-  // card "Task" is noise on all of them. It is drawn by the same badge the
-  // backlog and the peek use, so that rule lives in one place — but asked
-  // *first*, because a <KindBadge /> that renders null is still a node, and
-  // the caller counts nodes to decide whether to draw the row at all.
-  if (prop.id === 'sys:kind') {
-    if (typeof value !== 'string' || !value) return null;
-    return showsKindBadge(value, kinds) ? <KindBadge kind={value} /> : null;
+  // Drawn for every typed row, the default type included. The badge's own
+  // habit of saying nothing for a plain "Task" is right where nobody asked for
+  // the type, but here the view lists Type as shown — and skipping the plain
+  // ones left Type missing from most cards while the panel said it was on.
+  // Until the project's types have loaded the badge has nothing to draw from,
+  // so this falls through to the plain select chip, which reads the default
+  // types builtinProps put on the property.
+  if (prop.id === 'sys:kind' && kinds.length) {
+    return typeof value === 'string' && value ? <KindBadge kind={value} always /> : null;
   }
 
   // A bare "65" beside a bare "8" says neither which is which; the unit does.
