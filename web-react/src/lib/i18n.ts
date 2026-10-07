@@ -76,7 +76,7 @@ const zhTW: Record<string, string> = {
 
   'Close settings': '關閉設定',
   'Customize how Metanoia looks and behaves for you.':
-    '自訂 Metanoia 的外觀與行為。',
+    '自訂 Metanoia 的外觀與使用方式。',
 
   // Authentication
   'Sign in': '登入',
@@ -96,8 +96,8 @@ const zhTW: Record<string, string> = {
 
   // Common actions
   Share: '分享',
-  Comment: '留言',
-  Comments: '留言',
+  Comment: '評論',
+  Comments: '評論',
   Notifications: '通知',
 
   'Loading…': '載入中…',
