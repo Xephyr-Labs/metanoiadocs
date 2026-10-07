@@ -808,10 +808,12 @@ html.dark .mn-toc .outline-viewer-indicator {
 
 /* A fingertip needs 44px; the chrome's controls are drawn at 20–32px so a
  * toolbar stays one row on a phone. `mn-hit` keeps the drawn size and hands
- * the difference over as invisible hit area on touch screens only. The inset
- * is negative exactly when the control is under 44px in that direction, so a
- * wide button grows only vertically. `:where()` keeps the `relative` at zero
- * specificity, so a control that is itself absolute stays absolute. */
+ * the difference over as invisible hit area on touch screens only, grown up
+ * and down to 44px. Not sideways: these controls sit in rows a few pixels
+ * apart, and a later button's hit area paints over an earlier one, so a
+ * sideways grow made the right quarter of every top-bar icon tap its
+ * neighbour (Comments opened Favorites). `:where()` keeps the `relative` at
+ * zero specificity, so a control that is itself absolute stays absolute. */
 @media (pointer: coarse) {
   :where(.mn-hit) {
     position: relative;
@@ -819,7 +821,7 @@ html.dark .mn-toc .outline-viewer-indicator {
   .mn-hit::after {
     content: '';
     position: absolute;
-    inset: min(0px, calc((100% - 44px) / 2));
+    inset: min(0px, calc((100% - 44px) / 2)) 0;
   }
 }
 
