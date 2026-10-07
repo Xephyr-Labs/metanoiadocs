@@ -881,7 +881,7 @@ export function Sidebar() {
           // accent-strong, not accent: white on #2383e2 is 4.0:1, and this is
           // 11px lettering inside a 16px pill.
           trailing={ws.unreadCount > 0 ? (
-            <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-accent-strong px-1 text-3xs font-semibold text-white">
+            <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-accent-fill px-1 text-3xs font-semibold text-white">
               {ws.unreadCount > 99 ? '99+' : ws.unreadCount}
             </span>
           ) : undefined}

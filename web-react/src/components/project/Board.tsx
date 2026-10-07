@@ -5,6 +5,7 @@ import { buildLinkIndex } from '../../lib/taskTree';
 import type { TaskRow, TaskStatus, PropRow } from '../../lib/tasksApi';
 import { STATUS_DOT, type BoardGroup } from '../../lib/grouping';
 import type { UserRow } from '../../lib/docsApi';
+import { rowAction } from '../ui/styles';
 import { TaskChip } from './TaskChip';
 
 interface Props {
@@ -96,7 +97,7 @@ export function Board({ tasks, groups, groupOf, cardProps, users, onMove, onOpen
                 <button
                   type="button"
                   onClick={() => onAdd(group.value)}
-                  className="flex h-5 w-5 items-center justify-center rounded text-faint hover:bg-hover hover:text-muted"
+                  className={rowAction}
                   aria-label={`Add to ${group.label}`}
                 >
                   <Plus size={14} />

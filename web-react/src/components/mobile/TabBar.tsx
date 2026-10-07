@@ -33,7 +33,7 @@ function Tab({ icon, label, active, badge, onClick }: {
         {icon}
         {!!badge && (
           // Same pill as the drawer's Inbox row: accent-strong keeps white lettering legible.
-          <span className="absolute -right-2.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent-strong px-1 text-3xs font-semibold text-white">
+          <span className="absolute -right-2.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent-fill px-1 text-3xs font-semibold text-white">
             {badge > 99 ? '99+' : badge}
           </span>
         )}

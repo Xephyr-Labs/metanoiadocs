@@ -105,7 +105,7 @@ export function PropertyVisibility({
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          'flex h-7 items-center gap-1 rounded-md px-2 text-xs transition-colors',
+          'mn-hit flex h-7 items-center gap-1 rounded-md px-2 text-xs transition-colors',
           visible.length ? 'text-muted hover:bg-hover hover:text-ink' : 'text-faint hover:bg-hover hover:text-ink',
         )}
       >

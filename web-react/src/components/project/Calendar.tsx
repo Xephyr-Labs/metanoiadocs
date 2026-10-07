@@ -388,7 +388,7 @@ function Week({
                   // and the one people actually navigate by.
                   'flex h-6 min-w-6 items-center justify-center rounded-full px-1 text-sm tabular-nums',
                   iso === today
-                    ? 'bg-accent font-semibold text-white'
+                    ? 'bg-accent-fill font-semibold text-white'
                     : inMonth
                       ? 'text-muted'
                       : 'text-faint',

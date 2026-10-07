@@ -196,7 +196,7 @@ export function CommandPalette() {
           className="h-[52px] flex-1 bg-transparent text-md text-ink outline-none placeholder:text-faint"
         />
         {busy && <Loader2 size={14} className="shrink-0 animate-spin text-faint" aria-label="Searching" />}
-        <kbd className="rounded bg-hover px-1.5 py-0.5 text-2xs text-faint">Esc</kbd>
+        <kbd className="rounded bg-hover px-1.5 py-0.5 text-2xs text-muted">Esc</kbd>
       </div>
 
       <div ref={listRef} className="scrollarea max-h-[52vh] overflow-y-auto p-2">

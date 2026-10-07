@@ -27,15 +27,14 @@
   --hover: #f1f0ee;
   --selected: #e9e8e5;
   --ink: #37352f;
-  /* Notion's own secondary ink is #787774, which measures 4.48:1 — a hair under
-   * AA, and under 4:1 once the row it sits on is hovered. A few steps darker
-   * clears both (5.1 at rest, 4.5 hovered) and still reads clearly quieter than
-   * the ink it sits beside. */
-  --muted: #6f6e6a;
-  /* Was #9b9a97 — 2.9:1 on white, under the 3:1 floor even for icons, and the
-   * single biggest reason the chrome read hazy. 3.5:1 keeps it clearly the
-   * quietest ink in the palette while staying legible at 11px. */
-  --faint: #86857f;
+  /* Three inks, each a clear step quieter than the last: ink 12.4:1, muted
+   * 6.5:1, faint 4.8:1 on the canvas. Faint is not only icons — it letters
+   * every timestamp, count, group heading and byline in the app, so it has to
+   * clear AA for 12px text (4.8 on the canvas, 4.5 on the sidebar surface).
+   * At 3.7:1 it failed on every screen. Muted moved down with it so the two
+   * stay distinguishable instead of meeting in the middle. */
+  --muted: #5f5e59;
+  --faint: #73726d;
   --line: #e9e9e7;
   --line-strong: #dcdbd8;
   --accent: #2383e2;
@@ -45,10 +44,12 @@
    * lighter accent already reads 6.5:1 on the near-black canvas. */
   --accent-strong: #1a6fc4;
   --accent-soft: #eaf3fc;
-  /* A filled surface carrying white text. Same blue as --accent in light;
-     in dark, --accent is lifted so link text reads on the canvas, and white
-     on that lifted blue is 2.9:1. This one stays deep enough for 4.6:1. */
-  --accent-fill: #2383e2;
+  /* A filled surface carrying white text — primary buttons, unread badges,
+     today's date. One step deeper than --accent: white on #2383e2 is 3.9:1,
+     under AA for the 14px "New page" label it carries. 4.75:1 here. In dark,
+     --accent is lifted so link text reads on the canvas, and white on that
+     lifted blue is 2.9:1, so this token is the only blue that may carry white. */
+  --accent-fill: #1d74cc;
   /* The danger twin of accent-soft — a late gantt bar had no tint to sit in,
      so it rendered as a hollow outline and read as a rendering fault. */
   --danger-soft: #fbeceb;
@@ -173,8 +174,9 @@ html.dark {
   --selected: #333331;
   --ink: #e9e9e7;
   --muted: #a5a5a3;
-  /* Same correction as light: #757573 was 3.2:1 on the dark canvas. */
-  --faint: #8a8a87;
+  /* Same correction as light: #757573 was 3.2:1 on the dark canvas, and
+   * #8a8a87 still dropped to 4.1:1 on a hovered row or a key chip. 4.7 there. */
+  --faint: #949491;
   --line: #333331;
   --line-strong: #424240;
   --accent: #4a9eea;
@@ -801,6 +803,23 @@ html.dark .mn-toc .outline-viewer-indicator {
   }
   .mn-rail-label {
     display: block;
+  }
+}
+
+/* A fingertip needs 44px; the chrome's controls are drawn at 20–32px so a
+ * toolbar stays one row on a phone. `mn-hit` keeps the drawn size and hands
+ * the difference over as invisible hit area on touch screens only. The inset
+ * is negative exactly when the control is under 44px in that direction, so a
+ * wide button grows only vertically. `:where()` keeps the `relative` at zero
+ * specificity, so a control that is itself absolute stays absolute. */
+@media (pointer: coarse) {
+  :where(.mn-hit) {
+    position: relative;
+  }
+  .mn-hit::after {
+    content: '';
+    position: absolute;
+    inset: min(0px, calc((100% - 44px) / 2));
   }
 }
 
@@ -1444,8 +1463,8 @@ affine-editor-container .doc-title-container {
     color: var(--ink);
   }
   header.mn-topbar button {
-    min-width: 40px;
-    min-height: 40px;
+    min-width: 44px;
+    min-height: 44px;
   }
   /* Columns page by swipe; the scrollbar under them is a desktop affordance. */
   .mn-board {

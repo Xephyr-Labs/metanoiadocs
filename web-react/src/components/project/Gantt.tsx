@@ -126,9 +126,12 @@ export function Gantt({ tasks, cardProps = [], users, onOpen }: {
                   {t.title || 'Untitled'}
                 </span>
                 {/* A gantt row is a fixed-height band, so properties ride
-                    alongside the title rather than stacking under it. The name
-                    column keeps the space it needs; chips take what is left. */}
-                <PropChips task={t} props={cardProps} users={users} className="min-w-0 flex-nowrap overflow-hidden" />
+                    alongside the title rather than stacking under it. The
+                    title truncates; the chips never shrink, so an avatar is
+                    never sliced in half at the column edge. They are capped at
+                    half the row and wrap into a one-chip-high box, which drops
+                    whole chips that do not fit instead of cutting one. */}
+                <PropChips task={t} props={cardProps} users={users} className="h-5 max-w-[50%] shrink-0 overflow-hidden" />
               </button>
             ))}
           </div>

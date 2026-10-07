@@ -137,7 +137,7 @@ export function IconPicker({ icon, onPick, trigger, label = 'Change page icon', 
         onClick={() => setOpen((o) => !o)}
         aria-label={label}
         title={label}
-        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors duration-120 hover:bg-hover"
+        className="mn-hit flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors duration-120 hover:bg-hover"
       >
         {trigger ?? <PageIcon icon={icon} size={18} />}
       </button>

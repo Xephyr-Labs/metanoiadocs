@@ -355,7 +355,7 @@ export function TopBar() {
               onClick={() => ws.setRightPanel(ws.rightPanel === 'comments' ? null : 'comments')}
             />
             {openComments > 0 && (
-              <span className="pointer-events-none absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-accent px-1 text-3xs font-semibold tabular-nums text-white ring-2 ring-canvas">
+              <span className="pointer-events-none absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-accent-fill px-1 text-3xs font-semibold tabular-nums text-white ring-2 ring-canvas">
                 {openComments}
               </span>
             )}
