@@ -515,6 +515,7 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
     estimateH: t.estimate_h ?? null,
     repeats: t.repeat_rule ?? null,
     sprintId: t.sprint_id,
+    parentId: t.parent_id ?? null,
     blockedBy: t.deps || [],
     /** The board's own columns — Assignor, Reviewer, Priority — when it has any. */
     ...(fields ? { fields } : {}),
@@ -815,6 +816,7 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
         body: z.string().optional().describe('Markdown written onto the task\'s own page — where the detail goes, since a task has no description field'),
         sprintId: z.string().optional().describe('From list_sprints; must be a sprint on this board'),
         docId: z.string().optional().describe('Write the task on an existing page instead of a new one'),
+        parentId: z.string().optional().describe('The task this one sits under, by id or key ("DE-4"). It must be on the same board and of a type that can hold tasks — an Epic by default; see list_task_kinds'),
         fields: fieldsInput,
       },
     },
@@ -840,6 +842,7 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
             kind: args.kind,
             sprintId: args.sprintId,
             docId: args.docId,
+            parentId: args.parentId,
             assigneeIds: await assigneeIds(args.assignees),
             props: await fieldsToProps(board.id, args.fields),
           },
@@ -875,6 +878,7 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
         milestone: z.boolean().optional(),
         kind: z.string().optional().describe("Task type — 'task', 'bug', 'story', 'epic'; see list_task_kinds"),
         sprintId: z.string().nullable().optional().describe('null returns it to the backlog'),
+        parentId: z.string().nullable().optional().describe('Put it under another task, by id or key ("DE-4") — same board, a type that can hold tasks (an Epic by default). null takes it out'),
         fields: fieldsInput,
       },
     },
@@ -885,7 +889,7 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
         // Only send what was asked for: the route treats an absent key as "leave
         // it alone" and a null as "clear it".
         const body = {};
-        for (const key of ['title', 'status', 'dueAt', 'startAt', 'progress', 'points', 'estimateH', 'repeatRule', 'priority', 'milestone', 'kind', 'sprintId']) {
+        for (const key of ['title', 'status', 'dueAt', 'startAt', 'progress', 'points', 'estimateH', 'repeatRule', 'priority', 'milestone', 'kind', 'sprintId', 'parentId']) {
           if (args[key] !== undefined) body[key] = args[key];
         }
         if (args.assignees !== undefined) body.assigneeIds = await assigneeIds(args.assignees);
