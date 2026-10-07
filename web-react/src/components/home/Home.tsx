@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowRight, ChevronLeft, ChevronRight, FileText, MoreHorizontal, Plus, RefreshCw, Upload } from 'lucide-react';
+import { ArrowRight, ChevronDown, ChevronLeft, ChevronRight, FileText, MoreHorizontal, Plus, RefreshCw, Upload } from 'lucide-react';
 import { useDocMenu } from '../../hooks/useDocMenu';
 import { useAuth } from '../../store/auth';
 import { useWorkspace } from '../../store/workspace';
@@ -228,17 +228,32 @@ export function Home() {
                     <Card
                       title="My tasks"
                       action={projects.length > 1 && (
-                        <select
-                          aria-label="Filter tasks by project"
-                          value={active}
-                          onChange={(e) => pickScope(e.target.value)}
-                          className="h-6 max-w-[11rem] cursor-pointer rounded bg-transparent px-1 text-xs text-muted outline-none hover:bg-hover focus:bg-canvas"
-                        >
-                          <option value="all">All projects</option>
-                          {projects.map((p) => (
-                            <option key={p.project_id} value={p.project_id}>{p.project_name}</option>
-                          ))}
-                        </select>
+                        // A label drawn in the card's own type with the native
+                        // select laid invisibly over it. The select has to stay
+                        // 16px on touch screens or iOS zooms the page when it
+                        // opens, and a 16px control under a 14px heading read
+                        // as the loudest thing on the card. Drawn this way the
+                        // phone still gets its own picker, and the visible text
+                        // matches the desktop at 13px. `mn-stay-hidden` keeps
+                        // the select invisible when a keyboard focuses it; the
+                        // wrapper draws the focus ring instead.
+                        <div className="relative flex h-6 max-w-[11rem] items-center gap-0.5 rounded px-1.5 text-xs text-muted hover:bg-hover focus-within:outline focus-within:outline-2 focus-within:outline-accent">
+                          <span className="truncate">
+                            {active === 'all' ? 'All projects' : projects.find((p) => p.project_id === active)?.project_name}
+                          </span>
+                          <ChevronDown size={12} className="shrink-0" aria-hidden />
+                          <select
+                            aria-label="Filter tasks by project"
+                            value={active}
+                            onChange={(e) => pickScope(e.target.value)}
+                            className="mn-stay-hidden absolute inset-0 w-full cursor-pointer opacity-0 coarse:-inset-y-2.5"
+                          >
+                            <option value="all">All projects</option>
+                            {projects.map((p) => (
+                              <option key={p.project_id} value={p.project_id}>{p.project_name}</option>
+                            ))}
+                          </select>
+                        </div>
                       )}
                     >
                       {BUCKETS.some((b) => shown(b).length) ? (
