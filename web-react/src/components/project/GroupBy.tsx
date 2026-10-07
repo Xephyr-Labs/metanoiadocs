@@ -20,10 +20,13 @@ import { Menu } from '../ui/Menu';
  * bucketing first (by day? week? month?) and free text would give one column
  * per row, which is a listing rather than a grouping.
  */
-export function GroupBy({ fields, value, onChange }: {
+export function GroupBy({ fields, value, onChange, optional }: {
   fields: FilterField[];
   value: string | null;
   onChange: (field: string | null) => void;
+  /** The view can also be ungrouped — a table is a plain list until somebody
+   *  groups it, where a board always has columns. */
+  optional?: boolean;
 }) {
   const groupable = fields.filter(canGroupBy);
   if (!groupable.length) return null;
@@ -46,11 +49,15 @@ export function GroupBy({ fields, value, onChange }: {
           {current ? current.label : 'Group'}
         </button>
       }
-      items={groupable.map((f) => ({
-        label: f.label,
-        checked: f.key === (current?.key ?? null),
-        onSelect: () => onChange(f.key),
-      }))}
+      items={[
+        ...(optional ? [{ label: 'No grouping', checked: !current, onSelect: () => onChange(null) }] : []),
+        ...groupable.map((f, i) => ({
+          label: f.label,
+          checked: f.key === (current?.key ?? null),
+          onSelect: () => onChange(f.key),
+          separatorBefore: optional && i === 0,
+        })),
+      ]}
     />
   );
 }

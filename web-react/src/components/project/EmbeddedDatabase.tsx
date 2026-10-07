@@ -293,8 +293,8 @@ export function EmbeddedDatabase({
       />
       <FilterBar fields={d.fields} filters={d.filters} onChange={d.setFilters} />
       <SortBar fields={d.fields} sort={d.sort} onChange={d.setSort} />
-      {d.kind === 'board' && (
-        <GroupBy fields={d.fields} value={d.groupField?.key ?? null} onChange={d.setGroupBy} />
+      {(d.kind === 'board' || d.kind === 'table') && (
+        <GroupBy fields={d.groupFields} value={d.groupField?.key ?? null} onChange={d.setGroupBy} optional={d.kind === 'table'} />
       )}
       <PropertyVisibility
         view={d.kind}
@@ -366,6 +366,7 @@ export function EmbeddedDatabase({
               onCreateSprint={p.createSprint}
               onPatchSprint={p.patchSprint}
               onDeleteSprint={p.deleteSprint}
+              onSetParent={(id, parentId) => p.patch(id, { parentId })}
             />
           ) : d.kind === 'board' ? (
             <Board
@@ -375,7 +376,12 @@ export function EmbeddedDatabase({
               cardProps={d.visible}
               users={p.users}
               onOpen={() => requestOpenProject(projectId)}
-              onAdd={(value) => p.create({ title: '', ...d.groupSeed(value) })}
+              onAdd={async (value) => {
+                // Creating takes no parent; an epic column's "+" sets it after.
+                const { parentId, ...seed } = d.groupSeed(value);
+                const row = await p.create({ title: '', ...seed });
+                if (row && parentId) p.patch(row.id, { parentId });
+              }}
               onMove={d.moveToGroup}
             />
           ) : d.kind === 'gantt' ? (
@@ -410,6 +416,8 @@ export function EmbeddedDatabase({
             <TaskTable
               auto
               tasks={d.tasks}
+              groups={d.groupField ? d.groups : undefined}
+              groupOf={d.groupOf}
               props={d.visible}
               users={p.users}
               rowLabel={mode === 'data' ? 'Name' : 'Task'}

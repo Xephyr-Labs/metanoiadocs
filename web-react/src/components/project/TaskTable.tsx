@@ -22,6 +22,7 @@ import { PropertyCell } from './props/PropertyCell';
 import { PropChips } from './props/PropChips';
 import { splitKey } from '../../lib/taskKey';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
+import { isGroupLine, withGroupLines, type BoardGroup, type GroupLine } from '../../lib/grouping';
 
 interface Props {
   tasks: TaskRow[];
@@ -66,6 +67,10 @@ interface Props {
    *  than a ring: a ring on a table row breaks across the frozen column, and
    *  the eye is scanning down a list, not around a box. */
   focusedId?: string | null;
+  /** Groups to section the rows into, in order, and which a row is in.
+   *  Absent is the plain list a table is until somebody groups it. */
+  groups?: BoardGroup[];
+  groupOf?: (task: TaskRow) => string;
 }
 
 /**
@@ -339,8 +344,12 @@ function RowCheck({ checked, label, always, className, onPick }: {
 export function TaskTable({
   tasks, props, users, onPatch, onOpen, onDelete, onSetProp, onEditOptions, onTagsChanged,
   viewId, onReorder, selected, onSelect, onToggleAll, focusedId,
-  rowLabel = 'Task', auto,
+  rowLabel = 'Task', auto, groups, groupOf,
 }: Props) {
+  const lines = useMemo(
+    () => (groups && groupOf ? withGroupLines(tasks, groups, groupOf) : tasks),
+    [tasks, groups, groupOf],
+  );
   const picking = !!onSelect;
   const allPicked = picking && tasks.length > 0 && tasks.every((t) => selected?.has(t.id));
   const [wrap, setWrap] = useState(storedWrap);
@@ -426,6 +435,7 @@ export function TaskTable({
     return (
       <PhoneRows
         tasks={tasks}
+        lines={lines}
         props={props}
         users={users}
         auto={auto}
@@ -531,7 +541,19 @@ export function TaskTable({
           </tr>
         </thead>
         <tbody>
-          {tasks.map((t) => (
+          {lines.map((t) => isGroupLine(t) ? (
+            // A section heading across the whole row. The label holds still
+            // under a sideways scroll, the way the frozen title column does.
+            <tr key={`group:${t.group.value}`} className="border-b border-line bg-surface">
+              <td colSpan={props.length + 2} className="h-8 p-0">
+                <span className="sticky left-0 flex items-center gap-2 px-2.5 text-3xs font-semibold uppercase tracking-[0.08em] text-muted">
+                  <span aria-hidden className={cn('h-1.5 w-1.5 shrink-0 rounded-full', t.group.dot)} />
+                  <span className="truncate">{t.group.label}</span>
+                  <span className="rounded-full bg-canvas px-1.5 text-3xs font-medium tabular-nums text-faint ring-1 ring-line">{t.count}</span>
+                </span>
+              </td>
+            </tr>
+          ) : (
             <tr
               key={t.id}
               data-task-row={t.id}
@@ -646,8 +668,10 @@ export function TaskTable({
  * be edited. What stays is the reason the table has checkboxes at all: picking
  * rows for the bulk bar, through a full 44px box at the row's leading edge.
  */
-function PhoneRows({ tasks, props, users, auto, selected, allPicked, onSelect, onToggleAll, onOpen, focusedId }: {
+function PhoneRows({ tasks, lines, props, users, auto, selected, allPicked, onSelect, onToggleAll, onOpen, focusedId }: {
   tasks: TaskRow[];
+  /** The rows with any group headings among them — see withGroupLines. */
+  lines: (TaskRow | GroupLine)[];
   props: PropRow[];
   users: UserRow[];
   auto?: boolean;
@@ -687,7 +711,16 @@ function PhoneRows({ tasks, props, users, auto, selected, allPicked, onSelect, o
       {/* With rows picked, the bulk bar floats over the bottom of the list;
           the extra room lets the last rows scroll up clear of it. */}
       <ul className={cn(!auto && 'scrollarea flex-1 overflow-y-auto', !auto && (count ? 'pb-28' : 'pb-6'))}>
-        {tasks.map((t) => {
+        {lines.map((t) => {
+          if (isGroupLine(t)) {
+            return (
+              <li key={`group:${t.group.value}`} className="flex h-9 items-center gap-2 border-b border-line bg-surface px-4 text-3xs font-semibold uppercase tracking-[0.08em] text-muted">
+                <span aria-hidden className={cn('h-1.5 w-1.5 shrink-0 rounded-full', t.group.dot)} />
+                <span className="truncate">{t.group.label}</span>
+                <span className="tabular-nums text-faint">{t.count}</span>
+              </li>
+            );
+          }
           const picked = !!selected?.has(t.id);
           const { key, text } = splitKey(t.title);
           return (

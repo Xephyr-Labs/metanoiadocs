@@ -113,3 +113,70 @@ export function groupOf(task: TaskRow, field: FilterField): string {
   if (field.kind === 'checkbox') return raw ? 'true' : 'false';
   return String(raw);
 }
+
+/**
+ * Grouping by epic. Not a column on the task — a row's epic is whichever
+ * container it sits under, however deep — so it is a field made here rather
+ * than one of the filter fields, and `EPIC_KEY` is what a view saves as its
+ * `groupBy`.
+ */
+export const EPIC_KEY = 'epic';
+
+/** The container rows a list is grouped into, in the order their groups are
+ *  drawn: by their own manual position, then by key number. */
+export function epicsOf(tasks: TaskRow[], isGroup: (t: TaskRow) => boolean): TaskRow[] {
+  return tasks
+    .filter(isGroup)
+    .sort((a, b) => a.position - b.position || (a.num ?? 0) - (b.num ?? 0));
+}
+
+/** The grouping field for a list's epics; `groupsFor` adds "No epic". */
+export function epicField(epics: TaskRow[]): FilterField {
+  return {
+    key: EPIC_KEY,
+    label: 'Epic',
+    kind: 'select',
+    options: epics.map((t) => ({ value: t.id, label: t.title || 'Untitled' })),
+  };
+}
+
+/**
+ * The epic a row belongs to: itself when it is one, else its nearest
+ * container ancestor, else '' — the "No epic" group. A task under a story
+ * under an epic is that epic's work, so it walks past the story.
+ */
+export function epicOf(task: TaskRow, byId: Map<string, TaskRow>, isGroup: (t: TaskRow) => boolean): string {
+  const seen = new Set<string>();
+  let cursor: TaskRow | undefined = task;
+  while (cursor && !seen.has(cursor.id)) {
+    if (isGroup(cursor)) return cursor.id;
+    seen.add(cursor.id);
+    cursor = cursor.parent_id ? byId.get(cursor.parent_id) : undefined;
+  }
+  return '';
+}
+
+/** A group's header line in a grouped list, carried among the rows. */
+export interface GroupLine {
+  group: BoardGroup;
+  count: number;
+}
+
+/**
+ * A list's rows with a header line before each group, in the groups' order.
+ * Empty groups are left out: a table is read top to bottom, and a heading
+ * with nothing under it is a gap the eye has to cross for nothing.
+ * Rows within a group keep the order they came in, so the view's sort holds.
+ */
+export function withGroupLines<T>(rows: T[], groups: BoardGroup[], groupOf: (row: T) => string): (T | GroupLine)[] {
+  const out: (T | GroupLine)[] = [];
+  for (const group of groups) {
+    const inGroup = rows.filter((r) => groupOf(r) === group.value);
+    if (!inGroup.length) continue;
+    out.push({ group, count: inGroup.length }, ...inGroup);
+  }
+  return out;
+}
+
+export const isGroupLine = (line: unknown): line is GroupLine =>
+  typeof line === 'object' && line !== null && 'group' in line && 'count' in line;
