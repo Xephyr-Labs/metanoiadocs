@@ -119,6 +119,15 @@ const splitRow = (l) => {
  *  and that is what the source asked for). */
 const indentDepth = (s) => Math.floor(s.replace(/\t/g, '  ').length / 2);
 
+// Panel types, as the web editor stores them (`prop:mnPanel`, see
+// web-react/src/editor/callout.ts). GitHub's five alert names map onto them.
+const PANEL_EMOJI = { info: 'ℹ️', note: '📝', success: '✅', warning: '⚠️', error: '❌' };
+const PANEL_ALIASES = {
+  info: 'info', note: 'note', success: 'success', warning: 'warning', error: 'error',
+  tip: 'success', important: 'info', caution: 'error', danger: 'error',
+};
+const PANEL_RE = new RegExp(`^>\\s?\\[!(${Object.keys(PANEL_ALIASES).join('|')})\\]\\s*(.*)$`, 'i');
+
 /** Markdown → flat block descriptors (block-level structure; inline text is literal). */
 export function parseMarkdown(md) {
   const lines = String(md || '').replace(/\r\n/g, '\n').split('\n');
@@ -170,6 +179,25 @@ export function parseMarkdown(md) {
     if ((m = line.match(/^(\s*)[-*]\s+\[([ xX])\]\s+(.*)$/))) { out.push({ flavour: 'affine:list', type: 'todo', checked: m[2].toLowerCase() === 'x', text: m[3], depth: indentDepth(m[1]) }); blank = false; continue; }
     if ((m = line.match(/^(\s*)\d+\.\s+(.*)$/))) { out.push({ flavour: 'affine:list', type: 'numbered', text: m[2], depth: indentDepth(m[1]) }); blank = false; continue; }
     if ((m = line.match(/^(\s*)[-*]\s+(.*)$/))) { out.push({ flavour: 'affine:list', type: 'bulleted', text: m[2], depth: indentDepth(m[1]) }); blank = false; continue; }
+    // `> [!NOTE]` and the `>` lines under it are a panel (the editor's
+    // callout block), GitHub's alert syntax. Its body is markdown in its own
+    // right; a callout only holds paragraphs and lists, so anything else in it
+    // is kept as its text.
+    if ((m = line.match(PANEL_RE))) {
+      const inner = [];
+      if (m[2].trim()) inner.push(m[2]);
+      while (i + 1 < lines.length && /^>/.test(lines[i + 1])) inner.push(lines[++i].replace(/^>\s?/, ''));
+      const panel = PANEL_ALIASES[m[1].toLowerCase()];
+      const children = parseMarkdown(inner.join('\n')).map((d) =>
+        d.flavour === 'affine:paragraph' || d.flavour === 'affine:list'
+          ? d
+          : { flavour: 'affine:paragraph', type: 'text', text: d.text ?? (d.rows || []).map((r) => r.join(' | ')).join(' ') });
+      // An empty panel still needs a line to type into.
+      if (!children.length) children.push({ flavour: 'affine:paragraph', type: 'text', text: '' });
+      out.push({ flavour: 'affine:callout', panel, emoji: PANEL_EMOJI[panel], children });
+      blank = false;
+      continue;
+    }
     if ((m = line.match(/^>\s?(.*)$/))) { out.push({ flavour: 'affine:paragraph', type: 'quote', text: m[1] }); blank = false; continue; }
     // Plain text directly under the previous line continues it: markdown wraps
     // a paragraph across lines, and one block per source line turns a hard
@@ -194,6 +222,17 @@ export function parseMarkdown(md) {
  * take their descriptors through here rather than growing a second image path.
  */
 export const imageDescAsParagraph = (d) =>
+  d.flavour === 'affine:callout' ? calloutAsQuote(d) : imageAsParagraph(d);
+
+/** A panel for renderers without one: its label and body, as a quote. */
+const calloutAsQuote = (d) => ({
+  flavour: 'affine:paragraph',
+  type: 'quote',
+  text: [`**${d.panel[0].toUpperCase()}${d.panel.slice(1)}:**`,
+    ...d.children.map((c) => c.text)].join(' '),
+});
+
+const imageAsParagraph = (d) =>
   d.flavour === 'affine:image'
     ? { flavour: 'affine:paragraph', type: 'text', text: `![${d.caption || ''}](/api/blob/${d.sourceId})` }
     : d;
@@ -204,9 +243,16 @@ function makeBlock(blocks, desc, resolveLink, pending) {
   b.set('sys:id', id);
   b.set('sys:flavour', desc.flavour);
   b.set('sys:version', 1);
-  b.set('sys:children', new Y.Array());
+  const children = new Y.Array();
+  b.set('sys:children', children);
   if (desc.flavour === 'affine:divider') {
     // nothing else
+  } else if (desc.flavour === 'affine:callout') {
+    b.set('prop:emoji', desc.emoji);
+    b.set('prop:text', new Y.Text());
+    b.set('prop:mnPanel', desc.panel);
+    // `b` is not in the doc yet, so read back through it would be undefined.
+    children.push(makeBlocks(blocks, desc.children, resolveLink, pending));
   } else if (desc.flavour === 'affine:table') {
     // BlockSuite 0.22 table: flat keys — prop:rows.<id>.{rowId,order},
     // prop:columns.<id>.{columnId,order}, prop:cells.<row>:<col>.text.
@@ -541,7 +587,7 @@ export function docToMarkdown(existing, opts = {}) {
 
   // Parts, not lines: list items pack together, everything else gets a blank
   // line between it and its neighbour.
-  const parts = [];
+  let parts = [];
   const text = (b) => inlineMarkdown(b.get('prop:text'), opts);
 
   const walk = (id, depth) => {
@@ -596,6 +642,19 @@ export function docToMarkdown(existing, opts = {}) {
         if (src) parts.push({ text: `[${name}](${imageUrl(String(src))})` });
         break;
       }
+      case 'affine:callout': {
+        // Rendered on its own, then quoted line by line under its marker, so
+        // the panel comes back in as the same panel.
+        const outer = parts;
+        parts = [];
+        const kids = b.get('sys:children');
+        if (kids instanceof Y.Array) for (const c of kids.toArray()) walk(c, 0);
+        const body = joinParts(parts);
+        parts = outer;
+        const panel = String(b.get('prop:mnPanel') || 'note').toUpperCase();
+        parts.push({ text: [`> [!${panel}]`, ...(body ? body.split('\n') : [])].map((l, i) => (i && l ? `> ${l}` : i ? '>' : l)).join('\n') });
+        return;
+      }
       case 'affine:latex':
         parts.push({ text: '$$\n' + (b.get('prop:latex') || '') + '\n$$' });
         break;
@@ -620,6 +679,11 @@ export function docToMarkdown(existing, opts = {}) {
     if (kids instanceof Y.Array) for (const c of kids.toArray()) walk(c, 0);
   }
 
+  // Trailing empty paragraphs are what an editor leaves behind, not content.
+  return { title, markdown: joinParts(parts) };
+}
+
+function joinParts(parts) {
   let markdown = '';
   parts.forEach((p, i) => {
     const prev = parts[i - 1];
@@ -630,8 +694,7 @@ export function docToMarkdown(existing, opts = {}) {
     if (i) markdown += packed ? '\n' : '\n\n';
     markdown += p.text;
   });
-  // Trailing empty paragraphs are what an editor leaves behind, not content.
-  return { title, markdown: markdown.replace(/\n{3,}/g, '\n\n').trim() };
+  return markdown.replace(/\n{3,}/g, '\n\n').trim();
 }
 
 /**

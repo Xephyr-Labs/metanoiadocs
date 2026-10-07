@@ -634,7 +634,8 @@ app.get('/api/docs/mine', requireUser, async (req, res) => {
 app.get('/api/docs', requireUser, async (req, res) => {
   const { rows } = await pool.query(
     `SELECT d.id, d.title, d.icon, d.folder_id, d.parent_id, d.position, d.updated_at,
-            coalesce(a.role, d.team_role, 'editor') AS role, d.team_role, d.visibility, d.kind, d.props, d.is_template,
+            CASE WHEN d.is_template AND coalesce(a.role, d.team_role, 'editor') NOT IN ('editor', 'owner')
+                 THEN 'editor' ELSE coalesce(a.role, d.team_role, 'editor') END AS role, d.team_role, d.visibility, d.kind, d.props, d.is_template,
             ub.name AS updated_by_name,
             coalesce(ub.kind, 'person') AS updated_by_kind,
             d.updated_via, d.created_at, cb.name AS created_by_name,
@@ -2324,7 +2325,18 @@ app.delete('/api/blob/:key', requireUser, requireAdmin, async (req, res) => {
 });
 
 // ── version history ─────────────────────────────────────────────────────────
+// A template is the team's shared starting point, so anyone who can open one
+// may also edit it (Sajjad, 7 Oct 2026). Owner stays owner; nobody gains
+// access to a template they could not already see.
 async function grantOn(docId, userId) {
+  const role = await pageGrant(docId, userId);
+  if (!role || canEdit(role)) return role;
+  const t = await pool.query('SELECT is_template FROM docs WHERE id = $1 AND deleted_at IS NULL', [docId]);
+  return t.rows[0]?.is_template ? 'editor' : role;
+}
+
+/** The page's own grant, before the template rule above. */
+async function pageGrant(docId, userId) {
   const g = await pool.query('SELECT role FROM doc_access WHERE doc_id = $1 AND user_id = $2', [docId, userId]);
   if (g.rows[0]) return g.rows[0].role;
   // Team-visible docs are accessible to any signed-in workspace member without an
@@ -2932,7 +2944,15 @@ registerPushRoutes(app, { requireUser, wrap });
 registerFolderRoutes(app, { requireUser, wrap });
 registerWebhookRoutes(app, { requireUser, requireAdmin, wrap });
 registerFormRoutes(app, { requireUser, wrap, baseUrl: BASE_URL });
-registerTemplateRoutes(app, { requireUser, wrap, grantOn, editGrant, kindsFor, isStatus });
+// Marking or unmarking a template goes by the page's own grant: the template
+// rule must not let someone who was given view access un-template the page.
+registerTemplateRoutes(app, {
+  requireUser, wrap, grantOn, kindsFor, isStatus,
+  editGrant: async (docId, userId) => {
+    const role = await pageGrant(docId, userId);
+    return canEdit(role) ? role : null;
+  },
+});
 registerCsvRoutes(app, {
   requireUser, wrap, createDocRow,
   // One file per request, same shape and same ceiling as the document import.

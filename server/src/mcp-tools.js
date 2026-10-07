@@ -160,7 +160,7 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
     {
       title: 'Create a doc',
       description:
-        'Create a new document. `content` is markdown — headings (#), bullet/numbered lists, to-dos (- [ ]), quotes (>), fenced code (```), and dividers (---) become real editor blocks. Returns the new doc id.',
+        'Create a new document. `content` is markdown — headings (#), bullet/numbered lists, to-dos (- [ ]), quotes (>), fenced code (```), dividers (---), and panels (`> [!NOTE]`, `[!INFO]`, `[!SUCCESS]`, `[!WARNING]`, `[!ERROR]` with the panel body on the `>` lines below) become real editor blocks. Returns the new doc id.',
       inputSchema: {
         title: z.string().describe('Document title'),
         content: z.string().optional().describe('Markdown body (optional)'),
@@ -185,7 +185,7 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
     {
       title: 'Write to a doc',
       description:
-        "Append or replace a doc's content with markdown. mode=append (default) adds to the end; mode=replace overwrites. Changes appear when the doc is next opened.",
+        "Append or replace a doc's content with markdown. mode=append (default) adds to the end; mode=replace overwrites. Same markdown as create_doc, panels (`> [!NOTE]`) included. Changes appear when the doc is next opened.",
       inputSchema: {
         id: z.string().describe('Document id'),
         markdown: z.string().describe('Markdown content'),
