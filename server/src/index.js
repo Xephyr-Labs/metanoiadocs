@@ -27,6 +27,7 @@ import {
   setPasswordHash,
   deleteOtherSessions,
   clearSessionVia,
+  recordDocEditors,
 } from './db.js';
 import { requestMagicLink, consumeMagicLink, mayReplacePassword, sendInviteEmail, sendNotificationEmail } from './auth.js';
 import { lockedFor, noteFailure, clearFailures, lockoutError } from './throttle.js';
@@ -835,9 +836,11 @@ app.post('/api/docs/import', requireUser, express.raw({ type: '*/*', limit: '25m
 // Write a page reference into `parentId`'s body — the block that makes `childId`
 // hang under it in the sidebar. False means the parent has no body yet (nobody
 // has ever opened it), the one failure both callers below report identically.
-async function referenceChild(parentId, childId) {
+async function referenceChild(parentId, childId, user) {
   let linked = false;
-  const conn = await hocuspocus.openDirectConnection(parentId);
+  // The user rides along so the parent's save names who changed its body,
+  // like every other write; without it the save kept the previous editor.
+  const conn = await hocuspocus.openDirectConnection(parentId, { docId: parentId, user });
   try {
     await conn.transact((doc) => { linked = appendPageReference(doc, childId); });
   } finally {
@@ -862,7 +865,7 @@ app.post('/api/docs/:id/children', requireUser, wrap(async (req, res) => {
 
   // Write the reference first: a child nobody can reach from its parent is worse
   // than no child at all, and this is the step that can fail.
-  if (!(await referenceChild(parentId, id))) return res.status(409).json({ error: NO_BODY_TO_NEST_IN });
+  if (!(await referenceChild(parentId, id, req.user))) return res.status(409).json({ error: NO_BODY_TO_NEST_IN });
 
   // The child keeps the parent's company: same folder, same visibility.
   const client = await pool.connect();
@@ -916,7 +919,7 @@ app.post('/api/docs/:id/links', requireUser, wrap(async (req, res) => {
   // already, and dropping it on that row is a request to give it a home.
   const existing = await pool.query('SELECT 1 FROM doc_links WHERE from_id = $1 AND to_id = $2', [parentId, childId]);
   const already = existing.rowCount > 0;
-  if (!already && !(await referenceChild(parentId, childId))) return res.status(409).json({ error: NO_BODY_TO_NEST_IN });
+  if (!already && !(await referenceChild(parentId, childId, req.user))) return res.status(409).json({ error: NO_BODY_TO_NEST_IN });
   await pool.query('INSERT INTO doc_links (from_id, to_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [parentId, childId]);
   await pool.query('UPDATE docs SET parent_id = $1, updated_at = now(), updated_by = $3, updated_via = $4 WHERE id = $2', [parentId, childId, req.user.id, req.via]);
   res.json({ ok: true, already });
@@ -930,7 +933,13 @@ app.get('/api/docs/:id/text', requireUser, async (req, res) => {
   const s = await pool.query('SELECT state FROM doc_states WHERE doc_id = $1', [req.params.id]);
   let text = '';
   if (s.rows[0]) { try { text = extractText(s.rows[0].state).text; } catch { /* empty */ } }
-  res.json({ id: req.params.id, title: d.rows[0].title, text });
+  const { rows: editors } = await pool.query(
+    `SELECT u.id, u.name, coalesce(u.kind, 'person') AS kind, e.first_edit_at, e.last_edit_at
+       FROM doc_editors e JOIN users u ON u.id = e.user_id
+      WHERE e.doc_id = $1 ORDER BY e.last_edit_at DESC`,
+    [req.params.id]
+  );
+  res.json({ id: req.params.id, title: d.rows[0].title, text, editors });
 });
 
 // ── export ──────────────────────────────────────────────────────────────────
@@ -2604,7 +2613,7 @@ function commentsChanged(docId) {
 // `replyToId` is the comment actually answered, which may be a reply inside
 // the thread `parentId` names — its author is the one being replied to.
 async function createCommentNotifications({ commentId, docId, body, actor, mentions = true, parentId = null, replyToId = null, kind: eventKind = null }) {
-  const doc = await pool.query('SELECT id, title, kind, created_by, updated_by FROM docs WHERE id = $1', [docId]);
+  const doc = await pool.query('SELECT id, title, kind, created_by FROM docs WHERE id = $1', [docId]);
   if (!doc.rows[0]) return;
   const docTitle = doc.rows[0].title || 'Untitled';
 
@@ -2657,11 +2666,9 @@ async function createCommentNotifications({ commentId, docId, body, actor, menti
     threadIds = rows.map((r) => r.author_id);
   }
 
-  // Everyone else involved in the page: its owner, whoever made it, whoever
-  // edited it, whoever has commented on it. "Edited" is what the page keeps a
-  // record of — the last person to save it (docs.updated_by) and whoever took
-  // a named snapshot or restored one (doc_versions.created_by). Autosaves
-  // carry no author, so someone who edited in between is not on that list.
+  // Everyone else involved in the page: its owner, whoever made it, everyone
+  // who has edited it (doc_editors, recorded on every write), whoever has
+  // commented on it.
   // A task's page keeps the narrower reach it had: its thread lives with the
   // task, and task-comments.js tells the task's own people.
   const d = doc.rows[0];
@@ -2671,11 +2678,11 @@ async function createCommentNotifications({ commentId, docId, body, actor, menti
   if (owner[0]) involvedIds.push(owner[0].user_id);
   if (d.kind !== 'task') {
     const { rows } = await pool.query(
-      `SELECT created_by AS id FROM doc_versions WHERE doc_id = $1 AND created_by IS NOT NULL
+      `SELECT user_id AS id FROM doc_editors WHERE doc_id = $1
        UNION SELECT author_id FROM comments WHERE doc_id = $1 AND author_id IS NOT NULL AND id <> $2`,
       [docId, commentId]
     );
-    involvedIds.push(d.created_by, d.updated_by, ...rows.map((r) => r.id));
+    involvedIds.push(d.created_by, ...rows.map((r) => r.id));
   }
 
   const chosen = docCommentRecipients({
@@ -2889,6 +2896,9 @@ app.post('/api/comments/:cid/decision', requireUser, wrap(async (req, res) => {
       });
     }
     await pool.query('UPDATE docs SET updated_at = now(), updated_by = $2, updated_via = $3 WHERE id = $1', [c.doc_id, req.user.id, req.via]);
+    // The words now on the page are the suggester's, so they are an editor of
+    // it too, not only the person who pressed Accept.
+    await recordDocEditors(c.doc_id, [c.author_id]);
   }
   await pool.query('UPDATE comments SET resolved = true WHERE parent_id = $1', [c.id]);
   // The suggester hears what became of it.
@@ -2999,7 +3009,7 @@ startWebhookWorker();
 registerAgentRoutes(app, { requireUser, wrap, createDocRow });
 registerAutomationRoutes(app, { requireUser, wrap });
 registerSuggestionRoutes(app, {
-  requireUser, wrap, pool, grantOn, canEdit, canSuggest, notifyUser,
+  requireUser, wrap, pool, grantOn, canEdit, canSuggest, notifyUser, recordDocEditors,
   // The sync server is built further down; the routes only reach it per request.
   getHocuspocus: () => hocuspocus,
 });
@@ -3026,6 +3036,13 @@ app.use((err, req, res, next) => {
 // to that draft, whatever their role on the page itself.
 const DRAFT_AUTHOR = 'draft-author';
 
+// Who changed each open page since its last save. A save carries the context of
+// only the last connection to send an update, so two people typing in the same
+// few seconds would otherwise be one editor. Filled per applied update (a
+// read-only connection's updates are refused before they apply, and merely
+// being connected sends none), emptied by the save that persists them.
+const unsavedEditors = new Map(); // doc id -> Set of user ids
+
 const hocuspocus = new Hocuspocus({
   extensions: [
     {
@@ -3040,6 +3057,15 @@ const hocuspocus = new Hocuspocus({
         // someone else had open — and write to it with this one's role.
         if (context?.docId && documentName !== context.docId) throw new Error('document mismatch');
         if (context?.role !== DRAFT_AUTHOR && !canEdit(context?.role)) connection.readOnly = true;
+      },
+      async onChange({ context, documentName }) {
+        // A Suggesting-mode draft is not the page: its author is credited if
+        // and when a reviewer accepts what they wrote. Server-side direct
+        // connections have no user here and name theirs on the save instead.
+        const id = context?.user?.id;
+        if (!id || id === 'public' || !canEdit(context.role) || parseDraftName(documentName)) return;
+        if (!unsavedEditors.has(documentName)) unsavedEditors.set(documentName, new Set());
+        unsavedEditors.get(documentName).add(id);
       },
     },
     new Database({
@@ -3093,6 +3119,9 @@ const hocuspocus = new Hocuspocus({
            ON CONFLICT (doc_id) DO UPDATE SET state = EXCLUDED.state, updated_at = now()`,
           [documentName, buf]
         );
+        const editors = unsavedEditors.get(documentName);
+        unsavedEditors.delete(documentName);
+        if (editors) await recordDocEditors(documentName, [...editors]);
         // Record who saved, so the activity feed can attribute a plain edit.
         // 'public' is the share-link guest — not a real user row.
         const actor = context?.user?.id && context.user.id !== 'public' ? context.user.id : null;

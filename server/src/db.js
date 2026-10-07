@@ -958,11 +958,53 @@ export async function initSchema() {
     -- of those it insists on: [{ "id": "<db_prop id>", "required": true }].
     -- Empty means the form is the two fields it has always been.
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS form_fields JSONB NOT NULL DEFAULT '[]';
+
+    -- ── page editors ─────────────────────────────────────────────
+    -- Everyone who has ever changed a page, not only the last to save it.
+    -- docs.updated_by is overwritten by every save, so the person who wrote
+    -- most of a page vanishes the moment someone fixes a typo; comment
+    -- notifications need the whole list.
+    CREATE TABLE IF NOT EXISTS doc_editors (
+      doc_id        TEXT NOT NULL REFERENCES docs(id) ON DELETE CASCADE,
+      user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      first_edit_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      last_edit_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (doc_id, user_id)
+    );
+
+    -- Every write that changes a page sets docs.updated_by (the house rule), and
+    -- there are a dozen of them across the routes. Recording the editor here,
+    -- off that column, catches all of them and every one added later, where a
+    -- call at each site would be forgotten at the next. A new page credits its
+    -- creator. A failure is swallowed: who edited is bookkeeping, and must
+    -- never be the reason an edit is lost.
+    CREATE OR REPLACE FUNCTION record_doc_editor() RETURNS trigger AS $fn$
+    DECLARE
+      who TEXT := CASE WHEN TG_OP = 'INSERT' THEN coalesce(NEW.updated_by, NEW.created_by) ELSE NEW.updated_by END;
+    BEGIN
+      IF who IS NOT NULL THEN
+        BEGIN
+          INSERT INTO doc_editors (doc_id, user_id) VALUES (NEW.id, who)
+          ON CONFLICT (doc_id, user_id) DO UPDATE SET last_edit_at = now();
+        EXCEPTION WHEN others THEN
+          RAISE WARNING 'doc_editors not recorded for %: %', NEW.id, SQLERRM;
+        END;
+      END IF;
+      RETURN NULL;
+    END
+    $fn$ LANGUAGE plpgsql;
+    CREATE OR REPLACE TRIGGER docs_record_editor_ins AFTER INSERT ON docs
+      FOR EACH ROW EXECUTE FUNCTION record_doc_editor();
+    CREATE OR REPLACE TRIGGER docs_record_editor_upd AFTER UPDATE OF updated_at, updated_by ON docs
+      FOR EACH ROW
+      WHEN (NEW.updated_at IS DISTINCT FROM OLD.updated_at OR NEW.updated_by IS DISTINCT FROM OLD.updated_by)
+      EXECUTE FUNCTION record_doc_editor();
   `);
 
   await normalizeLegacyFolderImport();
   await relaxFavoritesKey();
   await seedTaskAssignees();
+  await seedDocEditors();
   await backfillTaskKeys();
   await clearBareKeyTitles();
 }
@@ -1103,6 +1145,59 @@ async function seedTaskAssignees() {
     throw e;
   } finally {
     client.release();
+  }
+}
+
+/** Give every existing page the editors it already has a record of: its
+ *  creator, its last saver, and whoever took or restored a version. Once,
+ *  behind a marker, like the assignees above; everything after is recorded as
+ *  it happens. Edits from before this table that left no trace stay lost. */
+async function seedDocEditors() {
+  const marker = 'doc-editors-from-history-v1';
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const claimed = await client.query(
+      'INSERT INTO schema_migrations (key) VALUES ($1) ON CONFLICT (key) DO NOTHING',
+      [marker]
+    );
+    if (!claimed.rowCount) {
+      await client.query('ROLLBACK');
+      return;
+    }
+    await client.query(
+      `INSERT INTO doc_editors (doc_id, user_id, first_edit_at, last_edit_at)
+       SELECT doc_id, user_id, min(at), max(at) FROM (
+         SELECT id AS doc_id, created_by AS user_id, created_at AS at FROM docs WHERE created_by IS NOT NULL
+         UNION ALL SELECT id, updated_by, updated_at FROM docs WHERE updated_by IS NOT NULL
+         UNION ALL SELECT doc_id, created_by, created_at FROM doc_versions WHERE created_by IS NOT NULL
+       ) e GROUP BY doc_id, user_id
+       ON CONFLICT DO NOTHING`
+    );
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+/** Credit people with an edit the docs row cannot show: everyone whose live
+ *  connection changed a page between two saves, and the author of a suggestion
+ *  someone else accepted. Never throws — losing this must not lose the edit. */
+export async function recordDocEditors(docId, userIds) {
+  const ids = [...new Set(userIds)].filter(Boolean);
+  if (!ids.length) return;
+  try {
+    await pool.query(
+      `INSERT INTO doc_editors (doc_id, user_id)
+       SELECT $1, u.id FROM users u WHERE u.id = ANY($2)
+       ON CONFLICT (doc_id, user_id) DO UPDATE SET last_edit_at = now()`,
+      [docId, ids]
+    );
+  } catch (e) {
+    console.error('[editors] record:', e.message);
   }
 }
 
