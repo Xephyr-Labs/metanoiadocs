@@ -668,6 +668,28 @@ html.dark .mn-toc .outline-viewer-indicator {
   text-transform: uppercase;
   color: var(--faint);
 }
+/* BlockSuite draws "open in the side panel" as a bare 16px icon. The host
+ * element is what takes the click, so sizing it gives the icon a 24px target
+ * (44px for a finger) without reaching into its shadow root. The name is
+ * stamped on in FloatingToc. */
+.mn-toc [data-testid='toggle-outline-panel-button'] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  min-height: 24px;
+  flex-shrink: 0;
+  /* The icon is 1em, and the header's 12px caps made it a 12px smudge. */
+  font-size: 16px;
+  text-transform: none;
+  letter-spacing: normal;
+}
+@media (pointer: coarse) {
+  .mn-toc [data-testid='toggle-outline-panel-button'] {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
 .mn-toc .outline-viewer-panel .outline-viewer-item {
   min-height: 28px;
   height: auto;
@@ -876,6 +898,21 @@ html.dark .mn-toc .outline-viewer-indicator {
  * switch loses its words, the lists and link go into ⋯, then the marks do. */
 .mn-editor-bar {
   container-type: inline-size;
+}
+/* On a phone or tablet BlockSuite opens a table row's or column's options as
+ * a sheet with a full-screen backdrop (z-index 1001, straight on the body), so
+ * the bar's Bold and Link sat under it and a tap on them only hit the
+ * backdrop. While such a sheet is open the bar, and any menu it opens, sit
+ * above the backdrop: the row stays selected and the bar formats it. A
+ * desktop menu is drawn inside the editor and never covered the bar.
+ * `:has()` needs Safari 15.4 or Firefox 121; an older engine ignores the rule
+ * and keeps the old behaviour, where the sheet has to be closed first. */
+body:has(> [data-range-sync-exclude] mobile-menu) .mn-editor-bar {
+  position: relative;
+  z-index: 1002;
+}
+body:has(> [data-range-sync-exclude] mobile-menu) [data-radix-popper-content-wrapper] {
+  z-index: 1003 !important;
 }
 .mn-editor-bar .mn-bar-more {
   display: none;

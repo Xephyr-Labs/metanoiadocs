@@ -12,7 +12,13 @@
 // as itself. A row, a column or a range of cells is formatted whole, every
 // cell's full text. Either way the mark toggles as it does in a paragraph: off
 // when everything selected already has it, on otherwise.
+//
+// Ctrl/Cmd+K links the same selection: one cell's selected words through the
+// editor's own link popup, several cells through that same popup acting on
+// every cell's full text. Unlinking follows the paragraph rule too: when all of
+// it is already a link, the key takes the link off instead of asking for one.
 import { IS_MAC } from '@blocksuite/affine/global/env';
+import { docUrl } from '../lib/route';
 
 export type Mark = 'bold' | 'italic' | 'underline' | 'strike' | 'code';
 
@@ -22,13 +28,38 @@ export type TableSelectionData =
   | { type: 'row'; rowId: string }
   | { type: 'column'; columnId: string };
 
-interface KeyLike { key: string; ctrlKey: boolean; metaKey: boolean; shiftKey: boolean; altKey: boolean }
+interface KeyLike { key: string; code?: string; ctrlKey: boolean; metaKey: boolean; shiftKey: boolean; altKey: boolean }
+
+/**
+ * The letter a shortcut was pressed on, for any keyboard layout.
+ *
+ * `key` is the character the layout makes, so on a Russian or Greek layout
+ * Ctrl+B arrives as "и" or "β" and no binding would ever match. BlockSuite's
+ * keymap falls back to the physical key for exactly this, so the cells do the
+ * same with `code` ("KeyB"), which every current browser fills in. Shift turns
+ * `key` upper case on every platform, and on a Mac Option would turn it into a
+ * symbol; neither matters here, because the letter is lower-cased and Alt
+ * never makes a shortcut.
+ */
+export function shortcutLetter(event: Pick<KeyLike, 'key' | 'code'>): string {
+  if (/^[a-z]$/i.test(event.key)) return event.key.toLowerCase();
+  const physical = /^Key([A-Z])$/.exec(event.code ?? '');
+  return physical ? physical[1].toLowerCase() : event.key.toLowerCase();
+}
+
+/**
+ * Whether the platform's own shortcut modifier, and only it, is held: Cmd on
+ * a Mac, Ctrl everywhere else. Ctrl+B on a Mac is a cursor key in text fields
+ * (back one character), and Cmd on Windows is the Start key, so neither is
+ * taken for the other.
+ */
+const modHeld = (event: KeyLike, mac: boolean) =>
+  (mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey) && !event.altKey;
 
 /** The mark a keystroke asks for, with BlockSuite's own bindings for text. */
 export function markForKey(event: KeyLike, mac = IS_MAC): Mark | null {
-  const mod = mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
-  if (!mod || event.altKey) return null;
-  const key = event.key.toLowerCase();
+  if (!modHeld(event, mac)) return null;
+  const key = shortcutLetter(event);
   if (event.shiftKey) return key === 's' ? 'strike' : null;
   return ({ b: 'bold', i: 'italic', u: 'underline', e: 'code' } as Record<string, Mark>)[key] ?? null;
 }
@@ -61,7 +92,7 @@ type Delta = { insert?: unknown; attributes?: Record<string, unknown> }[];
 /** True when every character in these deltas carries the mark. Embeds (a
  *  mention, a page link) are not text and do not count either way; nothing
  *  at all counts as unmarked, so the first press adds. */
-export function allMarked(deltas: Delta[], mark: Mark): boolean {
+export function allMarked(deltas: Delta[], mark: Mark | 'link'): boolean {
   let seen = false;
   for (const delta of deltas) {
     for (const op of delta) {
@@ -108,23 +139,36 @@ function tableSelection(std: TableFormatStd) {
   return { blockId: chosen.blockId, model, data: chosen.data as TableSelectionData };
 }
 
+interface Span {
+  text: TextLike;
+  index: number;
+  length: number;
+  /** The cell on screen, for placing the link popup over the selection. */
+  td: Element | null;
+  /** Set when the span is words selected inside one cell's own text box. */
+  inline?: InlineEditorLike;
+}
+
 /** What a mark would apply to: a span inside one cell, or whole cells. */
-function targets(std: TableFormatStd) {
+function targets(std: TableFormatStd): Span[] | null {
   const sel = tableSelection(std);
   if (!sel) return null;
+  const table = std.view.getBlock(sel.blockId);
   const keys = selectedCellKeys(sel.model.props.rows, sel.model.props.columns, sel.data);
-  const texts = keys.map((k) => sel.model.props.cells[k]?.text).filter((t): t is TextLike => !!t);
-  if (keys.length === 1 && texts.length === 1) {
+  const cells = keys.flatMap((key) => {
+    const text = sel.model.props.cells[key]?.text;
+    const [row, column] = key.split(':');
+    return text ? [{ text, td: table?.querySelector(`td[data-row-id="${row}"][data-column-id="${column}"]`) ?? null }] : [];
+  });
+  if (keys.length === 1 && cells.length === 1) {
     // One cell with a caret in it: that cell's own text selection decides. A
     // bare caret has nothing to format, so the key does nothing, as it did.
-    const [row, column] = keys[0].split(':');
-    const cell = std.view.getBlock(sel.blockId)
-      ?.querySelector(`td[data-row-id="${row}"][data-column-id="${column}"] rich-text`) as
-      (Element & { inlineEditor?: InlineEditorLike | null }) | null;
-    const range = cell?.inlineEditor?.getInlineRange();
-    if (range) return range.length ? [{ text: texts[0], index: range.index, length: range.length }] : [];
+    const inline = (cells[0].td?.querySelector('rich-text') as
+      (Element & { inlineEditor?: InlineEditorLike | null }) | null)?.inlineEditor ?? undefined;
+    const range = inline?.getInlineRange();
+    if (range) return range.length ? [{ ...cells[0], index: range.index, length: range.length, inline }] : [];
   }
-  return texts.map((text) => ({ text, index: 0, length: text.length }));
+  return cells.map((c) => ({ ...c, index: 0, length: c.text.length }));
 }
 
 /** Whether the table selection already carries `mark` throughout; null when
@@ -153,6 +197,84 @@ export function toggleTableMark(std: TableFormatStd, mark: Mark): boolean {
   return true;
 }
 
+type Attrs = Record<string, unknown>;
+
+/**
+ * Several cells dressed as the one inline editor the link popup expects.
+ *
+ * BlockSuite's popup is written for a span of one paragraph: it asks that span
+ * where it is on screen, and on confirm calls `formatText` with the link. Over
+ * a range of cells, "where" is the cells and "format" is every cell's full
+ * text, so the same popup — its URL check, its Enter and Escape, and the page
+ * search linkSearch.ts adds to it — links a whole row or column at once.
+ */
+function cellsAsOneText(std: TableFormatStd, spans: Span[]) {
+  const apply = (attrs: Attrs) => {
+    std.store.captureSync();
+    std.store.transact(() => {
+      for (const s of spans) s.text.format(s.index, s.length, attrs);
+    });
+  };
+  const rects = () => spans.flatMap((s) => (s.td ? [s.td.getBoundingClientRect()] : []));
+  return {
+    rootElement: spans.find((s) => s.td)?.td ?? null,
+    yTextString: '',
+    getFormat: () => ({}),
+    isValidInlineRange: () => true,
+    setInlineRange: () => {},
+    formatText: (_range: unknown, attrs: Attrs) => apply(attrs),
+    // Picking a page in the popup's search writes a page reference over the
+    // selected words, which in a paragraph replaces them with the page's name.
+    // Over whole cells that would wipe the table, so each cell keeps its text
+    // and becomes a link to the page instead.
+    insertText: (_range: unknown, _text: string, attrs: Attrs = {}) => {
+      const page = (attrs.reference as { pageId?: string } | undefined)?.pageId;
+      apply(page ? { link: docUrl(page), reference: null } : attrs);
+    },
+    toDomRange: () => ({
+      getClientRects: rects,
+      getBoundingClientRect: () => {
+        const all = rects();
+        if (!all.length) return new DOMRect();
+        const left = Math.min(...all.map((r) => r.left));
+        const top = Math.min(...all.map((r) => r.top));
+        return new DOMRect(left, top,
+          Math.max(...all.map((r) => r.right)) - left, Math.max(...all.map((r) => r.bottom)) - top);
+      },
+    }),
+  };
+}
+
+/**
+ * Ctrl/Cmd+K over the table selection: take the link off when everything
+ * selected is already linked, otherwise open the editor's link popup for it.
+ * Returns false when there is no table selection or nothing in it to link
+ * (a bare caret, or only empty cells), so the caller can leave the key alone.
+ */
+export function toggleTableLink(std: TableFormatStd): boolean {
+  if (std.store.readonly) return false;
+  const spans = targets(std)?.filter((s) => s.length > 0);
+  if (!spans?.length) return false;
+  if (allMarked(spans.map((s) => s.text.sliceToDelta(s.index, s.index + s.length)), 'link')) {
+    std.store.captureSync();
+    std.store.transact(() => {
+      for (const s of spans) s.text.format(s.index, s.length, { link: null });
+    });
+    return true;
+  }
+  const one = spans.length === 1 ? spans[0].inline : undefined;
+  const target = one ?? cellsAsOneText(std, spans);
+  const range = one ? { index: spans[0].index, length: spans[0].length } : { index: 0, length: 1 };
+  // Loaded on use rather than at the top: the popup is a lit element, and the
+  // pure parts of this file are tested without a DOM.
+  void import('@blocksuite/affine/inlines/link').then(({ toggleLinkPopup }) => {
+    const abort = new AbortController();
+    const popup = toggleLinkPopup(std as never, 'create', target as never, range, abort);
+    abort.signal.addEventListener('abort', () => popup.remove());
+  });
+  return true;
+}
+
 /** True for a selection of more than one cell. */
 const spansCells = (s: { type: string; data?: unknown } | undefined) => {
   const data = s?.type === 'table' ? (s.data as TableSelectionData) : null;
@@ -161,13 +283,16 @@ const spansCells = (s: { type: string; data?: unknown } | undefined) => {
 };
 
 /** Undo and redo, by BlockSuite's bindings. */
-function historyKey(event: KeyLike, mac = IS_MAC): 'undo' | 'redo' | null {
-  const mod = mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
-  if (!mod || event.altKey) return null;
-  const key = event.key.toLowerCase();
+export function historyKey(event: KeyLike, mac = IS_MAC): 'undo' | 'redo' | null {
+  if (!modHeld(event, mac)) return null;
+  const key = shortcutLetter(event);
   if (key === 'z') return event.shiftKey ? 'redo' : 'undo';
   return key === 'y' && !event.shiftKey ? 'redo' : null;
 }
+
+/** Ctrl/Cmd+K, the editor's link binding. */
+export const isLinkKey = (event: KeyLike, mac = IS_MAC) =>
+  modHeld(event, mac) && !event.shiftKey && shortcutLetter(event) === 'k';
 
 type AttachStd = TableFormatStd & {
   selection: { set(v: unknown[]): void };
@@ -212,6 +337,11 @@ export function attachTableFormat(editor: Element & { std?: AttachStd }): () => 
     const std = editor.std;
     if (!std || event.isComposing) return;
     if (event.target instanceof Node && !editor.contains(event.target) && event.target !== document.body) return;
+    // The link popup's address box keeps its own keys: Ctrl+B there is not a
+    // request to bold the cells behind it, nor Ctrl+K for a second popup. (A
+    // row's options menu also puts the caret in a search box, and the keys
+    // must still work there, so this is the popup alone, not any field.)
+    if (event.target instanceof Element && event.target.closest('link-popup')) return;
     // Out of a cell, Ctrl+Z reaches nothing that undoes: BlockSuite's binding
     // listens inside the page, and the caret has just been taken out of it.
     const history = historyKey(event);
@@ -219,6 +349,15 @@ export function attachTableFormat(editor: Element & { std?: AttachStd }): () => 
       event.preventDefault();
       event.stopPropagation();
       std.store[history]();
+      return;
+    }
+    if (isLinkKey(event)) {
+      if (!toggleTableLink(std)) return;
+      // Ctrl+K is the browser's own "search the web" key in Chrome, Edge and
+      // Firefox on Windows and Linux; Safari leaves Cmd+K alone. None of them
+      // reserve it, so preventing the default keeps focus in the page.
+      event.preventDefault();
+      event.stopPropagation();
       return;
     }
     const mark = markForKey(event);
