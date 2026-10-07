@@ -3,7 +3,7 @@
  *  Pure geometry, deliberately: this is the one design control BlockSuite does
  *  not ship, and it is the only part of it worth testing. The caller reads the
  *  selection's bounds, passes them through, and writes back whatever changed.
- */
+ test*/
 
 export interface Box {
   x: number;
