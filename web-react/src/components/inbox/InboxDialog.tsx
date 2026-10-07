@@ -108,6 +108,7 @@ const SYSTEM: Record<string, { icon: LucideIcon; tone: string }> = {
 const INBOX_VERBS: Partial<Record<string, string>> = {
   comment: 'commented on',
   reply: 'replied in',
+  reply_to_you: 'replied to your comment on',
   suggestion: 'suggested a change to',
   suggestion_accepted: 'accepted your suggestion on',
   suggestion_rejected: 'declined your suggestion on',

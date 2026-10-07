@@ -35,6 +35,7 @@ import { aiTools } from './ai-tools.js';
 import { getSetting, setSetting } from './db.js';
 import * as Y from 'yjs';
 import { mentionHandles } from './mentions.js';
+import { docCommentRecipients } from './comment-recipients.js';
 import { buildDocState, appendMarkdownToDoc, appendPageReference, extractText, extractBlocks, docToMarkdown } from './blocks.js';
 import { rewriteDoc } from './restore.js';
 import { applyTextSuggestion, parseDraftName, registerSuggestionRoutes } from './suggestions.js';
@@ -2524,6 +2525,7 @@ app.post('/api/docs/:id/comments', requireUser, async (req, res) => {
   // another page (or none at all) was stored as given before, and the panel
   // never showed it anywhere.
   let parentId = null;
+  let replyToId = null;
   if (req.body?.parentId) {
     const { rows: [p] } = await pool.query(
       'SELECT id, parent_id FROM comments WHERE id = $1 AND doc_id = $2',
@@ -2531,6 +2533,7 @@ app.post('/api/docs/:id/comments', requireUser, async (req, res) => {
     );
     if (!p) return res.status(400).json({ error: 'That thread is not on this page.' });
     parentId = p.parent_id || p.id;
+    replyToId = p.id;
     if (suggestion) return res.status(400).json({ error: 'A suggestion starts its own thread.' });
   }
   const id = crypto.randomUUID();
@@ -2547,7 +2550,7 @@ app.post('/api/docs/:id/comments', requireUser, async (req, res) => {
   // Fan out notifications for this comment (best-effort; never fails the comment).
   createCommentNotifications({
     commentId: id, docId: req.params.id, body: suggestion ? suggestionSnippet(req.body.quote, replacement, body) : body,
-    actor: req.user, parentId, kind: suggestion ? 'suggestion' : null,
+    actor: req.user, parentId, replyToId, kind: suggestion ? 'suggestion' : null,
   }).catch((e) => console.error('[notify] fanout failed', e.message));
   emit('comment.created', { id, doc_id: req.params.id, body, author_id: req.user.id });
   commentsChanged(req.params.id);
@@ -2558,6 +2561,7 @@ const COMMENT_VERBS = {
   mention: 'mentioned you in',
   comment: 'commented on',
   reply: 'replied to a thread on',
+  reply_to_you: 'replied to your comment on',
   suggestion: 'suggested a change to',
 };
 
@@ -2579,17 +2583,19 @@ function commentsChanged(docId) {
   catch { /* nobody has it open; the next open reads the rows anyway */ }
 }
 
-// Notify @-mentioned members (with access) plus the doc owner, minus the author.
-// A recipient can only be notified once per comment (mention wins over owner).
+// Who is told is decided in comment-recipients.js; this gathers the ids it
+// needs and keeps only the people who can still open the page.
 // `mentions: false` is a guest's comment: its "@name" is text, not a summons.
-async function createCommentNotifications({ commentId, docId, body, actor, mentions = true, parentId = null, kind: eventKind = null }) {
-  const doc = await pool.query('SELECT id, title FROM docs WHERE id = $1', [docId]);
+// `replyToId` is the comment actually answered, which may be a reply inside
+// the thread `parentId` names — its author is the one being replied to.
+async function createCommentNotifications({ commentId, docId, body, actor, mentions = true, parentId = null, replyToId = null, kind: eventKind = null }) {
+  const doc = await pool.query('SELECT id, title, kind, created_by, updated_by FROM docs WHERE id = $1', [docId]);
   if (!doc.rows[0]) return;
   const docTitle = doc.rows[0].title || 'Untitled';
 
   // Resolve @usernames in the body against members who have access to this doc.
   const handles = mentions ? mentionHandles(body) : [];
-  const recipients = new Map(); // user_id -> { kind, email }
+  const mentionedIds = [];
   if (handles.length) {
     // A member can be @-mentioned if they can access the doc: an explicit grant,
     // or the doc is team-visible (any member).
@@ -2619,41 +2625,64 @@ async function createCommentNotifications({ commentId, docId, body, actor, menti
         }).catch((e) => console.error('[agent] enqueue mention:', e.message));
       }
     }
-    for (const r of rows) {
-      if (r.account === 'agent') continue;
-      recipients.set(r.id, { kind: 'mention', email: r.email });
-    }
+    for (const r of rows) if (r.account !== 'agent') mentionedIds.push(r.id);
   }
-  // A reply reaches everyone already in the thread — whoever started it and
-  // whoever answered before — not only the page's owner. Members only: a
-  // guest has no inbox.
+
+  // A reply reaches whoever wrote what it answers, then everyone already in
+  // the thread — whoever started it and whoever answered before.
+  let repliedToIds = [];
+  let threadIds = [];
   if (parentId) {
     const { rows } = await pool.query(
-      `SELECT DISTINCT u.id, u.email FROM comments c JOIN users u ON u.id = c.author_id
-        WHERE (c.id = $1 OR c.parent_id = $1) AND u.kind IS DISTINCT FROM 'agent'`,
+      `SELECT id, parent_id, author_id FROM comments
+        WHERE (id = $1 OR parent_id = $1) AND author_id IS NOT NULL ORDER BY created_at`,
       [parentId]
     );
-    for (const r of rows) {
-      if (r.id === actor.id || recipients.has(r.id)) continue;
-      // Someone taken off the page since they joined the thread hears nothing
-      // more of it — the reply's text is the page's content.
-      if (!(await grantOn(docId, r.id))) continue;
-      recipients.set(r.id, { kind: 'reply', email: r.email });
-    }
+    repliedToIds = rows.filter((r) => r.id === parentId || r.id === replyToId).map((r) => r.author_id);
+    threadIds = rows.map((r) => r.author_id);
   }
-  // Doc owner also hears about any comment (unless they wrote it / already mentioned).
-  const owner = await pool.query(
-    `SELECT u.id, u.email FROM doc_access a JOIN users u ON u.id = a.user_id
-      WHERE a.doc_id = $1 AND a.role = 'owner' LIMIT 1`,
-    [docId]
+
+  // Everyone else involved in the page: its owner, whoever made it, whoever
+  // edited it, whoever has commented on it. "Edited" is what the page keeps a
+  // record of — the last person to save it (docs.updated_by) and whoever took
+  // a named snapshot or restored one (doc_versions.created_by). Autosaves
+  // carry no author, so someone who edited in between is not on that list.
+  // A task's page keeps the narrower reach it had: its thread lives with the
+  // task, and task-comments.js tells the task's own people.
+  const d = doc.rows[0];
+  let involvedIds = [];
+  const { rows: owner } = await pool.query(
+    "SELECT user_id FROM doc_access WHERE doc_id = $1 AND role = 'owner' LIMIT 1", [docId]);
+  if (owner[0]) involvedIds.push(owner[0].user_id);
+  if (d.kind !== 'task') {
+    const { rows } = await pool.query(
+      `SELECT created_by AS id FROM doc_versions WHERE doc_id = $1 AND created_by IS NOT NULL
+       UNION SELECT author_id FROM comments WHERE doc_id = $1 AND author_id IS NOT NULL AND id <> $2`,
+      [docId, commentId]
+    );
+    involvedIds.push(d.created_by, d.updated_by, ...rows.map((r) => r.id));
+  }
+
+  const chosen = docCommentRecipients({
+    actorId: actor.id, mentionedIds, repliedToIds, threadIds, involvedIds,
+    isReply: Boolean(parentId), isSuggestion: eventKind === 'suggestion',
+  });
+  if (!chosen.size) return;
+
+  // Members only: a guest has no inbox, and a machine has nobody reading one.
+  // Someone taken off the page since they last touched it hears nothing more
+  // of it — a comment's text is the page's content. Mentions were checked
+  // for access when they were resolved above.
+  const { rows: people } = await pool.query(
+    "SELECT id, email FROM users WHERE id = ANY($1) AND kind IS DISTINCT FROM 'agent'",
+    [[...chosen.keys()]]
   );
-  if (owner.rows[0] && !recipients.has(owner.rows[0].id)) {
-    recipients.set(owner.rows[0].id, { kind: eventKind === 'suggestion' ? 'suggestion' : 'comment', email: owner.rows[0].email });
+  const recipients = new Map(); // user_id -> { kind, email }
+  for (const p of people) {
+    const kind = chosen.get(p.id);
+    if (kind !== 'mention' && !(await grantOn(docId, p.id))) continue;
+    recipients.set(p.id, { kind, email: p.email });
   }
-  // @-tagging yourself is deliberate — people do it to leave themselves a
-  // reminder — so it still lands in your inbox. What never does is the owner
-  // rule firing on a comment you just wrote on your own page.
-  if (recipients.has(actor.id) && recipients.get(actor.id).kind !== 'mention') recipients.delete(actor.id);
 
   const actorName = actor.name || actor.email;
   const snippet = body.slice(0, 280);

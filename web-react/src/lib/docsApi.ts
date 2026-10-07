@@ -257,7 +257,7 @@ export interface InboxRow {
   /** 'reminder' and 'digest' come from the daily sweep rather than from a
    *  person, so they carry a body that already reads as a sentence and no
    *  actor to name. See server/src/reminders.js. */
-  kind: 'mention' | 'comment' | 'reply' | 'suggestion' | 'suggestion_accepted' | 'suggestion_rejected'
+  kind: 'mention' | 'comment' | 'reply' | 'reply_to_you' | 'suggestion' | 'suggestion_accepted' | 'suggestion_rejected'
     | 'review_requested' | 'review_done' | 'assigned' | 'due_soon' | 'due_today' | 'overdue' | 'digest';
   /** The comment that triggered it — null for notifications with no thread. */
   comment_id: string | null;
