@@ -63,7 +63,10 @@ export function AssigneePicker({ assignees, users, onChange }: Props) {
         aria-label="Assignees"
         onClick={() => { setQuery(''); setOpen((v) => !v); }}
         className={cn(
-          'group/asg flex h-7 w-full min-w-0 items-center gap-1 rounded border border-transparent px-2.5 text-left text-sm',
+          // At least a row tall, never exactly one: several people wrap onto
+          // more lines, and a fixed height let them spill over the properties
+          // above and below instead of making the row taller.
+          'group/asg flex min-h-7 w-full min-w-0 items-center gap-1 rounded border border-transparent px-2.5 py-0.5 text-left text-sm',
           'transition-colors hover:border-line focus:border-accent focus:outline-none',
         )}
       >
