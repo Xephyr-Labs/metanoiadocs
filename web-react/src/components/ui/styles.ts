@@ -37,5 +37,5 @@ export const cellField =
  * Too small for IconButton's 28px hit box, so it gets its own one-liner rather
  * than eight near-copies that drift apart. */
 export const rowAction =
-  'flex h-5 w-5 shrink-0 items-center justify-center rounded text-faint ' +
+  'mn-hit flex h-5 w-5 shrink-0 items-center justify-center rounded text-faint ' +
   'transition-colors duration-120 hover:bg-hover hover:text-muted';

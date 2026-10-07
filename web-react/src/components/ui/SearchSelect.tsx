@@ -110,7 +110,7 @@ export function SearchSelect({
           'focus:outline-none disabled:opacity-50',
           variant === 'field' && 'h-8 w-full gap-1.5 rounded-md bg-surface px-2.5 text-sm ring-1 ring-inset ring-line focus:ring-2 focus:ring-accent',
           variant === 'bare' && 'h-7 w-full gap-1.5 rounded bg-transparent px-2.5 text-sm ring-1 ring-inset ring-transparent hover:ring-line focus:ring-2 focus:ring-accent',
-          inline && 'h-6 max-w-[10rem] gap-1 rounded bg-transparent px-1 text-xs hover:bg-hover focus:bg-canvas focus:ring-1 focus:ring-accent',
+          inline && 'mn-hit h-6 max-w-[10rem] gap-1 rounded bg-transparent px-1 text-xs hover:bg-hover focus:bg-canvas focus:ring-1 focus:ring-accent',
           className,
         )}
       >

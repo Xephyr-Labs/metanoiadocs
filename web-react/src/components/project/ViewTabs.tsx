@@ -68,7 +68,10 @@ export function ViewTabs({
     // `no-scrollbar`, not `scrollarea`: once the column is narrow enough for
     // the strip to overflow, a drawn scrollbar takes 10px out of the row and
     // the tabs sit 5px high with a bar under them. The strip still scrolls.
-    <div className="no-scrollbar flex min-w-0 items-center gap-2 overflow-x-auto pr-1">
+    // The vertical padding is room for the tabs' touch hit area, which a
+    // scrolling strip would otherwise clip to the tabs' own 28px; the negative
+    // margin gives the same room back so the row does not grow.
+    <div className="no-scrollbar -my-2 flex min-w-0 items-center gap-2 overflow-x-auto py-2 pr-1">
       {views.map((view) => {
         const active = view.id === activeId;
 
@@ -89,7 +92,7 @@ export function ViewTabs({
             aria-current={active ? 'page' : undefined}
             onClick={active ? undefined : () => onSelect(view.id)}
             className={cn(
-              'flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs transition-colors duration-120',
+              'mn-hit flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs transition-colors duration-120',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
               active ? 'bg-selected font-medium text-ink' : 'text-muted hover:bg-hover hover:text-ink',
             )}
