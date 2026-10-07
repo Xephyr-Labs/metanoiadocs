@@ -17,6 +17,7 @@ import {
 import { useCallback, useEffect, useState } from 'react';
 import { applyAlign, selectedCount } from '../../editor/designAlign';
 import { exportCanvasPng } from '../../editor/designExport';
+import { tableMarkActive, toggleTableMark } from '../../editor/tableFormat';
 import { toast } from '../../lib/toast';
 import { MIN_FOR, type AlignMode } from '../../lib/align';
 import type { EditorMode } from '../../lib/types';
@@ -89,6 +90,9 @@ interface Props {
 export function EditorBar({ editor, mode, design, onMode, fullWidth, onFullWidth, toc }: Props) {
   const [marks, setMarks] = useState<Record<string, boolean>>({});
   const [blockLabel, setBlockLabel] = useState<string | null>(null);
+  // Cells of a table are selected (one cell's text, or a row, column or
+  // range): the marks work on them, nothing else on the bar does.
+  const [inTable, setInTable] = useState(false);
   // Slides is the same canvas, so both hide the block-formatting half of the bar.
   const edgeless = mode !== 'page';
   // No caret in the document means every command below is a no-op. Say so with
@@ -123,10 +127,16 @@ export function EditorBar({ editor, mode, design, onMode, fullWidth, onFullWidth
       frame = requestAnimationFrame(() => {
         const s = std();
         if (!s) return;
-        try {
-          const [, ctx] = s.command.chain().pipe(getTextStyle).run();
-          setMarks({ ...(ctx?.textStyle ?? {}) });
-        } catch { setMarks({}); }
+        const table = tableMarkActive(s, 'bold') !== null;
+        setInTable(table);
+        if (table) {
+          setMarks(Object.fromEntries(MARKS.map((m) => [m.id, !!tableMarkActive(s, m.id)])));
+        } else {
+          try {
+            const [, ctx] = s.command.chain().pipe(getTextStyle).run();
+            setMarks({ ...(ctx?.textStyle ?? {}) });
+          } catch { setMarks({}); }
+        }
         try {
           // `selection.find` takes a selection CLASS, not a string — passing
           // 'text' silently returns undefined, which read as "no caret" and
@@ -146,8 +156,12 @@ export function EditorBar({ editor, mode, design, onMode, fullWidth, onFullWidth
       });
     };
     document.addEventListener('selectionchange', read);
+    // Picking a row or column of a table changes no native selection, so
+    // selectionchange alone would leave the bar disabled for it.
+    const sub = std()?.selection?.slots?.changed?.subscribe?.(read);
     read();
     return () => {
+      sub?.unsubscribe?.();
       document.removeEventListener('selectionchange', read);
       cancelAnimationFrame(frame);
     };
@@ -157,6 +171,15 @@ export function EditorBar({ editor, mode, design, onMode, fullWidth, onFullWidth
     const s = std();
     if (!s) return;
     try { s.command.chain().pipe(cmd).run(); } catch { /* nothing selected */ }
+  };
+
+  const toggleMark = (m: (typeof MARKS)[number]) => {
+    const s = std();
+    if (s && toggleTableMark(s, m.id)) {
+      setMarks((prev) => ({ ...prev, [m.id]: !!tableMarkActive(s, m.id) }));
+      return;
+    }
+    runMark(m.cmd);
   };
 
   const setBlock = (flavour: string, props: Record<string, unknown>) => {
@@ -218,8 +241,8 @@ export function EditorBar({ editor, mode, design, onMode, fullWidth, onFullWidth
                 label={m.label}
                 keys={[...m.keys]}
                 active={!!marks[m.id]}
-                disabled={idle}
-                onClick={() => runMark(m.cmd)}
+                disabled={idle && !inTable}
+                onClick={() => toggleMark(m)}
               />
             ))}
           </span>
@@ -257,9 +280,9 @@ export function EditorBar({ editor, mode, design, onMode, fullWidth, onFullWidth
             <Divider />
             <Menu
               align="start"
-              trigger={<span><IconButton size="sm" icon={<MoreHorizontal size={14} />} label="More formatting" disabled={idle} /></span>}
+              trigger={<span><IconButton size="sm" icon={<MoreHorizontal size={14} />} label="More formatting" disabled={idle && !inTable} /></span>}
               items={[
-                ...MARKS.map((m) => ({ icon: m.icon, label: m.label, checked: !!marks[m.id], keepOpen: true, onSelect: () => runMark(m.cmd) })),
+                ...MARKS.map((m) => ({ icon: m.icon, label: m.label, checked: !!marks[m.id], keepOpen: true, onSelect: () => toggleMark(m) })),
                 ...LISTS.map((l, i) => ({ icon: l.icon, label: l.label, checked: blockLabel === l.label, separatorBefore: i === 0, onSelect: () => setBlock('affine:list', { type: l.id }) })),
                 { icon: Link2, label: 'Link', separatorBefore: true, onSelect: () => runMark(toggleLink) },
               ]}
