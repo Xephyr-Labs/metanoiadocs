@@ -12,7 +12,9 @@
 //   · resolving threads, or touching anyone else's comment;
 //   · @-mentions: a guest's "@name" is plain text. A public link reaching every
 //     member's inbox is a spam channel, not a feature.
-// The page's owner hears about every guest comment, as for any other.
+// Who hears about a guest comment is decided as for any other (see
+// comment-recipients.js): the page's owner, its editors and commenters, and on a
+// reply, whoever is in the thread.
 //
 // A guest has no session, so "your own comment" is proved with a key: a random
 // secret handed back when the comment is made, kept by that browser, and stored
@@ -138,7 +140,7 @@ export function registerGuestCommentRoutes(app, { wrap, notify, emit, changed = 
       [id, doc.id, parentId ? null : blockId, parentId ? '' : String(req.body?.quote || '').slice(0, 500),
        body, name, parentId, hashKey(key)],
     );
-    notify({ commentId: id, docId: doc.id, body, actor: { id: null, name: `${name} (guest)` }, mentions: false })
+    notify({ commentId: id, docId: doc.id, body, actor: { id: null, name: `${name} (guest)` }, mentions: false, parentId })
       .catch((e) => console.error('[notify] guest comment:', e.message));
     emit('comment.created', { id, doc_id: doc.id, body, author_id: null, guest: true });
     changed(doc.id);
