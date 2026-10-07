@@ -231,6 +231,9 @@ export interface SearchRow {
   projectIcon?: string;
   status?: string;
   dueAt?: string | null;
+  /** Tasks only — the task's type key. Absent from a server that does not
+   *  send it yet, in which case the hit shows its status dot instead. */
+  taskKind?: string;
 }
 
 export interface TrashRow {

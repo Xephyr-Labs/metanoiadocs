@@ -5,7 +5,7 @@
  *         recolouring · empty (no options) · read-only (no editor passed)
  */
 import { createPortal } from 'react-dom';
-import { useRef, useState } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { Check, Palette, Plus, Trash2, X } from 'lucide-react';
 import { cn } from '../../../lib/cn';
 import { useAnchoredPopover } from '../../../hooks/useAnchoredPopover';
@@ -37,6 +37,7 @@ export function SelectValue({
   onEditOptions,
   fixed,
   placeholder = 'Empty',
+  glyph,
 }: {
   prop: PropRow;
   value: unknown;
@@ -52,6 +53,10 @@ export function SelectValue({
    *  or removed. */
   fixed?: boolean;
   placeholder?: string;
+  /** Draws an option as a glyph instead of a coloured chip: the cell shows
+   *  the glyph alone and the menu shows it where the dot would be. Task types
+   *  use it, so the table says a type the way every other view does. */
+  glyph?: (option: PropOption, where: 'cell' | 'menu') => ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -129,11 +134,11 @@ export function SelectValue({
       >
         {chosen.length ? (
           <span className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
-            {chosen.map((o) => (
+            {chosen.map((o) => (glyph ? <span key={o.id} className="min-w-0">{glyph(o, 'cell')}</span> : (
               <span key={o.id} className={cn('truncate rounded px-1.5 py-0.5 text-2xs', swatch(o.color).chip)}>
                 {o.label}
               </span>
-            ))}
+            )))}
           </span>
         ) : (
           <span className="min-w-0 flex-1 truncate text-faint">{placeholder}</span>
@@ -167,7 +172,7 @@ export function SelectValue({
                     onClick={() => pick(o.id)}
                     className="flex min-w-0 flex-1 items-center gap-1.5 rounded px-0.5 py-1 text-left"
                   >
-                    <span className={cn('h-2.5 w-2.5 shrink-0 rounded-full', swatch(o.color).dot)} />
+                    {glyph ? glyph(o, 'menu') : <span className={cn('h-2.5 w-2.5 shrink-0 rounded-full', swatch(o.color).dot)} />}
                     {canAdd ? (
                       // The label edits in place. A rename that minted a new id
                       // would blank the property on every task holding the old

@@ -5,7 +5,7 @@ import { docsApi, type UserRow } from '../../lib/docsApi';
 import { todayISO } from '../../lib/gantt';
 import { swatch } from '../../lib/tagColors';
 import { applyFilters, fieldsFor, pruneUnresolvable, type Filter } from '../../lib/taskFilter';
-import { STATUS_LABEL, tasksApi, type AnyTaskRow } from '../../lib/tasksApi';
+import { STATUS_LABEL, tasksApi, type AnyTaskRow, type TaskKindRow } from '../../lib/tasksApi';
 import { useAuth } from '../../store/auth';
 import { useWorkspace } from '../../store/workspace';
 import { EmptyState } from '../ui/EmptyState';
@@ -15,6 +15,8 @@ import { Board, DOT } from '../project/Board';
 import { FilterBar } from '../project/FilterBar';
 import { Gantt } from '../project/Gantt';
 import { TagFilter } from '../project/TagFilter';
+import { KindIcon } from '../project/TaskBadges';
+import { KindsProvider } from '../project/kinds';
 import { SegmentedControl } from '../ui/SegmentedControl';
 import { groupOf, groupsFor } from '../../lib/grouping';
 import { TASK_SCOPES, dropLegacyOpenChip, inScope, scopeCounts, type TaskScope } from '../../lib/taskScope';
@@ -114,6 +116,23 @@ export function TasksView() {
       .catch((e) => setError(e instanceof Error ? e.message : 'Could not load tasks.'));
   };
   useEffect(load, []);
+
+  // Types are per project and /api/tasks sends keys and labels only, so the
+  // colours and the "holds children" flag come from each project's own list.
+  // ponytail: one request per project on load, and one merged list keyed by
+  // type key — a project that repaints a shared key shows the first project's
+  // colour here. Per-row lookup if that ever matters.
+  const [kinds, setKinds] = useState<TaskKindRow[]>([]);
+  const projectIds = useMemo(() => [...new Set((data?.tasks ?? []).map((t) => t.project_id))].sort().join(','), [data]);
+  useEffect(() => {
+    if (!projectIds) return;
+    Promise.all(projectIds.split(',').map((id) => tasksApi.kinds(id).catch(() => [] as TaskKindRow[])))
+      .then((lists) => {
+        const byKey = new Map<string, TaskKindRow>();
+        for (const row of lists.flat()) if (!byKey.has(row.key)) byKey.set(row.key, row);
+        setKinds([...byKey.values()]);
+      });
+  }, [projectIds]);
   useEffect(() => { docsApi.users().then(setUsers).catch(() => setUsers([])); }, []);
 
   const save = (next: Filter[]) => {
@@ -189,6 +208,7 @@ export function TasksView() {
   );
 
   return (
+    <KindsProvider kinds={kinds}>
     <div className="flex h-full flex-col bg-canvas">
       <header className="shrink-0 border-b border-line px-4 py-2.5">
         {/* The same column the list keeps, so the chips sit over the rows they
@@ -304,6 +324,7 @@ export function TasksView() {
                       title={STATUS_LABEL[t.status]}
                       className={cn('h-2 w-2 shrink-0 rounded-full', DOT[t.status])}
                     />
+                    <KindIcon kind={t.kind} />
                     <span className={cn('min-w-0 flex-1 basis-[14rem] truncate text-sm', t.status === 'done' ? 'text-muted line-through' : 'text-ink')}>
                       {t.title || 'Untitled task'}
                     </span>
@@ -327,5 +348,6 @@ export function TasksView() {
         </div>
       </div>
     </div>
+    </KindsProvider>
   );
 }

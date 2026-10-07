@@ -4,7 +4,7 @@
  * states: opening · loaded · data mode · no page yet · dependency added ·
  *         dependency removed · backlinked · empty property · deleting
  */
-import { ExternalLink, Link2, MoreHorizontal, Plus, Settings2, Trash2, X } from 'lucide-react';
+import { ChevronDown, ExternalLink, Link2, MoreHorizontal, Plus, Settings2, Trash2, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import type { UserRow } from '../../lib/docsApi';
 import { cn } from '../../lib/cn';
@@ -13,7 +13,7 @@ import { useAuth } from '../../store/auth';
 import { useWorkspace } from '../../store/workspace';
 import { builtinProps, isAuditProp, visibleProps } from '../../lib/builtinProps';
 import {
-  tasksApi,
+  tasksApi, STATUS_LABEL,
   type ProjectMode, type PropOption, type PropRow, type RelatedRow, type SprintRow, type TaskDetail, type TaskPatch, type TaskRow, type BuiltinOverride,
 } from '../../lib/tasksApi';
 import { LazyEditor } from '../../editor/LazyEditor';
@@ -23,7 +23,7 @@ import { useDocLinking } from '../../hooks/useDocLinking';
 import { useMoveToFolder } from '../../hooks/useMoveToFolder';
 import { SearchSelect } from '../ui/SearchSelect';
 import { useKinds } from './kinds';
-import { KindBadge } from './TaskChip';
+import { KindIcon } from './TaskChip';
 import { PropertyCell } from './props/PropertyCell';
 import { TaskAgents } from './TaskAgents';
 import { TaskComments } from './TaskComments';
@@ -119,10 +119,11 @@ function EdgeLink({ task, onOpen }: { task: TaskRow; onOpen: () => void }) {
       onClick={onOpen}
       className="flex w-full items-center gap-2 rounded-md border border-line px-2 py-1 text-left text-sm transition-colors duration-120 hover:bg-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
     >
-      <span aria-hidden className={cn('h-1.5 w-1.5 shrink-0 rounded-full', STATUS_DOT[task.status] ?? 'bg-line-strong')} />
+      <KindIcon kind={task.kind} />
       <span className={cn('min-w-0 flex-1 truncate', task.status === 'done' ? 'text-muted line-through' : 'text-ink')}>
         {task.title || 'Untitled'}
       </span>
+      <span title={STATUS_LABEL[task.status]} className={cn('h-1.5 w-1.5 shrink-0 rounded-full', STATUS_DOT[task.status] ?? 'bg-line-strong')} />
     </button>
   );
 }
@@ -219,7 +220,33 @@ export function TaskPeek({
           out at 54 — the title input's line box is 29 — and that put the
           buttons at y=12.5 and their icons on a half pixel. */}
       <header className="flex h-[53px] shrink-0 items-center gap-2.5 border-b border-line px-4">
-        {mode !== 'data' && <KindBadge kind={task.kind} />}
+        {/* The type leads the title, as it does on a card, and it is the
+            control that changes it: the name sits beside the glyph here
+            because this is the one place the type is read rather than
+            scanned. */}
+        {mode !== 'data' && (
+          <Menu
+            align="start"
+            trigger={(
+              <button
+                type="button"
+                aria-label={`Type: ${kinds.find((k) => k.key === task.kind)?.label ?? task.kind}. Change type`}
+                className="mn-hit flex h-7 shrink-0 items-center gap-1 rounded-md px-1.5 transition-colors duration-120 hover:bg-hover active:bg-selected"
+              >
+                <KindIcon kind={task.kind} labelled />
+                <ChevronDown size={12} className="text-faint" />
+              </button>
+            )}
+            items={kinds.map((k) => ({
+              // Menu dims its icons; the type's square has to keep its
+              // measured contrast, so this one ignores the class it is handed.
+              icon: () => <KindIcon kind={k.key} />,
+              label: k.label,
+              checked: k.key === task.kind,
+              onSelect: () => { if (k.key !== task.kind) onPatch(task.id, { kind: k.key }); },
+            }))}
+          />
+        )}
         {/* Same reason as the table's title cell: uncontrolled, so it is keyed
             on the title to pick up a change made in the document body. */}
         <input
@@ -284,6 +311,7 @@ export function TaskPeek({
                     onSetProp={onSetProp}
                     onEditOptions={onEditOptions}
                     onTagsChanged={onTagsChanged}
+                    labelled
                   />
                 )}
             </Row>

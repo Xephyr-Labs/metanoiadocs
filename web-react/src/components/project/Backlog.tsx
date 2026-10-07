@@ -24,7 +24,7 @@ import {
 } from '../../lib/tasksApi';
 import { field } from '../ui/styles';
 import { Menu } from '../ui/Menu';
-import { AssigneeStack, KindBadge } from './TaskChip';
+import { AssigneeStack, KindIcon } from './TaskChip';
 
 const shortDate = (iso: string | null) =>
   iso ? new Date(`${iso.slice(0, 10)}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : null;
@@ -101,7 +101,7 @@ function TaskLine({ node, links, progress, parent, expanded, onToggle, onOpen, c
           badge — and an empty grid cell has to be an element, or the title
           slides up into the badge's 44px track and truncates to "WR-1…". */}
       <span className="min-w-0">
-        <KindBadge kind={task.kind} />
+        <KindIcon kind={task.kind} />
       </span>
       <span className="flex min-w-0 items-center gap-2">
         {/* The title carries its own tooltip: in the docked pane a nested row

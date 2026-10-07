@@ -82,7 +82,7 @@ export function cleanBuiltinProps(value) {
  * renamed, recoloured or deleted like any type someone adds later. */
 export const DEFAULT_KINDS = [
   { key: 'epic', label: 'Epic', color: 'purple', is_group: true },
-  { key: 'story', label: 'Story', color: 'blue', is_group: false },
+  { key: 'story', label: 'Story', color: 'green', is_group: false },
   { key: 'task', label: 'Task', color: 'gray', is_group: false },
   { key: 'bug', label: 'Bug', color: 'red', is_group: false },
 ];

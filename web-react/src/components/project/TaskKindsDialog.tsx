@@ -10,6 +10,7 @@ import { Modal } from '../ui/Modal';
 import { Tooltip } from '../ui/Tooltip';
 import { field } from '../ui/styles';
 import type { KindResult } from './useProject';
+import { KindIcon } from './TaskBadges';
 
 interface Props {
   open: boolean;
@@ -50,6 +51,11 @@ function KindRow({ kind, count, fallback, busy, onPatch, onDelete }: {
           label={`${kind.label} colour`}
           onPick={(color) => patch({ color })}
         />
+
+        {/* What the type looks like everywhere else, beside the name that
+            goes with it — so a recolour or a "holds children" tick shows its
+            result here, not only after the dialog closes. */}
+        <KindIcon kind={kind.key} row={kind} />
 
         <input
           aria-label="Type name"
@@ -95,7 +101,7 @@ function KindRow({ kind, count, fallback, busy, onPatch, onDelete }: {
       </div>
 
       {confirming && fallback && (
-        <div className="mt-1 flex flex-wrap items-center gap-2 pl-9 pr-1">
+        <div className="mt-1 flex flex-wrap items-center gap-2 pl-[3.75rem] pr-1">
           <span className="min-w-0 flex-1 text-2xs text-muted">
             {count > 0
               ? `${count} ${count === 1 ? 'task becomes' : 'tasks become'} “${fallback.label}”.`
@@ -118,7 +124,7 @@ function KindRow({ kind, count, fallback, busy, onPatch, onDelete }: {
         </div>
       )}
 
-      {error && <p className="mt-1 pl-9 text-2xs text-danger-strong">{error}</p>}
+      {error && <p className="mt-1 pl-[3.75rem] text-2xs text-danger-strong">{error}</p>}
     </div>
   );
 }
@@ -213,6 +219,9 @@ export function TaskKindsDialog({ open, onOpenChange, kinds, tasks, onCreate, on
 
       <div className="flex shrink-0 items-center gap-2 border-t border-line px-3 py-2.5">
         <ColorPicker color={color} label="New type colour" side="top" onPick={setColor} />
+        {/* What the new type will look like: the generic glyph, since a new
+            type is not a container until its Parent box is ticked. */}
+        <KindIcon kind="" row={{ id: '', project_id: '', key: '', label: 'New type', color, is_group: false, position: 0 }} />
         <input
           aria-label="New type name"
           placeholder="New type…"
