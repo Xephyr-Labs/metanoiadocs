@@ -48,3 +48,19 @@ test('a guest has no id, so nobody is skipped as the author', () => {
   const out = docCommentRecipients({ actorId: null, involvedIds: [null, 'owner'] });
   assert.deepEqual([...out], [['owner', 'comment']]);
 });
+
+test('every editor of the page is told, not only the last to save it', () => {
+  // involvedIds as createCommentNotifications builds it: owner, creator, then
+  // doc_editors and past commenters, with the overlaps that union produces.
+  const out = docCommentRecipients({
+    actorId: 'cleo', involvedIds: ['owner', 'ada', 'ada', 'bea', 'owner'],
+  });
+  assert.deepEqual([...out], [['owner', 'comment'], ['ada', 'comment'], ['bea', 'comment']]);
+});
+
+test('an editor who comments is not told about it, and one who is tagged hears it as a mention', () => {
+  const out = docCommentRecipients({
+    actorId: 'ada', mentionedIds: ['bea'], involvedIds: ['ada', 'bea', 'cleo'],
+  });
+  assert.deepEqual([...out], [['bea', 'mention'], ['cleo', 'comment']]);
+});

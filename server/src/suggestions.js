@@ -371,7 +371,7 @@ export function parseDraftName(name) {
  * @param {() => import('@hocuspocus/server').Hocuspocus} deps.getHocuspocus
  *   A getter: the sync server is constructed after the routes are registered.
  */
-export function registerSuggestionRoutes(app, { requireUser, wrap, pool, grantOn, canEdit, canSuggest, getHocuspocus, notifyUser }) {
+export function registerSuggestionRoutes(app, { requireUser, wrap, pool, grantOn, canEdit, canSuggest, getHocuspocus, notifyUser, recordDocEditors }) {
   const liveState = (name) => {
     const live = getHocuspocus().documents.get(name);
     return live ? Buffer.from(Y.encodeStateAsUpdate(live)) : null;
@@ -585,6 +585,9 @@ export function registerSuggestionRoutes(app, { requireUser, wrap, pool, grantOn
     );
     if (applied) {
       await pool.query('UPDATE docs SET updated_at = now(), updated_by = $2 WHERE id = $1', [docId, req.user.id]);
+      // What was applied was written in the draft by its author: they edited
+      // the page as much as the reviewer who let it in.
+      await recordDocEditors(docId, [v.row.author_id]);
     }
     if (done) {
       closeDraft(docId, v.row.id);
