@@ -87,7 +87,7 @@ server.registerTool(
   {
     title: 'Create a doc',
     description:
-      'Create a new document. `content` is markdown — headings (#), bullet/numbered lists, to-dos (- [ ]), quotes (>), fenced code (```), and dividers (---) become real editor blocks. Returns the new doc id.',
+      'Create a new document. `content` is markdown — headings (#), bullet/numbered lists, to-dos (- [ ]), quotes (>), fenced code (```), dividers (---), and panels (`> [!NOTE]`, `[!INFO]`, `[!SUCCESS]`, `[!WARNING]`, `[!ERROR]` with the panel body on the `>` lines below) become real editor blocks. Returns the new doc id.',
     inputSchema: {
       title: z.string().describe('Document title'),
       content: z.string().optional().describe('Markdown body (optional)'),

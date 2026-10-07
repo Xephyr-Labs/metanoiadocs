@@ -71,7 +71,7 @@ function NotifyNudge() {
         type="button"
         onClick={turnOn}
         disabled={busy}
-        className="h-6 shrink-0 rounded bg-accent px-2 text-2xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-60"
+        className="h-6 shrink-0 rounded bg-accent-fill px-2 text-2xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-60"
       >
         {busy ? 'Asking…' : 'Turn on alerts'}
       </button>
@@ -108,6 +108,7 @@ const SYSTEM: Record<string, { icon: LucideIcon; tone: string }> = {
 const INBOX_VERBS: Partial<Record<string, string>> = {
   comment: 'commented on',
   reply: 'replied in',
+  reply_to_you: 'replied to your comment on',
   suggestion: 'suggested a change to',
   suggestion_accepted: 'accepted your suggestion on',
   suggestion_rejected: 'declined your suggestion on',

@@ -196,3 +196,41 @@ test('appendMarkdownToDoc reports a doc with no body instead of inventing one', 
   // Only the caller can decide to write a whole body, so this must not guess.
   assert.equal(appendMarkdownToDoc(new Y.Doc(), 'orphan'), false);
 });
+
+test('> [!NOTE] becomes a note panel holding its lines, and exports back the same', () => {
+  const md = [
+    'Before.',
+    '',
+    '> [!NOTE]',
+    '> The log lives here.',
+    '> - first entry',
+    '> - second entry',
+    '',
+    '> [!caution] Do not deploy on Fridays.',
+    '',
+    '> A plain quote.',
+  ].join('\n');
+  const state = buildDocState('T', md);
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, new Uint8Array(state));
+  const blocks = doc.getMap('blocks');
+  const callouts = [...blocks.values()].filter((b) => b.get('sys:flavour') === 'affine:callout');
+  assert.deepEqual(callouts.map((b) => b.get('prop:mnPanel')), ['note', 'error']);
+  const kids = callouts[0].get('sys:children').toArray().map((id) => blocks.get(id));
+  assert.deepEqual(kids.map((b) => b.get('sys:flavour')), ['affine:paragraph', 'affine:list', 'affine:list']);
+  assert.equal(kids[0].get('prop:text').toString(), 'The log lives here.');
+
+  const { markdown } = docToMarkdown(state);
+  assert.match(markdown, /^> \[!NOTE\]\n> The log lives here\.\n>\n> - first entry\n> - second entry$/m);
+  assert.match(markdown, /^> \[!ERROR\]\n> Do not deploy on Fridays\.$/m);
+  assert.match(markdown, /^> A plain quote\.$/m);
+  // And the export imports as the same panels.
+  assert.equal(docToMarkdown(buildDocState('T', markdown)).markdown, markdown);
+  assert.match(extractText(state).text, /second entry/);
+});
+
+test('a panel quoted inside a panel keeps its lines', () => {
+  const { markdown } = docToMarkdown(buildDocState('T', '> [!NOTE]\n> > [!WARNING]\n> > inner warning\n> after'));
+  assert.match(markdown, /inner warning/);
+  assert.match(markdown, /after/);
+});

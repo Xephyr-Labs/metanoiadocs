@@ -98,7 +98,7 @@ export function SortBar({ fields, sort, onChange }: Props) {
           disabled={!free.length}
           onClick={() => setOpen((v) => !v)}
           className={cn(
-            'flex h-7 items-center gap-1 rounded-md px-2 text-xs transition-colors disabled:opacity-40',
+            'mn-hit flex h-7 items-center gap-1 rounded-md px-2 text-xs transition-colors disabled:opacity-40',
             sort.length ? 'text-muted hover:bg-hover hover:text-ink' : 'text-faint hover:bg-hover hover:text-ink',
           )}
         >

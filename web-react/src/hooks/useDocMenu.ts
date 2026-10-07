@@ -5,6 +5,7 @@ import { downloadDocx, downloadMarkdown, printDoc } from '../lib/docFiles';
 import { docUrl } from '../lib/route';
 import { requestTitleFocus } from '../lib/titleFocus';
 import type { PageId } from '../lib/types';
+import { useAuth } from '../store/auth';
 import { useWorkspace } from '../store/workspace';
 import { useMoveToFolder } from './useMoveToFolder';
 
@@ -35,6 +36,7 @@ export function useDocMenu(
   } = {},
 ): MenuItem[] {
   const ws = useWorkspace();
+  const auth = useAuth();
   const moveTo = useMoveToFolder(id);
   // A card on Home can name a document the page store has not cached. Every
   // action here addresses the document by id, so they all still work; the
@@ -67,11 +69,15 @@ export function useDocMenu(
       onSelect: () => ws.togglePin(id),
     },
     { icon: FileText, label: 'Rename', onSelect: rename },
-    {
-      icon: LayoutTemplate,
-      label: page?.isTemplate ? 'Remove from Templates' : 'Save as a template',
-      onSelect: () => { void ws.setTemplate(id, !page?.isTemplate); },
-    },
+    // A template lets everyone who can open it edit it, so only the page's
+    // owner or an admin may switch it — the server refuses anyone else.
+    ...(page?.role === 'owner' || auth.user?.role === 'admin'
+      ? [{
+          icon: LayoutTemplate,
+          label: page?.isTemplate ? 'Remove from Templates' : 'Save as a template',
+          onSelect: () => { void ws.setTemplate(id, !page?.isTemplate); },
+        }]
+      : []),
     ...(moveTo ? [moveTo] : []),
     {
       icon: Download,

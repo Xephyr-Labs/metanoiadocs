@@ -20,7 +20,7 @@ import {
   AlertCircle,
   Loader2,
 } from 'lucide-react';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useId, useState, type ReactNode } from 'react';
 import { ActorMark } from '../ui/ActorMark';
 import { workspaces } from '../../data/mock';
 import { useWorkspace } from '../../store/workspace';
@@ -96,10 +96,16 @@ const NAV: { group: string; items: { id: SectionId; label: string; icon: typeof 
 function Row({ title, desc, control }: { title: string; desc?: string; control: ReactNode }) {
   // Stack title/desc above the control on phones so neither gets crushed into a
   // narrow column; side-by-side from 600px up.
+  //
+  // The title is the only name most of these controls have — a bare switch
+  // or field beside it — so the row is a group named by it, and a screen
+  // reader landing on the control hears "Smaller text, switch, off" rather
+  // than an unnamed switch.
+  const titleId = useId();
   return (
-    <div className="flex flex-col gap-2 py-3.5 min-[600px]:flex-row min-[600px]:items-center min-[600px]:justify-between min-[600px]:gap-6">
+    <div role="group" aria-labelledby={titleId} className="flex flex-col gap-2 py-3.5 min-[600px]:flex-row min-[600px]:items-center min-[600px]:justify-between min-[600px]:gap-6">
       <div className="min-w-0">
-        <p className="text-sm font-medium text-ink">{title}</p>
+        <p id={titleId} className="text-sm font-medium text-ink">{title}</p>
         {desc && <p className="mt-0.5 text-xs leading-snug text-muted">{desc}</p>}
       </div>
       <div className="w-full min-[600px]:w-auto min-[600px]:shrink-0">{control}</div>
@@ -146,6 +152,7 @@ function Account() {
           control={
             <div className="flex items-center gap-2">
               <input
+                aria-label="Name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && save()}
@@ -1053,7 +1060,7 @@ export function SettingsDialog() {
                   type="button"
                   onClick={() => setSection(it.id)}
                   className={cn(
-                    'flex h-8 shrink-0 items-center gap-2.5 whitespace-nowrap rounded-md px-2.5 text-sm transition-colors duration-120 md:w-full md:px-2',
+                    'flex h-8 coarse:h-11 shrink-0 items-center gap-2.5 whitespace-nowrap rounded-md px-2.5 text-sm transition-colors duration-120 md:w-full md:px-2',
                     current === it.id ? 'bg-selected font-medium text-ink' : 'text-muted hover:bg-hover',
                   )}
                 >

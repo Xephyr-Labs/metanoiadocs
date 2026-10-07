@@ -153,7 +153,11 @@ export function attachBlockGaps(editor: Element & { std?: StdLike }): () => void
     if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement
       || event.target instanceof HTMLSelectElement) return;
     const chosen = std.selection.value;
-    if (chosen.length !== 1 || !chosen[0].blockId || chosen[0].type === 'text') return;
+    // Only a card picked as a whole opens a line. A table cell being typed in
+    // is also a selection on the table block (BlockSuite's 'table' selection,
+    // set the moment a cell gets the caret), and treating it as a picked card
+    // turned Enter in any cell into a new paragraph under the table.
+    if (chosen.length !== 1 || !chosen[0].blockId || chosen[0].type === 'text' || chosen[0].type === 'table') return;
     const card = std.store.getModelById(chosen[0].blockId);
     const container = card && std.store.getParent(card);
     if (!card || !container || !isCard(card) || !CONTAINERS.has(container.flavour)) return;

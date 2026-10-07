@@ -37,6 +37,7 @@ import { missingDocMetas } from './docMetas';
 import { blockLinkExtensions } from './blockLinks';
 import { attachImageAlign } from './imageAlign';
 import { attachBlockGaps } from './blockGaps';
+import { attachTableFormat } from './tableFormat';
 import { attachFileDrop } from './fileDrop';
 import { imageToolbarExtensions } from './imageToolbar';
 import { pageViewportExtension } from './pageViewport';
@@ -530,6 +531,10 @@ export async function mountEditor(
   // sending the caret to the top of the page (see blockGaps.ts).
   const detachBlockGaps = attachBlockGaps(editor as unknown as Parameters<typeof attachBlockGaps>[0]);
 
+  // Ctrl+B and the other marks reach table cells: a word in one cell, or every
+  // cell of a selected row, column or range (see tableFormat.ts).
+  const detachTableFormat = attachTableFormat(editor as unknown as Parameters<typeof attachTableFormat>[0]);
+
   // A file dropped in the margin or under the last line lands where it was
   // dropped, not at the end of the page (see fileDrop.ts). Not for viewers:
   // nothing can be dropped into a read-only page.
@@ -637,6 +642,7 @@ export async function mountEditor(
       try { detachImageAlign(); } catch { /* noop */ }
       try { detachColumns(); } catch { /* noop */ }
       try { detachBlockGaps(); } catch { /* noop */ }
+      try { detachTableFormat(); } catch { /* noop */ }
       try { detachFileDrop?.(); } catch { /* noop */ }
       try { detachCalloutPanels(); } catch { /* noop */ }
       try { detachMermaid(); } catch { /* noop */ }

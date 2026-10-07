@@ -19,7 +19,7 @@ export function Switch({ on, onChange, disabled, label }: {
       aria-label={label}
       disabled={disabled}
       onClick={() => onChange(!on)}
-      className={cn('relative h-[22px] w-[38px] shrink-0 rounded-full transition-colors duration-180 disabled:opacity-60', on ? 'bg-accent' : 'bg-line-strong')}
+      className={cn('mn-hit relative h-[22px] w-[38px] shrink-0 rounded-full transition-colors duration-180 disabled:opacity-60', on ? 'bg-accent' : 'bg-line-strong')}
     >
       <motion.span
         layout

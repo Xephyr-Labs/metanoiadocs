@@ -27,28 +27,32 @@
   --hover: #f1f0ee;
   --selected: #e9e8e5;
   --ink: #37352f;
-  /* Notion's own secondary ink is #787774, which measures 4.48:1 — a hair under
-   * AA, and under 4:1 once the row it sits on is hovered. A few steps darker
-   * clears both (5.1 at rest, 4.5 hovered) and still reads clearly quieter than
-   * the ink it sits beside. */
-  --muted: #6f6e6a;
-  /* Was #9b9a97 — 2.9:1 on white, under the 3:1 floor even for icons, and the
-   * single biggest reason the chrome read hazy. 3.5:1 keeps it clearly the
-   * quietest ink in the palette while staying legible at 11px. */
-  --faint: #86857f;
+  /* Three inks, each a clear step quieter than the last: ink 12.4:1, muted
+   * 6.5:1, faint 5.6:1 on the canvas. Faint is not only icons — it letters
+   * every timestamp, count, group heading and byline in the app, so it has to
+   * clear AA for 12px text on every surface a row can be in, not just at rest:
+   * 5.2 on the sidebar surface, 4.9 on a hovered row, 4.6 on a selected one.
+   * The previous #73726d read 4.49 on the surface and 4.2 under the hover, so
+   * the ⌘K hint and every hovered inbox timestamp sat just under the line. */
+  --muted: #5f5e59;
+  --faint: #696863;
   --line: #e9e9e7;
   --line-strong: #dcdbd8;
   --accent: #2383e2;
   /* The accent, darkened until it can carry text. #2383e2 is 4.0:1 on white —
    * fine as a fill or a 2px rule, under AA as 14px lettering, which is exactly
-   * what the unread-inbox row is. 5.1:1 here. Dark mode needs no twin: the
-   * lighter accent already reads 6.5:1 on the near-black canvas. */
-  --accent-strong: #1a6fc4;
+   * what the unread-inbox row is. 5.3:1 here, and 4.7:1 on a hovered row,
+   * which is where the palette draws its match highlight (the earlier #1a6fc4
+   * fell to 4.48 there). Dark mode needs no twin: the lighter accent already
+   * reads 6.5:1 on the near-black canvas. */
+  --accent-strong: #1a6cbf;
   --accent-soft: #eaf3fc;
-  /* A filled surface carrying white text. Same blue as --accent in light;
-     in dark, --accent is lifted so link text reads on the canvas, and white
-     on that lifted blue is 2.9:1. This one stays deep enough for 4.6:1. */
-  --accent-fill: #2383e2;
+  /* A filled surface carrying white text — primary buttons, unread badges,
+     today's date. One step deeper than --accent: white on #2383e2 is 3.9:1,
+     under AA for the 14px "New page" label it carries. 4.75:1 here. In dark,
+     --accent is lifted so link text reads on the canvas, and white on that
+     lifted blue is 2.9:1, so this token is the only blue that may carry white. */
+  --accent-fill: #1d74cc;
   /* The danger twin of accent-soft — a late gantt bar had no tint to sit in,
      so it rendered as a hollow outline and read as a rendering fault. */
   --danger-soft: #fbeceb;
@@ -173,8 +177,9 @@ html.dark {
   --selected: #333331;
   --ink: #e9e9e7;
   --muted: #a5a5a3;
-  /* Same correction as light: #757573 was 3.2:1 on the dark canvas. */
-  --faint: #8a8a87;
+  /* Same correction as light: #757573 was 3.2:1 on the dark canvas, and
+   * #8a8a87 still dropped to 4.1:1 on a hovered row or a key chip. 4.7 there. */
+  --faint: #949491;
   --line: #333331;
   --line-strong: #424240;
   --accent: #4a9eea;
@@ -628,18 +633,20 @@ html.dark .mn-toc .outline-viewer-indicator {
 /* ...and then let the panel out again: it asks for 200px, but as a flex item of
  * a strip that narrow it just gets shrunk back to the strip. Taking it out of
  * flow and pinning it to the strip's right edge keeps the hover target thin
- * while the expanded list opens leftward over the page. */
+ * while the expanded list opens leftward over the page.
+ *
+ * The panel keeps BlockSuite's resting width of zero and only takes its size
+ * on hover. Setting the width here unconditionally made the closed panel an
+ * invisible 282px box at opacity 0 that still took every click and selection
+ * on the text beneath it — with the comments panel open, most of the column. */
 .mn-toc .outline-viewer-panel {
   position: absolute;
   top: 0;
   right: 0;
-  /* 200px truncated every heading to about three words. */
-  width: 282px;
   /* `100%` was the full-height strip, so a long outline ran past the fold with
    * its last row cut in half. Bound it and let it scroll. */
   max-height: min(58vh, 100%);
   overflow-y: auto;
-  padding: 6px;
   border-radius: 10px;
   background: var(--canvas);
   /* The same shadow every other floating surface in the editor uses — hairline
@@ -647,6 +654,13 @@ html.dark .mn-toc .outline-viewer-indicator {
    * how a UI starts looking assembled rather than designed. */
   box-shadow: var(--affine-overlay-shadow);
   scrollbar-width: thin;
+}
+/* One selector more specific than BlockSuite's own hover rule, which would
+ * otherwise put back its 200px and its padding. */
+.mn-toc .outline-viewer-root:hover .outline-viewer-panel {
+  /* 200px truncated every heading to about three words. */
+  width: 282px;
+  padding: 6px;
 }
 .mn-toc .outline-viewer-item.outline-viewer-header {
   height: 28px;
@@ -656,6 +670,28 @@ html.dark .mn-toc .outline-viewer-indicator {
   letter-spacing: 0.07em;
   text-transform: uppercase;
   color: var(--faint);
+}
+/* BlockSuite draws "open in the side panel" as a bare 16px icon. The host
+ * element is what takes the click, so sizing it gives the icon a 24px target
+ * (44px for a finger) without reaching into its shadow root. The name is
+ * stamped on in FloatingToc. */
+.mn-toc [data-testid='toggle-outline-panel-button'] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  min-height: 24px;
+  flex-shrink: 0;
+  /* The icon is 1em, and the header's 12px caps made it a 12px smudge. */
+  font-size: 16px;
+  text-transform: none;
+  letter-spacing: normal;
+}
+@media (pointer: coarse) {
+  .mn-toc [data-testid='toggle-outline-panel-button'] {
+    min-width: 44px;
+    min-height: 44px;
+  }
 }
 .mn-toc .outline-viewer-panel .outline-viewer-item {
   min-height: 28px;
@@ -795,6 +831,25 @@ html.dark .mn-toc .outline-viewer-indicator {
   }
 }
 
+/* A fingertip needs 44px; the chrome's controls are drawn at 20–32px so a
+ * toolbar stays one row on a phone. `mn-hit` keeps the drawn size and hands
+ * the difference over as invisible hit area on touch screens only, grown up
+ * and down to 44px. Not sideways: these controls sit in rows a few pixels
+ * apart, and a later button's hit area paints over an earlier one, so a
+ * sideways grow made the right quarter of every top-bar icon tap its
+ * neighbour (Comments opened Favorites). `:where()` keeps the `relative` at
+ * zero specificity, so a control that is itself absolute stays absolute. */
+@media (pointer: coarse) {
+  :where(.mn-hit) {
+    position: relative;
+  }
+  .mn-hit::after {
+    content: '';
+    position: absolute;
+    inset: min(0px, calc((100% - 44px) / 2)) 0;
+  }
+}
+
 /* Hover-revealed controls have no hover to wait for on a touch screen. */
 @media (hover: none) {
   .mn-hover-reveal {
@@ -846,6 +901,21 @@ html.dark .mn-toc .outline-viewer-indicator {
  * switch loses its words, the lists and link go into ⋯, then the marks do. */
 .mn-editor-bar {
   container-type: inline-size;
+}
+/* On a phone or tablet BlockSuite opens a table row's or column's options as
+ * a sheet with a full-screen backdrop (z-index 1001, straight on the body), so
+ * the bar's Bold and Link sat under it and a tap on them only hit the
+ * backdrop. While such a sheet is open the bar, and any menu it opens, sit
+ * above the backdrop: the row stays selected and the bar formats it. A
+ * desktop menu is drawn inside the editor and never covered the bar.
+ * `:has()` needs Safari 15.4 or Firefox 121; an older engine ignores the rule
+ * and keeps the old behaviour, where the sheet has to be closed first. */
+body:has(> [data-range-sync-exclude] mobile-menu) .mn-editor-bar {
+  position: relative;
+  z-index: 1002;
+}
+body:has(> [data-range-sync-exclude] mobile-menu) [data-radix-popper-content-wrapper] {
+  z-index: 1003 !important;
 }
 .mn-editor-bar .mn-bar-more {
   display: none;
@@ -1435,8 +1505,8 @@ affine-editor-container .doc-title-container {
     color: var(--ink);
   }
   header.mn-topbar button {
-    min-width: 40px;
-    min-height: 40px;
+    min-width: 44px;
+    min-height: 44px;
   }
   /* Columns page by swipe; the scrollbar under them is a desktop affordance. */
   .mn-board {

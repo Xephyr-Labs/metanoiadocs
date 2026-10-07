@@ -113,5 +113,7 @@ export function notifyText(row: InboxRow, selfId?: string | null): { title: stri
       body: row.body || '',
     };
   }
+  if (row.kind === 'reply_to_you') return { title: `${who} replied to your comment on ${doc}`, body: row.body || '' };
+  if (row.kind === 'reply') return { title: `${who} replied on ${doc}`, body: row.body || '' };
   return { title: `${who} commented on ${doc}`, body: row.body || '' };
 }

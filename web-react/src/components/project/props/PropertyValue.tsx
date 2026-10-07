@@ -214,6 +214,7 @@ export function PropertyValue({ prop, users, value, onChange, onEditOptions, dan
       return (
         <input
           type="number"
+          aria-label={prop.label}
           className={cn(box, 'tabular-nums')}
           value={value == null ? '' : String(value)}
           onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))}
@@ -226,6 +227,7 @@ export function PropertyValue({ prop, users, value, onChange, onEditOptions, dan
         <label className="flex h-7 items-center px-2.5">
           <input
             type="checkbox"
+            aria-label={prop.label}
             className="h-4 w-4 accent-accent"
             checked={!!value}
             onChange={(e) => onChange(e.target.checked)}
@@ -299,6 +301,7 @@ export function PropertyValue({ prop, users, value, onChange, onEditOptions, dan
       return (
         <input
           key={typeof value === 'string' ? value : ''}
+          aria-label={prop.label}
           className={box}
           defaultValue={typeof value === 'string' ? value : ''}
           onBlur={(e) => e.target.value !== value && onChange(e.target.value || null)}

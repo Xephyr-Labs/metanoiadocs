@@ -36,7 +36,7 @@ export function GroupBy({ fields, value, onChange }: {
         <button
           type="button"
           className={cn(
-            'flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-xs transition-colors',
+            'mn-hit flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-xs transition-colors',
             'text-muted hover:bg-hover hover:text-ink',
           )}
         >

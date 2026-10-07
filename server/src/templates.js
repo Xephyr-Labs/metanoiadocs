@@ -100,7 +100,7 @@ export async function checkTemplateFields(raw, { kinds, isStatus }) {
 const VISIBLE = `(d.visibility = 'team'
                   OR EXISTS (SELECT 1 FROM doc_access a WHERE a.doc_id = d.id AND a.user_id = $1))`;
 
-export function registerTemplateRoutes(app, { requireUser, wrap, grantOn, editGrant = grantOn, kindsFor, isStatus }) {
+export function registerTemplateRoutes(app, { requireUser, wrap, grantOn, templateGrant, kindsFor, isStatus, rolesChanged = () => {} }) {
   // ── page templates ────────────────────────────────────────────────────
 
   /** Every page template this person can open. */
@@ -117,10 +117,13 @@ export function registerTemplateRoutes(app, { requireUser, wrap, grantOn, editGr
     res.json(rows);
   }));
 
-  /** Mark a page as a template, or stop. Anyone who may edit the page may
-   *  decide this — it is a label on their own page, not a permission. */
+  /** Mark a page as a template, or stop. Only the page's owner or an admin
+   *  may: a template gives everyone who can open it edit rights, so this is a
+   *  permission change, like the team role, which is owner-only too. */
   app.post('/api/docs/:id/template', requireUser, wrap(async (req, res) => {
-    if (!(await editGrant(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
+    if (!(await templateGrant(req.params.id, req.user))) {
+      return res.status(403).json({ error: 'Only the page owner can change whether it is a template.' });
+    }
     const on = req.body?.isTemplate !== false;
     // A row's own page belongs to that row: it is reachable only through it,
     // and a copy of one would be a page belonging to nothing. The listing
@@ -140,6 +143,7 @@ export function registerTemplateRoutes(app, { requireUser, wrap, grantOn, editGr
       }
     }
     if (!rows[0]) return res.status(404).json({ error: 'not found' });
+    rolesChanged(rows[0].id);
     res.json({ id: rows[0].id, isTemplate: rows[0].is_template });
   }));
 

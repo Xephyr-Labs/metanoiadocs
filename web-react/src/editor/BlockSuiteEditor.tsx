@@ -171,7 +171,7 @@ export function BlockSuiteEditor({
             <button
               type="button"
               onClick={() => location.reload()}
-              className="mt-4 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition-opacity duration-120 hover:opacity-90"
+              className="mt-4 rounded-md bg-accent-fill px-3 py-1.5 text-sm font-medium text-white transition-opacity duration-120 hover:opacity-90"
             >
               Try again
             </button>

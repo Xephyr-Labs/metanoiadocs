@@ -15,6 +15,7 @@ import { ActorMark } from '../ui/ActorMark';
 import { IconButton } from '../ui/IconButton';
 import { CommentBox, savedDraft, type CommentBoxHandle } from '../ui/CommentBox';
 import { Reactions } from '../ui/Reactions';
+import { ClampedText } from '../ui/ClampedText';
 import { emojify, toggleLocal } from '../../lib/emoji';
 
 /**
@@ -248,10 +249,10 @@ export function TaskComments({
                     className="mt-0.5 w-full resize-none rounded-md bg-transparent px-1.5 py-1 text-sm leading-relaxed text-ink outline-none ring-1 ring-inset ring-line focus:ring-2 focus:ring-accent"
                   />
                 ) : (
-                  <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-ink">
+                  <ClampedText className="text-sm leading-relaxed text-ink">
                     {emojify(c.body)}
                     {c.edited_at && <span className="ml-1 text-2xs text-faint">(edited)</span>}
-                  </p>
+                  </ClampedText>
                 )}
                 <Reactions reactions={c.reactions} onToggle={(e) => void react(c.id, e)} />
               </div>

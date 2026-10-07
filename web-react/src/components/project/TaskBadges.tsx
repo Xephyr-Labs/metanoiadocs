@@ -20,13 +20,11 @@ import type { TaskKind, TaskKindRow, TaskRow } from '../../lib/tasksApi';
 import { useKind, useKinds } from './kinds';
 
 /**
- * Whether KindBadge would draw anything at all.
+ * Whether KindBadge, left to decide for itself, would draw anything at all.
  *
- * Exported because a caller sometimes has to know *before* rendering. The
- * property chips decide how many chips a card has in order to decide whether
- * to draw the row that holds them, and a <KindBadge /> that returns null is
- * still a node — so asking the component was not an answer. One predicate,
- * used by the badge itself and by anyone counting.
+ * This is the rule for places that show a type unasked — the backlog row and
+ * the peek's header — where labelling every plain task "Task" is noise. It is
+ * not the rule for a card whose view was told to show Type: see `always`.
  */
 export function showsKindBadge(kind: TaskKind, kinds: TaskKindRow[]): boolean {
   // Nothing is known yet: say nothing rather than guess.
@@ -49,10 +47,27 @@ export function showsKindBadge(kind: TaskKind, kinds: TaskKindRow[]): boolean {
  * Only the first is nothing to say — the second gets the raw key in neutral
  * ink, so the task doesn't look untyped.
  */
-export function KindBadge({ kind }: { kind: TaskKind }) {
+export function KindBadge({ kind, always }: {
+  kind: TaskKind;
+  /** Name the type even for the default type or a project with one type. A
+   *  view that lists Type among its shown properties has already said it
+   *  wants the type on every card; skipping the plain ones made Type look
+   *  missing from most of the board. */
+  always?: boolean;
+}) {
   const kinds = useKinds();
   const row = useKind(kind);
-  if (!showsKindBadge(kind, kinds)) return null;
+  if (!showsKindBadge(kind, kinds)) {
+    if (!always) return null;
+    // Asked for, but unremarkable. A filled uppercase chip on every plain task
+    // turned a board into a wall of TASK, and the one Bug among them stopped
+    // standing out — which is the whole reason to show Type. The plain type is
+    // still named, in the quiet ink the card uses for its other metadata, so
+    // the reader can see it; the coloured chip is kept for the types that
+    // differ from the default.
+    const label = row?.label ?? kind;
+    return <span title={`Type: ${label}`} className="shrink-0 text-2xs text-faint">{label}</span>;
+  }
   if (!row) {
     return (
       <span

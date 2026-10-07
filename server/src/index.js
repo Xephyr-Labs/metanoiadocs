@@ -27,6 +27,7 @@ import {
   setPasswordHash,
   deleteOtherSessions,
   clearSessionVia,
+  recordDocEditors,
 } from './db.js';
 import { requestMagicLink, consumeMagicLink, mayReplacePassword, sendInviteEmail, sendNotificationEmail } from './auth.js';
 import { lockedFor, noteFailure, clearFailures, lockoutError } from './throttle.js';
@@ -35,6 +36,7 @@ import { aiTools } from './ai-tools.js';
 import { getSetting, setSetting } from './db.js';
 import * as Y from 'yjs';
 import { mentionHandles } from './mentions.js';
+import { docCommentRecipients } from './comment-recipients.js';
 import { buildDocState, appendMarkdownToDoc, appendPageReference, extractText, extractBlocks, docToMarkdown } from './blocks.js';
 import { rewriteDoc } from './restore.js';
 import { applyTextSuggestion, parseDraftName, registerSuggestionRoutes } from './suggestions.js';
@@ -634,7 +636,8 @@ app.get('/api/docs/mine', requireUser, async (req, res) => {
 app.get('/api/docs', requireUser, async (req, res) => {
   const { rows } = await pool.query(
     `SELECT d.id, d.title, d.icon, d.folder_id, d.parent_id, d.position, d.updated_at,
-            coalesce(a.role, d.team_role, 'editor') AS role, d.team_role, d.visibility, d.kind, d.props, d.is_template,
+            CASE WHEN d.is_template AND coalesce(a.role, d.team_role, 'editor') NOT IN ('editor', 'owner')
+                 THEN 'editor' ELSE coalesce(a.role, d.team_role, 'editor') END AS role, d.team_role, d.visibility, d.kind, d.props, d.is_template,
             ub.name AS updated_by_name,
             coalesce(ub.kind, 'person') AS updated_by_kind,
             d.updated_via, d.created_at, cb.name AS created_by_name,
@@ -833,9 +836,11 @@ app.post('/api/docs/import', requireUser, express.raw({ type: '*/*', limit: '25m
 // Write a page reference into `parentId`'s body — the block that makes `childId`
 // hang under it in the sidebar. False means the parent has no body yet (nobody
 // has ever opened it), the one failure both callers below report identically.
-async function referenceChild(parentId, childId) {
+async function referenceChild(parentId, childId, user) {
   let linked = false;
-  const conn = await hocuspocus.openDirectConnection(parentId);
+  // The user rides along so the parent's save names who changed its body,
+  // like every other write; without it the save kept the previous editor.
+  const conn = await hocuspocus.openDirectConnection(parentId, { docId: parentId, user });
   try {
     await conn.transact((doc) => { linked = appendPageReference(doc, childId); });
   } finally {
@@ -860,7 +865,7 @@ app.post('/api/docs/:id/children', requireUser, wrap(async (req, res) => {
 
   // Write the reference first: a child nobody can reach from its parent is worse
   // than no child at all, and this is the step that can fail.
-  if (!(await referenceChild(parentId, id))) return res.status(409).json({ error: NO_BODY_TO_NEST_IN });
+  if (!(await referenceChild(parentId, id, req.user))) return res.status(409).json({ error: NO_BODY_TO_NEST_IN });
 
   // The child keeps the parent's company: same folder, same visibility.
   const client = await pool.connect();
@@ -914,7 +919,7 @@ app.post('/api/docs/:id/links', requireUser, wrap(async (req, res) => {
   // already, and dropping it on that row is a request to give it a home.
   const existing = await pool.query('SELECT 1 FROM doc_links WHERE from_id = $1 AND to_id = $2', [parentId, childId]);
   const already = existing.rowCount > 0;
-  if (!already && !(await referenceChild(parentId, childId))) return res.status(409).json({ error: NO_BODY_TO_NEST_IN });
+  if (!already && !(await referenceChild(parentId, childId, req.user))) return res.status(409).json({ error: NO_BODY_TO_NEST_IN });
   await pool.query('INSERT INTO doc_links (from_id, to_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [parentId, childId]);
   await pool.query('UPDATE docs SET parent_id = $1, updated_at = now(), updated_by = $3, updated_via = $4 WHERE id = $2', [parentId, childId, req.user.id, req.via]);
   res.json({ ok: true, already });
@@ -928,7 +933,13 @@ app.get('/api/docs/:id/text', requireUser, async (req, res) => {
   const s = await pool.query('SELECT state FROM doc_states WHERE doc_id = $1', [req.params.id]);
   let text = '';
   if (s.rows[0]) { try { text = extractText(s.rows[0].state).text; } catch { /* empty */ } }
-  res.json({ id: req.params.id, title: d.rows[0].title, text });
+  const { rows: editors } = await pool.query(
+    `SELECT u.id, u.name, coalesce(u.kind, 'person') AS kind, e.first_edit_at, e.last_edit_at
+       FROM doc_editors e JOIN users u ON u.id = e.user_id
+      WHERE e.doc_id = $1 ORDER BY e.last_edit_at DESC`,
+    [req.params.id]
+  );
+  res.json({ id: req.params.id, title: d.rows[0].title, text, editors });
 });
 
 // ── export ──────────────────────────────────────────────────────────────────
@@ -1401,12 +1412,15 @@ app.post('/api/docs/trash/empty', requireUser, wrap(async (req, res) => {
 // then could not restore. Trash actions use this instead.
 async function trashGrantOn(docId, userId) {
   const g = await pool.query('SELECT role FROM doc_access WHERE doc_id = $1 AND user_id = $2', [docId, userId]);
-  if (g.rows[0]) return g.rows[0].role;
   const t = await pool.query(
-    "SELECT team_role FROM docs WHERE id = $1 AND visibility = 'team' AND deleted_at IS NOT NULL",
+    "SELECT team_role, visibility, is_template FROM docs WHERE id = $1 AND deleted_at IS NOT NULL",
     [docId]
   );
-  return t.rows[0] ? teamRole(t.rows[0].team_role) : null;
+  const role = g.rows[0]?.role ?? (t.rows[0]?.visibility === 'team' ? teamRole(t.rows[0].team_role) : null);
+  // The template rule in grantOn, which let them trash it: a viewer of a
+  // template could put it in the trash and then not take it back out.
+  if (role && !canEdit(role) && t.rows[0]?.is_template) return 'editor';
+  return role;
 }
 
 // What a grant lets you do, weakest first. 'viewer' reads; 'commenter' also
@@ -2324,7 +2338,18 @@ app.delete('/api/blob/:key', requireUser, requireAdmin, async (req, res) => {
 });
 
 // ── version history ─────────────────────────────────────────────────────────
+// A template is the team's shared starting point, so anyone who can open one
+// may also edit it (Sajjad, 7 Oct 2026). Owner stays owner; nobody gains
+// access to a template they could not already see.
 async function grantOn(docId, userId) {
+  const role = await pageGrant(docId, userId);
+  if (!role || canEdit(role)) return role;
+  const t = await pool.query('SELECT is_template FROM docs WHERE id = $1 AND deleted_at IS NULL', [docId]);
+  return t.rows[0]?.is_template ? 'editor' : role;
+}
+
+/** The page's own grant, before the template rule above. */
+async function pageGrant(docId, userId) {
   const g = await pool.query('SELECT role FROM doc_access WHERE doc_id = $1 AND user_id = $2', [docId, userId]);
   if (g.rows[0]) return g.rows[0].role;
   // Team-visible docs are accessible to any signed-in workspace member without an
@@ -2524,6 +2549,7 @@ app.post('/api/docs/:id/comments', requireUser, async (req, res) => {
   // another page (or none at all) was stored as given before, and the panel
   // never showed it anywhere.
   let parentId = null;
+  let replyToId = null;
   if (req.body?.parentId) {
     const { rows: [p] } = await pool.query(
       'SELECT id, parent_id FROM comments WHERE id = $1 AND doc_id = $2',
@@ -2531,6 +2557,7 @@ app.post('/api/docs/:id/comments', requireUser, async (req, res) => {
     );
     if (!p) return res.status(400).json({ error: 'That thread is not on this page.' });
     parentId = p.parent_id || p.id;
+    replyToId = p.id;
     if (suggestion) return res.status(400).json({ error: 'A suggestion starts its own thread.' });
   }
   const id = crypto.randomUUID();
@@ -2547,7 +2574,7 @@ app.post('/api/docs/:id/comments', requireUser, async (req, res) => {
   // Fan out notifications for this comment (best-effort; never fails the comment).
   createCommentNotifications({
     commentId: id, docId: req.params.id, body: suggestion ? suggestionSnippet(req.body.quote, replacement, body) : body,
-    actor: req.user, parentId, kind: suggestion ? 'suggestion' : null,
+    actor: req.user, parentId, replyToId, kind: suggestion ? 'suggestion' : null,
   }).catch((e) => console.error('[notify] fanout failed', e.message));
   emit('comment.created', { id, doc_id: req.params.id, body, author_id: req.user.id });
   commentsChanged(req.params.id);
@@ -2558,6 +2585,7 @@ const COMMENT_VERBS = {
   mention: 'mentioned you in',
   comment: 'commented on',
   reply: 'replied to a thread on',
+  reply_to_you: 'replied to your comment on',
   suggestion: 'suggested a change to',
 };
 
@@ -2579,17 +2607,19 @@ function commentsChanged(docId) {
   catch { /* nobody has it open; the next open reads the rows anyway */ }
 }
 
-// Notify @-mentioned members (with access) plus the doc owner, minus the author.
-// A recipient can only be notified once per comment (mention wins over owner).
+// Who is told is decided in comment-recipients.js; this gathers the ids it
+// needs and keeps only the people who can still open the page.
 // `mentions: false` is a guest's comment: its "@name" is text, not a summons.
-async function createCommentNotifications({ commentId, docId, body, actor, mentions = true, parentId = null, kind: eventKind = null }) {
-  const doc = await pool.query('SELECT id, title FROM docs WHERE id = $1', [docId]);
+// `replyToId` is the comment actually answered, which may be a reply inside
+// the thread `parentId` names — its author is the one being replied to.
+async function createCommentNotifications({ commentId, docId, body, actor, mentions = true, parentId = null, replyToId = null, kind: eventKind = null }) {
+  const doc = await pool.query('SELECT id, title, kind, created_by FROM docs WHERE id = $1', [docId]);
   if (!doc.rows[0]) return;
   const docTitle = doc.rows[0].title || 'Untitled';
 
   // Resolve @usernames in the body against members who have access to this doc.
   const handles = mentions ? mentionHandles(body) : [];
-  const recipients = new Map(); // user_id -> { kind, email }
+  const mentionedIds = [];
   if (handles.length) {
     // A member can be @-mentioned if they can access the doc: an explicit grant,
     // or the doc is team-visible (any member).
@@ -2619,41 +2649,62 @@ async function createCommentNotifications({ commentId, docId, body, actor, menti
         }).catch((e) => console.error('[agent] enqueue mention:', e.message));
       }
     }
-    for (const r of rows) {
-      if (r.account === 'agent') continue;
-      recipients.set(r.id, { kind: 'mention', email: r.email });
-    }
+    for (const r of rows) if (r.account !== 'agent') mentionedIds.push(r.id);
   }
-  // A reply reaches everyone already in the thread — whoever started it and
-  // whoever answered before — not only the page's owner. Members only: a
-  // guest has no inbox.
+
+  // A reply reaches whoever wrote what it answers, then everyone already in
+  // the thread — whoever started it and whoever answered before.
+  let repliedToIds = [];
+  let threadIds = [];
   if (parentId) {
     const { rows } = await pool.query(
-      `SELECT DISTINCT u.id, u.email FROM comments c JOIN users u ON u.id = c.author_id
-        WHERE (c.id = $1 OR c.parent_id = $1) AND u.kind IS DISTINCT FROM 'agent'`,
+      `SELECT id, parent_id, author_id FROM comments
+        WHERE (id = $1 OR parent_id = $1) AND author_id IS NOT NULL ORDER BY created_at`,
       [parentId]
     );
-    for (const r of rows) {
-      if (r.id === actor.id || recipients.has(r.id)) continue;
-      // Someone taken off the page since they joined the thread hears nothing
-      // more of it — the reply's text is the page's content.
-      if (!(await grantOn(docId, r.id))) continue;
-      recipients.set(r.id, { kind: 'reply', email: r.email });
-    }
+    repliedToIds = rows.filter((r) => r.id === parentId || r.id === replyToId).map((r) => r.author_id);
+    threadIds = rows.map((r) => r.author_id);
   }
-  // Doc owner also hears about any comment (unless they wrote it / already mentioned).
-  const owner = await pool.query(
-    `SELECT u.id, u.email FROM doc_access a JOIN users u ON u.id = a.user_id
-      WHERE a.doc_id = $1 AND a.role = 'owner' LIMIT 1`,
-    [docId]
+
+  // Everyone else involved in the page: its owner, whoever made it, everyone
+  // who has edited it (doc_editors, recorded on every write), whoever has
+  // commented on it.
+  // A task's page keeps the narrower reach it had: its thread lives with the
+  // task, and task-comments.js tells the task's own people.
+  const d = doc.rows[0];
+  let involvedIds = [];
+  const { rows: owner } = await pool.query(
+    "SELECT user_id FROM doc_access WHERE doc_id = $1 AND role = 'owner' LIMIT 1", [docId]);
+  if (owner[0]) involvedIds.push(owner[0].user_id);
+  if (d.kind !== 'task') {
+    const { rows } = await pool.query(
+      `SELECT user_id AS id FROM doc_editors WHERE doc_id = $1
+       UNION SELECT author_id FROM comments WHERE doc_id = $1 AND author_id IS NOT NULL AND id <> $2`,
+      [docId, commentId]
+    );
+    involvedIds.push(d.created_by, ...rows.map((r) => r.id));
+  }
+
+  const chosen = docCommentRecipients({
+    actorId: actor.id, mentionedIds, repliedToIds, threadIds, involvedIds,
+    isReply: Boolean(parentId), isSuggestion: eventKind === 'suggestion',
+  });
+  if (!chosen.size) return;
+
+  // Members only: a guest has no inbox, and a machine has nobody reading one.
+  // Someone taken off the page since they last touched it hears nothing more
+  // of it — a comment's text is the page's content. Mentions were checked
+  // for access when they were resolved above.
+  const { rows: people } = await pool.query(
+    "SELECT id, email FROM users WHERE id = ANY($1) AND kind IS DISTINCT FROM 'agent'",
+    [[...chosen.keys()]]
   );
-  if (owner.rows[0] && !recipients.has(owner.rows[0].id)) {
-    recipients.set(owner.rows[0].id, { kind: eventKind === 'suggestion' ? 'suggestion' : 'comment', email: owner.rows[0].email });
+  const recipients = new Map(); // user_id -> { kind, email }
+  for (const p of people) {
+    const kind = chosen.get(p.id);
+    if (kind !== 'mention' && !(await grantOn(docId, p.id))) continue;
+    recipients.set(p.id, { kind, email: p.email });
   }
-  // @-tagging yourself is deliberate — people do it to leave themselves a
-  // reminder — so it still lands in your inbox. What never does is the owner
-  // rule firing on a comment you just wrote on your own page.
-  if (recipients.has(actor.id) && recipients.get(actor.id).kind !== 'mention') recipients.delete(actor.id);
 
   const actorName = actor.name || actor.email;
   const snippet = body.slice(0, 280);
@@ -2845,6 +2896,9 @@ app.post('/api/comments/:cid/decision', requireUser, wrap(async (req, res) => {
       });
     }
     await pool.query('UPDATE docs SET updated_at = now(), updated_by = $2, updated_via = $3 WHERE id = $1', [c.doc_id, req.user.id, req.via]);
+    // The words now on the page are the suggester's, so they are an editor of
+    // it too, not only the person who pressed Accept.
+    await recordDocEditors(c.doc_id, [c.author_id]);
   }
   await pool.query('UPDATE comments SET resolved = true WHERE parent_id = $1', [c.id]);
   // The suggester hears what became of it.
@@ -2932,7 +2986,19 @@ registerPushRoutes(app, { requireUser, wrap });
 registerFolderRoutes(app, { requireUser, wrap });
 registerWebhookRoutes(app, { requireUser, requireAdmin, wrap });
 registerFormRoutes(app, { requireUser, wrap, baseUrl: BASE_URL });
-registerTemplateRoutes(app, { requireUser, wrap, grantOn, editGrant, kindsFor, isStatus });
+// Marking or unmarking a template goes by the page's own grant: the template
+// rule must not let someone who was given view access un-template the page.
+registerTemplateRoutes(app, {
+  requireUser, wrap, grantOn, kindsFor, isStatus,
+  // Marking or unmarking changes what everyone below editor may do, and
+  // read-only is decided when a connection opens: an un-templated page would
+  // otherwise stay writable to its viewers until they reloaded.
+  rolesChanged: dropLiveConnections,
+  // Goes by the page's own grant, not the template rule, and needs the owner
+  // (or an admin): it changes what everyone else may do on the page.
+  templateGrant: async (docId, user) =>
+    user.role === 'admin' || (await pageGrant(docId, user.id)) === 'owner',
+});
 registerCsvRoutes(app, {
   requireUser, wrap, createDocRow,
   // One file per request, same shape and same ceiling as the document import.
@@ -2943,7 +3009,7 @@ startWebhookWorker();
 registerAgentRoutes(app, { requireUser, wrap, createDocRow });
 registerAutomationRoutes(app, { requireUser, wrap });
 registerSuggestionRoutes(app, {
-  requireUser, wrap, pool, grantOn, canEdit, canSuggest, notifyUser,
+  requireUser, wrap, pool, grantOn, canEdit, canSuggest, notifyUser, recordDocEditors,
   // The sync server is built further down; the routes only reach it per request.
   getHocuspocus: () => hocuspocus,
 });
@@ -2970,6 +3036,13 @@ app.use((err, req, res, next) => {
 // to that draft, whatever their role on the page itself.
 const DRAFT_AUTHOR = 'draft-author';
 
+// Who changed each open page since its last save. A save carries the context of
+// only the last connection to send an update, so two people typing in the same
+// few seconds would otherwise be one editor. Filled per applied update (a
+// read-only connection's updates are refused before they apply, and merely
+// being connected sends none), emptied by the save that persists them.
+const unsavedEditors = new Map(); // doc id -> Set of user ids
+
 const hocuspocus = new Hocuspocus({
   extensions: [
     {
@@ -2984,6 +3057,15 @@ const hocuspocus = new Hocuspocus({
         // someone else had open — and write to it with this one's role.
         if (context?.docId && documentName !== context.docId) throw new Error('document mismatch');
         if (context?.role !== DRAFT_AUTHOR && !canEdit(context?.role)) connection.readOnly = true;
+      },
+      async onChange({ context, documentName }) {
+        // A Suggesting-mode draft is not the page: its author is credited if
+        // and when a reviewer accepts what they wrote. Server-side direct
+        // connections have no user here and name theirs on the save instead.
+        const id = context?.user?.id;
+        if (!id || id === 'public' || !canEdit(context.role) || parseDraftName(documentName)) return;
+        if (!unsavedEditors.has(documentName)) unsavedEditors.set(documentName, new Set());
+        unsavedEditors.get(documentName).add(id);
       },
     },
     new Database({
@@ -3037,6 +3119,9 @@ const hocuspocus = new Hocuspocus({
            ON CONFLICT (doc_id) DO UPDATE SET state = EXCLUDED.state, updated_at = now()`,
           [documentName, buf]
         );
+        const editors = unsavedEditors.get(documentName);
+        unsavedEditors.delete(documentName);
+        if (editors) await recordDocEditors(documentName, [...editors]);
         // Record who saved, so the activity feed can attribute a plain edit.
         // 'public' is the share-link guest — not a real user row.
         const actor = context?.user?.id && context.user.id !== 'public' ? context.user.id : null;

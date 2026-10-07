@@ -87,7 +87,7 @@ function NavItem({ icon, label, onClick, trailing, active, alert }: { icon: Reac
       type="button"
       onClick={onClick}
       className={cn(
-        'group flex h-7 w-full items-center gap-2 rounded-md px-2 text-sm leading-5 transition-colors duration-120',
+        'group flex h-7 coarse:h-11 w-full items-center gap-2 rounded-md px-2 text-sm leading-5 transition-colors duration-120',
         active ? 'bg-selected font-medium text-ink' : alert ? 'font-medium text-accent-strong hover:bg-hover' : 'text-ink hover:bg-hover',
       )}
     >
@@ -173,7 +173,7 @@ const textTintOf = (key: string) => SECTION_TEXT_TINT[key] ?? 'text-muted';
 
 function SectionLabel({ sectionKey, children, action }: { sectionKey: string; children: ReactNode; action?: ReactNode }) {
   return (
-    <div className="mt-3 flex h-6 items-center gap-2 px-2 first:mt-0">
+    <div className="mt-3 coarse:mt-1 flex h-6 coarse:h-11 items-center gap-2 px-2 first:mt-0">
       {/* The slot a folding section puts its chevron in. Here it carries the
           section's colour instead, so a rail of headers is told apart by the
           same column whether or not the section folds. */}
@@ -215,12 +215,12 @@ function CollapsibleSection({ sectionKey, label, collapsed, onToggle, count, act
 
   return (
     <>
-      <div className="mt-3 flex h-6 items-center gap-1 pr-2 first:mt-0">
+      <div className="mt-3 coarse:mt-1 flex h-6 coarse:h-11 items-center gap-1 pr-2 first:mt-0">
         <button
           type="button"
           aria-expanded={open}
           onClick={() => onToggle(sectionKey)}
-          className={cn('mn-side-label group flex h-6 min-w-0 flex-1 items-center gap-2 px-2 text-2xs font-semibold uppercase', textTintOf(sectionKey))}
+          className={cn('mn-side-label group flex h-6 coarse:h-11 min-w-0 flex-1 items-center gap-2 px-2 text-2xs font-semibold uppercase', textTintOf(sectionKey))}
         >
           <span aria-hidden className={cn('flex w-5 shrink-0 items-center justify-center', tintOf(sectionKey))}>
             <ChevronRight size={12} className={cn('transition-transform duration-180', open && 'rotate-90')} />
@@ -262,7 +262,7 @@ function Capped({ limit = SECTION_LIMIT, children }: { limit?: number; children:
       <button
         type="button"
         onClick={() => setAll((v) => !v)}
-        className="flex h-6 w-full items-center gap-1 rounded-md px-2 text-2xs text-faint
+        className="flex h-6 coarse:h-11 w-full items-center gap-1 rounded-md px-2 text-2xs text-faint
                    transition-colors duration-120 hover:bg-hover hover:text-muted"
       >
         {all ? 'Show fewer' : `${items.length - limit} more`}
@@ -324,7 +324,7 @@ function ProjectRows({
                 onClick={() => ws.openProject(p.id)}
                 style={{ paddingLeft: 8 + depth * 16 }}
                 className={cn(
-                  'flex h-7 min-w-0 flex-1 items-center gap-2 rounded-md pr-2 text-sm leading-5 transition-colors duration-120',
+                  'flex h-7 coarse:h-11 min-w-0 flex-1 items-center gap-2 rounded-md pr-2 text-sm leading-5 transition-colors duration-120',
                   ws.view === 'project' && ws.activeProjectId === p.id ? 'bg-selected font-medium text-ink' : 'text-ink hover:bg-hover',
                 )}
               >
@@ -427,7 +427,7 @@ function DocRow({ id }: { id: string }) {
         type="button"
         onClick={() => ws.select(id)}
         {...dragSource(DOC_MIME, id)}
-        className={cn('flex h-7 w-full items-center gap-1.5 rounded-md px-2 pr-7 text-sm leading-5 transition-colors duration-120', ws.currentId === id ? 'bg-selected font-medium text-ink' : 'text-ink hover:bg-hover')}
+        className={cn('flex h-7 coarse:h-11 w-full items-center gap-1.5 rounded-md px-2 pr-7 text-sm leading-5 transition-colors duration-120', ws.currentId === id ? 'bg-selected font-medium text-ink' : 'text-ink hover:bg-hover')}
       >
         <PageIcon icon={p.icon} size={16} />
         <span className="block h-5 min-w-0 flex-1 !self-center truncate leading-5 text-left">{p.title}</span>
@@ -460,7 +460,7 @@ function TagRow({ tag }: { tag: Tag }) {
       <button
         type="button"
         onClick={() => ws.setTagFilter([tag.id])}
-        className="flex h-7 w-full items-center gap-2 rounded-md px-2 pr-7 text-sm leading-5 text-ink transition-colors duration-120 hover:bg-hover"
+        className="flex h-7 coarse:h-11 w-full items-center gap-2 rounded-md px-2 pr-7 text-sm leading-5 text-ink transition-colors duration-120 hover:bg-hover"
       >
         <span className={cn('h-2.5 w-2.5 shrink-0 rounded-full', swatch(tag.color).dot)} />
         <span className="block h-5 min-w-0 flex-1 !self-center truncate leading-5 text-left">{tag.name}</span>
@@ -504,7 +504,7 @@ function FavoriteFolderRow({ id }: { id: string }) {
       type="button"
       onClick={() => ws.openFolder(id)}
       className={cn(
-        'flex h-7 w-full items-center gap-1.5 rounded-md px-2 text-sm leading-5 transition-colors duration-120',
+        'flex h-7 coarse:h-11 w-full items-center gap-1.5 rounded-md px-2 text-sm leading-5 transition-colors duration-120',
         ws.view === 'folder' && ws.activeFolderId === id ? 'bg-selected font-medium text-ink' : 'text-ink hover:bg-hover',
       )}
     >
@@ -683,7 +683,7 @@ function Rail({
           aria-expanded={!collapsed}
           onClick={onToggle}
           className={cn(
-            'mb-2 mt-auto flex h-9 w-9 items-center justify-center rounded-lg',
+            'mb-2 mt-auto flex h-9 w-9 coarse:h-11 coarse:w-11 items-center justify-center rounded-lg',
             'text-faint transition-colors duration-120 ease-out hover:bg-hover hover:text-ink',
           )}
         >
@@ -849,7 +849,7 @@ export function Sidebar() {
             { icon: LogOut, label: 'Log out', danger: true, onSelect: () => auth.logout() },
           ]}
           trigger={
-            <button className="group flex h-7 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left leading-5 transition-colors duration-120 hover:bg-hover">
+            <button className="group flex h-7 coarse:h-11 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left leading-5 transition-colors duration-120 hover:bg-hover">
               <span className="flex h-5 w-5 shrink-0 items-center justify-center">
                 <LogoMark size={16} />
               </span>
@@ -881,7 +881,7 @@ export function Sidebar() {
           // accent-strong, not accent: white on #2383e2 is 4.0:1, and this is
           // 11px lettering inside a 16px pill.
           trailing={ws.unreadCount > 0 ? (
-            <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-accent-strong px-1 text-3xs font-semibold text-white">
+            <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-accent-fill px-1 text-3xs font-semibold text-white">
               {ws.unreadCount > 99 ? '99+' : ws.unreadCount}
             </span>
           ) : undefined}
@@ -968,7 +968,7 @@ export function Sidebar() {
               />
             </div>
           ) : (
-            <button onClick={() => startNaming(null, 'tasks')} className="mt-0.5 flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-faint hover:bg-hover hover:text-muted">
+            <button onClick={() => startNaming(null, 'tasks')} className="mt-0.5 flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-faint hover:bg-hover hover:text-muted coarse:min-h-11">
               <Plus size={14} /> New project
             </button>
           )}
@@ -993,7 +993,7 @@ export function Sidebar() {
           {ws.designIds.length ? (
             <div className="space-y-px">{ws.designIds.map((id) => <DocRow key={id} id={id} />)}</div>
           ) : (
-            <button onClick={() => { ws.createDesign(); }} className="mt-0.5 flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-faint hover:bg-hover hover:text-muted">
+            <button onClick={() => { ws.createDesign(); }} className="mt-0.5 flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-faint hover:bg-hover hover:text-muted coarse:min-h-11">
               <Plus size={14} /> New design
             </button>
           )}
@@ -1015,7 +1015,7 @@ export function Sidebar() {
           {ws.folderRootIds.length || ws.unfiledIds.length ? (
             <FolderTree roots={ws.folderRootIds} unfiled={ws.unfiledIds} />
           ) : (
-            <button onClick={() => ws.createFolder(null)} className="mt-0.5 flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-faint hover:bg-hover hover:text-muted">
+            <button onClick={() => ws.createFolder(null)} className="mt-0.5 flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-faint hover:bg-hover hover:text-muted coarse:min-h-11">
               <Plus size={14} /> New folder
             </button>
           )}
@@ -1073,7 +1073,7 @@ export function Sidebar() {
                 type="button"
                 title={`New page from ${t.title}`}
                 onClick={() => ws.createFromPage(t.id)}
-                className="flex h-7 w-full items-center gap-2 rounded-md px-2 text-sm leading-5 text-ink transition-colors duration-120 hover:bg-hover"
+                className="flex h-7 coarse:h-11 w-full items-center gap-2 rounded-md px-2 text-sm leading-5 text-ink transition-colors duration-120 hover:bg-hover"
               >
                 <span className="flex h-5 w-5 shrink-0 items-center justify-center text-md leading-none">{t.icon}</span>
                 <span className="block h-5 min-w-0 flex-1 !self-center truncate leading-5 text-left">{t.title}</span>
@@ -1085,7 +1085,7 @@ export function Sidebar() {
                 key={t.id}
                 type="button"
                 onClick={() => ws.createFromTemplate(t)}
-                className="flex h-7 w-full items-center gap-2 rounded-md px-2 text-sm leading-5 text-ink transition-colors duration-120 hover:bg-hover"
+                className="flex h-7 coarse:h-11 w-full items-center gap-2 rounded-md px-2 text-sm leading-5 text-ink transition-colors duration-120 hover:bg-hover"
               >
                 <span className="flex h-5 w-5 shrink-0 items-center justify-center text-md leading-none">{t.icon}</span>
                 <span className="block h-5 min-w-0 flex-1 !self-center truncate leading-5 text-left">{t.name}</span>
