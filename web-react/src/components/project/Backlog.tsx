@@ -563,7 +563,7 @@ export function Backlog({ tasks, sprints, onOpen, onMoveToSprint, onAdd, onCreat
                 onKeyDown={(e) => e.key === 'Escape' && setComposing(false)}
                 className={cn(field, 'min-w-0 flex-1')}
               />
-              <button type="submit" className="h-8 shrink-0 rounded-md bg-accent px-3 text-sm font-medium text-white hover:opacity-90">
+              <button type="submit" className="h-8 shrink-0 rounded-md bg-accent-fill px-3 text-sm font-medium text-white hover:opacity-90">
                 Create
               </button>
               <button type="button" onClick={() => setComposing(false)} className="h-8 shrink-0 rounded-md px-2.5 text-sm text-muted hover:bg-hover">

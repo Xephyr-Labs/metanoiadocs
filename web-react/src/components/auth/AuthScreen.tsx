@@ -233,7 +233,7 @@ export function AuthScreen() {
             type="submit"
             disabled={busy}
             className={cn(
-              'mt-1 flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-accent text-base font-medium text-white',
+              'mt-1 flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-accent-fill text-base font-medium text-white',
               'transition-[filter] duration-120 hover:brightness-[0.94] active:brightness-90 disabled:opacity-70',
             )}
           >

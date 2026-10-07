@@ -71,7 +71,7 @@ function NotifyNudge() {
         type="button"
         onClick={turnOn}
         disabled={busy}
-        className="h-6 shrink-0 rounded bg-accent px-2 text-2xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-60"
+        className="h-6 shrink-0 rounded bg-accent-fill px-2 text-2xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-60"
       >
         {busy ? 'Asking…' : 'Turn on alerts'}
       </button>
