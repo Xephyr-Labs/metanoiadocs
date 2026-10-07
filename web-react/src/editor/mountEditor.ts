@@ -29,6 +29,7 @@ import { takePendingSeed } from './pendingSeed';
 import { docPlainText } from './docText';
 import { attachMermaidPreviews } from './mermaidPreview';
 import { attachMarkdownPaste } from './markdownPaste';
+import { attachForeignClipboard } from './foreignClipboard';
 import { attachEmojiShortcodes } from './emojiShortcodes';
 import { attachRefClicks, collectPageLinks, pageLinkExtensions, type LinkTarget } from './pageLinks';
 import { attachLinkSearch } from './linkSearch';
@@ -557,6 +558,9 @@ export async function mountEditor(
   // with syntax-highlight HTML beside it, which outranks the plain text and
   // reproduces `## Heading` verbatim. See markdownPaste.ts.
   const detachMarkdownPaste = noWrite ? null : attachMarkdownPaste(editor);
+  // BlockSuite takes every copy on the page, even of text outside the editor;
+  // see foreignClipboard.ts.
+  const detachForeignClipboard = attachForeignClipboard(editor as unknown as HTMLElement);
   // ":tada:" becomes 🎉 as it is typed (see emojiShortcodes.ts).
   const detachEmoji = noWrite ? null : attachEmojiShortcodes(editor as unknown as Parameters<typeof attachEmojiShortcodes>[0]);
 
@@ -641,6 +645,7 @@ export async function mountEditor(
       try { detachCalloutPanels(); } catch { /* noop */ }
       try { detachMermaid(); } catch { /* noop */ }
       try { detachMarkdownPaste?.(); } catch { /* noop */ }
+      try { detachForeignClipboard(); } catch { /* noop */ }
       try { detachEmoji?.(); } catch { /* noop */ }
       try { themeObserver.disconnect(); } catch { /* noop */ }
       try { virtualKeyboard.dispose(); } catch { /* noop */ }
