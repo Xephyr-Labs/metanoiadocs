@@ -19,6 +19,9 @@ import type { PropOption, PropRow, PropType, TaskPatch, TaskRow } from '../../li
 import { Menu } from '../ui/Menu';
 import { SegmentedControl } from '../ui/SegmentedControl';
 import { PropertyCell } from './props/PropertyCell';
+import { PropChips } from './props/PropChips';
+import { splitKey } from '../../lib/taskKey';
+import { useMediaQuery } from '../../hooks/useMediaQuery';
 
 interface Props {
   tasks: TaskRow[];
@@ -341,6 +344,7 @@ export function TaskTable({
   const picking = !!onSelect;
   const allPicked = picking && tasks.length > 0 && tasks.every((t) => selected?.has(t.id));
   const [wrap, setWrap] = useState(storedWrap);
+  const phone = useMediaQuery('(max-width: 767px)');
 
   const pick = (next: boolean) => {
     setWrap(next);
@@ -417,6 +421,23 @@ export function TaskTable({
     () => new Map(props.map((p) => [p.id, tasks.map((t) => (t.props ?? {})[p.id])])),
     [props, tasks],
   );
+
+  if (phone) {
+    return (
+      <PhoneRows
+        tasks={tasks}
+        props={props}
+        users={users}
+        auto={auto}
+        selected={picking ? selected : undefined}
+        allPicked={allPicked}
+        onSelect={onSelect}
+        onToggleAll={onToggleAll}
+        onOpen={onOpen}
+        focusedId={focusedId}
+      />
+    );
+  }
 
   return (
     <div className={cn('scrollarea flex flex-col', auto ? 'min-w-0' : 'h-full overflow-hidden')}>
@@ -609,6 +630,109 @@ export function TaskTable({
         <p className="px-2 py-3 text-2xs text-faint">Every property is hidden in this view.</p>
       )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * The table on a phone.
+ *
+ * A grid of 28px fields scrolled sideways is a spreadsheet seen through a
+ * letterbox: the title is cut to a word, the row's controls are smaller than a
+ * fingertip, and growing them only pushes them into the next cell. So a phone
+ * gets one card-like row per task instead. The whole title wraps on its own
+ * line, the view's shown properties sit under it as the read-only chips every
+ * other card uses, and the row opens the task, where each field has room to
+ * be edited. What stays is the reason the table has checkboxes at all: picking
+ * rows for the bulk bar, through a full 44px box at the row's leading edge.
+ */
+function PhoneRows({ tasks, props, users, auto, selected, allPicked, onSelect, onToggleAll, onOpen, focusedId }: {
+  tasks: TaskRow[];
+  props: PropRow[];
+  users: UserRow[];
+  auto?: boolean;
+  selected?: ReadonlySet<string>;
+  allPicked: boolean;
+  onSelect?: (id: string, shift: boolean) => void;
+  onToggleAll?: () => void;
+  onOpen: (t: TaskRow) => void;
+  focusedId?: string | null;
+}) {
+  const picking = !!onSelect;
+  const count = selected?.size ?? 0;
+  // The input stays a real checkbox for the reasons RowCheck gives; the label
+  // around it is what the finger hits, and a click on a label is a click on
+  // its input.
+  const box = 'flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center';
+  const check = 'h-[18px] w-[18px] cursor-pointer accent-accent-strong';
+
+  return (
+    <div className={cn('flex flex-col', auto ? 'min-w-0' : 'h-full overflow-hidden')}>
+      <div className={cn('flex h-11 shrink-0 items-center border-b border-line text-2xs text-muted', picking ? 'pl-1' : 'pl-4')}>
+        {picking && tasks.length > 0 && (
+          <label className={box}>
+            <input
+              type="checkbox"
+              className={check}
+              checked={allPicked}
+              aria-label={allPicked ? 'Clear the selection' : 'Select every row'}
+              onChange={() => onToggleAll?.()}
+            />
+          </label>
+        )}
+        <span className="font-medium">
+          {count ? `${count} of ${tasks.length} selected` : `${tasks.length} ${tasks.length === 1 ? 'row' : 'rows'}`}
+        </span>
+      </div>
+      {/* With rows picked, the bulk bar floats over the bottom of the list;
+          the extra room lets the last rows scroll up clear of it. */}
+      <ul className={cn(!auto && 'scrollarea flex-1 overflow-y-auto', !auto && (count ? 'pb-28' : 'pb-6'))}>
+        {tasks.map((t) => {
+          const picked = !!selected?.has(t.id);
+          const { key, text } = splitKey(t.title);
+          return (
+            <li
+              key={t.id}
+              data-task-row={t.id}
+              className={cn(
+                'flex items-start border-b border-line',
+                picked && 'bg-selected',
+                focusedId === t.id && 'outline outline-2 -outline-offset-2 outline-accent',
+              )}
+            >
+              {picking && (
+                <label className={cn(box, 'ml-1 mt-px')}>
+                  <input
+                    type="checkbox"
+                    className={check}
+                    checked={picked}
+                    aria-label={`Select ${t.title || 'this row'}`}
+                    onChange={() => { /* onClick owns it: only the click knows about shift. */ }}
+                    onClick={(e) => onSelect?.(t.id, e.shiftKey)}
+                  />
+                </label>
+              )}
+              <button
+                type="button"
+                onClick={() => onOpen(t)}
+                className={cn(
+                  'flex min-h-11 min-w-0 flex-1 flex-col items-start gap-1.5 py-3 pr-4 text-left active:bg-hover',
+                  !picking && 'pl-4',
+                )}
+              >
+                <span className="w-full break-words text-sm leading-5">
+                  {key && <span className="mr-1.5 font-mono text-2xs font-semibold tracking-tight text-muted">{key}</span>}
+                  <span className="font-medium text-ink">
+                    {text || 'Untitled'}
+                  </span>
+                </span>
+                <PropChips task={t} props={props} users={users} />
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+      {!tasks.length && <p className="py-10 text-center text-sm text-faint">No rows yet.</p>}
     </div>
   );
 }
