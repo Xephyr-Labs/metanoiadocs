@@ -1,26 +1,41 @@
-# Traditional Chinese UI scan
+# Traditional Chinese UI scan — second pass
 
-Scanned `web-react/src`.
+Scanned `web-react/src` again from the latest uploaded repository.
 
-- TypeScript / TSX files: 296
-- TSX components: 114
-- Literal `t(...)` calls found: 75
-- Existing zh-TW dictionary keys before this patch: 133
-- Missing dictionary keys used by `t(...)`: 2 unique keys (`New database under {{name}}`, `Actions for {{name}}`)
-- Static English UI candidates found by JSX/attribute scan: about 499 (heuristic; includes some false positives/code fragments)
+## What was fixed in this pass
 
-## Main cause
+- Expanded Traditional Chinese coverage for Home/dashboard, documents/editor, projects/tasks, review/comments, public pages/forms, sharing/navigation, folders, history/intelligence, settings/auth/system UI.
+- Added dynamic Traditional Chinese handling for relative time (`1d ago`, `2h ago`, `5m ago`).
+- Added dynamic greeting translation (`Still up, NAME`, `Good morning, NAME`, etc.).
+- Added activity sentence translation (`NAME edited TITLE`, `NAME created TITLE`).
+- Kept the existing MutationObserver coverage for dynamically mounted dialogs, menus, tooltips and common accessibility attributes.
+- Preserved product names, API names, URLs, model names, code/formula examples, keyboard shortcuts and user-created content instead of blindly translating them.
 
-Most React components do not import or call `t()`. Before this patch, i18n imports existed only in `main.tsx`, `LanguageSelector.tsx`, and `Sidebar.tsx`. Therefore expanding only `zhTW` could not translate most of the interface.
+## Important implementation note
 
-## Patch in this archive
+The application still contains many hard-coded English React literals. The compatibility translator in `src/lib/i18n.ts` translates these at render time in `zh-TW` mode. This avoids a risky mass rewrite of dozens of components while providing broad UI coverage. Long-term, these literals can be migrated to `t()` component-by-component.
 
-- Added the missing interpolated dictionary keys.
-- Added a `zhTWStaticUI` dictionary for common hard-coded UI across authentication, editor, projects/tasks, comments, settings, webhooks, top bar, home, and accessibility labels.
-- Added `installDOMTranslations()` to translate hard-coded React text nodes and common UI attributes (`placeholder`, `title`, `aria-label`, `alt`) in zh-TW mode.
-- Added a `MutationObserver` so dialogs, menus, panels, and other dynamically mounted React UI are translated when they appear.
-- Enabled the translator from `main.tsx` immediately after `initLanguage()`.
+## Areas checked
 
-## Verification limitation
+- Authentication
+- Home/dashboard
+- Sidebar/navigation
+- Documents/editor/slides
+- Tags/folders/trash
+- Tasks/projects/backlog/sprints
+- Board/table/gallery/calendar/gantt/dashboard
+- Filters/sorts/properties/views
+- Comments/review/AI side panel
+- Public pages/forms/guest comments
+- Share/access controls
+- Settings/members/AI/API tokens/webhooks
+- Command palette/history/intelligence rail
+- Tooltips/placeholders/aria-label/title/alt attributes
 
-The uploaded source archive does not contain `node_modules`. `npm run build` could not start because the local `vite` executable is absent. The source was patched, but a full Vite/TypeScript build still needs to be run after dependencies are installed.
+## Intentionally retained English / technical text
+
+Examples include `Metanoia`, `MetanoiaDocs`, `API`, `Webhook`, `Sprint`, `CSV`, provider URLs, model identifiers such as `gpt-4o-mini`, HTTP header names, signatures/hashes, keyboard shortcuts, IDs/task keys, formulas/code and user-created page/project names.
+
+## Verification
+
+The source-level scan and patch completed successfully. A full Vite build still depends on installed `node_modules`; if dependencies are present locally, run `npm run build` in `web-react` before deployment.

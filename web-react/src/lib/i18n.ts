@@ -268,6 +268,89 @@ const zhTWStaticUI: Record<string, string> = {
   'Open': '開啟', 'Apply': '套用', 'Clear': '清除', 'Reset': '重設', 'Confirm': '確認', 'Continue': '繼續',
   'Add property': '新增屬性', 'Add filter': '新增篩選條件', 'Add sort': '新增排序', 'Add view': '新增檢視',
   'No results': '沒有結果', 'No results found.': '找不到結果。', 'Search…': '搜尋…', 'Search...': '搜尋…',
+
+  // Home / dashboard
+  'Still up': '還沒睡啊', 'Good morning': '早安', 'Good afternoon': '午安', 'Good evening': '晚安',
+  'Import': '匯入', 'My tasks': '我的任務', 'Activity': '活動紀錄', 'No activity yet': '目前沒有活動紀錄',
+  'Edits and comments land here.': '編輯與評論紀錄會顯示在這裡。', 'No projects yet': '目前沒有專案',
+  'A project holds tasks with a board, table, gantt and calendar.': '專案可集中管理任務，並以看板、表格、甘特圖與行事曆檢視。',
+  'Nothing assigned to you': '目前沒有指派給你的任務', 'Tasks you own show up here.': '你負責的任務會顯示在這裡。',
+  'No documents yet': '目前沒有文件', 'Pages you create show up here.': '你建立的頁面會顯示在這裡。',
+  'Filter tasks by project': '依專案篩選任務', 'You’re all caught up': '目前都處理完了', "You're all caught up": '目前都處理完了',
+  '@-mentions, comments on your pages, tasks assigned to you and your daily task summary show up here.': '提及你的內容、頁面評論、指派給你的任務與每日任務摘要會顯示在這裡。',
+
+  // Documents / editor
+  'No pages': '目前沒有頁面', 'No pages carry these tags yet.': '目前沒有頁面使用這些標籤。',
+  'Create your first page to start writing.': '建立第一個頁面開始撰寫內容。',
+  'adds a 16:9 frame to the canvas.': '會在畫布新增一個 16:9 畫面。', 'Suggesting': '建議模式', 'Suggesting.': '建議模式',
+  'to propose changes.': '以提出修改建議。', 'Shared': '已分享', 'Notes': '備註',
+  'Add H1–H3 headings to build an outline.': '新增 H1–H3 標題即可建立大綱。',
+  'Drag to resize · arrow keys to nudge · double-click or Backspace to reset': '拖曳調整大小 · 方向鍵微調 · 雙擊或按 Backspace 重設',
+  'Search for a property…': '搜尋屬性…', 'Edit this address': '編輯此網址', 'Edit types…': '編輯類型…',
+  'Built in': '內建', 'Yours': '自訂', 'No custom properties yet.': '目前沒有自訂屬性。', 'Link to…': '連結至…',
+  'A built-in keeps its type': '內建屬性會保留原本類型', 'Add options… separate with commas': '新增選項…請以逗號分隔',
+  'Add these options': '新增這些選項', 'Property name…': '屬性名稱…', 'No focus areas yet — type to make one.': '目前沒有焦點領域，輸入文字即可建立。',
+  'Focus areas are edited on the task’s page': '焦點領域可在任務頁面中編輯', 'Search or create…': '搜尋或建立…',
+  'Through…': '透過…', 'Relation to follow': '要追蹤的關聯', 'Property to read': '要讀取的屬性', 'How to reduce it': '彙總方式',
+
+  // Projects / tasks
+  'Actions': '操作', 'Sprint': 'Sprint', 'New': '新增', 'Bug report': '錯誤回報', 'Title': '標題', 'Column': '欄位',
+  'Condition value': '條件值', 'Assign to': '指派給', 'Remove this action': '移除此動作', 'Condition field': '條件欄位',
+  'Condition operator': '條件運算子', 'Remove this condition': '移除此條件', 'Rule name': '規則名稱', 'Name this rule': '為規則命名',
+  'Trigger': '觸發條件', 'Days without a change': '未變更天數', 'Add an action': '新增動作', 'Automations': '自動化',
+  'Import another': '再匯入一份', 'Start over': '重新開始', 'Import a CSV': '匯入 CSV', 'Goes to': '對應至', '(no header)': '（無標題列）',
+  'Nothing scheduled': '目前沒有排程', 'Give a task a start or due date and it appears on the timeline.': '為任務設定開始日或到期日後，就會顯示在時間軸上。',
+  'Timeline zoom': '時間軸縮放', 'This type no longer exists — reopen the project to resync': '此類型已不存在，請重新開啟專案以同步。',
+  'Add a view': '新增檢視', 'Type name': '類型名稱', 'Task types': '任務類型', 'New type colour': '新類型顏色',
+  'Start': '開始', 'Complete': '完成', 'Drag tasks here to plan this sprint.': '將任務拖曳到這裡以規劃此 Sprint。',
+  'Nothing waiting. Every task is in a sprint.': '目前沒有等待安排的任務，所有任務都已加入 Sprint。', 'Sprints': 'Sprint',
+  'Story points': '故事點數', 'Add task to backlog': '新增任務至待辦清單', 'No sprint has been completed yet.': '目前還沒有已完成的 Sprint。',
+  'average per sprint': '每個 Sprint 平均', 'finished in eight weeks': '八週內完成', 'No open work in this view.': '此檢視目前沒有進行中的工作。',
+  'No estimates yet — put hours on a task and this fills in.': '目前沒有工時估算；在任務中填入工時後，這裡就會顯示資料。',
+  'Nothing to chart yet': '目前沒有可繪製的資料', 'Add tasks, and a sprint to put them in, and this fills itself in.': '新增任務並將它們加入 Sprint 後，這裡會自動顯示資料。',
+  'completed sprints': '已完成 Sprint', 'tasks per week': '每週任務數', 'right now': '目前', 'open hours per person': '每人未完成工時',
+  'nobody': '無人', 'the active sprint': '目前 Sprint', 'the backlog': '待辦清單', 'only when': '僅當', 'choose…': '選擇…',
+  'when': '當', 'a task is created': '建立任務時', 'someone is assigned': '指派成員時', 'it is due today': '今天到期時',
+  'it is overdue': '逾期時', 'nothing has changed in': '沒有變更達', 'run by hand, from a task': '從任務手動執行', 'days': '天',
+  'Pick a sprint above to see it burn down.': '在上方選擇 Sprint 以查看燃盡圖。',
+
+  // Review / comments / public pages
+  'Review': '審閱', 'On this task': '此任務', 'Show': '顯示', 'New text (leave empty to suggest deleting it)': '新文字（留空代表建議刪除）',
+  'Remove this page from the chat': '從對話中移除此頁面', 'Make a database first — a captured line has to live somewhere.': '請先建立資料庫，快速新增的內容需要儲存位置。',
+  'save': '儲存', 'save & keep going': '儲存並繼續', 'Unfiled': '未歸檔', 'Add a note for the reviewer (optional)': '新增給審閱者的備註（選填）',
+  '(formatting or type changed)': '（格式或類型已變更）', 'Back to the page': '返回頁面', 'Nothing left to review here.': '這裡已沒有待審閱的內容。', 'Decline': '拒絕',
+  'No account needed. Anyone with this link can read what you write.': '不需要帳號，任何擁有此連結的人都能閱讀你寫的內容。',
+  'Edit comment': '編輯評論', 'Delete comment': '刪除評論', 'Close comments': '關閉評論',
+  'Select text in the page to comment on it, or add a comment below.': '選取頁面文字即可針對內容評論，也可以直接在下方新增評論。',
+  'Send comment': '送出評論', 'Page unavailable': '頁面無法使用', 'Go to MetanoiaDocs': '前往 MetanoiaDocs', 'Open comments': '開啟評論',
+  'Choose one…': '選擇一項…', 'Nothing to choose from yet.': '目前沒有可選項目。', 'Form unavailable': '表單無法使用',
+  'It is logged as': '紀錄編號為', 'One line — the headline': '一行文字 — 標題', 'So they can come back to you': '讓對方可以聯絡你',
+
+  // Sharing / navigation / folders
+  'Share this page': '分享此頁面', 'People with access': '具有存取權的人員', 'Everyone in the workspace': '工作區中的所有人',
+  'People with the link': '擁有連結的人', 'Invite by email…': '透過電子郵件邀請…', 'Access for the person you invite': '受邀者的存取權限',
+  'Access for everyone in the workspace': '工作區所有人的存取權限', 'Page actions': '頁面操作', 'Document actions': '文件操作',
+  'Folder actions': '資料夾操作', 'New page in folder': '在資料夾中新增頁面', 'More reactions': '更多表情回應', 'Drop a file here, or': '將檔案拖曳到這裡，或',
+  'Pages': '頁面', 'Empty trash': '清空垃圾桶', 'Trash is empty': '垃圾桶是空的', 'Possible duplicate': '可能重複',
+  'Go home': '回首頁', 'Nothing filed here yet': '這裡目前沒有已歸檔內容', 'Add a page, or drag one into this folder in the sidebar.': '新增頁面，或從側邊欄將頁面拖曳到此資料夾。',
+  'Frames': '畫面', 'Command palette': '命令面板', 'Search pages, tasks (MD-14) or type a command…': '搜尋頁面、任務（MD-14）或輸入指令…', 'Searching': '搜尋中', '· Current': '· 目前',
+
+  // History / intelligence
+  'Help info': '說明資訊', 'last 50': '最近 50 個', 'are kept for this page.': '版本會保留在此頁面。', 'Back to doc': '返回文件',
+  'Restore current version': '復原目前版本', 'Restore this version?': '要復原此版本嗎？', 'Before restore': '復原前', 'so you can come straight back.': '因此你可以隨時回到這個版本。',
+  'Back to versions': '返回版本列表', 'Dismiss': '關閉', 'No versions yet': '目前沒有版本紀錄', 'Snapshots are saved as you edit, and whenever you ask for one.': '編輯時會自動儲存快照，也可以手動建立快照。',
+  'More history actions': '更多版本紀錄操作', 'Couldn’t load intelligence.': '無法載入智慧分析。', "Couldn't load intelligence.": '無法載入智慧分析。',
+  'Summary': '摘要', 'unresolved': '未解決', 'Nothing to surface yet': '目前沒有需要顯示的內容',
+  'As you write, this rail highlights tasks, decisions, deadlines, related pages and missing links.': '撰寫內容時，這裡會標示任務、決策、截止日期、相關頁面與缺少的連結。',
+  'Decisions': '決策', 'Deadlines': '截止日期', 'Related': '相關內容', 'Missing links': '缺少的連結', 'Risks': '風險', 'Changed deps': '已變更的相依項目',
+  'Collaborators': '協作者', 'Terminology': '術語',
+
+  // Settings / auth / system
+  'Tag': '標籤', 'Keep': '保留', 'Guest': '訪客', 'Offline': '離線', '(you)': '（你）', 'for everyone.': '供所有人使用。',
+  'Add a provider URL, a model and a key before turning it on.': '啟用前請先加入服務提供者 URL、模型與 API 金鑰。',
+  'Anything signed in with this token stops working.': '所有使用此 Token 登入的服務都會停止運作。',
+  'Calendar address': '行事曆網址', 'Invite a teammate by email…': '透過電子郵件邀請團隊成員…', 'Copy secret': '複製密鑰',
+  'Verifying a delivery': '驗證傳送內容', 'Edits to an open page are saved in this browser and sync when you reconnect. Boards, tables and comments need the network.': '已開啟頁面的編輯內容會先儲存在此瀏覽器，重新連線後同步；看板、表格與評論需要網路連線。',
 };
 
 function translateStaticUIValue(value: string): string {
@@ -279,6 +362,20 @@ function translateStaticUIValue(value: string): string {
   // case translate the known phrases without touching URLs, IDs, or code.
   const exact = zhTW[value] ?? zhTWStaticUI[value];
   if (exact) return exact;
+
+  // Dynamic UI text that cannot be represented by one literal dictionary key.
+  let match = value.match(/^(\d+)d ago$/);
+  if (match) return `${match[1]} 天前`;
+  match = value.match(/^(\d+)h ago$/);
+  if (match) return `${match[1]} 小時前`;
+  match = value.match(/^(\d+)m ago$/);
+  if (match) return `${match[1]} 分鐘前`;
+  match = value.match(/^(Still up|Good morning|Good afternoon|Good evening),\s*(.+)$/);
+  if (match) return `${zhTWStaticUI[match[1]] ?? match[1]}，${match[2]}`;
+  match = value.match(/^(.+) edited (.+)$/);
+  if (match) return `${match[1]} 編輯了 ${match[2]}`;
+  match = value.match(/^(.+) created (.+)$/);
+  if (match) return `${match[1]} 建立了 ${match[2]}`;
 
   let result = value;
   const phrases = Object.entries({ ...zhTWStaticUI, ...zhTW })
