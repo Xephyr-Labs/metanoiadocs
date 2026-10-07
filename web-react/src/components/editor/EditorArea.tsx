@@ -20,6 +20,7 @@ import { PageHeader } from './PageHeader';
 import { SlidesRail } from './SlidesRail';
 import { focusDocTitle, takeTitleFocus } from '../../lib/titleFocus';
 import { canEditRole } from '../../lib/docsApi';
+import * as prefs from '../../lib/docPrefs';
 import { useReviewState } from '../../lib/reviewMode';
 import { SuggestingBanner } from '../review/SuggestingBanner';
 import { ReviewView } from '../review/ReviewView';
@@ -62,6 +63,17 @@ export function EditorArea() {
   // A rename started in the sidebar finishes here. The title is a block in the
   // document, so the caret has to land in the editor for the edit to stick —
   // see lib/titleFocus. Declared above the early return below: it is a hook.
+  // The rail turns off from the editor bar; when there is no room for it
+  // beside the text, the same button opens the outline in the side panel, so
+  // the contents are one click away at any width.
+  const [tocHidden, setTocHidden] = useState(prefs.tocHidden);
+  const [tocFits, setTocFits] = useState(true);
+  const toggleToc = () => {
+    if (!tocFits) return ws.setRightPanel(ws.rightPanel === 'outline' ? null : 'outline');
+    setTocHidden(!tocHidden);
+    prefs.setTocHiddenStored(!tocHidden);
+  };
+
   const pageId = page?.id;
   // Editing / Suggesting / Viewing, and the review takeover.
   const review = useReviewState(pageId, page?.role, auth.user?.id);
@@ -120,6 +132,11 @@ export function EditorArea() {
           onMode={(m) => ws.setMode(m)}
           fullWidth={ws.fullWidth}
           onFullWidth={ws.setFullWidth}
+          toc={{
+            label: !tocFits ? 'Table of contents' : tocHidden ? 'Show table of contents' : 'Hide table of contents',
+            active: tocFits ? !tocHidden : ws.rightPanel === 'outline',
+            onClick: toggleToc,
+          }}
         />
       </div>
 
@@ -162,7 +179,7 @@ export function EditorArea() {
           <div className="absolute inset-0 flex">
             {/* Outside the scroll area on purpose: the ToC stays put while the
                 document moves under it. */}
-            <FloatingToc editor={editorEl} />
+            <FloatingToc editor={editorEl} hidden={tocHidden} onFits={setTocFits} />
             <div className="scrollarea flex-1 overflow-y-auto">
               <motion.div
                 key={page.id}

@@ -13,6 +13,7 @@ import { cn } from '../../lib/cn';
 import { relativeTime } from '../../lib/time';
 import { EmptyState } from '../ui/EmptyState';
 import { Reactions } from '../ui/Reactions';
+import { ClampedText } from '../ui/ClampedText';
 import { emojify } from '../../lib/emoji';
 import { field } from '../ui/styles';
 
@@ -219,10 +220,10 @@ export function GuestComments({ token, onClose }: { token: string; onClose?: () 
       className={cn(field, 'mt-1 w-full resize-none text-sm')}
     />
   ) : (
-    <p className={cn(className, 'whitespace-pre-wrap break-words')}>
+    <ClampedText className={className}>
       {emojify(c.body)}
       {c.edited_at && <span className="ml-1 text-2xs text-faint">(edited)</span>}
-    </p>
+    </ClampedText>
   );
 
   const card = (c: GuestCommentRow) => (

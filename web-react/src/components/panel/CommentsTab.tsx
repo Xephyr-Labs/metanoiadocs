@@ -16,6 +16,7 @@ import { cn } from '../../lib/cn';
 import { TaskComments } from '../project/TaskComments';
 import { Avatar } from '../ui/Avatar';
 import { Reactions } from '../ui/Reactions';
+import { ClampedText } from '../ui/ClampedText';
 import { emojify, toggleLocal } from '../../lib/emoji';
 import { EmptyState } from '../ui/EmptyState';
 import { IconButton } from '../ui/IconButton';
@@ -213,10 +214,10 @@ export function CommentsTab({ docId }: { docId: string }) {
     ) : c.body ? (
       // "(edited)" trails the text rather than sitting in the header: the
       // panel is narrow, and one more chip up there wraps the author's name.
-      <p className={cn('whitespace-pre-wrap break-words', className)}>
+      <ClampedText className={className}>
         {emojify(c.body)}
         {c.edited_at && <span className="ml-1 text-2xs text-faint">(edited)</span>}
-      </p>
+      </ClampedText>
     ) : null;
 
   /** Edit (your own words only) and delete (yours, or anything on a page you own). */

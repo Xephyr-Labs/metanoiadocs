@@ -79,3 +79,14 @@ export function fullWidth(): boolean {
 export function setFullWidthStored(on: boolean): void {
   write(WIDTH_KEY, on ? '1' : '');
 }
+
+const TOC_KEY = 'mn-toc-hidden';
+
+/** The floating table of contents is on unless someone turned it off. */
+export function tocHidden(): boolean {
+  return read(TOC_KEY) === '1';
+}
+
+export function setTocHiddenStored(hidden: boolean): void {
+  write(TOC_KEY, hidden ? '1' : '');
+}
