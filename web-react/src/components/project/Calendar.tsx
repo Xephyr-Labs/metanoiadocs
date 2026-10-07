@@ -6,15 +6,18 @@
  * contrast: pass (40-41) · mobile: pass (320/375/414/768) · tokens: pass (48)
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { CalendarDays, ChevronLeft, ChevronRight, List, Plus } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { addDays, daysBetween, todayISO, toUTC, weekSegments } from '../../lib/gantt';
+import { agendaFor, monthDays } from '../../lib/agenda';
+import { splitKey } from '../../lib/taskKey';
+import { useMediaQuery } from '../../hooks/useMediaQuery';
 import type { PropRow, TaskRow } from '../../lib/tasksApi';
 import type { UserRow } from '../../lib/docsApi';
 import { IconButton } from '../ui/IconButton';
 import { SearchSelect } from '../ui/SearchSelect';
 import { Button } from '../ui/Button';
-import { isOverdue } from './TaskChip';
+import { isOverdue, shortDate } from './TaskChip';
 import { PropChips } from './props/PropChips';
 
 /** Monday-first grid of whole weeks covering the given month. */
@@ -95,6 +98,16 @@ export function Calendar({
   /** Live range while an edge is being dragged, so the card resizes under the
    *  pointer instead of jumping when it is let go. */
   const [draft, setDraft] = useState<{ id: string; from: string; to: string } | null>(null);
+  // A day column on a phone is about 50px, which fits "WR…" and nothing else,
+  // so a phone gets the month as a list of days instead. The grid stays one
+  // tap away for anyone who wants the shape of the month rather than its
+  // contents. Not remembered: the list is the right default every time.
+  const phone = useMediaQuery('(max-width: 767px)');
+  const [phoneView, setPhoneView] = useState<'list' | 'month'>('list');
+  const listing = phone && phoneView === 'list';
+  /** Bumped by "Today" so the list scrolls back to it even when the month
+   *  does not change. */
+  const [jump, setJump] = useState(0);
 
   useEffect(() => {
     if (propId && !dateProps.some((p) => p.id === propId)) setPropId(dateProps[0]?.id ?? null);
@@ -156,29 +169,61 @@ export function Calendar({
     });
 
   const label = new Date(Date.UTC(cursor.year, cursor.month, 1)).toLocaleDateString(undefined, {
-    month: 'long',
+    month: phone ? 'short' : 'long',
     year: 'numeric',
     timeZone: 'UTC',
   });
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center gap-2 border-b border-line px-4 py-2">
-        <IconButton icon={<ChevronLeft size={16} />} label="Previous month" onClick={() => shift(-1)} />
-        <span className="min-w-[150px] text-sm font-medium text-ink">{label}</span>
-        <IconButton icon={<ChevronRight size={16} />} label="Next month" onClick={() => shift(1)} />
+      <div className={cn('flex items-center border-b border-line', phone ? 'flex-wrap gap-1 px-2 py-1' : 'gap-2 px-4 py-2')}>
+        <IconButton
+          icon={<ChevronLeft size={16} />}
+          label="Previous month"
+          className={cn(phone && 'h-11 w-11')}
+          onClick={() => shift(-1)}
+        />
+        <span className={cn('text-sm font-medium text-ink', phone ? 'text-center' : 'min-w-[150px]')}>{label}</span>
+        <IconButton
+          icon={<ChevronRight size={16} />}
+          label="Next month"
+          className={cn(phone && 'h-11 w-11')}
+          onClick={() => shift(1)}
+        />
         <Button
           size="sm"
           variant="ghost"
-          onClick={() => setCursor({ year: Number(today.slice(0, 4)), month: Number(today.slice(5, 7)) - 1 })}
+          className={cn(phone && 'h-11')}
+          onClick={() => {
+            setCursor({ year: Number(today.slice(0, 4)), month: Number(today.slice(5, 7)) - 1 });
+            setJump((n) => n + 1);
+          }}
         >
           Today
         </Button>
+        {phone && (
+          <div role="group" aria-label="Calendar layout" className="ml-auto flex rounded-md bg-surface ring-1 ring-inset ring-line">
+            <IconButton
+              icon={<List size={18} />}
+              label="Show as a list"
+              active={listing}
+              className="h-11 w-11"
+              onClick={() => setPhoneView('list')}
+            />
+            <IconButton
+              icon={<CalendarDays size={18} />}
+              label="Show as a month grid"
+              active={!listing}
+              className="h-11 w-11"
+              onClick={() => setPhoneView('month')}
+            />
+          </div>
+        )}
         {dateProps.length > 1 && (
           <SearchSelect
             variant="inline"
             label="Date shown"
-            className="ml-auto h-7 rounded-md px-2 ring-1 ring-inset ring-line"
+            className={cn('h-7 rounded-md px-2 ring-1 ring-inset ring-line', phone ? 'h-11' : 'ml-auto')}
             value={propId ?? ''}
             options={dateProps.map((p) => ({ value: p.id, label: p.label }))}
             onChange={(id) => setPropId(id || null)}
@@ -186,6 +231,21 @@ export function Calendar({
         )}
       </div>
 
+      {listing ? (
+        <Agenda
+          year={cursor.year}
+          month={cursor.month}
+          today={today}
+          jump={jump}
+          tasks={tasks}
+          rangesById={rangesById}
+          cardProps={cardProps}
+          users={users}
+          onOpen={onOpen}
+          onAdd={(day) => onAdd(day, propId)}
+        />
+      ) : (
+      <>
       <div className="grid shrink-0 grid-cols-7 border-b border-line">
         {WEEKDAYS.map((d) => (
           <span key={d} className="px-2 py-1 text-xs font-semibold uppercase tracking-wide text-faint">
@@ -218,7 +278,158 @@ export function Calendar({
           />
         ))}
       </div>
+      </>
+      )}
     </div>
+  );
+}
+
+/**
+ * The month as a list of days, for a phone.
+ *
+ * Every day of the month is here, empty ones as a single line, so the list
+ * keeps the calendar's job of being somewhere to put a task on a date. Each
+ * day's line sticks to the top while its tasks scroll under it, which is what
+ * keeps a long day legible as one day. Multi-day rows follow lib/agenda: once
+ * where they start, and again under today while they are still running.
+ */
+function Agenda({
+  year,
+  month,
+  today,
+  jump,
+  tasks,
+  rangesById,
+  cardProps,
+  users,
+  onOpen,
+  onAdd,
+}: {
+  year: number;
+  month: number;
+  today: string;
+  jump: number;
+  tasks: TaskRow[];
+  rangesById: Map<string, Range>;
+  cardProps: PropRow[];
+  users: UserRow[];
+  onOpen: (t: TaskRow) => void;
+  onAdd: (day: string) => void;
+}) {
+  const scroller = useRef<HTMLDivElement>(null);
+  const days = useMemo(() => agendaFor(
+    tasks.flatMap((t) => {
+      const r = rangesById.get(t.id);
+      return r ? [{ id: t.id, from: r.from, to: r.to }] : [];
+    }),
+    monthDays(year, month),
+    today,
+  ), [tasks, rangesById, year, month, today]);
+  const byId = useMemo(() => new Map(tasks.map((t) => [t.id, t])), [tasks]);
+
+  // Open on today rather than the 1st: the days already gone are the least
+  // likely reason to look. Also runs when "Today" is pressed in this month.
+  useEffect(() => {
+    const el = scroller.current?.querySelector<HTMLElement>(`[data-agenda-day="${today}"]`);
+    if (el && scroller.current) scroller.current.scrollTop = el.offsetTop;
+  }, [jump, year, month, today]);
+
+  return (
+    <div ref={scroller} className="scrollarea relative flex-1 overflow-y-auto pb-6">
+      {days.map(({ day, entries }) => {
+        const date = new Date(toUTC(day));
+        const isToday = day === today;
+        const name = date.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' });
+        return (
+          <section key={day} data-agenda-day={day} aria-label={isToday ? `Today, ${name}` : name}>
+            <div className="sticky top-0 z-10 flex h-11 items-center gap-2.5 border-b border-line bg-canvas pl-4">
+              <span
+                className={cn(
+                  'flex h-7 min-w-7 items-center justify-center rounded-full px-1 text-sm font-semibold tabular-nums',
+                  isToday ? 'bg-accent-fill text-white' : entries.length ? 'text-ink' : 'text-faint',
+                )}
+              >
+                {date.getUTCDate()}
+              </span>
+              <span className={cn('text-sm', entries.length || isToday ? 'text-muted' : 'text-faint')}>
+                {date.toLocaleDateString(undefined, { weekday: 'short', timeZone: 'UTC' })}
+              </span>
+              {isToday && <span className="text-sm font-semibold text-accent-strong">Today</span>}
+              <button
+                type="button"
+                onClick={() => onAdd(day)}
+                aria-label={`Add a row on ${name}`}
+                className="ml-auto flex h-11 w-11 items-center justify-center text-faint transition-colors hover:text-accent-strong active:bg-selected"
+              >
+                <Plus size={18} />
+              </button>
+            </div>
+            {entries.length > 0 && (
+              <ul className="space-y-2 px-4 py-2.5">
+                {entries.map((e) => {
+                  const t = byId.get(e.id);
+                  return t ? (
+                    <li key={`${e.id}-${e.kind}`}>
+                      <AgendaCard
+                        task={t}
+                        note={
+                          e.kind === 'ongoing'
+                            ? `Day ${e.dayOf} of ${e.days} · until ${shortDate(e.to)}`
+                            : e.kind === 'span'
+                              ? `${shortDate(e.from)} – ${shortDate(e.to)} · ${e.days} days`
+                              : null
+                        }
+                        cardProps={cardProps}
+                        users={users}
+                        onOpen={() => onOpen(t)}
+                      />
+                    </li>
+                  ) : null;
+                })}
+              </ul>
+            )}
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+/** One task in the phone list: the whole title, never cut, and the card's
+ *  properties underneath, the same ones the month grid's cards show. */
+function AgendaCard({ task, note, cardProps, users, onOpen }: {
+  task: TaskRow;
+  note: string | null;
+  cardProps: PropRow[];
+  users: UserRow[];
+  onOpen: () => void;
+}) {
+  const overdue = isOverdue(task);
+  const done = task.status === 'done';
+  const { key, text } = splitKey(task.title);
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className={cn(
+        'flex min-h-11 w-full flex-col items-start gap-1.5 rounded-md border px-3 py-2.5 text-left transition-colors',
+        overdue ? 'border-danger-soft bg-danger-soft' : 'border-line bg-canvas active:bg-hover',
+      )}
+    >
+      <span className="w-full break-words text-sm leading-5">
+        {key && <span className="mr-1.5 font-mono text-2xs font-semibold tracking-tight text-muted">{key}</span>}
+        <span
+          className={cn(
+            'font-medium',
+            done ? 'text-muted line-through' : overdue ? 'text-danger-strong' : 'text-ink',
+          )}
+        >
+          {text || 'Untitled'}
+        </span>
+      </span>
+      {note && <span className="text-2xs text-muted">{note}</span>}
+      <PropChips task={task} props={cardProps} users={users} />
+    </button>
   );
 }
 
