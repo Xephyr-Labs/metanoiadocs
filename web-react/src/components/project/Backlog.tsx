@@ -658,8 +658,13 @@ export function Backlog({ tasks, sprints, onOpen, onMoveToSprint, onAdd, onCreat
     );
   };
 
+  // Dock the backlog beside the sprints only when there are sprints to drag
+  // into. With none, the empty sprint column took two thirds of the width and
+  // squeezed a whole epic tree into the narrow pane, cutting every title.
+  const docked = twoPane && (live.length > 0 || finished.length > 0 || composing);
+
   const backlogRows = backlog.length
-    ? <TreeRows rows={backlog} ctx={ctx} compact={twoPane} />
+    ? <TreeRows rows={backlog} ctx={ctx} compact={docked} />
     : <p className="px-3 py-6 text-center text-2xs text-faint">Nothing waiting. Every task is in a sprint.</p>;
 
   return (
@@ -744,7 +749,7 @@ export function Backlog({ tasks, sprints, onOpen, onMoveToSprint, onAdd, onCreat
           )}
 
           {/* One column: the backlog goes back under the sprints, where it was. */}
-          {!twoPane && (
+          {!docked && (
             <Section
               title="Backlog"
               badge={<span className="shrink-0 rounded-full bg-surface px-1.5 py-0.5 text-2xs font-medium text-muted">{backlog.length}</span>}
@@ -757,7 +762,7 @@ export function Backlog({ tasks, sprints, onOpen, onMoveToSprint, onAdd, onCreat
         </div>
       </div>
 
-      {twoPane && (
+      {docked && (
         <BacklogPane
           count={backlog.length}
           onDropTask={(id) => onMoveToSprint(id, null)}
