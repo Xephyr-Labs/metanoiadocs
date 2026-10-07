@@ -2984,10 +2984,10 @@ registerTemplateRoutes(app, {
   // read-only is decided when a connection opens: an un-templated page would
   // otherwise stay writable to its viewers until they reloaded.
   rolesChanged: dropLiveConnections,
-  editGrant: async (docId, userId) => {
-    const role = await pageGrant(docId, userId);
-    return canEdit(role) ? role : null;
-  },
+  // Goes by the page's own grant, not the template rule, and needs the owner
+  // (or an admin): it changes what everyone else may do on the page.
+  templateGrant: async (docId, user) =>
+    user.role === 'admin' || (await pageGrant(docId, user.id)) === 'owner',
 });
 registerCsvRoutes(app, {
   requireUser, wrap, createDocRow,
