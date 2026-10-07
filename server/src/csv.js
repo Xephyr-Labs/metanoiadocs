@@ -96,6 +96,16 @@ export const BUILTIN_COLUMNS = {
   type: 'kind',
   kind: 'kind',
   repeat: 'repeatRule',
+  // The row's id in the system it came from. Stored in a text property named
+  // after the column, which is what lets a second run of the same file skip
+  // what the first one brought in, and what a Parent cell refers to.
+  id: 'externalId',
+  'external id': 'externalId',
+  parent: 'parent',
+  'parent id': 'parent',
+  created: 'createdAt',
+  'created at': 'createdAt',
+  'created date': 'createdAt',
   notes: 'notes',
   description: 'notes',
   details: 'notes',
