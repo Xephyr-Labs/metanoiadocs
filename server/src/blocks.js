@@ -188,10 +188,14 @@ export function parseMarkdown(md) {
       if (m[2].trim()) inner.push(m[2]);
       while (i + 1 < lines.length && /^>/.test(lines[i + 1])) inner.push(lines[++i].replace(/^>\s?/, ''));
       const panel = PANEL_ALIASES[m[1].toLowerCase()];
-      const children = parseMarkdown(inner.join('\n')).map((d) =>
+      // A panel quoted inside this one (`> > [!WARNING]`) cannot nest, so its
+      // lines join this panel's rather than vanishing with it.
+      const children = parseMarkdown(inner.join('\n')).flatMap((d) =>
         d.flavour === 'affine:paragraph' || d.flavour === 'affine:list'
-          ? d
-          : { flavour: 'affine:paragraph', type: 'text', text: d.text ?? (d.rows || []).map((r) => r.join(' | ')).join(' ') });
+          ? [d]
+          : d.flavour === 'affine:callout'
+            ? d.children
+            : [{ flavour: 'affine:paragraph', type: 'text', text: d.text ?? (d.rows || []).map((r) => r.join(' | ')).join(' ') }]);
       // An empty panel still needs a line to type into.
       if (!children.length) children.push({ flavour: 'affine:paragraph', type: 'text', text: '' });
       out.push({ flavour: 'affine:callout', panel, emoji: PANEL_EMOJI[panel], children });

@@ -228,3 +228,9 @@ test('> [!NOTE] becomes a note panel holding its lines, and exports back the sam
   assert.equal(docToMarkdown(buildDocState('T', markdown)).markdown, markdown);
   assert.match(extractText(state).text, /second entry/);
 });
+
+test('a panel quoted inside a panel keeps its lines', () => {
+  const { markdown } = docToMarkdown(buildDocState('T', '> [!NOTE]\n> > [!WARNING]\n> > inner warning\n> after'));
+  assert.match(markdown, /inner warning/);
+  assert.match(markdown, /after/);
+});
