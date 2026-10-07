@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { allMarked, markForKey, selectedCellKeys } from './tableFormat';
+import { allMarked, historyKey, isLinkKey, markForKey, selectedCellKeys, shortcutLetter } from './tableFormat';
 
-const key = (k: string, mods: Partial<{ ctrlKey: boolean; metaKey: boolean; shiftKey: boolean; altKey: boolean }> = {}) =>
+const key = (k: string, mods: Partial<{ code: string; ctrlKey: boolean; metaKey: boolean; shiftKey: boolean; altKey: boolean }> = {}) =>
   ({ key: k, ctrlKey: false, metaKey: false, shiftKey: false, altKey: false, ...mods });
 
 describe('markForKey', () => {
@@ -19,6 +19,35 @@ describe('markForKey', () => {
     expect(markForKey(key('b', { ctrlKey: true, altKey: true }), false)).toBeNull();
     expect(markForKey(key('B', { ctrlKey: true, shiftKey: true }), false)).toBeNull();
     expect(markForKey(key('b'), false)).toBeNull();
+  });
+});
+
+describe('shortcutLetter', () => {
+  it('reads the letter a non-Latin layout types from the physical key', () => {
+    expect(shortcutLetter({ key: 'и', code: 'KeyB' })).toBe('b');
+    expect(markForKey(key('и', { code: 'KeyB', ctrlKey: true }), false)).toBe('bold');
+  });
+
+  it('trusts a Latin key over its position, as BlockSuite does', () => {
+    // Dvorak: the key labelled B sits where QWERTY has N.
+    expect(shortcutLetter({ key: 'b', code: 'KeyN' })).toBe('b');
+    expect(shortcutLetter({ key: 'S', code: 'KeyS' })).toBe('s');
+  });
+});
+
+describe('isLinkKey and historyKey', () => {
+  it('take Ctrl+K off a Mac and Cmd+K on one, nothing else', () => {
+    expect(isLinkKey(key('k', { ctrlKey: true }), false)).toBe(true);
+    expect(isLinkKey(key('k', { metaKey: true }), true)).toBe(true);
+    expect(isLinkKey(key('k', { ctrlKey: true }), true)).toBe(false);
+    expect(isLinkKey(key('K', { ctrlKey: true, shiftKey: true }), false)).toBe(false);
+    expect(isLinkKey(key('л', { code: 'KeyK', ctrlKey: true }), false)).toBe(true);
+  });
+
+  it('reads undo and both redo bindings', () => {
+    expect(historyKey(key('z', { ctrlKey: true }), false)).toBe('undo');
+    expect(historyKey(key('Z', { metaKey: true, shiftKey: true }), true)).toBe('redo');
+    expect(historyKey(key('y', { ctrlKey: true }), false)).toBe('redo');
   });
 });
 

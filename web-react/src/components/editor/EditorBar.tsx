@@ -17,7 +17,8 @@ import {
 import { useCallback, useEffect, useState } from 'react';
 import { applyAlign, selectedCount } from '../../editor/designAlign';
 import { exportCanvasPng } from '../../editor/designExport';
-import { tableMarkActive, toggleTableMark } from '../../editor/tableFormat';
+import { tableMarkActive, toggleTableLink, toggleTableMark } from '../../editor/tableFormat';
+import { MOD_LABEL } from '../../lib/hotkeys';
 import { toast } from '../../lib/toast';
 import { MIN_FOR, type AlignMode } from '../../lib/align';
 import type { EditorMode } from '../../lib/types';
@@ -47,11 +48,15 @@ const LISTS = [
   { id: 'todo', label: 'To-do list', icon: ListTodo },
 ] as const;
 
+// The tooltips name the keys the platform uses: BlockSuite binds these to Cmd
+// on a Mac and Ctrl elsewhere, so a ⌘ shown on Windows or Linux was a key
+// those keyboards do not have.
+const SHIFT_LABEL = MOD_LABEL === '⌘' ? '⇧' : 'Shift';
 const MARKS = [
-  { id: 'bold', label: 'Bold', keys: ['⌘', 'B'], icon: Bold, cmd: toggleBold },
-  { id: 'italic', label: 'Italic', keys: ['⌘', 'I'], icon: Italic, cmd: toggleItalic },
-  { id: 'strike', label: 'Strikethrough', keys: ['⌘', '⇧', 'S'], icon: Strikethrough, cmd: toggleStrike },
-  { id: 'code', label: 'Inline code', keys: ['⌘', 'E'], icon: Code, cmd: toggleCode },
+  { id: 'bold', label: 'Bold', keys: [MOD_LABEL, 'B'], icon: Bold, cmd: toggleBold },
+  { id: 'italic', label: 'Italic', keys: [MOD_LABEL, 'I'], icon: Italic, cmd: toggleItalic },
+  { id: 'strike', label: 'Strikethrough', keys: [MOD_LABEL, SHIFT_LABEL, 'S'], icon: Strikethrough, cmd: toggleStrike },
+  { id: 'code', label: 'Inline code', keys: [MOD_LABEL, 'E'], icon: Code, cmd: toggleCode },
 ] as const;
 
 /** Align first, then distribute — the order everyone's muscle memory expects. */
@@ -182,6 +187,15 @@ export function EditorBar({ editor, mode, design, onMode, fullWidth, onFullWidth
     runMark(m.cmd);
   };
 
+  // In a table the cells take the link, as they take the marks; elsewhere it
+  // is BlockSuite's own command, not a synthesised ⌘K — a dispatched
+  // KeyboardEvent never reached its keymap, so the button used to do nothing.
+  const link = () => {
+    const s = std();
+    if (s && toggleTableLink(s)) return;
+    runMark(toggleLink);
+  };
+
   const setBlock = (flavour: string, props: Record<string, unknown>) => {
     const s = std();
     if (!s) return;
@@ -265,11 +279,9 @@ export function EditorBar({ editor, mode, design, onMode, fullWidth, onFullWidth
               size="sm"
               icon={<Link2 size={14} />}
               label="Link"
-              keys={['⌘', 'K']}
-              disabled={idle}
-              // BlockSuite's own command, not a synthesised ⌘K — a dispatched
-              // KeyboardEvent never reached its keymap, so this button did nothing.
-              onClick={() => runMark(toggleLink)}
+              keys={[MOD_LABEL, 'K']}
+              disabled={idle && !inTable}
+              onClick={link}
             />
           </span>
 
@@ -284,7 +296,7 @@ export function EditorBar({ editor, mode, design, onMode, fullWidth, onFullWidth
               items={[
                 ...MARKS.map((m) => ({ icon: m.icon, label: m.label, checked: !!marks[m.id], keepOpen: true, onSelect: () => toggleMark(m) })),
                 ...LISTS.map((l, i) => ({ icon: l.icon, label: l.label, checked: blockLabel === l.label, separatorBefore: i === 0, onSelect: () => setBlock('affine:list', { type: l.id }) })),
-                { icon: Link2, label: 'Link', separatorBefore: true, onSelect: () => runMark(toggleLink) },
+                { icon: Link2, label: 'Link', separatorBefore: true, onSelect: link },
               ]}
             />
           </span>

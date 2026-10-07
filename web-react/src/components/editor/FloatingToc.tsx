@@ -44,6 +44,23 @@ function stampLevels(root: ParentNode) {
   });
 }
 
+/**
+ * Name BlockSuite's "open in the side panel" button.
+ *
+ * It is an icon with a hover tooltip and no accessible name, so a screen
+ * reader announced a bare "button". It also sits a click away from the editor
+ * bar's own contents button, which shows and hides this rail, so the name says
+ * what is different about it: it moves the contents to the side panel. It is
+ * left out of the tab order as BlockSuite leaves it — the panel it lives in
+ * only opens under the pointer — and the editor bar's button and the side
+ * panel's Outline tab are the keyboard's way to the same place.
+ */
+const OPEN_IN_PANEL_LABEL = 'Open table of contents in side panel';
+function nameOpenInPanel(root: ParentNode) {
+  const button = root.querySelector('[data-testid="toggle-outline-panel-button"]');
+  if (button && button.getAttribute('aria-label') !== OPEN_IN_PANEL_LABEL) button.setAttribute('aria-label', OPEN_IN_PANEL_LABEL);
+}
+
 /** What the rail needs beside the text: its 20px offset from the column edge,
  *  its own 28px, and a little air so a dash never touches a line end. */
 const RAIL_RESERVE = 56;
@@ -109,7 +126,7 @@ export function FloatingToc({ editor, hidden, onFits }: {
     // The viewer re-renders its whole list whenever a heading is typed, moved or
     // deleted, which drops the stamps. Watching children only (never attributes)
     // is what keeps the stamping from re-triggering itself.
-    const stamp = () => stampLevels(viewer);
+    const stamp = () => { stampLevels(viewer); nameOpenInPanel(viewer); };
     const watch = new MutationObserver(stamp);
     watch.observe(viewer, { childList: true, subtree: true });
     stamp();
