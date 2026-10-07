@@ -1,4 +1,5 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { cn } from '../../lib/cn';
 import { useWorkspace } from '../../store/workspace';
 
 interface OutlineViewer extends HTMLElement {
@@ -43,9 +44,53 @@ function stampLevels(root: ParentNode) {
   });
 }
 
-export function FloatingToc({ editor }: { editor: Element | null }) {
+/** What the rail needs beside the text: its 20px offset from the column edge,
+ *  its own 28px, and a little air so a dash never touches a line end. */
+const RAIL_RESERVE = 56;
+
+/**
+ * Whether the rail fits in the column's right margin without sitting on text.
+ *
+ * The rail floats over the editor column rather than taking a column of its
+ * own, which is free while the page is centred in a wide window. Open the
+ * comments panel or put the window in half a screen and that margin goes to
+ * nothing: the rail lands on the ends of lines, and its hover strip — the
+ * full height of the page — pops a 282px list over the text whenever the
+ * pointer comes near the right edge. Below this, it gets out of the way.
+ */
+export function tocFits(columnRight: number, textRight: number): boolean {
+  return columnRight - textRight >= RAIL_RESERVE;
+}
+
+export function FloatingToc({ editor, hidden, onFits }: {
+  editor: Element | null;
+  /** Turned off from the editor bar. */
+  hidden: boolean;
+  onFits: (fits: boolean) => void;
+}) {
   const slotRef = useRef<HTMLDivElement>(null);
   const { setRightPanel } = useWorkspace();
+  const [fits, setFits] = useState(true);
+
+  useEffect(() => {
+    const column = slotRef.current?.parentElement;
+    const text = editor?.querySelector<HTMLElement>('.affine-page-root-block-container');
+    if (!column || !text) return;
+    const check = () => {
+      // The container is the centred measure plus its own side padding; the
+      // words end where the padding starts.
+      const textRight = text.getBoundingClientRect().right - parseFloat(getComputedStyle(text).paddingRight || '0');
+      setFits(tocFits(column.getBoundingClientRect().right, textRight));
+    };
+    // Both, because each moves on its own: the column with the side panels and
+    // the window, the text with the full-width toggle.
+    const ro = new ResizeObserver(check);
+    ro.observe(column);
+    ro.observe(text);
+    return () => ro.disconnect();
+  }, [editor]);
+
+  useEffect(() => onFits(fits), [fits, onFits]);
 
   useEffect(() => {
     const slot = slotRef.current;
@@ -78,7 +123,10 @@ export function FloatingToc({ editor }: { editor: Element | null }) {
   return (
     <div
       ref={slotRef}
-      className="mn-toc absolute right-5 top-8 bottom-12 z-20 hidden w-7 md:block"
+      // Hidden rather than unmounted, so turning it back on does not rebuild
+      // the viewer. The strip stops where the rail does (the dashes share at
+      // most 58vh): below that it was an invisible hover target over the text.
+      className={cn('mn-toc absolute right-5 top-8 bottom-12 z-20 hidden max-h-[58vh] w-7', fits && !hidden && 'md:block')}
       aria-label="Table of contents"
     />
   );

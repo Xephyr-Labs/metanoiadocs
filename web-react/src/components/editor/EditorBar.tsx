@@ -12,7 +12,7 @@ import {
   AlignHorizontalJustifyStart, AlignVerticalDistributeCenter, AlignVerticalJustifyCenter,
   AlignVerticalJustifyEnd, AlignVerticalJustifyStart,
   Bold, Check, ChevronDown, Code, Download, FileText, Italic, Link2, List, ListOrdered,
-  ListTodo, Maximize2, Minimize2, MoreHorizontal, PencilRuler, Presentation, Strikethrough,
+  ListTodo, ListTree, Maximize2, Minimize2, MoreHorizontal, PencilRuler, Presentation, Strikethrough,
 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { applyAlign, selectedCount } from '../../editor/designAlign';
@@ -76,6 +76,8 @@ interface Props {
   onMode: (m: EditorMode) => void;
   fullWidth: boolean;
   onFullWidth: (v: boolean) => void;
+  /** The table-of-contents button; EditorArea decides what it does. */
+  toc: { label: string; active: boolean; onClick: () => void };
 }
 
 /**
@@ -84,7 +86,7 @@ interface Props {
  * know it exists — this is the always-there entry point. It drives the same
  * command chain the floating toolbar does, so the two never disagree.
  */
-export function EditorBar({ editor, mode, design, onMode, fullWidth, onFullWidth }: Props) {
+export function EditorBar({ editor, mode, design, onMode, fullWidth, onFullWidth, toc }: Props) {
   const [marks, setMarks] = useState<Record<string, boolean>>({});
   const [blockLabel, setBlockLabel] = useState<string | null>(null);
   // Slides is the same canvas, so both hide the block-formatting half of the bar.
@@ -309,6 +311,15 @@ export function EditorBar({ editor, mode, design, onMode, fullWidth, onFullWidth
           { value: 'slides', label: 'Slides', icon: <Presentation size={14} /> },
         ]}
       />
+      {!edgeless && (
+        <IconButton
+          className="ml-0.5"
+          icon={<ListTree size={16} />}
+          label={toc.label}
+          active={toc.active}
+          onClick={toc.onClick}
+        />
+      )}
       {!edgeless && (
         <IconButton
           className={cn('ml-0.5')}
