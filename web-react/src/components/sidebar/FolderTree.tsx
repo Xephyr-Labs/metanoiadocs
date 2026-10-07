@@ -74,7 +74,7 @@ function DocumentRow({ id, depth }: { id: PageId; depth: number }) {
       {...drop.props}
       onClick={() => ws.select(id)}
       className={cn(
-        'group/row relative flex h-7 cursor-pointer items-center rounded-md pr-1 text-sm leading-5 transition-colors duration-120',
+        'group/row relative flex h-7 coarse:h-11 cursor-pointer items-center rounded-md pr-1 text-sm leading-5 transition-colors duration-120',
         selected ? 'bg-selected font-medium text-ink' : 'text-ink hover:bg-hover',
         drop.zone === 'inside' && 'bg-accent-soft text-accent-strong',
       )}
@@ -191,7 +191,7 @@ function FolderRow({ id, depth }: { id: string; depth: number }) {
         {...dragSource(FOLDER_MIME, id)}
         {...drop.props}
         className={cn(
-          'group/row relative flex h-7 items-center rounded-md pr-1 text-sm leading-5 text-ink hover:bg-hover',
+          'group/row relative flex h-7 coarse:h-11 items-center rounded-md pr-1 text-sm leading-5 text-ink hover:bg-hover',
           active && 'bg-selected font-medium',
           drop.zone === 'inside' && 'bg-accent-soft text-accent-strong',
         )}
@@ -206,7 +206,7 @@ function FolderRow({ id, depth }: { id: string; depth: number }) {
         )}
         {/* One w-5 slot shared with doc rows so names line up: folder icon at
             rest, chevron while hovering the row. */}
-        <button type="button" onClick={() => ws.toggleFolder(id)} className="mr-2 flex h-5 w-5 shrink-0 items-center justify-center rounded hover:bg-hover" aria-label={folder.expanded ? 'Collapse folder' : 'Expand folder'}>
+        <button type="button" onClick={() => ws.toggleFolder(id)} className="mn-hit mr-2 flex h-5 w-5 shrink-0 items-center justify-center rounded hover:bg-hover" aria-label={folder.expanded ? 'Collapse folder' : 'Expand folder'}>
           {hover && hasChildren ? (
             <ChevronRight size={14} className={cn('text-muted transition-transform duration-180', folder.expanded && 'rotate-90')} />
           ) : folder.expanded ? (
@@ -222,7 +222,7 @@ function FolderRow({ id, depth }: { id: string; depth: number }) {
           type="button"
           onClick={() => ws.openFolder(id)}
           onDoubleClick={() => setRenaming(true)}
-          className="flex min-w-0 flex-1 items-center text-left"
+          className="flex min-w-0 flex-1 items-center self-stretch text-left"
         >
           <span className={cn('truncate', active && 'font-medium')}>{folder.name}</span>
         </button>

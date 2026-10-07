@@ -22,7 +22,7 @@ export function ShowMoreRow({ rest, depth, onClick }: { rest: number; depth: num
     <button
       type="button"
       onClick={onClick}
-      className="flex h-7 w-full items-center gap-2 rounded-md pr-1 text-left text-sm text-muted transition-colors duration-120 hover:bg-hover hover:text-ink"
+      className="flex h-7 coarse:h-11 w-full items-center gap-2 rounded-md pr-1 text-left text-sm text-muted transition-colors duration-120 hover:bg-hover hover:text-ink"
       style={{ paddingLeft: 8 + depth * 16 }}
     >
       <span className="flex h-5 w-5 shrink-0 items-center justify-center"><ChevronDown size={14} /></span>

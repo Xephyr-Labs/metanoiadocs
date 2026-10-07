@@ -6,7 +6,7 @@
  *   <select className={cn(field, 'h-7 w-auto text-xs')} />
  */
 export const field =
-  'h-8 w-full rounded-md bg-surface px-2.5 text-sm text-ink outline-none ring-1 ring-inset ring-line ' +
+  'h-8 coarse:min-h-11 w-full rounded-md bg-surface px-2.5 text-sm text-ink outline-none ring-1 ring-inset ring-line ' +
   'placeholder:text-faint transition-shadow duration-120 focus:ring-2 focus:ring-accent ' +
   'disabled:opacity-50';
 

@@ -1060,7 +1060,7 @@ export function SettingsDialog() {
                   type="button"
                   onClick={() => setSection(it.id)}
                   className={cn(
-                    'flex h-8 shrink-0 items-center gap-2.5 whitespace-nowrap rounded-md px-2.5 text-sm transition-colors duration-120 md:w-full md:px-2',
+                    'flex h-8 coarse:h-11 shrink-0 items-center gap-2.5 whitespace-nowrap rounded-md px-2.5 text-sm transition-colors duration-120 md:w-full md:px-2',
                     current === it.id ? 'bg-selected font-medium text-ink' : 'text-muted hover:bg-hover',
                   )}
                 >

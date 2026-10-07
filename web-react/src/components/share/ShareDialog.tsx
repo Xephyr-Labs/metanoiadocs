@@ -11,6 +11,7 @@ import { Button } from '../ui/Button';
 import { field } from '../ui/styles';
 import { Modal } from '../ui/Modal';
 import { SegmentedControl } from '../ui/SegmentedControl';
+import { Switch } from '../ui/Switch';
 
 /** What each role may do, in the words the picker uses. */
 const ROLES: { id: Exclude<DocRole, 'owner'>; label: string; hint: string }[] = [
@@ -233,9 +234,9 @@ export function ShareDialog() {
                 : 'Can view this page'}
             </p>
           </div>
-          <button type="button" role="switch" aria-checked={!!token} onClick={togglePublic} disabled={busyLink} className={cn('relative h-[22px] w-[38px] rounded-full transition-colors duration-180', token ? 'bg-accent' : 'bg-line-strong')}>
-            <motion.span layout transition={{ type: 'spring', stiffness: 500, damping: 34 }} className={cn('absolute top-[3px] h-4 w-4 rounded-full bg-white shadow', token ? 'left-[19px]' : 'left-[3px]')} />
-          </button>
+          {/* The shared switch, not a copy of it: this one had no accessible
+              name, so a screen reader announced an unlabelled toggle. */}
+          <Switch on={!!token} onChange={() => togglePublic()} disabled={busyLink} label="Share with a link" />
         </div>
 
         <AnimatePresence>
