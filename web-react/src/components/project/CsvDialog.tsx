@@ -10,6 +10,7 @@ import { cn } from '../../lib/cn';
 import { tasksApi, type CsvImportResult } from '../../lib/tasksApi';
 import { Button } from '../ui/Button';
 import { Modal } from '../ui/Modal';
+import { useAuth } from '../../store/auth';
 
 interface Props {
   open: boolean;
@@ -40,6 +41,8 @@ export function CsvDialog({ open, onOpenChange, projectId, onImported }: Props) 
   const [file, setFile] = useState<{ name: string; text: string } | null>(null);
   const [preview, setPreview] = useState<CsvImportResult | null>(null);
   const [createMissing, setCreateMissing] = useState(true);
+  const isAdmin = useAuth().user?.role === 'admin';
+  const [silent, setSilent] = useState(false);
   const [state, setState] = useState<'idle' | 'reading' | 'importing'>('idle');
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<number | null>(null);
@@ -79,7 +82,7 @@ export function CsvDialog({ open, onOpenChange, projectId, onImported }: Props) 
     setState('importing');
     setError(null);
     try {
-      const result = await tasksApi.importCsv(projectId, file.text, { create: createMissing });
+      const result = await tasksApi.importCsv(projectId, file.text, { create: createMissing, silent: isAdmin && silent });
       setDone(result.created);
       setPreview(result);
       onImported();
@@ -106,9 +109,10 @@ export function CsvDialog({ open, onOpenChange, projectId, onImported }: Props) 
             <p className="text-sm text-ink">
               {done === 0 ? 'Nothing was added.' : `Added ${done} ${done === 1 ? 'row' : 'rows'}.`}
             </p>
-            {preview && preview.errorCount > 0 && (
+            {preview && preview.skipped > 0 && (
               <p className="mt-1 text-2xs text-muted">
-                {preview.errorCount} {preview.errorCount === 1 ? 'row was' : 'rows were'} skipped.
+                {preview.skipped} {preview.skipped === 1 ? 'row was' : 'rows were'} skipped
+                {preview.already ? `, ${preview.already} of them already imported` : ''}.
               </p>
             )}
             <div className="mt-3 flex gap-2">
@@ -122,6 +126,16 @@ export function CsvDialog({ open, onOpenChange, projectId, onImported }: Props) 
               One column has to be called <span className="font-medium text-ink">Title</span>. Others
               are matched to this database's properties by name — Status, Assignee, Due date, Points
               and Estimate are understood too.
+            </p>
+            {/* The contract for moving a tracker across, said where the file
+                is chosen rather than in a doc nobody opens first. */}
+            <p className="mt-1.5 text-2xs leading-4 text-muted">
+              <span className="font-medium text-ink">Type</span> names one of this project's types.{' '}
+              <span className="font-medium text-ink">ID</span> is the row's id where it came from: it is
+              kept in an ID property, and rows already imported with that ID are skipped, so a file can
+              be imported again safely. <span className="font-medium text-ink">Parent</span> names another
+              row's ID, or a task key like DE-4, and must be a type that can hold tasks, such as Epic.
+              Status is todo, doing, review or done.
             </p>
             {/* Said before the file is chosen, because the surprise otherwise
                 arrives later and quietly: a rule that assigns every new task to
@@ -197,18 +211,31 @@ export function CsvDialog({ open, onOpenChange, projectId, onImported }: Props) 
                   </label>
                 )}
 
+                {isAdmin && (
+                  <label className="mt-2 flex items-center gap-2 text-2xs text-muted">
+                    <input
+                      type="checkbox"
+                      checked={silent}
+                      onChange={(e) => setSilent(e.target.checked)}
+                      className="h-3.5 w-3.5 rounded border-line text-accent-fill focus:ring-2 focus:ring-accent"
+                    />
+                    Don't notify anyone — no inbox, email, push or agent runs for these rows
+                  </label>
+                )}
+
                 <p className="mt-3 text-sm text-ink">
                   {preview.created} {preview.created === 1 ? 'row' : 'rows'} ready
-                  {preview.errorCount > 0 && (
+                  {preview.skipped > 0 && (
                     <span className="text-muted">
-                      , {preview.errorCount} skipped
+                      , {preview.skipped} skipped
+                      {preview.already ? ` (${preview.already} already imported)` : ''}
                     </span>
                   )}
                 </p>
                 {preview.errors.length > 0 && (
                   <ul className="mt-1 max-h-24 overflow-auto text-2xs text-muted">
-                    {preview.errors.map((e) => (
-                      <li key={e.line}>Line {e.line}: {e.error}</li>
+                    {preview.errors.map((e, i) => (
+                      <li key={i}>Line {e.line}: {e.error}</li>
                     ))}
                   </ul>
                 )}
