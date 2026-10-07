@@ -161,3 +161,61 @@ export function subtreeIndex(rows: TaskRow[]): Map<string, { done: number; total
   buildTaskTree(rows).forEach(walk);
   return index;
 }
+
+/**
+ * A list's top-level rows, split by whether they belong to an epic.
+ *
+ * `grouped` is the epics themselves (each carrying its subtree), then rows
+ * whose epic sits in another section — they belong to one, it just is not
+ * here. `orphans` is everything that belongs to none. The backlog draws a
+ * "No epic" divider between the two, because a loose story listed between two
+ * epics reads as part of the one above it.
+ *
+ * Input order is kept inside each part.
+ */
+export function sectionRoots(
+  roots: TaskNode[],
+  isGroup: (task: TaskRow) => boolean,
+): { grouped: TaskNode[]; orphans: TaskNode[] } {
+  const epics: TaskNode[] = [];
+  const pointed: TaskNode[] = [];
+  const orphans: TaskNode[] = [];
+  for (const node of roots) {
+    if (isGroup(node.task)) epics.push(node);
+    else if (node.task.parent_id) pointed.push(node);
+    else orphans.push(node);
+  }
+  return { grouped: [...epics, ...pointed], orphans };
+}
+
+/** Every row in the trees that has children of its own — what "collapse all"
+ *  folds. Leaves have nothing to fold, so they are left out. */
+export function branchIds(nodes: TaskNode[]): string[] {
+  const out: string[] = [];
+  const walk = (node: TaskNode) => {
+    if (node.children.length) out.push(node.task.id);
+    node.children.forEach(walk);
+  };
+  nodes.forEach(walk);
+  return out;
+}
+
+/**
+ * Whether `dragged` may be dropped onto `target` to make it the parent.
+ *
+ * Only a container type takes children, the same rule the peek's parent
+ * picker applies; a container is not nested under another one (the picker
+ * does not offer it a parent at all); and dropping a row where it already
+ * sits, or onto itself, would be a write that changes nothing. Cycles cannot
+ * arise from these rules, and the server checks them again regardless.
+ */
+export function canDropOnParent(
+  dragged: TaskRow | undefined,
+  target: TaskRow,
+  isGroup: (task: TaskRow) => boolean,
+): boolean {
+  if (!dragged || dragged.id === target.id) return false;
+  if (!isGroup(target) || isGroup(dragged)) return false;
+  if (dragged.project_id !== target.project_id) return false;
+  return dragged.parent_id !== target.id;
+}
