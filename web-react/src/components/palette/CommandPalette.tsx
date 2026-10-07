@@ -29,6 +29,11 @@ type Item =
   | { kind: 'database'; id: string; title: string; icon: string }
   | { kind: 'command'; id: string; title: string; icon: typeof Search; run: () => void };
 
+/** Search snippets come from Postgres's ts_headline, which wraps each hit in
+ *  `<b>`. Rendered as text those tags printed literally ("<b>launch</b> moves"),
+ *  and the title above already marks the match, so the tags are dropped. */
+const stripMarks = (s: string) => s.replace(/<\/?b>/g, '');
+
 export function CommandPalette() {
   const ws = useWorkspace();
   const [q, setQ] = useState('');
@@ -126,7 +131,7 @@ export function CommandPalette() {
         kind: 'task' as const,
         id: r.id,
         title: r.title,
-        sub: r.snippet || '',
+        sub: stripMarks(r.snippet || ''),
         projectId: r.projectId ?? '',
         status: r.status ?? 'todo',
       }
@@ -134,7 +139,7 @@ export function CommandPalette() {
         kind: 'page' as const,
         id: r.id,
         title: r.title,
-        sub: (r.snippet || '').replace(/\s+/g, ' ').trim().slice(0, 60),
+        sub: stripMarks(r.snippet || '').replace(/\s+/g, ' ').trim().slice(0, 60),
       }))
     : allPages.slice(0, 5);
 
@@ -222,7 +227,7 @@ export function CommandPalette() {
                   data-idx={myIdx}
                   onMouseMove={() => setActive(myIdx)}
                   onClick={() => choose(it)}
-                  className={cn('flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-left text-base transition-colors', isActive ? 'bg-hover' : 'hover:bg-hover')}
+                  className={cn('flex w-full items-center gap-2.5 rounded-md px-2 py-2 coarse:min-h-11 text-left text-base transition-colors', isActive ? 'bg-hover' : 'hover:bg-hover')}
                 >
                   {/* The glyph column is never empty: it is what says whether a
                       row is a page, a task, a database or a verb. */}

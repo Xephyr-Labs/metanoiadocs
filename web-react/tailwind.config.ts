@@ -1,4 +1,5 @@
 import type { Config } from 'tailwindcss';
+import plugin from 'tailwindcss/plugin';
 
 /**
  * Semantic tokens live as CSS custom properties in index.css (light + .dark).
@@ -113,5 +114,10 @@ export default {
       },
     },
   },
-  plugins: [],
+  plugins: [
+    // `coarse:` is a fingertip, wherever it is: a phone, a tablet, a touch
+    // laptop. The same media query `.mn-hit` keys off in index.css, so a
+    // control that grows to 44px for a finger does it on the same devices.
+    plugin(({ addVariant }) => addVariant('coarse', '@media (pointer: coarse)')),
+  ],
 } satisfies Config;

@@ -148,7 +148,7 @@ export function TaskLine({ task, onOpen }: { task: MyTask; onOpen: () => void })
     <button
       type="button"
       onClick={onOpen}
-      className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors duration-120 hover:bg-hover"
+      className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors duration-120 hover:bg-hover coarse:min-h-11"
     >
       <span
         className={cn(
@@ -201,7 +201,7 @@ export function ActivityLine({ row, onOpen }: { row: ActivityRow; onOpen: () => 
     <button
       type="button"
       onClick={onOpen}
-      className="flex w-full items-start gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors duration-120 hover:bg-hover"
+      className="flex w-full items-start gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors duration-120 hover:bg-hover coarse:min-h-11 coarse:py-2.5"
     >
       <span
         className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-3xs font-semibold text-white"

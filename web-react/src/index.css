@@ -28,21 +28,24 @@
   --selected: #e9e8e5;
   --ink: #37352f;
   /* Three inks, each a clear step quieter than the last: ink 12.4:1, muted
-   * 6.5:1, faint 4.8:1 on the canvas. Faint is not only icons — it letters
+   * 6.5:1, faint 5.6:1 on the canvas. Faint is not only icons — it letters
    * every timestamp, count, group heading and byline in the app, so it has to
-   * clear AA for 12px text (4.8 on the canvas, 4.5 on the sidebar surface).
-   * At 3.7:1 it failed on every screen. Muted moved down with it so the two
-   * stay distinguishable instead of meeting in the middle. */
+   * clear AA for 12px text on every surface a row can be in, not just at rest:
+   * 5.2 on the sidebar surface, 4.9 on a hovered row, 4.6 on a selected one.
+   * The previous #73726d read 4.49 on the surface and 4.2 under the hover, so
+   * the ⌘K hint and every hovered inbox timestamp sat just under the line. */
   --muted: #5f5e59;
-  --faint: #73726d;
+  --faint: #696863;
   --line: #e9e9e7;
   --line-strong: #dcdbd8;
   --accent: #2383e2;
   /* The accent, darkened until it can carry text. #2383e2 is 4.0:1 on white —
    * fine as a fill or a 2px rule, under AA as 14px lettering, which is exactly
-   * what the unread-inbox row is. 5.1:1 here. Dark mode needs no twin: the
-   * lighter accent already reads 6.5:1 on the near-black canvas. */
-  --accent-strong: #1a6fc4;
+   * what the unread-inbox row is. 5.3:1 here, and 4.7:1 on a hovered row,
+   * which is where the palette draws its match highlight (the earlier #1a6fc4
+   * fell to 4.48 there). Dark mode needs no twin: the lighter accent already
+   * reads 6.5:1 on the near-black canvas. */
+  --accent-strong: #1a6cbf;
   --accent-soft: #eaf3fc;
   /* A filled surface carrying white text — primary buttons, unread badges,
      today's date. One step deeper than --accent: white on #2383e2 is 3.9:1,
