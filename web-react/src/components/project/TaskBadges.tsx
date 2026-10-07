@@ -49,15 +49,25 @@ export function showsKindBadge(kind: TaskKind, kinds: TaskKindRow[]): boolean {
  */
 export function KindBadge({ kind, always }: {
   kind: TaskKind;
-  /** Draw it even for the default type or a project with one type. A view
-   *  that lists Type among its shown properties has already said it wants
-   *  the type on every card; skipping the plain ones made Type look missing
-   *  from most of the board. */
+  /** Name the type even for the default type or a project with one type. A
+   *  view that lists Type among its shown properties has already said it
+   *  wants the type on every card; skipping the plain ones made Type look
+   *  missing from most of the board. */
   always?: boolean;
 }) {
   const kinds = useKinds();
   const row = useKind(kind);
-  if (!always && !showsKindBadge(kind, kinds)) return null;
+  if (!showsKindBadge(kind, kinds)) {
+    if (!always) return null;
+    // Asked for, but unremarkable. A filled uppercase chip on every plain task
+    // turned a board into a wall of TASK, and the one Bug among them stopped
+    // standing out — which is the whole reason to show Type. The plain type is
+    // still named, in the quiet ink the card uses for its other metadata, so
+    // the reader can see it; the coloured chip is kept for the types that
+    // differ from the default.
+    const label = row?.label ?? kind;
+    return <span title={`Type: ${label}`} className="shrink-0 text-2xs text-faint">{label}</span>;
+  }
   if (!row) {
     return (
       <span
