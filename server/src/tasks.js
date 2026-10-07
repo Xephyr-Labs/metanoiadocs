@@ -13,6 +13,7 @@ import { applyAutomations, fireTrigger } from './automations.js';
 import { emit } from './webhooks.js';
 import { KEY_PREFIX, KEY_RE, deriveKey, uniqueKey, withKey } from './task-key.js';
 import { isRepeatRule, nextOccurrence } from './repeat.js';
+import { checkParent } from './task-parent.js';
 
 export const STATUSES = ['todo', 'doing', 'review', 'done'];
 
@@ -82,7 +83,7 @@ export function cleanBuiltinProps(value) {
  * renamed, recoloured or deleted like any type someone adds later. */
 export const DEFAULT_KINDS = [
   { key: 'epic', label: 'Epic', color: 'purple', is_group: true },
-  { key: 'story', label: 'Story', color: 'blue', is_group: false },
+  { key: 'story', label: 'Story', color: 'green', is_group: false },
   { key: 'task', label: 'Task', color: 'gray', is_group: false },
   { key: 'bug', label: 'Bug', color: 'red', is_group: false },
 ];
@@ -745,6 +746,15 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
     if (req.body?.repeatRule && !isRepeatRule(req.body.repeatRule)) {
       return res.status(400).json({ error: 'bad repeat rule' });
     }
+    // Checked before the number is claimed, for the same reason the assignees
+    // are below: a parent that fails the foreign key used to burn a number and
+    // answer "internal error".
+    let parentId = null;
+    if (req.body?.parentId) {
+      const parent = await checkParent({ projectId, ref: req.body.parentId });
+      if (parent.error) return res.status(400).json({ error: parent.error });
+      parentId = parent.id;
+    }
     const id = crypto.randomUUID();
     // Append to the bottom of its column.
     const { rows: pos } = await pool.query(
@@ -799,7 +809,7 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
         req.body?.points == null ? null : Number(req.body.points) || 0,
         !!req.body?.milestone,
         req.body?.docId || null,
-        req.body?.parentId || null,
+        parentId,
         kind, sprintId,
         pos[0].n, JSON.stringify(checked.value), req.user.id,
         claim[0].task_seq,
@@ -934,26 +944,14 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
       set('sprint_id', sprintId);
     }
     if (b.parentId !== undefined) {
-      const parentId = typeof b.parentId === 'string' ? b.parentId : null;
+      let parentId = typeof b.parentId === 'string' && b.parentId ? b.parentId : null;
       if (parentId) {
-        if (parentId === req.params.id) return res.status(400).json({ error: 'a task cannot be its own parent' });
-        const { rows: pair } = await pool.query(
-          'SELECT id, project_id FROM tasks WHERE id = ANY($1) AND deleted_at IS NULL',
-          [[req.params.id, parentId]]
-        );
-        if (pair.length !== 2 || pair[0].project_id !== pair[1].project_id) {
-          return res.status(400).json({ error: 'parent must be a task in the same project' });
-        }
-        // Walk up from the proposed parent (seen guards pre-broken data);
-        // reaching this task means the move would close a loop.
-        const seen = new Set();
-        let cur = parentId;
-        while (cur && !seen.has(cur)) {
-          seen.add(cur);
-          const { rows: up } = await pool.query('SELECT parent_id FROM tasks WHERE id = $1', [cur]);
-          cur = up[0]?.parent_id || null;
-          if (cur === req.params.id) return res.status(400).json({ error: 'that would create a cycle' });
-        }
+        const { rows: owner } = await pool.query(
+          'SELECT project_id FROM tasks WHERE id = $1 AND deleted_at IS NULL', [req.params.id]);
+        if (!owner[0]) return res.status(404).json({ error: 'not found' });
+        const parent = await checkParent({ childId: req.params.id, projectId: owner[0].project_id, ref: parentId });
+        if (parent.error) return res.status(400).json({ error: parent.error });
+        parentId = parent.id;
       }
       set('parent_id', parentId);
     }

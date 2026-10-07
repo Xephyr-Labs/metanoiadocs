@@ -22,10 +22,11 @@ import { useWorkspace } from '../../store/workspace';
 import { DocIcon } from '../ui/DocIcon';
 import { Modal } from '../ui/Modal';
 import { ProjectIcon } from '../ui/ProjectIcon';
+import { KindIcon } from '../project/TaskBadges';
 
 type Item =
   | { kind: 'page'; id: string; title: string; sub: string }
-  | { kind: 'task'; id: string; title: string; sub: string; projectId: string; status: string }
+  | { kind: 'task'; id: string; title: string; sub: string; projectId: string; status: string; taskKind?: string }
   | { kind: 'database'; id: string; title: string; icon: string }
   | { kind: 'command'; id: string; title: string; icon: typeof Search; run: () => void };
 
@@ -134,6 +135,7 @@ export function CommandPalette() {
         sub: stripMarks(r.snippet || ''),
         projectId: r.projectId ?? '',
         status: r.status ?? 'todo',
+        taskKind: r.taskKind,
       }
       : {
         kind: 'page' as const,
@@ -235,7 +237,9 @@ export function CommandPalette() {
                     {it.kind === 'page' ? (
                       <span className="text-faint"><DocIcon hasChildren={(ws.pages[it.id]?.children.length ?? 0) > 0} size={16} className="" /></span>
                     ) : it.kind === 'task' ? (
-                      <span className={cn('h-2 w-2 rounded-full', swatch(STATUS_COLOR[it.status] || 'gray').dot)} />
+                      it.taskKind
+                        ? <KindIcon kind={it.taskKind} />
+                        : <span className={cn('h-2 w-2 rounded-full', swatch(STATUS_COLOR[it.status] || 'gray').dot)} />
                     ) : it.kind === 'database' ? (
                       <ProjectIcon project={{ id: it.id, name: it.title, icon: it.icon }} size={16} />
                     ) : (

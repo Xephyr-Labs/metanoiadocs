@@ -11,12 +11,12 @@ import { isImageFile, isVideoFile, type StoredFile } from '../../lib/uploads';
 import type { TaskLinks } from '../../lib/taskTree';
 import type { PropRow, TaskRow } from '../../lib/tasksApi';
 import type { UserRow } from '../../lib/docsApi';
-import { isOverdue } from './TaskBadges';
+import { isOverdue, KindIcon } from './TaskBadges';
 import { PropChips } from './props/PropChips';
 
 // Re-exported so the views that drew these long before the property system
 // existed keep their import path.
-export { AssigneeStack, KindBadge, shortDate, isOverdue } from './TaskBadges';
+export { AssigneeStack, KindIcon, shortDate, isOverdue } from './TaskBadges';
 
 /**
  * A task as it appears on the board, in the gallery and in the calendar.
@@ -86,6 +86,10 @@ export function TaskChip({ task, onOpen, compact, flush, cover, cardProps, users
 
       {cardProps?.length ? (
         <PropChips task={task} props={cardProps} users={users} skipFile={cover} className="mt-2" />
+      ) : !cardProps ? (
+        // No view setting to ask (the cross-project board): the type is the
+        // one property every task has, so it is drawn anyway.
+        <div className="mt-2 flex"><KindIcon kind={task.kind} /></div>
       ) : null}
 
       {task.progress > 0 && task.status !== 'done' && (

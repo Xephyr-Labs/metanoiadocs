@@ -6,7 +6,7 @@
  * contrast: pass (40-41) · mobile: pass (320/375/414/768) · tokens: pass (48)
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarDays, ChevronLeft, ChevronRight, List, Plus } from 'lucide-react';
+import { AlarmClock, CalendarDays, ChevronLeft, ChevronRight, List, Plus } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { addDays, daysBetween, todayISO, toUTC, weekSegments } from '../../lib/gantt';
 import { agendaFor, monthDays } from '../../lib/agenda';
@@ -17,7 +17,8 @@ import type { UserRow } from '../../lib/docsApi';
 import { IconButton } from '../ui/IconButton';
 import { SearchSelect } from '../ui/SearchSelect';
 import { Button } from '../ui/Button';
-import { isOverdue, shortDate } from './TaskChip';
+import { isOverdue, KindIcon, shortDate } from './TaskChip';
+import { splitKindProp } from '../../lib/taskKinds';
 import { PropChips } from './props/PropChips';
 
 /** Monday-first grid of whole weeks covering the given month. */
@@ -407,28 +408,32 @@ function AgendaCard({ task, note, cardProps, users, onOpen }: {
   const overdue = isOverdue(task);
   const done = task.status === 'done';
   const { key, text } = splitKey(task.title);
+  const { showKind, rest } = splitKindProp(cardProps);
   return (
     <button
       type="button"
       onClick={onOpen}
       className={cn(
         'flex min-h-11 w-full flex-col items-start gap-1.5 rounded-md border px-3 py-2.5 text-left transition-colors',
-        overdue ? 'border-danger-soft bg-danger-soft' : 'border-line bg-canvas active:bg-hover',
+        'bg-canvas active:bg-hover',
+        overdue ? 'border-dashed border-danger-strong' : 'border-line',
       )}
     >
       <span className="w-full break-words text-sm leading-5">
+        {showKind && <KindIcon kind={task.kind} className="mr-1.5 align-[-3px]" />}
+        {overdue && <Overdue className="mr-1.5 align-[-2px]" />}
         {key && <span className="mr-1.5 font-mono text-2xs font-semibold tracking-tight text-muted">{key}</span>}
         <span
           className={cn(
             'font-medium',
-            done ? 'text-muted line-through' : overdue ? 'text-danger-strong' : 'text-ink',
+            done ? 'text-muted line-through' : 'text-ink',
           )}
         >
           {text || 'Untitled'}
         </span>
       </span>
       {note && <span className="text-2xs text-muted">{note}</span>}
-      <PropChips task={task} props={cardProps} users={users} />
+      <PropChips task={task} props={rest} users={users} />
     </button>
   );
 }
@@ -677,6 +682,7 @@ function Card({
   const t = seg.task;
   const overdue = isOverdue(t);
   const done = t.status === 'done';
+  const { showKind, rest } = splitKindProp(cardProps);
 
   return (
     <div
@@ -687,10 +693,11 @@ function Card({
         seg.closes ? 'rounded-r-md' : 'border-r-0',
         // A card is a target, so it answers the pointer the way every other
         // task surface does — white to the same light grey the table rows and
-        // the board cards use. An overdue card keeps its tint: the warning is
-        // the point of it, and a hover state that paints over it reads as the
-        // row having been fixed.
-        overdue ? 'border-danger-soft bg-danger-soft' : 'border-line hover:border-line-strong hover:bg-hover',
+        // the board cards use. An overdue card is marked by a dashed red edge
+        // and a clock, not a red wash: red fill is the Bug type's colour, and
+        // a late story painted red read as a bug.
+        'hover:bg-hover',
+        overdue ? 'border-dashed border-danger-strong' : 'border-line hover:border-line-strong',
         resizing && 'ring-1 ring-accent',
       )}
     >
@@ -710,21 +717,21 @@ function Card({
         title={t.title || 'Untitled'}
         className="flex w-full min-w-0 cursor-pointer flex-col items-start gap-1 px-2 py-1.5 text-left"
       >
-        <span
-          className={cn(
-            'w-full truncate text-2xs font-semibold',
-            done ? 'text-muted line-through' : overdue ? 'text-danger-strong' : 'text-ink',
-          )}
-        >
-          {/* A continuation card repeats the title only when it starts the row
-              of cells, so a five-day task doesn't print its name twice. */}
-          {seg.opens || seg.col === 0 ? t.title || 'Untitled' : ' '}
+        {/* A continuation card repeats the title only when it starts the row
+            of cells, so a five-day task does not print its name twice. The
+            type and the overdue clock travel with the title. */}
+        <span className="flex w-full min-w-0 items-center gap-1">
+          {(seg.opens || seg.col === 0) && showKind && <KindIcon kind={t.kind} />}
+          {(seg.opens || seg.col === 0) && overdue && <Overdue />}
+          <span className={cn('min-w-0 flex-1 truncate text-2xs font-semibold', done ? 'text-muted line-through' : 'text-ink')}>
+            {seg.opens || seg.col === 0 ? t.title || 'Untitled' : ' '}
+          </span>
         </span>
         {/* Below `sm` a day column is about 45px. A chip does not fit in that,
             and wrapping three of them turns a one-day card into a stack of
             unreadable fragments — measured at 375px. The title survives; the
             properties are one tap away in the peek panel. */}
-        <PropChips task={t} props={cardProps} users={users} className="hidden sm:flex" />
+        <PropChips task={t} props={rest} users={users} className="hidden sm:flex" />
       </button>
 
       {canResize && seg.opens && (
@@ -805,5 +812,16 @@ function Grip({
           so a keyboard user sees the edge they are about to move, not a sliver. */}
       <span className="pointer-events-none absolute inset-y-0 -inset-x-0.5 rounded-sm ring-accent group-focus-visible/grip:ring-2" />
     </button>
+  );
+}
+
+/** Past its due date and not done. A glyph and a name, so lateness is not
+ *  carried by the dashed red edge alone. */
+function Overdue({ className }: { className?: string }) {
+  return (
+    <span className={cn('inline-flex shrink-0 text-danger-strong', className)} title="Overdue">
+      <AlarmClock size={12} strokeWidth={2.25} aria-hidden />
+      <span className="sr-only">Overdue</span>
+    </span>
   );
 }

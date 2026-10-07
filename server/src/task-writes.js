@@ -25,30 +25,33 @@ export const MAX_ASSIGNEES = 20;
  * Order is the caller's, not the database's: the first name is the one a narrow
  * cell shows, so it must be the one they put first.
  */
-export async function knownUsers(ids) {
+export async function knownUsers(ids, db = pool) {
   if (!ids?.length) return [];
-  const { rows } = await pool.query('SELECT id FROM users WHERE id = ANY($1)', [ids]);
+  const { rows } = await db.query('SELECT id FROM users WHERE id = ANY($1)', [ids]);
   const known = new Set(rows.map((r) => r.id));
   return ids.filter((id) => known.has(id));
 }
 
-export async function setAssignees(taskId, ids) {
-  const wanted = await knownUsers(ids);
-  const { rows: before } = await pool.query(
+// `db` is a transaction's client when the task itself is not committed yet —
+// the CSV import writes a whole file in one, and on the shared pool the
+// foreign key to a row nobody else can see yet would fail.
+export async function setAssignees(taskId, ids, db = pool) {
+  const wanted = await knownUsers(ids, db);
+  const { rows: before } = await db.query(
     'SELECT user_id FROM task_assignees WHERE task_id = $1', [taskId]
   );
-  await pool.query(
+  await db.query(
     'DELETE FROM task_assignees WHERE task_id = $1 AND NOT (user_id = ANY($2))', [taskId, wanted]
   );
   if (wanted.length) {
-    await pool.query(
+    await db.query(
       `INSERT INTO task_assignees (task_id, user_id, position)
        SELECT $1, u, ord - 1 FROM unnest($2::text[]) WITH ORDINALITY AS x(u, ord)
        ON CONFLICT (task_id, user_id) DO UPDATE SET position = EXCLUDED.position`,
       [taskId, wanted]
     );
   }
-  await pool.query('UPDATE tasks SET assignee_id = $2 WHERE id = $1', [taskId, wanted[0] ?? null]);
+  await db.query('UPDATE tasks SET assignee_id = $2 WHERE id = $1', [taskId, wanted[0] ?? null]);
   const had = new Set(before.map((r) => r.user_id));
   return wanted.filter((id) => !had.has(id));
 }

@@ -2062,7 +2062,7 @@ app.get('/api/search', requireUser, wrap(async (req, res) => {
   // its own visibility — that is the doc half of these results.
   const named = parseKeyQuery(q);
   const { rows: taskRows } = await pool.query(
-    `SELECT t.id, t.title, t.num, t.status, t.due_at,
+    `SELECT t.id, t.title, t.num, t.status, t.due_at, t.kind,
             t.project_id, p.name AS project_name, p.icon AS project_icon,
             (lower(p.key) = lower($3::text) AND t.num = $4::int) AS named
        FROM tasks t
@@ -2088,6 +2088,8 @@ app.get('/api/search', requireUser, wrap(async (req, res) => {
     projectIcon: r.project_icon,
     status: r.status,
     dueAt: r.due_at,
+    // The palette draws the type icon from this, like every other task row.
+    taskKind: r.kind,
   }));
 
   // A query that names a task answers with that task first; anything else is a

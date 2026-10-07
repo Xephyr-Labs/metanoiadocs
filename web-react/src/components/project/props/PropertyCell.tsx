@@ -8,7 +8,8 @@ import { isAuditProp, isBuiltinProp, readBuiltin, writeBuiltin } from '../../../
 import { isComputed, type PropOption, type PropRow, type TaskPatch, type TaskRow } from '../../../lib/tasksApi';
 import { AssigneePicker } from '../AssigneePicker';
 import { TagsCell } from './TagsCell';
-import { isOverdue } from '../TaskBadges';
+import { isOverdue, KindIcon } from '../TaskBadges';
+import { SelectValue } from './SelectValue';
 
 /** A timestamp as a day, since the time of day is rarely the question. */
 const shortDateTime = (iso: string) =>
@@ -39,6 +40,7 @@ export function PropertyCell({
   onEditOptions,
   onOpenRow,
   onTagsChanged,
+  labelled,
 }: {
   prop: PropRow;
   task: TaskRow;
@@ -52,6 +54,9 @@ export function PropertyCell({
   /** Re-read the row after its page tags change. Omit to leave Focus area
    *  read-only. */
   onTagsChanged?: () => void;
+  /** Name the type beside its glyph — the peek has the room, a grid cell
+   *  does not. */
+  labelled?: boolean;
 }) {
   const builtin = isBuiltinProp(prop.id);
   const value = builtin ? readBuiltin(task, prop.id) : task.props?.[prop.id] ?? null;
@@ -88,6 +93,21 @@ export function PropertyCell({
   // write, which reads as the click having failed.
   if (prop.id === 'sys:tags') {
     return <TagsCell task={task} onChanged={onTagsChanged} />;
+  }
+
+  // The type picks from the project's own type rows, so the menu is a picker
+  // (no option editing) and each option is the glyph the rest of the app
+  // draws for it.
+  if (prop.id === 'sys:kind') {
+    return (
+      <SelectValue
+        prop={prop}
+        value={value}
+        multi={false}
+        onChange={(next) => { if (typeof next === 'string' && next) write(next); }}
+        glyph={(o, where) => <KindIcon kind={o.id} labelled={labelled && where === 'cell'} />}
+      />
+    );
   }
 
   if (prop.type === 'relation') {

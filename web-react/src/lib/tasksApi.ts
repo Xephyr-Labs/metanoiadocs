@@ -89,6 +89,8 @@ export interface CsvImportResult {
   dry: boolean;
   created: number;
   skipped: number;
+  /** Rows a previous import already brought in, matched by their ID column. */
+  already?: number;
   columns: {
     header: string;
     kind: 'builtin' | 'prop' | 'new' | 'skip';
@@ -619,10 +621,12 @@ export const tasksApi = {
    * Read a CSV into this database. `dry` reports what would happen and writes
    * nothing, which is what the dialog shows before anyone commits to a file.
    */
-  importCsv: (projectId: string, text: string, opts: { dry?: boolean; create?: boolean } = {}): Promise<CsvImportResult> => {
+  importCsv: (projectId: string, text: string, opts: { dry?: boolean; create?: boolean; silent?: boolean } = {}): Promise<CsvImportResult> => {
     const q = new URLSearchParams();
     if (opts.dry) q.set('dry', '1');
     if (opts.create) q.set('create', '1');
+    // Admin only; the server refuses it from anyone else.
+    if (opts.silent) q.set('notify', '0');
     return req(`/projects/${projectId}/import.csv?${q}`, {
       method: 'POST',
       body: text,

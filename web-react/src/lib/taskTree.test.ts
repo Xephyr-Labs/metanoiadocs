@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildLinkIndex, buildTaskTree, flattenTree, subtreeIndex, subtreeProgress } from './taskTree';
+import { branchIds, buildLinkIndex, buildTaskTree, canDropOnParent, flattenTree, sectionRoots, subtreeIndex, subtreeProgress } from './taskTree';
 import type { TaskRow } from './tasksApi';
 
 const task = (over: Partial<TaskRow>): TaskRow => ({
@@ -115,5 +115,60 @@ describe('buildLinkIndex', () => {
     expect(buildLinkIndex([task({ id: 'a' })]).get('a')).toEqual({
       blockedBy: [], met: 0, unknown: 0, blocking: [],
     });
+  });
+});
+
+const isGroup = (t: TaskRow) => t.kind === 'epic';
+
+describe('sectionRoots', () => {
+  it('puts epics first, then rows whose epic is elsewhere, and keeps loose rows apart', () => {
+    const roots = buildTaskTree([
+      task({ id: 'loose1' }),
+      task({ id: 'e1', kind: 'epic' }),
+      task({ id: 's1', kind: 'story', parent_id: 'e1' }),
+      task({ id: 'away', kind: 'story', parent_id: 'not-here' }),
+      task({ id: 'loose2', kind: 'bug' }),
+      task({ id: 'e2', kind: 'epic' }),
+    ]);
+    const { grouped, orphans } = sectionRoots(roots, isGroup);
+    expect(grouped.map((n) => n.task.id)).toEqual(['e1', 'e2', 'away']);
+    expect(orphans.map((n) => n.task.id)).toEqual(['loose1', 'loose2']);
+    // The story stays nested under its epic rather than becoming a root.
+    expect(grouped[0].children.map((n) => n.task.id)).toEqual(['s1']);
+  });
+
+  it('calls an empty epic an epic', () => {
+    expect(sectionRoots(buildTaskTree([task({ id: 'e', kind: 'epic' })]), isGroup).grouped).toHaveLength(1);
+  });
+});
+
+describe('branchIds', () => {
+  it('lists only rows with children, at any depth', () => {
+    const roots = buildTaskTree([
+      task({ id: 'e', kind: 'epic' }),
+      task({ id: 's', kind: 'story', parent_id: 'e' }),
+      task({ id: 't', parent_id: 's' }),
+      task({ id: 'leaf' }),
+    ]);
+    expect(branchIds(roots)).toEqual(['e', 's']);
+  });
+});
+
+describe('canDropOnParent', () => {
+  const epic = task({ id: 'e', kind: 'epic' });
+  it('lets a story onto an epic', () => {
+    expect(canDropOnParent(task({ id: 's', kind: 'story' }), epic, isGroup)).toBe(true);
+  });
+  it('refuses a row that is not a container', () => {
+    expect(canDropOnParent(task({ id: 's' }), task({ id: 'x', kind: 'story' }), isGroup)).toBe(false);
+  });
+  it('refuses an epic onto an epic, and a row onto itself', () => {
+    expect(canDropOnParent(task({ id: 'e2', kind: 'epic' }), epic, isGroup)).toBe(false);
+    expect(canDropOnParent(epic, epic, isGroup)).toBe(false);
+  });
+  it('refuses a drop that changes nothing, or crosses projects', () => {
+    expect(canDropOnParent(task({ id: 's', parent_id: 'e' }), epic, isGroup)).toBe(false);
+    expect(canDropOnParent(task({ id: 's', project_id: 'B' }), epic, isGroup)).toBe(false);
+    expect(canDropOnParent(undefined, epic, isGroup)).toBe(false);
   });
 });
