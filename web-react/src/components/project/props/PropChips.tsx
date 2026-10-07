@@ -13,10 +13,9 @@ import { swatch } from '../../../lib/tagColors';
 import { selectedOptions } from '../../../lib/props';
 import { isBuiltinProp, readBuiltin } from '../../../lib/builtinProps';
 import { fileUrl, isImageFile, isVideoFile, type StoredFile } from '../../../lib/uploads';
-import type { PropRow, TaskKindRow, TaskRow } from '../../../lib/tasksApi';
+import type { PropRow, TaskRow } from '../../../lib/tasksApi';
 import type { UserRow } from '../../../lib/docsApi';
-import { AssigneeStack, isOverdue, KindBadge, shortDate } from '../TaskBadges';
-import { useKinds } from '../kinds';
+import { AssigneeStack, isOverdue, KindIcon, shortDate } from '../TaskBadges';
 
 /**
  * A task's properties as they appear ON a card — a calendar event, a board
@@ -51,15 +50,10 @@ export function PropChips({
   skipFile?: StoredFile | null;
   className?: string;
 }) {
-  // Read here rather than inside the type branch: chipFor is a plain
-  // function, and the type branch needs to know whether the types have
-  // loaded before it builds a node.
-  const kinds = useKinds();
-
   const chips = props
     .map((p) => ({
       prop: p,
-      node: chipFor(p, isBuiltinProp(p.id) ? readBuiltin(task, p.id) : task.props?.[p.id], task, kinds, users, skipFile),
+      node: chipFor(p, isBuiltinProp(p.id) ? readBuiltin(task, p.id) : task.props?.[p.id], task, users, skipFile),
     }))
     .filter((c) => c.node !== null);
 
@@ -82,7 +76,6 @@ function chipFor(
   prop: PropRow,
   value: unknown,
   task: TaskRow,
-  kinds: TaskKindRow[],
   users?: UserRow[],
   skipFile?: StoredFile | null,
 ) {
@@ -106,15 +99,12 @@ function chipFor(
     ) : null;
   }
 
-  // Drawn for every typed row, the default type included. The badge's own
-  // habit of saying nothing for a plain "Task" is right where nobody asked for
-  // the type, but here the view lists Type as shown — and skipping the plain
-  // ones left Type missing from most cards while the panel said it was on.
-  // Until the project's types have loaded the badge has nothing to draw from,
-  // so this falls through to the plain select chip, which reads the default
-  // types builtinProps put on the property.
-  if (prop.id === 'sys:kind' && kinds.length) {
-    return typeof value === 'string' && value ? <KindBadge kind={value} always /> : null;
+  // Drawn for every typed row, the default type included: the view lists
+  // Type as shown, and skipping the plain ones left Type missing from most
+  // cards while the panel said it was on. A glyph, not a word — on a card the
+  // title is the content and the type is how it is scanned for.
+  if (prop.id === 'sys:kind') {
+    return typeof value === 'string' && value ? <KindIcon kind={value} /> : null;
   }
 
   // A bare "65" beside a bare "8" says neither which is which; the unit does.

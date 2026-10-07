@@ -102,7 +102,7 @@ const row = (
  */
 const DEFAULT_KIND_OPTIONS: PropOption[] = [
   { id: 'epic', label: 'Epic', color: 'purple' },
-  { id: 'story', label: 'Story', color: 'blue' },
+  { id: 'story', label: 'Story', color: 'green' },
   { id: 'task', label: 'Task', color: 'gray' },
   { id: 'bug', label: 'Bug', color: 'red' },
 ];
@@ -238,9 +238,11 @@ export const DEFAULT_CARD_PROPS: Record<string, string[]> = {
   // The gallery leads with the picture at full width, so a 24px copy of it in
   // the chip row would be the same file twice on one card.
   gallery: ['sys:kind', 'sys:milestone', 'sys:points', 'sys:due', 'sys:assignees'],
-  calendar: ['sys:assignees', 'sys:attachments'],
-  // One row, one line: a gantt bar has room for who, and nothing after that.
-  gantt: ['sys:assignees'],
+  calendar: ['sys:kind', 'sys:assignees', 'sys:attachments'],
+  // One row, one line: a gantt bar has room for what and who, nothing more.
+  // The type leads the title in both of these (see splitKindProp), so it
+  // costs a 16px glyph rather than a chip.
+  gantt: ['sys:kind', 'sys:assignees'],
 };
 
 /**

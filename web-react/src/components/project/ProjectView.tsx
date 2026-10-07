@@ -101,7 +101,7 @@ export function ProjectView() {
   // Keyed by the joined ids rather than by the array: d.tasks is rebuilt on
   // every render (it is a filter and a sort, not a memo), so identity alone
   // would re-arm the key listener and rebuild every callback each time.
-  const orderedIds = d.kind === 'board'
+  const orderedIds = d.kind === 'board' || (d.kind === 'table' && d.groupField)
     ? d.groups.flatMap((g) => d.tasks.filter((t) => d.groupOf(t) === g.value).map((t) => t.id))
     : d.tasks.map((t) => t.id);
   const idKey = orderedIds.join(',');
@@ -170,11 +170,16 @@ export function ProjectView() {
   const dateProps = p.props.filter((prop) => prop.type === 'date');
 
   // No window.prompt: create untitled and let the panel's title field take it.
-  const add = async (extra: { status?: TaskStatus; dueAt?: string; sprintId?: string | null; props?: Record<string, unknown> } = {}) => {
+  const add = async ({ parentId, ...extra }: { status?: TaskStatus; dueAt?: string; sprintId?: string | null; props?: Record<string, unknown>; parentId?: string } = {}) => {
     // A task added while a sprint is scoped lands in that sprint.
     const sprintId = extra.sprintId !== undefined ? extra.sprintId
       : d.scope !== 'all' && d.scope !== 'backlog' ? d.scope : undefined;
-    const row = await p.create({ title: '', ...extra, ...(sprintId !== undefined ? { sprintId } : {}) });
+    const created = await p.create({ title: '', ...extra, ...(sprintId !== undefined ? { sprintId } : {}) });
+    // Creating a task takes no parent, so a row added from an epic's column
+    // is hung under that epic straight after; without it, the new card would
+    // land in "No epic" beside the "+" that was meant to put it elsewhere.
+    if (created && parentId) p.patch(created.id, { parentId });
+    const row = created && parentId ? { ...created, parent_id: parentId } : created;
     // Counts in the sidebar and on Home come from the project list.
     ws.refreshProjects();
     if (row) setOpen({ ...row, deps: [] });
@@ -338,8 +343,8 @@ export function ProjectView() {
           <FilterBar fields={d.fields} filters={d.filters} onChange={d.setFilters} />
           {/* A chart has no row order, so there is nothing for a sort to do. */}
           {d.kind !== 'dashboard' && <SortBar fields={d.fields} sort={d.sort} onChange={d.setSort} />}
-          {d.kind === 'board' && (
-            <GroupBy fields={d.fields} value={d.groupField?.key ?? null} onChange={d.setGroupBy} />
+          {(d.kind === 'board' || d.kind === 'table') && (
+            <GroupBy fields={d.groupFields} value={d.groupField?.key ?? null} onChange={d.setGroupBy} optional={d.kind === 'table'} />
           )}
           {SHOWS_PROPS.has(d.kind) && (
             <PropertyVisibility
@@ -380,6 +385,7 @@ export function ProjectView() {
             onCreateSprint={p.createSprint}
             onPatchSprint={p.patchSprint}
             onDeleteSprint={p.deleteSprint}
+            onSetParent={(id, parentId) => p.patch(id, { parentId })}
           />
         ) : d.kind === 'board' ? (
           <Board
@@ -398,6 +404,8 @@ export function ProjectView() {
         ) : d.kind === 'table' ? (
           <TaskTable
             tasks={d.tasks}
+            groups={d.groupField ? d.groups : undefined}
+            groupOf={d.groupOf}
             props={d.visible}
             users={p.users}
             rowLabel={isData ? 'Name' : 'Task'}

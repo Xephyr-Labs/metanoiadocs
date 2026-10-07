@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import type { UserRow } from '../../lib/docsApi';
 import { builtinProps, visibleProps, defaultPropIds, defaultTableProps } from '../../lib/builtinProps';
-import { canGroupBy, groupOf, groupValue, groupsFor, movedValue, type BoardGroup } from '../../lib/grouping';
+import { canGroupBy, EPIC_KEY, epicField, epicOf, epicsOf, groupOf, groupValue, groupsFor, movedValue, type BoardGroup } from '../../lib/grouping';
 import { withComputed } from '../../lib/computed';
 import { applyFilters, fieldsFor, pruneUnresolvable, type Filter, type FilterField } from '../../lib/taskFilter';
 import { applySort, pruneSort, type SortRule } from '../../lib/taskSort';
@@ -122,17 +122,37 @@ export function useDatabaseView({
   // there — but the filters and the sort still do.
   const backlogTasks = applySort(applyFilters(rows, filters, fields), sort, fields);
 
+  // Epics are the project's container rows, so grouping by them is offered
+  // only where the project has a container type at all. Built from every row,
+  // not the filtered list: a group is an epic of the project, and an epic
+  // whose own card is filtered out still has stories to hold.
+  const groupKinds = useMemo(() => new Set(source.kinds.filter((k) => k.is_group).map((k) => k.key)), [source.kinds]);
+  const isGroupRow = (t: TaskRow) => groupKinds.has(t.kind);
+  const epics = useMemo(() => epicsOf(rows, (t) => groupKinds.has(t.kind)), [rows, groupKinds]);
+  const byId = useMemo(() => new Map(rows.map((t) => [t.id, t])), [rows]);
+  const groupFields = useMemo(
+    () => (groupKinds.size ? [...fields, epicField(epics)] : fields),
+    [fields, epics, groupKinds],
+  );
+
   // What a board is split by. Status unless the view says otherwise — which is
-  // what it always was, only now a default rather than the only option.
+  // what it always was, only now a default rather than the only option. A
+  // table is a list until somebody groups it, so it has no default.
   const groupField: FilterField | null = (() => {
-    const named = config.groupBy ? fields.find((f) => f.key === config.groupBy) : null;
+    const named = config.groupBy ? groupFields.find((f) => f.key === config.groupBy) : null;
     if (named && canGroupBy(named)) return named;
+    if (kind === 'table') return null;
     return fields.find((f) => f.key === 'status') ?? null;
   })();
 
   const groupColors: Record<string, string> = (() => {
     if (!groupField) return {};
     if (groupField.key === 'status') return project?.status_colors ?? {};
+    // Each epic's dot is its type's colour, the same one its glyph wears.
+    if (groupField.key === EPIC_KEY) {
+      const colorOf = new Map(source.kinds.map((k) => [k.key, k.color]));
+      return Object.fromEntries(epics.map((t) => [t.id, colorOf.get(t.kind) ?? 'gray']));
+    }
     const prop = groupField.key.startsWith('prop:')
       ? source.props.find((x) => x.id === groupField.key.slice(5))
       : null;
@@ -150,6 +170,14 @@ export function useDatabaseView({
     }
     // A person or multi-select card keeps its other values; see movedValue.
     const task = source.tasks.find((t) => t.id === id);
+    // Into an epic's column is under that epic; into "No epic" is out of
+    // every one. An epic's own card stays where it is — epics do not nest —
+    // and a drop back into the column it came from writes nothing.
+    if (groupField.key === EPIC_KEY) {
+      if (!task || isGroupRow(task) || epicOf(task, byId, isGroupRow) === value) return;
+      source.patch(id, { parentId: value || null });
+      return;
+    }
     if (groupField.key === 'assignee_id') {
       const next = movedValue(groupField, task, value);
       source.patch(id, { assigneeIds: Array.isArray(next) ? (next as string[]) : [] });
@@ -167,9 +195,10 @@ export function useDatabaseView({
   };
 
   /** What a row added from a board column should start with. */
-  const groupSeed = (value: string): { status?: TaskStatus; props?: Record<string, unknown> } => {
+  const groupSeed = (value: string): { status?: TaskStatus; props?: Record<string, unknown>; parentId?: string } => {
     if (!groupField || !value) return {};
     if (groupField.key === 'status') return { status: value as TaskStatus };
+    if (groupField.key === EPIC_KEY) return { parentId: value };
     if (groupField.key.startsWith('prop:')) return { props: { [groupField.key.slice(5)]: groupValue(groupField, value) } };
     return {};
   };
@@ -194,7 +223,10 @@ export function useDatabaseView({
     hidden,
     groupField,
     groups,
-    groupOf: (task: TaskRow) => (groupField ? groupOf(task, groupField) : ''),
+    groupFields,
+    groupOf: (task: TaskRow) => (!groupField ? ''
+      : groupField.key === EPIC_KEY ? epicOf(task, byId, isGroupRow)
+      : groupOf(task, groupField)),
     moveToGroup,
     groupSeed,
     // The five writers the toolbar needs, each saving one facet. The server

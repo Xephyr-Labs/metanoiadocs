@@ -17,70 +17,42 @@ import { cn } from '../../lib/cn';
 import { todayISO } from '../../lib/gantt';
 import { swatch } from '../../lib/tagColors';
 import type { TaskKind, TaskKindRow, TaskRow } from '../../lib/tasksApi';
-import { useKind, useKinds } from './kinds';
+import { kindVisual } from '../../lib/taskKinds';
+import { useKinds } from './kinds';
 
 /**
- * Whether KindBadge, left to decide for itself, would draw anything at all.
+ * A task's type, as a glyph in a small square of the type's colour.
  *
- * This is the rule for places that show a type unasked — the backlog row and
- * the peek's header — where labelling every plain task "Task" is noise. It is
- * not the rule for a card whose view was told to show Type: see `always`.
- */
-export function showsKindBadge(kind: TaskKind, kinds: TaskKindRow[]): boolean {
-  // Nothing is known yet: say nothing rather than guess.
-  if (!kinds.length) return false;
-  const row = kinds.find((k) => k.key === kind);
-  // One type in the project, or the unremarkable default one — either way
-  // there is nothing to tell apart, and a label on every card is noise.
-  if (row && (kinds.length < 2 || row.key === 'task')) return false;
-  // No row and the list HAS loaded means the type was deleted elsewhere;
-  // that is worth saying, so the badge draws the raw key.
-  return true;
-}
-
-/**
- * The type chip. Colour comes from the shared tag palette, so a type darkens
- * with tags, folders and projects instead of carrying its own one-off hex.
+ * One component for every view. Each used to draw its own: an uppercase chip
+ * on the board, a title-case pill in the table, grey text for plain tasks on
+ * cards and nothing at all for them in the backlog — so "Task" was told apart
+ * by absence, and the gantt and calendar had no type at all. The glyph says
+ * the type without colour, and the name is always there for a screen reader
+ * and a hover even where only the glyph is drawn.
  *
- * Two different absences used to render the same blank space: types not
- * fetched yet, and a type deleted from another tab since this task was loaded.
- * Only the first is nothing to say — the second gets the raw key in neutral
- * ink, so the task doesn't look untyped.
+ * `labelled` adds the name beside the glyph, for the few places with room for
+ * it and a reason to read it: the peek's type picker and the types dialog.
+ * `row` lets the types dialog draw a type it is editing before the project's
+ * list has caught up.
  */
-export function KindBadge({ kind, always }: {
+export function KindIcon({ kind, labelled, row, className }: {
   kind: TaskKind;
-  /** Name the type even for the default type or a project with one type. A
-   *  view that lists Type among its shown properties has already said it
-   *  wants the type on every card; skipping the plain ones made Type look
-   *  missing from most of the board. */
-  always?: boolean;
+  labelled?: boolean;
+  row?: TaskKindRow;
+  className?: string;
 }) {
   const kinds = useKinds();
-  const row = useKind(kind);
-  if (!showsKindBadge(kind, kinds)) {
-    if (!always) return null;
-    // Asked for, but unremarkable. A filled uppercase chip on every plain task
-    // turned a board into a wall of TASK, and the one Bug among them stopped
-    // standing out — which is the whole reason to show Type. The plain type is
-    // still named, in the quiet ink the card uses for its other metadata, so
-    // the reader can see it; the coloured chip is kept for the types that
-    // differ from the default.
-    const label = row?.label ?? kind;
-    return <span title={`Type: ${label}`} className="shrink-0 text-2xs text-faint">{label}</span>;
-  }
-  if (!row) {
-    return (
-      <span
-        title="This type no longer exists — reopen the project to resync"
-        className={cn('shrink-0 rounded px-1 py-0.5 text-3xs font-semibold uppercase tracking-wide', swatch('gray').chip)}
-      >
-        {kind}
-      </span>
-    );
-  }
+  const v = kindVisual(kind, row ? [row] : kinds);
+  const Icon = v.icon;
+  const title = v.missing ? `${v.label} — this type no longer exists; reopen the project to resync` : `Type: ${v.label}`;
   return (
-    <span className={cn('shrink-0 rounded px-1 py-0.5 text-3xs font-semibold uppercase tracking-wide', swatch(row.color).chip)}>
-      {row.label}
+    <span className={cn('inline-flex shrink-0 items-center gap-1.5', className)} title={labelled ? undefined : title}>
+      <span aria-hidden className={cn('flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px]', swatch(v.color).icon)}>
+        <Icon size={11} strokeWidth={2.5} />
+      </span>
+      {labelled
+        ? <span className="truncate text-sm text-ink">{v.label}</span>
+        : <span className="sr-only">{v.label}</span>}
     </span>
   );
 }
