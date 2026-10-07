@@ -89,11 +89,31 @@ const row = (
 });
 
 /**
+ * The types the server seeds into every project (DEFAULT_KINDS in
+ * server/src/tasks.js), as Type's options.
+ *
+ * A project is never actually without types — the server seeds these the
+ * first time anyone asks and refuses to delete the last one — so an empty
+ * list here only means the client has not got them: still loading, the
+ * fetch failed, or a caller that never had them. Offering nothing in that
+ * case drew Type as "Empty" with no way to pick, on every task, which read
+ * as the field being missing. The defaults are the right guess because they
+ * are what the server will hand back.
+ */
+const DEFAULT_KIND_OPTIONS: PropOption[] = [
+  { id: 'epic', label: 'Epic', color: 'purple' },
+  { id: 'story', label: 'Story', color: 'blue' },
+  { id: 'task', label: 'Task', color: 'gray' },
+  { id: 'bug', label: 'Bug', color: 'red' },
+];
+
+/**
  * Every native field of a task, as properties.
  *
  * `kinds` and `sprints` are the project's own, so Type and Sprint offer the
- * real options rather than a free-text box. Passing them empty is fine — the
- * property still lists and still reads, it just has nothing to choose from.
+ * real options rather than a free-text box. Passing sprints empty is fine —
+ * the property still lists and still reads, it just has nothing to choose
+ * from. Passing kinds empty gets the default types; see DEFAULT_KIND_OPTIONS.
  */
 export function builtinProps(
   mode: ProjectMode,
@@ -122,7 +142,9 @@ export function builtinProps(
       STATUSES.map((s) => ({ id: s, label: STATUS_LABEL[s], color: statusColors[s] || STATUS_COLOR[s] || 'gray' })), 0),
     row('assignees', 'Assignees', 'person', [], 1),
     row('kind', 'Type', 'select',
-      kinds.map((k) => ({ id: k.key, label: k.label, color: k.color })), 2),
+      kinds.length
+        ? kinds.map((k) => ({ id: k.key, label: k.label, color: k.color }))
+        : DEFAULT_KIND_OPTIONS, 2),
     row('start', 'Start', 'date', [], 3),
     row('due', 'Due', 'date', [], 4),
     row('points', 'Points', 'number', [], 5),

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { builtinProps, defaultCardProps, defaultPropIds, isBuiltinProp, isSystemProp, readBuiltin, visibleProps, DEFAULT_CARD_PROPS } from './builtinProps';
+import { builtinProps, defaultCardProps, defaultPropIds, defaultTableProps, isBuiltinProp, isSystemProp, readBuiltin, visibleProps, DEFAULT_CARD_PROPS } from './builtinProps';
 import type { PropRow, TaskKindRow, TaskRow } from './tasksApi';
 
 const task = (over: Partial<TaskRow> = {}): TaskRow => ({
@@ -37,6 +37,28 @@ describe('builtinProps', () => {
   it('builds Type options from the project, not a hard-coded list', () => {
     const kind = builtinProps('tasks', kinds).find((p) => p.id === 'sys:kind');
     expect(kind?.options).toEqual([{ id: 'bug', label: 'Bug', color: 'red' }]);
+  });
+
+  it('falls back to the default types rather than an empty Type', () => {
+    // Before the project's types arrive (or if fetching them failed) Type
+    // used to have no options at all, so every task read "Empty" with
+    // nothing to pick — the field looked missing.
+    const kind = builtinProps('tasks', []).find((p) => p.id === 'sys:kind');
+    expect(kind?.options.map((o) => o.id)).toEqual(['epic', 'story', 'task', 'bug']);
+    const value = readBuiltin(task({ kind: 'task' }), 'sys:kind');
+    expect(kind?.options.some((o) => o.id === value)).toBe(true);
+  });
+
+  it('lists Type with Status in every view, defaults or not', () => {
+    // Type sits beside Status in the peek, the table and the visibility
+    // panel because all three draw from this list; losing it here loses it
+    // everywhere at once.
+    for (const k of [[], kinds]) {
+      const ids = visibleProps(builtinProps('tasks', k)).map((p) => p.id);
+      expect(ids).toContain('sys:status');
+      expect(ids).toContain('sys:kind');
+      expect(defaultTableProps(builtinProps('tasks', k), [])).toContain('sys:kind');
+    }
   });
 
   it('gives Status options ids that match the stored value, so a chip can colour itself', () => {
