@@ -3,7 +3,7 @@ import { belongsOutside } from './foreignClipboard';
 
 const inside = { closest: () => null };
 const outside = { closest: () => null };
-const field = { closest: () => ({}) };
+const field = { closest: (s: string) => (s === 'doc-title' ? null : {}) };
 const host = { contains: (n: unknown) => n === inside };
 const sel = (node: object | null) =>
   node ? { isCollapsed: false, rangeCount: 1, getRangeAt: () => ({ commonAncestorContainer: node }) } : { isCollapsed: true, rangeCount: 0, getRangeAt: () => { throw new Error('none'); } };
@@ -25,6 +25,13 @@ describe('belongsOutside', () => {
   it('gives a focused text box outside the editor its own clipboard', () => {
     expect(belongsOutside('copy', host, field, sel(null))).toBe(true);
     expect(belongsOutside('paste', host, field, sel(null))).toBe(true);
+  });
+
+  it('leaves the page title to its own clipboard handling', () => {
+    // The title is a contenteditable outside editor-host; it must not read as a foreign field.
+    const title = { closest: () => ({}) };
+    expect(belongsOutside('paste', host, title, sel(null))).toBe(false);
+    expect(belongsOutside('copy', host, title, sel(title))).toBe(false);
   });
 
   it('leaves a paste with no outside field to the page', () => {

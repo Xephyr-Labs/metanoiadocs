@@ -29,6 +29,10 @@ export function belongsOutside(
   selection: SelectionLike | null,
 ): boolean {
   if (!host) return false;
+  // The page title renders outside editor-host but is the page's own text, and
+  // its rich-text handles copy, cut and paste itself. Stopping the event here
+  // silently dropped every paste into the title.
+  if (active?.closest?.('doc-title')) return false;
   // A focused field outside the editor owns every clipboard key.
   if (active && !host.contains(active) && active.closest?.(EDITABLE)) return true;
   if (type === 'paste') return false;
