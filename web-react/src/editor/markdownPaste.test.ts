@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isUnformattedHtml, looksLikeMarkdown, markdownToReplay } from './markdownPaste';
+import { isUnformattedHtml, looksLikeMarkdown, markdownToReplay, normalizeTableHtml } from './markdownPaste';
 
 describe('isUnformattedHtml', () => {
   it('sees a code editor as plain text: colour is a style, not a heading', () => {
@@ -103,5 +103,24 @@ describe('markdownToReplay', () => {
   it('does nothing for empty or whitespace-only text', () => {
     expect(markdownToReplay('', dressed)).toBeNull();
     expect(markdownToReplay('   \n  ', dressed)).toBeNull();
+  });
+});
+
+describe('normalizeTableHtml', () => {
+  it('turns every header cell into a bold body cell', () => {
+    expect(normalizeTableHtml('<table><thead><tr><th scope="col">Name</th></tr></thead><tbody><tr><td>Ana</td></tr></tbody></table>'))
+      .toBe('<table><tr><td scope="col"><strong>Name</strong></td></tr><tr><td>Ana</td></tr></table>');
+  });
+
+  it('rescues a header row that lives in the body, or a head made of td', () => {
+    expect(normalizeTableHtml('<table><tbody><tr><th>H</th></tr><tr><td>B</td></tr></tbody></table>'))
+      .toBe('<table><tr><td><strong>H</strong></td></tr><tr><td>B</td></tr></table>');
+    expect(normalizeTableHtml('<table><thead><tr><td>H</td></tr></thead><tbody><tr><td>B</td></tr></tbody></table>'))
+      .toBe('<table><tr><td>H</td></tr><tr><td>B</td></tr></table>');
+  });
+
+  it('leaves alone HTML BlockSuite already reads whole', () => {
+    expect(normalizeTableHtml('<table><tbody><tr><td>H</td></tr></tbody></table>')).toBeNull();
+    expect(normalizeTableHtml('<p>no table, <b>thick</b></p>')).toBeNull();
   });
 });
