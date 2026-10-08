@@ -50,19 +50,16 @@ export async function notifyAssignees(task, actor, userIds) {
       title: `${actorName} assigned you a task`,
       body: title,
       tag: rowId,
-      // Null until someone opens the task, which is when its page is made —
-      // linkFor then opens the task's database rather than /d/null.
       docId: task.doc_id,
       projectId: task.project_id,
+      taskId: task.id,
     }).catch((e) => console.error('[push] assign:', e.message));
     if (!user.email) continue;
     await sendNotificationEmail(
       user.email,
       `${actorName} assigned you "${title}"`,
       '',
-      // linkFor lands on the dashboard when the task has no page yet, rather
-      // than on /d/null — the same rule the push notification above follows.
-      `${base}${linkFor({ docId: task.doc_id })}`
+      `${base}${linkFor({ docId: task.doc_id, projectId: task.project_id, taskId: task.id })}`
     );
   }
 }

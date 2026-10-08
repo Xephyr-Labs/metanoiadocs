@@ -94,7 +94,7 @@ async function notify({ commentId, task, body, actor }) {
   const title = task.title || 'Untitled task';
   const snippet = body.slice(0, 280);
   const base = process.env.BASE_URL || '';
-  const link = linkFor({ docId: task.doc_id, projectId: task.project_id });
+  const link = linkFor({ docId: task.doc_id, projectId: task.project_id, taskId: task.id });
 
   for (const person of people) {
     const kind = recipients.get(person.id);
@@ -113,6 +113,7 @@ async function notify({ commentId, task, body, actor }) {
       tag: rowId,
       docId: task.doc_id,
       projectId: task.project_id,
+      taskId: task.id,
     }).catch((e) => console.error('[push] task comment:', e.message));
     if (!person.email) continue;
     await sendNotificationEmail(

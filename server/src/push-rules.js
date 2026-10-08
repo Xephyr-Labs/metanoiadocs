@@ -14,13 +14,15 @@
 export const isGone = (statusCode) => statusCode === 404 || statusCode === 410;
 
 /**
- * Where a notification should open. Tasks are the reason this is not simply
- * the doc id: an assignment names a task, whose page does not exist until
- * someone opens it. Its database is the next best address — one click from the
- * row rather than the dashboard, and far better than `/d/null`. The dashboard
- * stays the last resort, for a notification about nothing addressable.
+ * Where a notification should open. A task comes first: its panel over the
+ * database is the task's own screen — fields, thread and page together — and
+ * it exists whether or not the page has been made, so an alert about a task
+ * lands on that task, not on a board with forty cards or on its bare page.
+ * Then the page, then the database alone, and the dashboard as the last
+ * resort, for a notification about nothing addressable (never `/d/null`).
  */
-export function linkFor({ docId, projectId } = {}) {
+export function linkFor({ docId, projectId, taskId } = {}) {
+  if (taskId && projectId) return `/db/${projectId}?task=${encodeURIComponent(taskId)}`;
   if (docId) return `/d/${docId}`;
   return projectId ? `/db/${projectId}` : '/';
 }

@@ -354,17 +354,17 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   // Arriving on a page or folder link opens it rather than the dashboard.
   useEffect(() => {
-    const { docId, folderId, projectId, viewId } = readRoute();
+    const { docId, folderId, projectId, viewId, taskId } = readRoute();
     if (docId) setView('doc');
     else if (folderId) { setActiveFolderId(folderId); setView('folder'); }
-    else if (projectId) { setActiveProjectId(projectId); setActiveViewId(viewId); setView('project'); }
+    else if (projectId) { setActiveProjectId(projectId); setActiveViewId(viewId); setPendingTaskId(taskId); setView('project'); }
   }, []);
 
   // Back/forward. The address is the source of truth here — this is the one
   // path where the URL changes without select() having been called.
   useEffect(() => {
     const onPop = () => {
-      const { docId, folderId, projectId, viewId } = readRoute();
+      const { docId, folderId, projectId, viewId, taskId } = readRoute();
       if (docId) {
         setCurrentId((cur) => (pagesRef.current[docId] ? docId : cur));
         setView('doc');
@@ -374,6 +374,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       } else if (projectId) {
         setActiveProjectId(projectId);
         setActiveViewId(viewId);
+        setPendingTaskId(taskId);
         setView('project');
       } else {
         setView('home');

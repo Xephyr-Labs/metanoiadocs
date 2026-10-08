@@ -53,12 +53,16 @@ export interface Route {
   projectId: string | null;
   viewId: string | null;
   blockId: string | null;
+  /** `/db/<id>?task=<task>`: a task has no address of its own — its peek over
+   *  the database is where it lives — so a notification about one names it
+   *  here, and the database opens with that task's panel up. */
+  taskId: string | null;
 }
 
 /** The parsing half, kept apart from `location` so it can be tested without a
  *  DOM — this suite runs in node, and a route is exactly the sort of thing
  *  worth a test. */
-export function parseRoute(pathname: string, hash = ''): Route {
+export function parseRoute(pathname: string, hash = '', search = ''): Route {
   const doc = DOC_PATH.exec(pathname);
   const folder = FOLDER_PATH.exec(pathname);
   const db = DB_PATH.exec(pathname);
@@ -69,12 +73,13 @@ export function parseRoute(pathname: string, hash = ''): Route {
     projectId: db ? decodeURIComponent(db[1]) : null,
     viewId: db?.[2] ? decodeURIComponent(db[2]) : null,
     blockId: fragment ? decodeURIComponent(fragment) : null,
+    taskId: db ? new URLSearchParams(search).get('task') : null,
   };
 }
 
 /** What the current address says is open. Every part may be absent. */
 export function readRoute(): Route {
-  return parseRoute(location.pathname, location.hash);
+  return parseRoute(location.pathname, location.hash, location.search);
 }
 
 /**
