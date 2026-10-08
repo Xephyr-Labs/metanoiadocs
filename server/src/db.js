@@ -505,6 +505,9 @@ export async function initSchema() {
         CHECK ((doc_id IS NULL) <> (task_id IS NULL));
     EXCEPTION WHEN duplicate_object THEN NULL; END $$;
     CREATE INDEX IF NOT EXISTS comments_task_idx ON comments(task_id, created_at);
+    -- Replies are found by their thread: deleting a comment takes its replies,
+    -- and a reply's notification looks up who is in the thread.
+    CREATE INDEX IF NOT EXISTS comments_parent_idx ON comments(parent_id) WHERE parent_id IS NOT NULL;
     -- Replies that were filed on a task's page under a task comment (before the
     -- comment route learned to follow the parent) belong to the task thread.
     UPDATE comments c SET task_id = p.task_id, doc_id = NULL, block_id = NULL

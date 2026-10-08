@@ -78,6 +78,14 @@ const isCard = (model: ModelLike) => !TEXT.has(model.flavour) && model.text == n
 const isEmptyParagraph = (model: ModelLike | undefined) =>
   model?.flavour === 'affine:paragraph' && (model.text?.length ?? 0) === 0 && !model.children.length;
 
+/** A button, a field, a widget (the drag handle, a toolbar) or any other
+ *  non-editable UI drawn over the page. The gap itself is the note or a
+ *  column, both editable. */
+const isControl = (node: EventTarget): boolean => node instanceof Element && (
+  node.tagName.endsWith('-WIDGET')
+  || node.matches('button, a, input, select, textarea, [role="button"], [role="menu"], [role="menuitem"], [contenteditable="false"]')
+);
+
 function containersIn(model: ModelLike, out: ModelLike[] = []): ModelLike[] {
   if (CONTAINERS.has(model.flavour)) out.push(model);
   for (const child of model.children) {
@@ -116,6 +124,10 @@ export function attachBlockGaps(editor: Element & { std?: StdLike }): () => void
     if (!editor.querySelector('affine-page-root')) return;
     // The end of a drag (a box selection, a text selection) is not a click.
     if (start && Math.hypot(event.clientX - start.x, event.clientY - start.y) > 4) return;
+    // A control is not a gap, even where it overhangs one: a column's ⋯ button
+    // sits 6px above its row and its menu can hang below it, and a click on
+    // either opened a line there instead of the menu.
+    if (event.composedPath().some(isControl)) return;
     const root = (std.store as unknown as { root: ModelLike | null }).root;
     if (!root) return;
 

@@ -263,6 +263,60 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
     },
   );
 
+  // A task's own thread, apart from its page's anchored comments, which
+  // read_comments covers. Replies are one level deep: a parentId naming a reply
+  // files the answer in that reply's thread, and its author is told.
+  server.registerTool(
+    'read_task_comments',
+    {
+      title: "Read a task's comments",
+      description:
+        "The comment thread on a task (the discussion under it on the board), oldest first. Each row carries the author, the body and `parentId` — null for a top-level comment, otherwise the top-level comment it replies to.",
+      inputSchema: { taskId: z.string().describe('Task id') },
+    },
+    async ({ taskId }) => {
+      try {
+        const rows = await api(`/tasks/${encodeURIComponent(taskId)}/comments`);
+        return ok(
+          (rows || []).map((c) => ({
+            id: c.id,
+            author: c.author_name,
+            body: c.body,
+            parentId: c.parent_id,
+            createdAt: c.created_at,
+          })),
+        );
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    'comment_on_task',
+    {
+      title: 'Comment on a task',
+      description:
+        "Add a comment to a task's thread, or reply to one of its comments with `parentId`. Use @username to mention and notify a member.",
+      inputSchema: {
+        taskId: z.string().describe('Task id'),
+        body: z.string().describe('Comment text'),
+        parentId: z.string().optional().describe('Comment id to reply to (from read_task_comments)'),
+      },
+    },
+    async ({ taskId, body, parentId }) => {
+      try {
+        const r = await api(`/tasks/${encodeURIComponent(taskId)}/comments`, {
+          method: 'POST',
+          body: { body, parentId },
+        });
+        return ok({ commentId: r.id, parentId: r.parent_id });
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
   server.registerTool(
     'set_visibility',
     {
@@ -1124,6 +1178,8 @@ export const MCP_TOOL_NAMES = [
   'write_doc',
   'comment_on_doc',
   'read_comments',
+  'read_task_comments',
+  'comment_on_task',
   'set_visibility',
   'add_tag',
   'list_members',

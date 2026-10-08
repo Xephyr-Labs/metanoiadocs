@@ -465,8 +465,10 @@ textarea:focus-visible,
    * invalid and the portal falls back to z-index: auto — which loses to the
    * code block's sticky `.line-number` (z-index: 1), so line numbers painted
    * straight through the language-picker dropdown. Sits above the doc header
-   * (z-30) and below our own overlays (z-40) and menus/modals (z-50). */
-  --affine-z-index-popover: 35;
+   * (z-30) and above the z-40 side panels — the task peek has an editor in it,
+   * and its "@" and "/" menus portal to <body>, so at 35 they opened behind
+   * the very panel they were typed in — and below menus/modals (z-50). */
+  --affine-z-index-popover: 45;
 
   /* The format bar's "Color" and "Highlight" menus do not set a colour — they
    * write the var() NAME itself into the span's inline style ("background-color:
@@ -1347,6 +1349,23 @@ affine-editor-container .mn-col-grip:hover::after { opacity: 0.55; }
 /* The vertical line drawn while a block is being dragged to the side of
  * another (columns/columns-attach.ts). Body-level, so it is outside the
  * editor's own selector scope. */
+/* While a block is being dragged, each page-level block also owns the gutter
+ * to its left, where the drag handle is — otherwise a block dragged straight
+ * up or down by its handle never touched a drop target (columns-attach.ts).
+ * A pseudo-element, so the block's own box, and every rect measured from it,
+ * stays where it was. */
+affine-editor-container.mn-block-dragging affine-note > .affine-note-block-container > .affine-block-children-container > [data-block-id] {
+  position: relative;
+}
+affine-editor-container.mn-block-dragging affine-note > .affine-note-block-container > .affine-block-children-container > [data-block-id]::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 100%;
+  width: 160px;
+}
+
 .mn-col-drop-line {
   position: fixed;
   width: 3px;

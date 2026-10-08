@@ -130,9 +130,9 @@ export function InboxDialog() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ws.inboxOpen]);
 
-  // A mention or comment lands on a document with a thread to read; an
-  // assignment lands on a task, whose page may not exist yet, so it opens the
-  // project it lives in instead.
+  // A mention or comment lands on a document with a thread to read; anything
+  // about a task opens that task's panel over its database, since its page may
+  // not exist yet.
   const open = (it: InboxRow) => {
     ws.setInboxOpen(false);
     // A summary is about everything at once, so it opens the list of everything
@@ -141,13 +141,10 @@ export function InboxDialog() {
       ws.openTasks();
       return;
     }
-    if (it.kind === 'assigned') {
-      if (it.project_id) ws.openProject(it.project_id);
-      return;
-    }
-    // Straight to the task a row names: a board with forty cards on it is not
-    // an answer to "which one was late", and a comment on a task belongs to the
-    // task's own thread rather than to whatever page it was eventually given.
+    // Straight to the task a row names — an assignment included: a board with
+    // forty cards on it is not an answer to "which one was late" or "what did
+    // I just get", and a comment on a task belongs to the task's own thread
+    // rather than to whatever page it was eventually given.
     if (SYSTEM[it.kind] || it.task_id) {
       if (it.project_id) ws.openProject(it.project_id, it.task_id ?? undefined);
       return;

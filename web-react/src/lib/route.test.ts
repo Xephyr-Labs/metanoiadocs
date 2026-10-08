@@ -49,6 +49,13 @@ describe('the database address', () => {
     expect(parseRoute(path).viewId).toBe('c d');
   });
 
+  it('names the task a notification link points at, only on a database', () => {
+    expect(parseRoute('/db/p1', '', '?task=t-9').taskId).toBe('t-9');
+    expect(parseRoute('/db/p1').taskId).toBe(null);
+    expect(parseRoute('/d/abc', '', '?task=t-9').taskId).toBe(null);
+    expect(APP_PATHS.some((re) => re.test('/db/p1?task=t-9'))).toBe(true);
+  });
+
   it('still reads a block fragment on a document', () => {
     expect(parseRoute('/d/abc', '#block-7').blockId).toBe('block-7');
   });

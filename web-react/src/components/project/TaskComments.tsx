@@ -2,6 +2,7 @@
  * theme: project tokens (index.css)
  * pre-emit critique: P5 H5 E4 S5 R5 V4
  * states: loading · empty · posting · own comment (deletable) · agent author
+ *         · reply box open · thread with replies
  *         · mention menu open · send failed
  */
 import { Loader2, MessageSquareText, Pencil, Send, Trash2 } from 'lucide-react';
@@ -43,6 +44,33 @@ export function applyMention(text: string, username: string): string {
   return `${text.slice(0, text.lastIndexOf('@'))}@${username} `;
 }
 
+/**
+ * Top-level comments, each with its replies, in posting order.
+ *
+ * One level deep, like a page's threads: the server files a reply to a reply
+ * under the same top-level comment. The parent chain is still followed here,
+ * because rows filed before it did may point at a reply; a parent that is
+ * gone (or was never on this task) leaves the row standing on its own.
+ */
+export function threadComments<T extends { id: string; parent_id: string | null }>(rows: T[]) {
+  const byId = new Map(rows.map((c) => [c.id, c]));
+  const rootOf = (c: T) => {
+    const seen = new Set<string>();
+    while (c.parent_id && byId.has(c.parent_id) && !seen.has(c.id)) {
+      seen.add(c.id);
+      c = byId.get(c.parent_id)!;
+    }
+    return c;
+  };
+  const threads = new Map<string, { root: T; replies: T[] }>();
+  for (const c of rows) {
+    const root = rootOf(c);
+    if (!threads.has(root.id)) threads.set(root.id, { root, replies: [] });
+    if (root !== c) threads.get(root.id)!.replies.push(c);
+  }
+  return [...threads.values()];
+}
+
 function Avatar({ name, size = 22 }: { name: string; size?: number }) {
   const a = avatarFor(name);
   return (
@@ -58,11 +86,9 @@ function Avatar({ name, size = 22 }: { name: string; size?: number }) {
 /**
  * The conversation about one task.
  *
- * Flat, not threaded. A page's comments hang off a paragraph and a reply is
- * about that paragraph; a task has one subject — itself — and every message is
- * about it, so nesting would only add a level nobody needs to choose. The
- * table underneath still carries parent_id, so a reply is a later decision and
- * not a migration.
+ * Threaded one level deep, the same as a page's comments: any comment can be
+ * answered, and the answer sits under the top-level comment it belongs to.
+ * Deeper nesting would make a narrow peek panel a staircase.
  *
  * Mounted twice: under the row in the peek, and in the right panel when the
  * open page is a task's page. There `title` separates it from the page's own
@@ -85,6 +111,10 @@ export function TaskComments({
   const [error, setError] = useState<string | null>(null);
   const [dismissed, setDismissed] = useState(false);
   const [editing, setEditing] = useState<{ id: string; text: string } | null>(null);
+  // The thread the reply box sits under, and the comment actually answered —
+  // a reply's author is the one told, even though it files under the thread.
+  const [replyTo, setReplyTo] = useState<{ thread: string; to: string } | null>(null);
+  const [replyText, setReplyText] = useState('');
   const inputRef = useRef<CommentBoxHandle>(null);
   // Escape clears the draft, but the blur it causes still runs with the old
   // state — this tells that late save to stand down.
@@ -145,6 +175,28 @@ export function TaskComments({
     }
   };
 
+  const sendReply = async () => {
+    const body = replyText.trim();
+    if (!body || busy || !replyTo) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const row = await tasksApi.addComment(taskId, { body, parentId: replyTo.to });
+      setRows((r) => [...(r ?? []), row]);
+      setReplyText('');
+      setReplyTo(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not post that reply.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const openReply = (thread: string, to: string) => {
+    setReplyTo({ thread, to });
+    setReplyText(savedDraft(`task-reply:${thread}`));
+  };
+
   const saveEdit = async () => {
     if (cancelEdit.current) { cancelEdit.current = false; return; }
     if (!editing) return;
@@ -175,13 +227,89 @@ export function TaskComments({
   };
 
   const remove = async (id: string) => {
-    setRows((r) => (r ?? []).filter((c) => c.id !== id));
+    // A top-level comment goes with its replies, as on a page (the server does
+    // the same) — and, as on a page, not without asking.
+    if (rows?.some((c) => c.parent_id === id) && !confirm('Delete this comment and its replies?')) return;
+    setRows((r) => (r ?? []).filter((c) => c.id !== id && c.parent_id !== id));
     await tasksApi.deleteComment(id).catch(() => {
       // Put it back: a comment that vanishes on screen and survives on the
       // server is worse than one that never went.
       tasksApi.comments(taskId).then(setRows).catch(() => {});
     });
   };
+
+  // A plain function, not a component: one declared here gets a new identity
+  // every render, and the open edit box would remount on each keystroke.
+  const renderComment = (c: TaskComment, thread: string, size: number) => (
+    <>
+      <Avatar name={c.author_name || '?'} size={size} />
+      <div className="min-w-0 flex-1">
+        <p className="flex items-center gap-1.5 text-2xs text-faint">
+          <span className="font-medium text-ink">{c.author_name || 'Someone'}</span>
+          <ActorMark kind={c.author_kind} name={c.author_name || ''} />
+          <span>{relativeTime(c.created_at)}</span>
+          {c.author_id === auth.user?.id && (
+            <span className="ml-auto flex shrink-0 items-center gap-1.5 opacity-0 transition-opacity group-hover/comment:opacity-100">
+              <button
+                type="button"
+                onClick={() => setEditing({ id: c.id, text: c.body })}
+                aria-label="Edit this comment"
+                className="text-faint hover:text-ink"
+              >
+                <Pencil size={12} />
+              </button>
+              <button
+                type="button"
+                onClick={() => remove(c.id)}
+                aria-label="Delete this comment"
+                className="text-faint hover:text-danger-strong"
+              >
+                <Trash2 size={12} />
+              </button>
+            </span>
+          )}
+        </p>
+        {/* Whitespace kept: people paste lists and short logs in here,
+            and a comment reflowed into one paragraph loses them. */}
+        {editing?.id === c.id ? (
+          // A textarea, not an input: the same pasted lists have to
+          // survive being edited, and Enter still sends.
+          <textarea
+            autoFocus
+            // Newlines and wrapping both count: a pasted list and a long
+            // single line each need more than one row to be editable.
+            rows={Math.min(8, Math.max(2, editing.text.split('\n').length, Math.ceil(editing.text.length / 60)))}
+            value={editing.text}
+            onChange={(e) => setEditing({ id: c.id, text: e.target.value })}
+            onBlur={saveEdit}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                saveEdit();
+              }
+              if (e.key === 'Escape') { cancelEdit.current = true; setEditing(null); }
+            }}
+            className="mt-0.5 w-full resize-none rounded-md bg-transparent px-1.5 py-1 text-sm leading-relaxed text-ink outline-none ring-1 ring-inset ring-line focus:ring-2 focus:ring-accent"
+          />
+        ) : (
+          <ClampedText className="text-sm leading-relaxed text-ink">
+            {emojify(c.body)}
+            {c.edited_at && <span className="ml-1 text-2xs text-faint">(edited)</span>}
+          </ClampedText>
+        )}
+        <div className="mt-1.5 flex flex-wrap items-center gap-2">
+          <Reactions reactions={c.reactions} onToggle={(e) => void react(c.id, e)} className="mt-0" />
+          <button
+            type="button"
+            onClick={() => openReply(thread, c.id)}
+            className="text-2xs font-medium text-muted hover:text-ink"
+          >
+            Reply
+          </button>
+        </div>
+      </div>
+    </>
+  );
 
   return (
     <section className="px-4 py-3">
@@ -197,65 +325,36 @@ export function TaskComments({
         </p>
       ) : (
         <ul className="space-y-2.5">
-          {rows.map((c) => (
-            <li key={c.id} className="group/comment group/card flex items-start gap-2">
-              <Avatar name={c.author_name || '?'} size={20} />
-              <div className="min-w-0 flex-1">
-                <p className="flex items-center gap-1.5 text-2xs text-faint">
-                  <span className="font-medium text-ink">{c.author_name || 'Someone'}</span>
-                  <ActorMark kind={c.author_kind} name={c.author_name || ''} />
-                  <span>{relativeTime(c.created_at)}</span>
-                  {c.author_id === auth.user?.id && (
-                    <span className="ml-auto flex shrink-0 items-center gap-1.5 opacity-0 transition-opacity group-hover/comment:opacity-100">
-                      <button
-                        type="button"
-                        onClick={() => setEditing({ id: c.id, text: c.body })}
-                        aria-label="Edit this comment"
-                        className="text-faint hover:text-ink"
-                      >
-                        <Pencil size={12} />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => remove(c.id)}
-                        aria-label="Delete this comment"
-                        className="text-faint hover:text-danger-strong"
-                      >
-                        <Trash2 size={12} />
-                      </button>
-                    </span>
+          {threadComments(rows).map(({ root, replies }) => (
+            <li key={root.id}>
+              <div className="group/comment group/card flex items-start gap-2">{renderComment(root, root.id, 20)}</div>
+              {(replies.length > 0 || replyTo?.thread === root.id) && (
+                <ul className="ml-[9px] mt-2 space-y-2 border-l-2 border-line pl-2.5">
+                  {replies.map((r) => (
+                    <li key={r.id} className="group/comment group/card flex items-start gap-2">
+                      {renderComment(r, root.id, 18)}
+                    </li>
+                  ))}
+                  {replyTo?.thread === root.id && (
+                    <li className="flex items-end gap-1.5 rounded-md ring-1 ring-inset ring-line focus-within:ring-2 focus-within:ring-accent">
+                      <CommentBox
+                        draftKey={`task-reply:${root.id}`}
+                        value={replyText}
+                        onChange={setReplyText}
+                        onEnter={() => { void sendReply(); }}
+                        placeholder="Reply…"
+                        className="px-2.5 py-1.5"
+                      />
+                      <IconButton
+                        icon={busy ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                        label="Send reply"
+                        onClick={() => void sendReply()}
+                        className="mb-0.5 mr-0.5"
+                      />
+                    </li>
                   )}
-                </p>
-                {/* Whitespace kept: people paste lists and short logs in here,
-                    and a comment reflowed into one paragraph loses them. */}
-                {editing?.id === c.id ? (
-                  // A textarea, not an input: the same pasted lists have to
-                  // survive being edited, and Enter still sends.
-                  <textarea
-                    autoFocus
-                    // Newlines and wrapping both count: a pasted list and a long
-                    // single line each need more than one row to be editable.
-                    rows={Math.min(8, Math.max(2, editing.text.split('\n').length, Math.ceil(editing.text.length / 60)))}
-                    value={editing.text}
-                    onChange={(e) => setEditing({ id: c.id, text: e.target.value })}
-                    onBlur={saveEdit}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        saveEdit();
-                      }
-                      if (e.key === 'Escape') { cancelEdit.current = true; setEditing(null); }
-                    }}
-                    className="mt-0.5 w-full resize-none rounded-md bg-transparent px-1.5 py-1 text-sm leading-relaxed text-ink outline-none ring-1 ring-inset ring-line focus:ring-2 focus:ring-accent"
-                  />
-                ) : (
-                  <ClampedText className="text-sm leading-relaxed text-ink">
-                    {emojify(c.body)}
-                    {c.edited_at && <span className="ml-1 text-2xs text-faint">(edited)</span>}
-                  </ClampedText>
-                )}
-                <Reactions reactions={c.reactions} onToggle={(e) => void react(c.id, e)} />
-              </div>
+                </ul>
+              )}
             </li>
           ))}
         </ul>

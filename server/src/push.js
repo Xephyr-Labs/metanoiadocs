@@ -95,13 +95,13 @@ export async function sendPush(userId, message) {
       title: message.title,
       body: String(message.body || '').slice(0, 400),
       tag: message.tag,
-      url: linkFor({ docId: message.docId, projectId: message.projectId }),
+      url: linkFor({ docId: message.docId, projectId: message.projectId, taskId: message.taskId }),
     }).catch((err) => { console.error('[fcm]', err.message); return 0; }),
   ]);
   return web + app;
 }
 
-async function sendWebPush(userId, { title, body, tag, docId, projectId }) {
+async function sendWebPush(userId, { title, body, tag, docId, projectId, taskId }) {
   let key;
   try {
     key = await configure();
@@ -121,9 +121,7 @@ async function sendWebPush(userId, { title, body, tag, docId, projectId }) {
     title,
     body: String(body || '').slice(0, 400),
     tag,
-    // A task's page is made only when someone opens it, so most task alerts
-    // carry no doc id at all — the database it lives in is the address then.
-    url: linkFor({ docId, projectId }),
+    url: linkFor({ docId, projectId, taskId }),
   });
 
   await Promise.all(rows.map(async (row) => {

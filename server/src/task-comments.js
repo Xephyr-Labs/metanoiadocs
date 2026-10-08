@@ -25,25 +25,28 @@ const MAX_BODY = 4000;
 /**
  * Everyone who should hear about a comment on this task, and why.
  *
- * Four ways to be involved, in falling order of directness — named in the
- * text, carrying the work, having asked for it, having already spoken in the
- * thread. The reason is kept because it is what the notification says, and
+ * Five ways to be involved, in falling order of directness — named in the
+ * text, being the one answered, carrying the work, having asked for it, having
+ * already spoken in the thread. The same order a page comment uses
+ * (comment-recipients.js); on a reply the last three hear "replied in". The reason is kept because it is what the notification says, and
  * because a mention should not be demoted to "commented on" by an assignment
  * that also happens to be true.
  *
  * Exported for its test: this is the whole behaviour of the feature that is
  * worth getting wrong, and it needs no database to check.
  */
-export function recipientsFor({ handles, byHandle, assigneeIds, creatorId, participantIds, authorId }) {
+export function recipientsFor({ handles, byHandle, assigneeIds, creatorId, participantIds, authorId, repliedToIds = [], isReply = false }) {
   const out = new Map();
   const add = (id, kind) => {
     if (!id || id === authorId || out.has(id)) return;
     out.set(id, kind);
   };
   for (const handle of handles) add(byHandle.get(handle), 'mention');
-  for (const id of assigneeIds) add(id, 'comment');
-  add(creatorId, 'comment');
-  for (const id of participantIds) add(id, 'comment');
+  for (const id of repliedToIds) add(id, 'reply_to_you');
+  const involved = isReply ? 'reply' : 'comment';
+  for (const id of assigneeIds) add(id, involved);
+  add(creatorId, involved);
+  for (const id of participantIds) add(id, involved);
   return out;
 }
 
@@ -52,7 +55,9 @@ export function recipientsFor({ handles, byHandle, assigneeIds, creatorId, parti
  * comment is already saved, and a push service or mail server having a bad
  * minute must not turn into a failed request for the person who wrote it.
  */
-async function notify({ commentId, task, body, actor }) {
+const VERBS = { mention: 'mentioned you in', reply_to_you: 'replied to your comment on', reply: 'replied in' };
+
+async function notify({ commentId, task, body, actor, parentId, replyToId }) {
   const handles = mentionHandles(body);
   const byHandle = new Map();
   if (handles.length) {
@@ -63,11 +68,16 @@ async function notify({ commentId, task, body, actor }) {
     );
     for (const r of rows) byHandle.set(r.handle, r.id);
   }
-  const [{ rows: assignees }, { rows: participants }] = await Promise.all([
+  const [{ rows: assignees }, { rows: participants }, { rows: answered }] = await Promise.all([
     pool.query('SELECT user_id FROM task_assignees WHERE task_id = $1', [task.id]),
     pool.query(
       'SELECT DISTINCT author_id FROM comments WHERE task_id = $1 AND author_id IS NOT NULL',
       [task.id]
+    ),
+    // Whoever wrote the comment answered, and whoever started its thread.
+    pool.query(
+      'SELECT author_id FROM comments WHERE id = ANY($1) AND author_id IS NOT NULL',
+      [[...new Set([parentId, replyToId].filter(Boolean))]]
     ),
   ]);
 
@@ -78,6 +88,8 @@ async function notify({ commentId, task, body, actor }) {
     creatorId: task.created_by,
     participantIds: participants.map((r) => r.author_id),
     authorId: actor.id,
+    repliedToIds: answered.map((r) => r.author_id),
+    isReply: Boolean(parentId),
   });
   if (!recipients.size) return;
 
@@ -94,12 +106,12 @@ async function notify({ commentId, task, body, actor }) {
   const title = task.title || 'Untitled task';
   const snippet = body.slice(0, 280);
   const base = process.env.BASE_URL || '';
-  const link = linkFor({ docId: task.doc_id, projectId: task.project_id });
+  const link = linkFor({ docId: task.doc_id, projectId: task.project_id, taskId: task.id });
 
   for (const person of people) {
     const kind = recipients.get(person.id);
     const rowId = crypto.randomUUID();
-    const verb = kind === 'mention' ? 'mentioned you in' : 'commented on';
+    const verb = VERBS[kind] || 'commented on';
     await pool.query(
       `INSERT INTO notifications (id, user_id, actor_id, actor_name, doc_id, task_id, comment_id, kind, body)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
@@ -113,6 +125,7 @@ async function notify({ commentId, task, body, actor }) {
       tag: rowId,
       docId: task.doc_id,
       projectId: task.project_id,
+      taskId: task.id,
     }).catch((e) => console.error('[push] task comment:', e.message));
     if (!person.email) continue;
     await sendNotificationEmail(
@@ -126,17 +139,33 @@ async function notify({ commentId, task, body, actor }) {
 
 // Also used by the page-comment route: a reply whose parent is a task comment
 // belongs to the task's thread, or neither panel would ever show it.
-export async function insertTaskComment({ task, body, user, parentId }) {
+//
+// Threads are one level deep, as on a page: answering a reply files the answer
+// under that reply's thread, and the reply's author is the one told. A parent
+// that is not a comment on this task returns null rather than being stored
+// somewhere no panel would show it.
+export async function insertTaskComment({ task, body, user, parentId: asked }) {
+  let parentId = null;
+  let replyToId = null;
+  if (asked) {
+    const { rows: [p] } = await pool.query(
+      'SELECT id, parent_id FROM comments WHERE id = $1 AND task_id = $2',
+      [String(asked), task.id]
+    );
+    if (!p) return null;
+    parentId = p.parent_id || p.id;
+    replyToId = p.id;
+  }
   const id = crypto.randomUUID();
   await pool.query(
     `INSERT INTO comments (id, task_id, body, author_id, author_name, parent_id)
      VALUES ($1, $2, $3, $4, $5, $6)`,
-    [id, task.id, body, user.id, user.name || user.email, parentId || null]
+    [id, task.id, body, user.id, user.name || user.email, parentId]
   );
-  notify({ commentId: id, task, body, actor: user })
+  notify({ commentId: id, task, body, actor: user, parentId, replyToId })
     .catch((e) => console.error('[notify] task comment fanout failed:', e.message));
   emit('comment.created', { id, task_id: task.id, body, author_id: user.id });
-  return id;
+  return { id, parentId };
 }
 
 export function registerTaskCommentRoutes(app, { requireUser, wrap }) {
@@ -162,13 +191,15 @@ export function registerTaskCommentRoutes(app, { requireUser, wrap }) {
     );
     if (!task[0]) return res.status(404).json({ error: 'not found' });
 
-    const id = await insertTaskComment({ task: task[0], body, user: req.user, parentId: req.body?.parentId });
+    const saved = await insertTaskComment({ task: task[0], body, user: req.user, parentId: req.body?.parentId });
+    if (!saved) return res.status(400).json({ error: 'That comment is not on this task.' });
+    const { id, parentId } = saved;
     res.json({
       id,
       body,
       author_id: req.user.id,
       author_name: req.user.name || req.user.email,
-      parent_id: req.body?.parentId || null,
+      parent_id: parentId,
       resolved: false,
       created_at: new Date().toISOString(),
     });

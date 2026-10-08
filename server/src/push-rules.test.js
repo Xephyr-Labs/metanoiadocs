@@ -27,6 +27,11 @@ test('the page wins when there is one, so the alert lands on what it is about', 
   assert.equal(linkFor({ docId: 'abc', projectId: 'proj-1' }), '/d/abc');
 });
 
+test('one about a task opens that task, even once it has a page', () => {
+  assert.equal(linkFor({ docId: null, projectId: 'proj-1', taskId: 't-9' }), '/db/proj-1?task=t-9');
+  assert.equal(linkFor({ docId: 'abc', projectId: 'proj-1', taskId: 't-9' }), '/db/proj-1?task=t-9');
+});
+
 test('one with nothing addressable opens the dashboard rather than /d/null', () => {
   assert.equal(linkFor({ docId: null }), '/');
   assert.equal(linkFor({}), '/');

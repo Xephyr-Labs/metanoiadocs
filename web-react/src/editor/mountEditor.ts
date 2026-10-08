@@ -39,6 +39,7 @@ import { blockLinkExtensions } from './blockLinks';
 import { attachImageAlign } from './imageAlign';
 import { attachBlockGaps } from './blockGaps';
 import { attachTableFormat } from './tableFormat';
+import { attachTableDrag } from './tableDrag';
 import { attachFileDrop } from './fileDrop';
 import { imageToolbarExtensions } from './imageToolbar';
 import { pageViewportExtension } from './pageViewport';
@@ -199,6 +200,41 @@ export async function mountEditor(
     }
   };
   if (pages) rememberDocs(pages());
+  // Mount is not the last word: the index grows while a page is open — a page
+  // made in the sidebar, in another tab, by a teammate or an agent — and a chip
+  // pointing at one of those read as deleted until the next reload. So every
+  // read of the index (each chip asks it for a title as it renders, the menus
+  // on each keystroke) registers whatever has joined since. Deferred and
+  // coalesced: the chips read it inside a signal while rendering, where writing
+  // the collection's meta is not allowed, and a page of chips reads it at once.
+  //
+  // The index only holds pages this viewer can open, so a link a teammate made
+  // to their own private page read as deleted too. The server says which linked
+  // pages still exist; the ones missing from the index are shown as private.
+  let privatePages: LinkTarget[] = [];
+  const withPrivate = (): LinkTarget[] => {
+    const list = pages!();
+    return privatePages.length ? [...list, ...privatePages.filter((p) => !list.some((x) => x.id === p.id))] : list;
+  };
+  let syncQueued = false;
+  const livePages = pages && ((): LinkTarget[] => {
+    if (!syncQueued) {
+      syncQueued = true;
+      queueMicrotask(() => { syncQueued = false; rememberDocs(withPrivate()); });
+    }
+    return withPrivate();
+  });
+  if (pages && !share && !snapshot) {
+    fetch(`/api/docs/${docId}/linked`, { credentials: 'same-origin' })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((ids: string[]) => {
+        const known = new Set(pages().map((p) => p.id));
+        privatePages = ids.filter((id) => !known.has(id))
+          .map((id) => ({ id, title: 'Private page', icon: '🔒', private: true }));
+        if (privatePages.length) rememberDocs(privatePages);
+      })
+      .catch(() => { /* links stay as they were: struck, the old behaviour */ });
+  }
   const store = doc.getStore({ id: docId });
 
   // A snapshot IS the content — it arrives over HTTP and stays local. Opening a
@@ -445,7 +481,7 @@ export async function mountEditor(
       ? []
       : [
           ...pageLinkExtensions({
-            pages,
+            pages: livePages!,
             currentId: docId,
             // Registered here rather than waiting for the page index to refresh:
             // the chip renders as soon as the id comes back.
@@ -504,14 +540,14 @@ export async function mountEditor(
   // and a public viewer has none.
   const detachLinkSearch = share || snapshot || !pages
     ? null
-    : attachLinkSearch(editor, { pages, currentId: docId });
+    : attachLinkSearch(editor, { pages: livePages!, currentId: docId });
 
   // The "@" popover is BlockSuite's; its contents are ours — a search box and
   // the ranked page list (see linkedDocMenu.ts). Observed on the document
   // because the widget portals the popover out of the editor subtree.
   const detachLinkedDocMenu = share || snapshot || !pages
     ? null
-    : attachLinkedDocMenu(editor, { pages, currentId: docId });
+    : attachLinkedDocMenu(editor, { pages: livePages!, currentId: docId });
 
   // Paint each image's stored alignment onto the DOM (see imageAlign.ts).
   const detachImageAlign = attachImageAlign({
@@ -535,6 +571,8 @@ export async function mountEditor(
   // Ctrl+B and the other marks reach table cells: a word in one cell, or every
   // cell of a selected row, column or range (see tableFormat.ts).
   const detachTableFormat = attachTableFormat(editor as unknown as Parameters<typeof attachTableFormat>[0]);
+  // A range of cells keeps growing while the page scrolls (see tableDrag.ts).
+  const detachTableDrag = attachTableDrag();
 
   // A file dropped in the margin or under the last line lands where it was
   // dropped, not at the end of the page (see fileDrop.ts). Not for viewers:
@@ -647,6 +685,7 @@ export async function mountEditor(
       try { detachColumns(); } catch { /* noop */ }
       try { detachBlockGaps(); } catch { /* noop */ }
       try { detachTableFormat(); } catch { /* noop */ }
+      try { detachTableDrag(); } catch { /* noop */ }
       try { detachFileDrop?.(); } catch { /* noop */ }
       try { detachCalloutPanels(); } catch { /* noop */ }
       try { detachMermaid(); } catch { /* noop */ }
