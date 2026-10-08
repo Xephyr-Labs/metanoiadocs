@@ -88,6 +88,7 @@ interface InlineEditorParts {
   yText?: { length: number };
   getInlineRange: () => { index: number; length: number } | null;
   toDomRange: (range: { index: number; length: number }) => Range | null;
+  waitForUpdate?: () => Promise<void>;
 }
 
 let live: LiveLinkMenu | null = null;
@@ -106,18 +107,28 @@ export const liveLinkMenu = () => live;
 function insertMention(
   inlineEditor: Parameters<typeof insertLinkedNode>[0]['inlineEditor'],
   username: string,
-) {
-  const editor = inlineEditor as unknown as {
-    getInlineRange: () => { index: number; length: number } | null;
+  abort: () => void,
+): number | undefined {
+  const editor = inlineEditor as unknown as (InlineEditorParts & {
     insertText: (range: { index: number; length: number }, text: string, attrs?: unknown) => void;
     setInlineRange: (range: { index: number; length: number }) => void;
-  } | null;
+  }) | null;
+  // Where the caret is measured before abort clears the typed "@query", and
+  // the clearing subtracted by hand. Read after, the range is stale: focus is in
+  // the menu's search box, not the page, so the editor never hears that the
+  // text before the caret got shorter — the handle went in one character past
+  // the "@" it replaced and the caret was dropped on a now-invalid index, so
+  // the next keystroke landed inside "@handle".
   const range = editor?.getInlineRange();
+  const before = editor?.yText?.length ?? 0;
+  abort();
   if (!editor || !range) return;
+  const index = range.index - (before - (editor.yText?.length ?? 0));
   const handle = `@${username}`;
-  editor.insertText(range, handle, { bold: true });
-  editor.insertText({ index: range.index + handle.length, length: 0 }, ' ');
-  editor.setInlineRange({ index: range.index + handle.length + 1, length: 0 });
+  editor.insertText({ index, length: 0 }, handle, { bold: true });
+  editor.insertText({ index: index + handle.length, length: 0 }, ' ');
+  editor.setInlineRange({ index: index + handle.length + 1, length: 0 });
+  return index + handle.length + 1;
 }
 
 /** Subsequence match, the same shape BlockSuite's own `isFuzzyMatch` uses.
@@ -191,35 +202,40 @@ export function pageLinkExtensions({ pages, currentId, createPage }: PageLinkOpt
 
     const link = (docId: string) => insertLinkedNode({ inlineEditor, docId });
 
+    // Abandoning the menu has to hand the caret back. Picking a page does that
+    // by writing a node into the page; Escape writes nothing, and a person is
+    // plain text that never takes focus, so without this the focus stays in a
+    // panel that no longer exists — the next thing typed goes nowhere, or
+    // lands wherever BlockSuite last saw the caret (inside the new "@handle").
+    const refocus = (at?: number) => {
+      const editor = inlineEditor as unknown as InlineEditorParts;
+      const source = editor.eventSource;
+      const range = at === undefined ? editor.getInlineRange() : { index: at };
+      if (!source) return;
+      source.focus();
+      // Next frame, not this one. The focusable element is the page root, so
+      // focusing it alone drops the caret at the top of the document, and
+      // BlockSuite syncs the selection again right after — the caret has to
+      // be put back once that has happened. Clamped, because the range still
+      // counts the "@" that abort has just deleted. And after the line has
+      // re-rendered: a mention's text is in the model but not yet in the DOM,
+      // and a caret placed past the old DOM's end is dropped.
+      requestAnimationFrame(async () => {
+        await editor.waitForUpdate?.();
+        const index = Math.min(range?.index ?? 0, editor.yText?.length ?? 0);
+        const dom = editor.toDomRange({ index, length: 0 });
+        if (!dom) return;
+        const selection = source.ownerDocument.getSelection();
+        selection?.removeAllRanges();
+        selection?.addRange(dom);
+      });
+    };
+
     live = {
       query,
-      // Abandoning the menu has to hand the caret back. Picking an item does
-      // that by writing into the page; Escape writes nothing, so without this
-      // the focus stays in a panel that no longer exists and the next thing
-      // typed goes nowhere.
-      abort: () => {
-        abort();
-        const editor = inlineEditor as unknown as InlineEditorParts;
-        const source = editor.eventSource;
-        const range = editor.getInlineRange();
-        if (!source) return;
-        source.focus();
-        // Next frame, not this one. The focusable element is the page root, so
-        // focusing it alone drops the caret at the top of the document, and
-        // BlockSuite syncs the selection again right after — the caret has to
-        // be put back once that has happened. Clamped, because the range still
-        // counts the "@" that abort has just deleted.
-        requestAnimationFrame(() => {
-          const index = Math.min(range?.index ?? 0, editor.yText?.length ?? 0);
-          const dom = editor.toDomRange({ index, length: 0 });
-          if (!dom) return;
-          const selection = source.ownerDocument.getSelection();
-          selection?.removeAllRanges();
-          selection?.addRange(dom);
-        });
-      },
+      abort: () => { abort(); refocus(); },
       link: (docId) => { abort(); link(docId); },
-      mention: (username) => { abort(); insertMention(inlineEditor, username); },
+      mention: (username) => refocus(insertMention(inlineEditor, username, abort)),
       create: async (title) => {
         abort();
         const id = await createPage(title.trim() || UNTITLED);
@@ -238,10 +254,7 @@ export function pageLinkExtensions({ pages, currentId, createPage }: PageLinkOpt
           key: `person:${u.id}`,
           name: u.name || (u.username ?? ''),
           icon: emoji('👤'),
-          action: () => {
-            abort();
-            insertMention(inlineEditor, u.username ?? '');
-          },
+          action: () => insertMention(inlineEditor, u.username ?? '', abort),
         })),
         maxDisplay: MAX_MENU_ITEMS,
         overflowText: `${Math.max(matchedPeople.length - MAX_MENU_ITEMS, 0)} more people`,
