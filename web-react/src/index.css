@@ -465,8 +465,10 @@ textarea:focus-visible,
    * invalid and the portal falls back to z-index: auto — which loses to the
    * code block's sticky `.line-number` (z-index: 1), so line numbers painted
    * straight through the language-picker dropdown. Sits above the doc header
-   * (z-30) and below our own overlays (z-40) and menus/modals (z-50). */
-  --affine-z-index-popover: 35;
+   * (z-30) and above the z-40 side panels — the task peek has an editor in it,
+   * and its "@" and "/" menus portal to <body>, so at 35 they opened behind
+   * the very panel they were typed in — and below menus/modals (z-50). */
+  --affine-z-index-popover: 45;
 
   /* The format bar's "Color" and "Highlight" menus do not set a colour — they
    * write the var() NAME itself into the span's inline style ("background-color:
