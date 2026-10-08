@@ -34,6 +34,7 @@ interface MonitorArgs {
 interface DndLike {
   monitor(args: {
     canMonitor?: (a: { source: DragSourceLike }) => boolean;
+    onDragStart?: () => void;
     onDrag?: (a: MonitorArgs) => void;
     onDrop?: (a: MonitorArgs) => void;
     onDropTargetChange?: (a: MonitorArgs) => void;
@@ -88,8 +89,8 @@ export function attachColumns({
   // function patched below — is handed no pointer at all, so the position is
   // tracked here instead. `dragover` is what a pragmatic-drag-and-drop drag
   // actually emits; capture, so nothing can swallow it first.
-  let pointerX = 0;
-  const trackPointer = (event: DragEvent) => { pointerX = event.clientX; };
+  const pointer = { x: 0, y: 0 };
+  const trackPointer = (event: DragEvent) => { pointer.x = event.clientX; pointer.y = event.clientY; };
   document.addEventListener('dragover', trackPointer, true);
 
   const plan = (target: DropTargetLike | undefined, source: DragSourceLike): ColumnDropPlan | null => {
@@ -98,7 +99,7 @@ export function attachColumns({
     const { ids, flavours } = draggedFrom(source);
     return planColumnDrop({
       store,
-      side: sideForDrop(element.getBoundingClientRect(), pointerX),
+      side: sideForDrop(element.getBoundingClientRect(), pointer.x, pointer.y),
       target: element.model,
       draggedIds: ids,
       draggedFlavours: flavours,
@@ -119,6 +120,23 @@ export function attachColumns({
     line.style.top = `${rect.top}px`;
     line.style.height = `${rect.height}px`;
     line.style.left = `${(side === 'left' ? rect.left : rect.right) - 1}px`;
+  };
+
+  // ── a drag down the gutter ─────────────────────────────────────────────────
+  // The drag handle lives in the gutter left of the page, where nothing is a
+  // drop target. A block dragged straight up or down by its handle never
+  // entered another block, so the drop either went nowhere or landed on the
+  // last block the pointer happened to cross ("sticky" targets). While a block
+  // drag is on, index.css extends every page-level block's hit area across the
+  // gutter, so the block at the pointer's height is the target. Its edge still
+  // has to come from the height: pragmatic-drag-and-drop picks the nearest edge
+  // by distance, and from the gutter that is the left edge — which the built-in
+  // handler reads as "after", so nothing could be dropped above a block.
+  const DRAGGING_CLASS = 'mn-block-dragging';
+  const gutterEdge = (block: Element): 'top' | 'bottom' | null => {
+    const r = block.getBoundingClientRect?.();
+    if (!r || pointer.x >= r.left) return null;
+    return pointer.y < r.top + r.height / 2 ? 'top' : 'bottom';
   };
 
   // ── stand the built-in handler down for the drops we claim ────────────────
@@ -143,13 +161,17 @@ export function attachColumns({
     if (!watcher || patched.has(watcher)) return;
     patched.add(watcher);
     const original = watcher._getDropResult;
-    watcher._getDropResult = (dropBlock: unknown, dragPayload: unknown, dropPayload: unknown) =>
-      (claim ? null : original(dropBlock, dragPayload, dropPayload));
+    watcher._getDropResult = (dropBlock: unknown, dragPayload: unknown, dropPayload: unknown) => {
+      if (claim) return null;
+      const edge = gutterEdge(dropBlock as Element);
+      return original(dropBlock, dragPayload, edge ? { ...(dropPayload as object), edge } : dropPayload);
+    };
     undo.push(() => { watcher._getDropResult = original; });
   };
 
   const stop = editor.std?.dnd?.monitor({
     canMonitor: ({ source }) => source.data?.bsEntity?.type === 'blocks',
+    onDragStart: () => editor.classList.add(DRAGGING_CLASS),
     onDrag: ({ location, source }) => {
       standDown();
       const target = location.current.dropTargets[0];
@@ -161,6 +183,7 @@ export function attachColumns({
     onDropTargetChange: () => hideLine(),
     onDrop: ({ location, source }) => {
       hideLine();
+      editor.classList.remove(DRAGGING_CLASS);
       const found = claim;
       // Not cleared inline: the built-in handler may not have run yet, and it
       // has to see the claim too. A timeout lands after every synchronous drop
@@ -322,6 +345,7 @@ export function attachColumns({
     document.removeEventListener('keyup', onKeyUp, true);
     document.removeEventListener('keydown', onKeyDown, true);
     hideLine();
+    editor.classList.remove(DRAGGING_CLASS);
     try { stop?.(); } catch { /* noop */ }
     try { off(); } catch { /* noop */ }
     for (const restore of undo) { try { restore(); } catch { /* noop */ } }

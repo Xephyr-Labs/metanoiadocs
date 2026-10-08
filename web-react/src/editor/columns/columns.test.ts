@@ -77,29 +77,39 @@ const plan = (
 describe('sideForDrop', () => {
   // A paragraph: wide and short, the case BlockSuite's own nearest-edge answer
   // gets wrong (it would say top/bottom nearly everywhere).
-  const paragraph = { left: 400, width: 700 };
+  const paragraph = { left: 400, top: 100, width: 700, height: 34 };
+  const y = 110;
 
   it('claims a band at each end and nothing in between', () => {
-    expect(sideForDrop(paragraph, 410)).toBe('left');
-    expect(sideForDrop(paragraph, 1090)).toBe('right');
-    expect(sideForDrop(paragraph, 750)).toBeNull();
+    expect(sideForDrop(paragraph, 410, y)).toBe('left');
+    expect(sideForDrop(paragraph, 1090, y)).toBe('right');
+    expect(sideForDrop(paragraph, 750, y)).toBeNull();
   });
 
   it('caps the band so a wide block keeps most of its middle', () => {
-    // 20% of 700 is 140, capped to 96.
-    expect(sideForDrop(paragraph, 400 + 95)).toBe('left');
-    expect(sideForDrop(paragraph, 400 + 97)).toBeNull();
+    // 10% of 700 is 70, capped to 48.
+    expect(sideForDrop(paragraph, 400 + 47, y)).toBe('left');
+    expect(sideForDrop(paragraph, 400 + 49, y)).toBeNull();
   });
 
   it('keeps a usable band on a narrow block', () => {
-    const narrow = { left: 0, width: 120 };
-    expect(sideForDrop(narrow, 20)).toBe('left');
-    expect(sideForDrop(narrow, 100)).toBe('right');
-    expect(sideForDrop(narrow, 60)).toBeNull();
+    const narrow = { left: 0, top: 0, width: 120, height: 34 };
+    expect(sideForDrop(narrow, 20, 10)).toBe('left');
+    expect(sideForDrop(narrow, 100, 10)).toBe('right');
+    expect(sideForDrop(narrow, 60, 10)).toBeNull();
+  });
+
+  it('never claims a pointer that is not over the block', () => {
+    // The drag handle's gutter, left of the (sticky) target: a vertical move.
+    expect(sideForDrop(paragraph, 390, y)).toBeNull();
+    expect(sideForDrop(paragraph, 1110, y)).toBeNull();
+    // Inside the side band, but in the gap above or below the block.
+    expect(sideForDrop(paragraph, 410, 90)).toBeNull();
+    expect(sideForDrop(paragraph, 410, 140)).toBeNull();
   });
 
   it('ignores a block with no width', () => {
-    expect(sideForDrop({ left: 0, width: 0 }, 0)).toBeNull();
+    expect(sideForDrop({ left: 0, top: 0, width: 0, height: 0 }, 0, 0)).toBeNull();
   });
 });
 

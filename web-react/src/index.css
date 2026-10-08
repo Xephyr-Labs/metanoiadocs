@@ -1347,6 +1347,23 @@ affine-editor-container .mn-col-grip:hover::after { opacity: 0.55; }
 /* The vertical line drawn while a block is being dragged to the side of
  * another (columns/columns-attach.ts). Body-level, so it is outside the
  * editor's own selector scope. */
+/* While a block is being dragged, each page-level block also owns the gutter
+ * to its left, where the drag handle is — otherwise a block dragged straight
+ * up or down by its handle never touched a drop target (columns-attach.ts).
+ * A pseudo-element, so the block's own box, and every rect measured from it,
+ * stays where it was. */
+affine-editor-container.mn-block-dragging affine-note > .affine-note-block-container > .affine-block-children-container > [data-block-id] {
+  position: relative;
+}
+affine-editor-container.mn-block-dragging affine-note > .affine-note-block-container > .affine-block-children-container > [data-block-id]::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 100%;
+  width: 160px;
+}
+
 .mn-col-drop-line {
   position: fixed;
   width: 3px;
