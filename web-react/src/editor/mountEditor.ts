@@ -207,14 +207,34 @@ export async function mountEditor(
   // on each keystroke) registers whatever has joined since. Deferred and
   // coalesced: the chips read it inside a signal while rendering, where writing
   // the collection's meta is not allowed, and a page of chips reads it at once.
+  //
+  // The index only holds pages this viewer can open, so a link a teammate made
+  // to their own private page read as deleted too. The server says which linked
+  // pages still exist; the ones missing from the index are shown as private.
+  let privatePages: LinkTarget[] = [];
+  const withPrivate = (): LinkTarget[] => {
+    const list = pages!();
+    return privatePages.length ? [...list, ...privatePages.filter((p) => !list.some((x) => x.id === p.id))] : list;
+  };
   let syncQueued = false;
   const livePages = pages && ((): LinkTarget[] => {
     if (!syncQueued) {
       syncQueued = true;
-      queueMicrotask(() => { syncQueued = false; rememberDocs(pages()); });
+      queueMicrotask(() => { syncQueued = false; rememberDocs(withPrivate()); });
     }
-    return pages();
+    return withPrivate();
   });
+  if (pages && !share && !snapshot) {
+    fetch(`/api/docs/${docId}/linked`, { credentials: 'same-origin' })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((ids: string[]) => {
+        const known = new Set(pages().map((p) => p.id));
+        privatePages = ids.filter((id) => !known.has(id))
+          .map((id) => ({ id, title: 'Private page', icon: '🔒', private: true }));
+        if (privatePages.length) rememberDocs(privatePages);
+      })
+      .catch(() => { /* links stay as they were: struck, the old behaviour */ });
+  }
   const store = doc.getStore({ id: docId });
 
   // A snapshot IS the content — it arrives over HTTP and stays local. Opening a

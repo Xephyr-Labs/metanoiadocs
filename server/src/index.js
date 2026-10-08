@@ -1236,6 +1236,22 @@ app.get('/api/docs/:id/access', requireUser, async (req, res) => {
   res.json(rows);
 });
 
+// The pages this one links to that still exist, whether or not the viewer can
+// open them. The editor only knows the pages the viewer can see, so a link to a
+// teammate's private page read as "Deleted page"; this tells the two apart.
+// Scoped to stored links of a page the viewer can open, so it is no oracle for
+// arbitrary ids, and it returns ids only — never a title the viewer can't see.
+app.get('/api/docs/:id/linked', requireUser, wrap(async (req, res) => {
+  if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
+  const { rows } = await pool.query(
+    `SELECT l.to_id AS id FROM doc_links l
+       JOIN docs t ON t.id = l.to_id AND t.deleted_at IS NULL
+      WHERE l.from_id = $1`,
+    [req.params.id]
+  );
+  res.json(rows.map((r) => r.id));
+}));
+
 // Share with a teammate. No seat check — that is the entire point of this build.
 app.post('/api/docs/:id/share', requireUser, async (req, res) => {
   const { rows } = await pool.query(

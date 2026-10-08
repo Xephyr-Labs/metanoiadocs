@@ -28,6 +28,8 @@ export interface LinkTarget {
   icon: string;
   /** Last save, for breaking ties between equally good title matches. */
   updatedAt?: string;
+  /** Exists, but this viewer can't open it: linkable from others' text, never offered in the menu. */
+  private?: boolean;
 }
 
 export interface PageLinkOptions {
@@ -198,7 +200,7 @@ export function pageLinkExtensions({ pages, currentId, createPage }: PageLinkOpt
     _host: unknown,
     inlineEditor: Parameters<typeof insertLinkedNode>[0]['inlineEditor'],
   ) => {
-    const matches = rankPages(pages().filter((p) => p.id !== currentId), query);
+    const matches = rankPages(pages().filter((p) => p.id !== currentId && !p.private), query);
 
     const link = (docId: string) => insertLinkedNode({ inlineEditor, docId });
 
