@@ -344,8 +344,14 @@ export function attachTableFormat(editor: Element & { std?: AttachStd }): () => 
     if (event.target instanceof Element && event.target.closest('link-popup')) return;
     // Out of a cell, Ctrl+Z reaches nothing that undoes: BlockSuite's binding
     // listens inside the page, and the caret has just been taken out of it.
+    //
+    // Redo is taken everywhere in the page. BlockSuite's Shift-Mod-z handler
+    // returns nothing, so its keymap falls back to Mod-z and undoes the redo
+    // in the same keystroke, and it binds Ctrl+Y on Windows only. A form
+    // field (a link box, a code block's language filter) keeps its own redo.
     const history = historyKey(event);
-    if (history && cellsSelected() && !std.store.readonly) {
+    const field = event.target instanceof Element && event.target.closest('input, textarea');
+    if (history && (cellsSelected() || (history === 'redo' && !field)) && !std.store.readonly) {
       event.preventDefault();
       event.stopPropagation();
       std.store[history]();
