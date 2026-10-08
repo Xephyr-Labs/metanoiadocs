@@ -2542,7 +2542,7 @@ app.post('/api/docs/:id/comments', requireUser, async (req, res) => {
       [req.body.parentId, req.params.id]
     );
     if (parent) {
-      const id = await insertTaskComment({ task: parent, body, user: req.user, parentId: req.body.parentId });
+      const { id } = await insertTaskComment({ task: parent, body, user: req.user, parentId: req.body.parentId });
       return res.json({ id });
     }
   }

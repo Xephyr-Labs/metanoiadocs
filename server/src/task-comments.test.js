@@ -57,3 +57,19 @@ test('one person, told once, however many ways they are involved', () => {
   });
   assert.equal(out.size, 1);
 });
+
+test('a reply tells whoever was answered first, and the rest it was a reply', () => {
+  const out = recipientsFor({
+    ...base,
+    isReply: true,
+    repliedToIds: ['rima'],
+    assigneeIds: ['ada', 'rima'],
+    participantIds: ['sam'],
+  });
+  assert.deepEqual([...out], [['rima', 'reply_to_you'], ['ada', 'reply'], ['sam', 'reply']]);
+});
+
+test('answering your own comment tells nobody it was you', () => {
+  const out = recipientsFor({ ...base, isReply: true, repliedToIds: ['me'] });
+  assert.equal(out.size, 0);
+});

@@ -20,6 +20,8 @@ team/private access.
 | `write_doc` | Append or replace a doc's content with markdown |
 | `comment_on_doc` | Add a comment (supports `@username` mentions) |
 | `read_comments` | Read a doc's comment threads — the request behind a mention lives here |
+| `read_task_comments` | Read a task's comment thread (`parentId` threads replies) |
+| `comment_on_task` | Comment on a task, or reply to one of its comments with `parentId` |
 | `set_visibility` | Switch a doc between team / private (owner only) |
 | `add_tag` | Tag a doc |
 | `list_members` | Workspace members (for @-mentions and `share_doc`) |
