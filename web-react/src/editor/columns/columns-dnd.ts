@@ -21,16 +21,28 @@ import {
 
 export type Side = 'left' | 'right';
 
-/** Widest and narrowest a side zone may get, in pixels. */
-const SIDE_ZONE = { share: 0.2, min: 32, max: 96 };
+/** Widest and narrowest a side zone may get, in pixels. Kept narrow: a drop
+ *  is a move far more often than a new layout, and a reader dragging a block
+ *  up or down rarely keeps the pointer dead centre. */
+const SIDE_ZONE = { share: 0.1, min: 24, max: 48 };
 
 /** Which side of a block the pointer is on, or null for "in the middle" —
- *  which means an ordinary drop above or below it. */
-export function sideForDrop(rect: { left: number; width: number }, clientX: number): Side | null {
+ *  which means an ordinary drop above or below it.
+ *
+ *  Only a pointer actually over the block counts. The drop target is "sticky":
+ *  it stays the last block entered after the pointer leaves it — and the drag
+ *  handle sits in the gutter left of every block, so a block dragged straight
+ *  up by its handle was always "left of" its target, and every such drag
+ *  became columns. */
+export function sideForDrop(
+  rect: { left: number; top: number; width: number; height: number },
+  clientX: number,
+  clientY: number,
+): Side | null {
   if (rect.width <= 0) return null;
+  if (clientX < rect.left || clientX > rect.left + rect.width) return null;
+  if (clientY < rect.top || clientY > rect.top + rect.height) return null;
   const zone = Math.min(Math.max(rect.width * SIDE_ZONE.share, SIDE_ZONE.min), SIDE_ZONE.max);
-  // A block narrower than two zones has no middle left; treat the halves as
-  // sides rather than making columns impossible inside an existing column.
   if (clientX <= rect.left + zone) return 'left';
   if (clientX >= rect.left + rect.width - zone) return 'right';
   return null;
