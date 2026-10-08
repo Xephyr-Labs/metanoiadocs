@@ -9,6 +9,7 @@ import {
   Download,
   FileText,
   FileType,
+  Folder,
   FolderOpen,
   Globe,
   History,
@@ -34,6 +35,7 @@ import {
   Upload,
 } from 'lucide-react';
 import type { Page } from '../../lib/types';
+import { folderChain } from '../../lib/folderPath';
 import { avatarFor } from '../../lib/avatar';
 import { usePresence } from '../../editor/presence';
 import { relativeTime } from '../../lib/time';
@@ -160,6 +162,12 @@ export function TopBar() {
   const page = ws.view === 'doc' ? ws.currentPage : null;
   const project = ws.view === 'project' ? ws.projects.find((p) => p.id === ws.activeProjectId) : null;
   const folder = ws.view === 'folder' && ws.activeFolderId ? ws.folders[ws.activeFolderId] : null;
+  const pagePath = page ? ancestry(ws.pages, page.id) : [];
+  // A page's folder is its top page's: sub-pages are filed under their parent,
+  // not in a folder of their own. Without these crumbs a page opened from a
+  // folder had no way back to it but the sidebar.
+  const rootFolderId = pagePath.find((p) => p.folderId)?.folderId;
+  const pageFolders = rootFolderId ? folderChain(ws.folders, rootFolderId) : [];
   const isMobile = useMediaQuery('(max-width: 767px)');
   const compact = useMediaQuery('(max-width: 1023px)');
   const moveTo = useMoveToFolder(page?.id);
@@ -180,8 +188,8 @@ export function TopBar() {
   return (
     <header className="mn-topbar sticky top-0 z-30 flex h-11 shrink-0 items-center gap-1 bg-canvas px-2.5 shadow-[inset_0_-1px_0_var(--line)]">
       {/* On a phone the tab bar is the way around, so the corner holds Back:
-          up one level — a sub-page to its parent, a page or folder to Docs, a
-          board to Tasks. Up rather than history.back(), which on a page opened
+          up one level — a sub-page to its parent, a filed page to its folder,
+          any other page or folder to Docs, a board to Tasks. Up rather than history.back(), which on a page opened
           from a link would leave the app. */}
       {isMobile && ws.view !== 'home' && ws.view !== 'docs' && ws.view !== 'tasks' && (
         <IconButton
@@ -189,8 +197,9 @@ export function TopBar() {
           label="Back"
           className="h-10 w-10"
           onClick={() => {
-            const parent = page ? ancestry(ws.pages, page.id).at(-2) : undefined;
+            const parent = pagePath.at(-2);
             if (parent) ws.select(parent.id);
+            else if (pageFolders.length) ws.openFolder(pageFolders.at(-1)!.id);
             else if (ws.view === 'project') ws.openTasks();
             else ws.openAllDocs();
           }}
@@ -212,8 +221,13 @@ export function TopBar() {
       <nav aria-label="Breadcrumb" className="mn-crumbs flex min-w-0 flex-1 items-center overflow-hidden text-xs">
         {/* The workspace is the root of every path, and the way home. */}
         <Crumb onClick={ws.openHome} keep>Metanoia</Crumb>
+        {page && pageFolders.map((f) => (
+          <Crumb key={f.id} icon={<Folder size={14} className="text-faint" />} onClick={() => ws.openFolder(f.id)}>
+            {f.name}
+          </Crumb>
+        ))}
         {page ? (
-          ancestry(ws.pages, page.id).map((p, i, arr) => (
+          pagePath.map((p, i, arr) => (
             <Crumb
               key={p.id}
               icon={<PageIcon icon={p.icon} size={14} />}
