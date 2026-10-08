@@ -406,6 +406,10 @@ export function commentToolbarExtensions() {
             placement: ActionPlacement.Normal,
             id: 'z.metanoia-comment',
             tooltip: 'Comment',
+            // Labelled: a bare speech bubble among the format icons went
+            // unnoticed, and readers looked for the old floating buttons.
+            label: 'Comment',
+            showLabel: true,
             icon: CommentIcon(),
             when: (ctx: ToolbarContext) => caps.comment && hasTextSelection(ctx),
             run: () => pickSelection?.('comment'),
@@ -414,6 +418,8 @@ export function commentToolbarExtensions() {
             placement: ActionPlacement.Normal,
             id: 'z.metanoia-suggest',
             tooltip: 'Suggest edit',
+            label: 'Suggest',
+            showLabel: true,
             icon: EditIcon(),
             when: (ctx: ToolbarContext) => caps.suggest && hasTextSelection(ctx),
             run: () => pickSelection?.('suggest'),
@@ -514,18 +520,23 @@ export function attachComments(
     const next = selectionAnchor(root) as (CommentAnchor & { multi?: boolean }) | null;
     if (!next) return hide();
     anchor = next;
-    const r = sel.getRangeAt(0).getBoundingClientRect();
-    commentBtn.style.display = '';
-    suggestBtn.style.display = next.multi ? 'none' : '';
-    const width = canSuggest ? 190 : 110;
-    bar.style.display = 'flex';
-    bar.style.top = `${Math.max(8, r.top - 40)}px`;
-    bar.style.left = `${Math.min(window.innerWidth - width - 8, Math.max(8, r.left + r.width / 2 - width / 2))}px`;
+    const show = () => {
+      const r = sel.getRangeAt(0).getBoundingClientRect();
+      commentBtn.style.display = '';
+      suggestBtn.style.display = next.multi ? 'none' : '';
+      const width = canSuggest ? 190 : 110;
+      bar.style.display = 'flex';
+      bar.style.top = `${Math.max(8, r.top - 40)}px`;
+      bar.style.left = `${Math.min(window.innerWidth - width - 8, Math.max(8, r.left + r.width / 2 - width / 2))}px`;
+    };
+    if (readonly) return show();
     // Where BlockSuite's toolbar comes up it carries Comment and Suggest
-    // itself, so the fallback steps aside once it has appeared.
-    if (!readonly) {
-      for (const d of [120, 400]) timers.push(setTimeout(() => { if (toolbarShowing()) hide(); }, d));
-    }
+    // itself. The fallback waits for it and appears only if it never does:
+    // shown first and taken down once the toolbar arrived, the two flashed
+    // over each other on every selection.
+    timers.push(setTimeout(() => {
+      if (anchor === next && !sel.isCollapsed && sel.rangeCount && !toolbarShowing()) show();
+    }, 400));
   };
 
   // Click on a marked range -> open its comment.
