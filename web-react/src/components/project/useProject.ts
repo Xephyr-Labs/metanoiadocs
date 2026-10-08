@@ -139,7 +139,7 @@ export function useProject(
   // pushing it into `error`. That banner renders inside the page column, which
   // the type editor's modal overlay covers — an error posted there during a
   // failed save is one nobody sees.
-  const createKind = useCallback(async (b: { label: string; color?: string; isGroup?: boolean }): Promise<KindResult> => {
+  const createKind = useCallback(async (b: { label: string; color?: string; isGroup?: boolean; icon?: string | null }): Promise<KindResult> => {
     if (!projectId) return { ok: false, error: 'No project is open.' };
     try {
       const row = await tasksApi.createKind(projectId, b);
@@ -150,7 +150,7 @@ export function useProject(
     }
   }, [projectId]);
 
-  const patchKind = useCallback(async (id: string, b: Partial<{ label: string; color: string; isGroup: boolean }>): Promise<KindResult> => {
+  const patchKind = useCallback(async (id: string, b: Partial<{ label: string; color: string; isGroup: boolean; icon: string | null }>): Promise<KindResult> => {
     const before = kinds;
     setKinds((prev) => prev.map((k) => (k.id === id
       ? { ...k, ...(b.label !== undefined && { label: b.label }), ...(b.color !== undefined && { color: b.color }), ...(b.isGroup !== undefined && { is_group: b.isGroup }) }

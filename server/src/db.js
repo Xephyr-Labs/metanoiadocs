@@ -604,6 +604,9 @@ export async function initSchema() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
     CREATE UNIQUE INDEX IF NOT EXISTS task_kinds_key_idx ON task_kinds(project_id, key);
+    -- The glyph a custom type shows, by name from the web app's icon set.
+    -- NULL draws the default. Epic, Story, Task and Bug ignore it: theirs are fixed.
+    ALTER TABLE task_kinds ADD COLUMN IF NOT EXISTS icon TEXT;
 
     -- ── database properties ─────────────────────────────────────────────────
     -- A project is a database; these are its columns beyond the fixed task

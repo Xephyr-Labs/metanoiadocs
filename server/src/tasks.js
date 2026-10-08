@@ -112,6 +112,12 @@ export function kindKey(label, taken = []) {
   return `${base}-${n}`;
 }
 
+/** An icon name from the client's set, or null for the default. Names only. */
+const iconName = (v) => {
+  const s = String(v ?? '').trim();
+  return /^[a-z0-9-]{1,30}$/.test(s) ? s : null;
+};
+
 /** A project's types, seeding the defaults the first time it is asked. */
 export async function kindsFor(projectId) {
   const sql = `SELECT * FROM task_kinds WHERE project_id = $1
@@ -593,8 +599,8 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
       return res.status(400).json({ error: `A project can have at most ${MAX_KINDS} types.` });
     }
     const { rows } = await pool.query(
-      `INSERT INTO task_kinds (id, project_id, key, label, color, is_group, position)
-       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      `INSERT INTO task_kinds (id, project_id, key, label, color, is_group, position, icon)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
       [
         crypto.randomUUID(),
         req.params.id,
@@ -603,6 +609,7 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
         String(req.body?.color || 'gray').slice(0, 20),
         !!req.body?.isGroup,
         existing.length,
+        iconName(req.body?.icon),
       ]
     );
     res.json(rows[0]);
@@ -622,6 +629,7 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
     }
     if (b.color !== undefined) set('color', String(b.color).slice(0, 20));
     if (b.isGroup !== undefined) set('is_group', !!b.isGroup);
+    if (b.icon !== undefined) set('icon', iconName(b.icon));
     if (b.position !== undefined) set('position', Number(b.position) || 0);
     if (!sets.length) return res.json({ ok: true });
     vals.push(req.params.id);
