@@ -90,6 +90,27 @@ export function markdownToReplay(text: string, html: string): string | null {
 }
 
 /**
+ * Tables as BlockSuite's HTML import can read them, or null if nothing changes.
+ *
+ * It takes `<th>` cells only from a `<thead>` and `<td>` cells only from a
+ * `<tbody>`, and drops everything else. Word, Confluence and most web pages put
+ * the header row in the body as `<th>`, others use `<td>` in the head, and a
+ * table with no `<tbody>` at all (or `<p>` inside its header cells, as chat
+ * answers have) did not paste as a table at all — the header text was missing
+ * from nearly every table copied from outside. So every cell becomes a `<td>`,
+ * a header cell keeping its weight in bold, and the section wrappers go: the
+ * HTML parser then puts every row, header first, into one implied `<tbody>`.
+ * String-level on purpose: this runs before BlockSuite parses anything.
+ */
+export function normalizeTableHtml(html: string): string | null {
+  if (!/<table[\s>]/i.test(html) || !/<(th|thead|tfoot)[\s>]/i.test(html)) return null;
+  return html
+    .replace(/<\/?(thead|tbody|tfoot)\b[^>]*>/gi, '')
+    .replace(/<th(\s[^>]*)?>/gi, (_m, attrs: string | undefined) => `<td${attrs ?? ''}><strong>`)
+    .replace(/<\/th\s*>/gi, '</strong></td>');
+}
+
+/**
  * Watch the editor for pastes worth rerouting.
  *
  * Capture phase on the editor, because BlockSuite listens on `document` in the
@@ -112,8 +133,12 @@ export function attachMarkdownPaste(host: HTMLElement): () => void {
     // A file on the clipboard is an image or an attachment, never markdown.
     if (data.files?.length) return;
 
-    const text = markdownToReplay(data.getData('text/plain'), data.getData('text/html'));
-    if (text === null) return;
+    const plain = data.getData('text/plain');
+    const html = data.getData('text/html');
+    const text = markdownToReplay(plain, html);
+    // A table BlockSuite would lose rows of is replayed as HTML it can read.
+    const tableHtml = text === null ? normalizeTableHtml(html) : null;
+    if (text === null && tableHtml === null) return;
 
     // Read off composedPath rather than `closest`: the inline editor the caret
     // sits in is inside a shadow root, and closest() stops at that boundary.
@@ -142,7 +167,8 @@ export function attachMarkdownPaste(host: HTMLElement): () => void {
     e.preventDefault();
 
     const replay = new DataTransfer();
-    replay.setData('text/plain', text);
+    if (tableHtml !== null) replay.setData('text/html', tableHtml);
+    replay.setData('text/plain', text ?? plain);
     replaying = true;
     try {
       target.dispatchEvent(

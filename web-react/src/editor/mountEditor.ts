@@ -40,6 +40,7 @@ import { attachImageAlign } from './imageAlign';
 import { attachBlockGaps } from './blockGaps';
 import { attachTableFormat } from './tableFormat';
 import { attachTableDrag } from './tableDrag';
+import { attachSelectAll } from './selectAll';
 import { attachFileDrop } from './fileDrop';
 import { imageToolbarExtensions } from './imageToolbar';
 import { pageViewportExtension } from './pageViewport';
@@ -573,6 +574,8 @@ export async function mountEditor(
   const detachTableFormat = attachTableFormat(editor as unknown as Parameters<typeof attachTableFormat>[0]);
   // A range of cells keeps growing while the page scrolls (see tableDrag.ts).
   const detachTableDrag = attachTableDrag();
+  // Ctrl/Cmd+A takes the whole page, tables included (selectAll.ts).
+  const detachSelectAll = attachSelectAll(editor as unknown as Parameters<typeof attachSelectAll>[0]);
 
   // A file dropped in the margin or under the last line lands where it was
   // dropped, not at the end of the page (see fileDrop.ts). Not for viewers:
@@ -686,6 +689,7 @@ export async function mountEditor(
       try { detachBlockGaps(); } catch { /* noop */ }
       try { detachTableFormat(); } catch { /* noop */ }
       try { detachTableDrag(); } catch { /* noop */ }
+      try { detachSelectAll(); } catch { /* noop */ }
       try { detachFileDrop?.(); } catch { /* noop */ }
       try { detachCalloutPanels(); } catch { /* noop */ }
       try { detachMermaid(); } catch { /* noop */ }
