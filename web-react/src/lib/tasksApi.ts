@@ -126,6 +126,8 @@ export interface TaskKindRow {
   /** Holds children, the way Epic does. Drives the parent picker and rollups. */
   is_group: boolean;
   position: number;
+  /** A name from KIND_ICONS, or null for the default glyph. Ignored by the four fixed types. */
+  icon?: string | null;
 }
 
 export type SprintState = 'planned' | 'active' | 'done';
@@ -539,9 +541,9 @@ export const tasksApi = {
   deleteProp: (id: string) => req(`/props/${id}`, { method: 'DELETE' }),
 
   kinds: (projectId: string): Promise<TaskKindRow[]> => req(`/projects/${projectId}/kinds`),
-  createKind: (projectId: string, b: { label: string; color?: string; isGroup?: boolean }): Promise<TaskKindRow> =>
+  createKind: (projectId: string, b: { label: string; color?: string; isGroup?: boolean; icon?: string | null }): Promise<TaskKindRow> =>
     req(`/projects/${projectId}/kinds`, { method: 'POST', ...body(b) }),
-  patchKind: (id: string, b: Partial<{ label: string; color: string; isGroup: boolean; position: number }>): Promise<TaskKindRow> =>
+  patchKind: (id: string, b: Partial<{ label: string; color: string; isGroup: boolean; position: number; icon: string | null }>): Promise<TaskKindRow> =>
     req(`/kinds/${id}`, { method: 'PATCH', ...body(b) }),
   /** Resolves with how many tasks were moved off the deleted type, and where. */
   deleteKind: (id: string): Promise<{ moved: number; movedTo: string }> =>

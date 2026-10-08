@@ -7,8 +7,13 @@
  * added is either a container (it holds children, like Epic) or it is not, and
  * that is the one thing about it a glyph can honestly say.
  */
-import { Bookmark, Bug, CircleDot, Layers, SquareCheck, Zap, type LucideIcon } from 'lucide-react';
+import {
+  Bookmark, Bug, CircleDot, Code, FileText, Flag, FlaskConical, Gauge, Globe, Layers, Lightbulb, Megaphone,
+  MessageSquare, Package, Palette, Puzzle, Rocket, Search, Shield, Sparkles, SquareCheck, Star, Target, Users,
+  Wrench, Zap, type LucideIcon,
+} from 'lucide-react';
 
+/** Fixed glyphs: these four keys draw the same everywhere, whatever is stored. */
 const BY_KEY: Record<string, LucideIcon> = {
   epic: Zap,
   story: Bookmark,
@@ -25,8 +30,40 @@ const SEED_COLOR: Record<string, string> = {
   bug: 'red',
 };
 
-export function kindIcon(key: string, isGroup = false): LucideIcon {
-  return BY_KEY[key] ?? (isGroup ? Layers : CircleDot);
+/**
+ * What a custom type's creator can pick from, by the name stored in
+ * task_kinds.icon. Order is the picker's order. Never rename a key: rows store it.
+ */
+export const KIND_ICONS: Record<string, { icon: LucideIcon; label: string }> = {
+  flag: { icon: Flag, label: 'Flag' },
+  star: { icon: Star, label: 'Star' },
+  rocket: { icon: Rocket, label: 'Rocket' },
+  target: { icon: Target, label: 'Target' },
+  lightbulb: { icon: Lightbulb, label: 'Idea' },
+  sparkles: { icon: Sparkles, label: 'Sparkles' },
+  megaphone: { icon: Megaphone, label: 'Megaphone' },
+  palette: { icon: Palette, label: 'Design' },
+  'file-text': { icon: FileText, label: 'Document' },
+  'message-square': { icon: MessageSquare, label: 'Message' },
+  code: { icon: Code, label: 'Code' },
+  wrench: { icon: Wrench, label: 'Wrench' },
+  'flask-conical': { icon: FlaskConical, label: 'Experiment' },
+  search: { icon: Search, label: 'Research' },
+  shield: { icon: Shield, label: 'Shield' },
+  gauge: { icon: Gauge, label: 'Gauge' },
+  puzzle: { icon: Puzzle, label: 'Puzzle' },
+  package: { icon: Package, label: 'Package' },
+  globe: { icon: Globe, label: 'Globe' },
+  users: { icon: Users, label: 'People' },
+  layers: { icon: Layers, label: 'Layers' },
+  'circle-dot': { icon: CircleDot, label: 'Dot' },
+};
+
+/** Epic, Story, Task and Bug: their glyph is fixed and offers no picker. */
+export const isFixedKind = (key: string) => key in BY_KEY;
+
+export function kindIcon(key: string, isGroup = false, icon?: string | null): LucideIcon {
+  return BY_KEY[key] ?? (icon ? KIND_ICONS[icon]?.icon : undefined) ?? (isGroup ? Layers : CircleDot);
 }
 
 export interface KindVisual {
@@ -48,10 +85,10 @@ export interface KindVisual {
  */
 export function kindVisual(
   key: string,
-  rows: readonly { key: string; label: string; color: string; is_group: boolean }[],
+  rows: readonly { key: string; label: string; color: string; is_group: boolean; icon?: string | null }[],
 ): KindVisual {
   const row = rows.find((r) => r.key === key);
-  if (row) return { icon: kindIcon(row.key, row.is_group), color: row.color, label: row.label, missing: false };
+  if (row) return { icon: kindIcon(row.key, row.is_group, row.icon), color: row.color, label: row.label, missing: false };
   const label = key ? key.charAt(0).toUpperCase() + key.slice(1) : 'Task';
   if (rows.length) return { icon: CircleDot, color: 'gray', label, missing: true };
   return { icon: kindIcon(key), color: SEED_COLOR[key] ?? 'gray', label, missing: false };

@@ -2,10 +2,12 @@ import { useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { type TagColor } from '../../lib/tagColors';
+import { isFixedKind, KIND_ICONS } from '../../lib/taskKinds';
 import type { TaskKindRow, TaskRow } from '../../lib/tasksApi';
 import { Button } from '../ui/Button';
 import { IconButton } from '../ui/IconButton';
 import { ColorPicker } from '../ui/ColorPicker';
+import { Menu } from '../ui/Menu';
 import { Modal } from '../ui/Modal';
 import { Tooltip } from '../ui/Tooltip';
 import { field } from '../ui/styles';
@@ -17,12 +19,47 @@ interface Props {
   onOpenChange: (open: boolean) => void;
   kinds: TaskKindRow[];
   tasks: TaskRow[];
-  onCreate: (b: { label: string; color?: string; isGroup?: boolean }) => Promise<KindResult>;
-  onPatch: (id: string, b: Partial<{ label: string; color: string; isGroup: boolean }>) => Promise<KindResult>;
+  onCreate: (b: { label: string; color?: string; isGroup?: boolean; icon?: string | null }) => Promise<KindResult>;
+  onPatch: (id: string, b: Partial<{ label: string; color: string; isGroup: boolean; icon: string | null }>) => Promise<KindResult>;
   onDelete: (id: string) => Promise<KindResult>;
 }
 
 const PARENT_HINT = 'Tasks of this type can hold children, the way Epic does';
+
+/**
+ * The type's glyph, as a button that opens the icon list. Epic, Story, Task and
+ * Bug keep the glyphs everyone knows from Jira, so theirs is drawn, not offered.
+ */
+function IconPicker({ kind, onPick }: { kind: TaskKindRow; onPick: (icon: string | null) => void }) {
+  const glyph = <KindIcon kind={kind.key} row={kind} />;
+  if (isFixedKind(kind.key)) return <span className="flex h-7 w-7 shrink-0 items-center justify-center">{glyph}</span>;
+  return (
+    <Menu
+      align="start"
+      width={184}
+      trigger={
+        <button
+          type="button"
+          aria-label={`${kind.label || 'New type'} icon`}
+          title="Choose an icon"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors duration-120 hover:bg-hover active:bg-selected"
+        >
+          {glyph}
+        </button>
+      }
+      items={[
+        { label: 'Default', checked: !kind.icon, onSelect: () => onPick(null) },
+        ...Object.entries(KIND_ICONS).map(([name, { icon, label }], i) => ({
+          icon,
+          label,
+          checked: kind.icon === name,
+          separatorBefore: i === 0,
+          onSelect: () => onPick(name),
+        })),
+      ]}
+    />
+  );
+}
 
 function KindRow({ kind, count, fallback, busy, onPatch, onDelete }: {
   kind: TaskKindRow;
@@ -54,8 +91,9 @@ function KindRow({ kind, count, fallback, busy, onPatch, onDelete }: {
 
         {/* What the type looks like everywhere else, beside the name that
             goes with it — so a recolour or a "holds children" tick shows its
-            result here, not only after the dialog closes. */}
-        <KindIcon kind={kind.key} row={kind} />
+            result here, not only after the dialog closes. A custom type's
+            glyph opens the icon list. */}
+        <IconPicker kind={kind} onPick={(icon) => patch({ icon })} />
 
         <input
           aria-label="Type name"
@@ -136,6 +174,7 @@ function KindRow({ kind, count, fallback, busy, onPatch, onDelete }: {
 export function TaskKindsDialog({ open, onOpenChange, kinds, tasks, onCreate, onPatch, onDelete }: Props) {
   const [label, setLabel] = useState('');
   const [color, setColor] = useState<TagColor>('gray');
+  const [icon, setIcon] = useState<string | null>(null);
   // One line for both outcomes: "4 tasks moved to Epic" and "that name is
   // taken" belong in the same place, at the top, where they are read without
   // scrolling and without hunting for the row that moved.
@@ -149,11 +188,12 @@ export function TaskKindsDialog({ open, onOpenChange, kinds, tasks, onCreate, on
     if (!name || busy) return;
     setBusy('new');
     setNotice(null);
-    const out = await onCreate({ label: name, color });
+    const out = await onCreate({ label: name, color, icon });
     setBusy(null);
     if (out.ok) {
       setLabel('');
       setColor('gray');
+      setIcon(null);
     } else {
       // Keep what they typed — retyping a lost label is the worst part of a
       // failed save.
@@ -184,8 +224,8 @@ export function TaskKindsDialog({ open, onOpenChange, kinds, tasks, onCreate, on
     >
       <div className="scrollarea min-h-0 flex-1 overflow-y-auto p-2">
         <p className="px-1.5 pb-2 text-2xs leading-4 text-faint">
-          Rename, recolour or add types for this project. Mark one “Parent” to let its
-          tasks hold children — that is all Epic is.
+          Rename, recolour or add types for this project, and click a custom type’s icon
+          to change it. Mark one “Parent” to let its tasks hold children — that is all Epic is.
         </p>
 
         {notice && (
@@ -219,9 +259,12 @@ export function TaskKindsDialog({ open, onOpenChange, kinds, tasks, onCreate, on
 
       <div className="flex shrink-0 items-center gap-2 border-t border-line px-3 py-2.5">
         <ColorPicker color={color} label="New type colour" side="top" onPick={setColor} />
-        {/* What the new type will look like: the generic glyph, since a new
-            type is not a container until its Parent box is ticked. */}
-        <KindIcon kind="" row={{ id: '', project_id: '', key: '', label: 'New type', color, is_group: false, position: 0 }} />
+        {/* What the new type will look like, and the place to pick its icon.
+            Without one it draws the generic glyph. */}
+        <IconPicker
+          kind={{ id: '', project_id: '', key: '', label: 'New type', color, is_group: false, position: 0, icon }}
+          onPick={setIcon}
+        />
         <input
           aria-label="New type name"
           placeholder="New type…"
