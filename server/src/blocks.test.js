@@ -234,3 +234,57 @@ test('a panel quoted inside a panel keeps its lines', () => {
   assert.match(markdown, /inner warning/);
   assert.match(markdown, /after/);
 });
+
+/** Every block's Y.Map in a built doc state, in document order of the map. */
+function blocksIn(state) {
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, new Uint8Array(state));
+  return [...doc.getMap('blocks').values()].filter((b) => b instanceof Y.Map);
+}
+
+test('a run of > lines is one quote with its lines kept, and exports back the same', () => {
+  const md = '> one\n> two\n> three\n\nAfter.';
+  const state = buildDocState('T', md);
+  const quotes = blocksIn(state).filter((b) => b.get('prop:type') === 'quote');
+  assert.equal(quotes.length, 1);
+  assert.equal(quotes[0].get('prop:text').toString(), 'one\ntwo\nthree');
+  assert.equal(docToMarkdown(state).markdown, md);
+});
+
+test('a blank line between > runs keeps them two quotes', () => {
+  const quotes = blocksIn(buildDocState('T', '> one\n\n> two')).filter((b) => b.get('prop:type') === 'quote');
+  assert.equal(quotes.length, 2);
+});
+
+test('text colour, highlight and underline come in as the editor palette and go back out', () => {
+  const md = 'A <span style="color: red">red</span> word, a <span style="color: blue; background: yellow">loud</span> one and an <u>underlined</u> one.';
+  const state = buildDocState('T', md);
+  const p = blocksIn(state).find((b) => String(b.get('prop:text') ?? '').startsWith('A red'));
+  const marks = p.get('prop:text').toDelta().filter((d) => d.attributes).map((d) => d.attributes);
+  assert.deepEqual(marks, [
+    { color: 'var(--affine-text-highlight-foreground-red)' },
+    { color: 'var(--affine-text-highlight-foreground-blue)', background: 'var(--affine-text-highlight-yellow)' },
+    { underline: true },
+  ]);
+  assert.equal(docToMarkdown(state).markdown, md);
+});
+
+test('<mark> highlights yellow; a colour outside the palette is dropped, not stored', () => {
+  const state = buildDocState('T', '<mark>hi</mark> and <span style="color: #ff0000">raw</span>');
+  const p = blocksIn(state).find((b) => String(b.get('prop:text') ?? '').startsWith('hi'));
+  const marks = p.get('prop:text').toDelta().map((d) => d.attributes ?? null);
+  assert.deepEqual(marks, [{ background: 'var(--affine-text-highlight-yellow)' }, null]);
+  assert.equal(p.get('prop:text').toString(), 'hi and raw');
+});
+
+test('<small> and <big> lines set the body text size and come back out', () => {
+  const md = 'Body.\n\n<small>A footnote, with **bold**.</small>\n\n- <big>Large item</big>\n\n## <small>Heading stays a heading</small>';
+  const state = buildDocState('T', md);
+  const all = blocksIn(state);
+  const by = (t) => all.find((b) => String(b.get('prop:text') ?? '').startsWith(t));
+  assert.equal(by('A footnote').get('prop:mnSize'), 'small');
+  assert.equal(by('Large item').get('prop:mnSize'), 'large');
+  assert.equal(by('Body').get('prop:mnSize'), undefined);
+  assert.equal(by('<small>Heading').get('prop:mnSize'), undefined);
+  assert.equal(docToMarkdown(state).markdown, md);
+});

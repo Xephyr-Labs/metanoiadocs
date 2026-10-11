@@ -24,7 +24,49 @@ const INLINE = [
   // and turning half of one italic is worse than missing the emphasis.
   { re: /(?<![*\w])\*([^*\n]+)\*(?!\*)/, attrs: () => ({ italic: true }) },
   { re: /\[([^\]\n]+)\]\(([^)\s]+)\)/, attrs: (m) => ({ link: m[2] }) },
+  // Markdown has no colour, so these are the HTML an author (an agent above
+  // all) would reach for. Only the editor's own palette is accepted — the
+  // same names its Color menu offers — so a document never carries a colour
+  // the theme cannot draw in dark mode.
+  { re: /<span style="([^"<>]*)">([^\n]*?)<\/span>/, group: 2, attrs: (m) => spanAttrs(m[1]) },
+  { re: /<u>([^\n]*?)<\/u>/, attrs: () => ({ underline: true }) },
+  { re: /<mark>([^\n]*?)<\/mark>/, attrs: () => ({ background: highlight('yellow') }) },
 ];
+
+/** The editor's text palette (BlockSuite's Color menu), by name. */
+export const TEXT_COLORS = ['red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'grey'];
+const foreground = (c) => `var(--affine-text-highlight-foreground-${c})`;
+const highlight = (c) => `var(--affine-text-highlight-${c})`;
+const colorName = (v) => {
+  const c = String(v).trim().toLowerCase().replace(/^gray$/, 'grey');
+  return TEXT_COLORS.includes(c) ? c : null;
+};
+
+/** `color: red; background: yellow` → the editor's inline attributes. */
+function spanAttrs(style) {
+  const out = {};
+  for (const decl of style.split(';')) {
+    const [k, v] = decl.split(':').map((x) => x?.trim().toLowerCase());
+    const c = v && colorName(v);
+    if (!c) continue;
+    if (k === 'color') out.color = foreground(c);
+    else if (k === 'background' || k === 'background-color') out.background = highlight(c);
+  }
+  return out;
+}
+
+/** The colour name an inline attribute holds, if it is one of the palette's. */
+const nameOf = (v, kind) => {
+  const m = String(v ?? '').match(kind === 'color'
+    ? /--affine-text-highlight-foreground-([a-z]+)\)/
+    : /--affine-text-highlight-([a-z]+)\)/);
+  return m && TEXT_COLORS.includes(m[1]) ? m[1] : null;
+};
+
+/** `<small>…</small>` or `<big>…</big>` around a whole line: a body-text size
+ *  (the editor's Text size; stored as `prop:mnSize`, see textSize.ts). */
+const SIZE_RE = /^<(small|big)>([\s\S]*)<\/\1>$/;
+const SIZE_TAG = { small: 'small', large: 'big' };
 
 /** A string → runs of text with the marks that apply to them, nesting included. */
 function inlineRuns(str, resolveLink, attrs = {}) {
@@ -53,7 +95,7 @@ function inlineRuns(str, resolveLink, attrs = {}) {
     } else if (best.rule.raw) {
       runs.push({ text: m[1], attrs: { ...attrs, ...best.rule.attrs(m) } });
     } else {
-      runs.push(...inlineRuns(m[1], resolveLink, { ...attrs, ...best.rule.attrs(m) }));
+      runs.push(...inlineRuns(m[best.rule.group ?? 1], resolveLink, { ...attrs, ...best.rule.attrs(m) }));
     }
     rest = rest.slice(best.index + m[0].length);
   }
@@ -202,12 +244,23 @@ export function parseMarkdown(md) {
       blank = false;
       continue;
     }
-    if ((m = line.match(/^>\s?(.*)$/))) { out.push({ flavour: 'affine:paragraph', type: 'quote', text: m[1] }); blank = false; continue; }
+    if ((m = line.match(/^>\s?(.*)$/))) {
+      // A run of `>` lines is one quote, its lines kept as lines — the editor
+      // holds a multi-line quote as one block with line breaks in its text. One
+      // block per source line drew a stack of separate quotes, each with its
+      // own gap.
+      const prev = out[out.length - 1];
+      if (!blank && prev?.flavour === 'affine:paragraph' && prev.type === 'quote') prev.text = `${prev.text}\n${m[1]}`;
+      else out.push({ flavour: 'affine:paragraph', type: 'quote', text: m[1] });
+      blank = false;
+      continue;
+    }
     // Plain text directly under the previous line continues it: markdown wraps
     // a paragraph across lines, and one block per source line turns a hard
     // -wrapped file into hundreds of one-line paragraphs.
     const prev = out[out.length - 1];
     if (!blank && prev) {
+      // A lazy continuation (no `>`) of a quote's last line joins that line.
       const continuesParagraph = prev.flavour === 'affine:paragraph' && (prev.type === 'text' || prev.type === 'quote');
       // An indented run-on under a list item belongs to that item, not after it.
       const continuesList = prev.flavour === 'affine:list' && /^\s\s+\S/.test(line);
@@ -240,6 +293,20 @@ const imageAsParagraph = (d) =>
   d.flavour === 'affine:image'
     ? { flavour: 'affine:paragraph', type: 'text', text: `![${d.caption || ''}](/api/blob/${d.sourceId})` }
     : d;
+
+/** A body line's text without its `<small>`/`<big>` wrapper, and the size the
+ *  wrapper asked for. Headings keep their own scale and take no size. */
+function sizedText(desc) {
+  const text = String(desc.text ?? '');
+  const m = /^h[1-6]$/.test(desc.type || '') ? null : text.match(SIZE_RE);
+  return m ? { text: m[2], size: m[1] === 'small' ? 'small' : 'large' } : { text, size: null };
+}
+
+/** A body line's markdown wrapped back in its size tag, if it has one. */
+const withSize = (b, md) => {
+  const tag = SIZE_TAG[b.get('prop:mnSize')];
+  return tag && md ? `<${tag}>${md}</${tag}>` : md;
+};
 
 function makeBlock(blocks, desc, resolveLink, pending) {
   const id = blockId();
@@ -301,14 +368,18 @@ function makeBlock(blocks, desc, resolveLink, pending) {
     b.set('prop:language', desc.language || 'plain');
     b.set('prop:wrap', false);
   } else if (desc.flavour === 'affine:list') {
+    const { text, size } = sizedText(desc);
     b.set('prop:type', desc.type);
-    b.set('prop:text', ytext(desc.text, resolveLink, pending));
+    b.set('prop:text', ytext(text, resolveLink, pending));
     b.set('prop:checked', !!desc.checked);
     b.set('prop:collapsed', false);
+    if (size) b.set('prop:mnSize', size);
   } else {
+    const { text, size } = sizedText(desc);
     b.set('prop:type', desc.type || 'text');
-    b.set('prop:text', ytext(desc.text, resolveLink, pending));
+    b.set('prop:text', ytext(text, resolveLink, pending));
     b.set('prop:collapsed', false);
+    if (size) b.set('prop:mnSize', size);
   }
   blocks.set(id, b);
   return id;
@@ -534,6 +605,10 @@ function inlineMarkdown(t, opts = {}) {
     if (a.strike) s = `~~${s}~~`;
     if (a.italic) s = `*${s}*`;
     if (a.bold) s = `**${s}**`;
+    if (a.underline) s = `<u>${s}</u>`;
+    const fg = nameOf(a.color, 'color');
+    const bg = nameOf(a.background, 'background');
+    if (fg || bg) s = `<span style="${[fg && `color: ${fg}`, bg && `background: ${bg}`].filter(Boolean).join('; ')}">${s}</span>`;
     if (a.link) s = `[${s}](${a.link})`;
     out += lead + s + tail;
   }
@@ -613,14 +688,14 @@ export function docToMarkdown(existing, opts = {}) {
         const type = b.get('prop:type') || 'text';
         const body = text(b);
         if (/^h[1-6]$/.test(type)) parts.push({ text: `${'#'.repeat(Number(type[1]))} ${body}` });
-        else if (type === 'quote') parts.push({ text: body.split('\n').map((l) => `> ${l}`).join('\n') });
-        else parts.push({ text: body });
+        else if (type === 'quote') parts.push({ text: withSize(b, body).split('\n').map((l) => `> ${l}`).join('\n') });
+        else parts.push({ text: withSize(b, body) });
         break;
       }
       case 'affine:list': {
         const type = b.get('prop:type');
         const marker = type === 'numbered' ? '1.' : type === 'todo' ? `- [${b.get('prop:checked') ? 'x' : ' '}]` : '-';
-        parts.push({ list: true, type, depth, text: `${'  '.repeat(depth)}${marker} ${text(b)}` });
+        parts.push({ list: true, type, depth, text: `${'  '.repeat(depth)}${marker} ${withSize(b, text(b))}` });
         childDepth = depth + 1;
         break;
       }
@@ -778,7 +853,7 @@ function blockToMarkdown(b) {
     return `- ${text}`;
   }
   if (/^h[1-6]$/.test(type)) return '#'.repeat(Number(type[1])) + ' ' + text;
-  if (type === 'quote') return '> ' + text;
+  if (type === 'quote') return '> ' + text.split('\n').join('\n> ');
   return text;
 }
 

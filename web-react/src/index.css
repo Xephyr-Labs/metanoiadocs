@@ -1590,3 +1590,54 @@ html:has(:is(input:not([type='checkbox']):not([type='radio']), textarea, select,
     overscroll-behavior: none;
   }
 }
+
+/* Quote blocks that follow one another read as ONE quote: one bar, no gaps.
+ * Each line of a quote used to be its own block — pages migrated from AFFiNE,
+ * markdown written before the importer joined `>` runs, a paste — and each drew
+ * its own 10px padding, 10px margin and short bar, so a three-line quote was
+ * three separate quotes. `:has()` cannot nest, which is why the "a quote follows"
+ * test is spelled out in full rather than reusing the quote selector. */
+affine-paragraph:has(> .affine-block-component > .affine-paragraph-block-container > .quote):has(+ affine-paragraph > .affine-block-component > .affine-paragraph-block-container > .quote) > .affine-block-component {
+  margin-bottom: 0 !important; /* BlockSuite sets the margin inline */
+}
+affine-paragraph:has(> .affine-block-component > .affine-paragraph-block-container > .quote):has(+ affine-paragraph > .affine-block-component > .affine-paragraph-block-container > .quote) > .affine-block-component > .affine-paragraph-block-container > .quote {
+  padding-bottom: 0;
+}
+affine-paragraph:has(> .affine-block-component > .affine-paragraph-block-container > .quote):has(+ affine-paragraph > .affine-block-component > .affine-paragraph-block-container > .quote) > .affine-block-component > .affine-paragraph-block-container > .quote::after {
+  height: calc(100% - 10px);
+  margin-bottom: 0;
+}
+affine-paragraph:has(> .affine-block-component > .affine-paragraph-block-container > .quote) + affine-paragraph:has(> .affine-block-component > .affine-paragraph-block-container > .quote) > .affine-block-component {
+  margin-top: 0 !important;
+}
+affine-paragraph:has(> .affine-block-component > .affine-paragraph-block-container > .quote) + affine-paragraph:has(> .affine-block-component > .affine-paragraph-block-container > .quote) > .affine-block-component > .affine-paragraph-block-container > .quote {
+  padding-top: 0;
+  margin-top: 0;
+}
+affine-paragraph:has(> .affine-block-component > .affine-paragraph-block-container > .quote) + affine-paragraph:has(> .affine-block-component > .affine-paragraph-block-container > .quote) > .affine-block-component > .affine-paragraph-block-container > .quote::after {
+  margin-top: 0;
+  height: calc(100% - 10px);
+}
+affine-paragraph:has(> .affine-block-component > .affine-paragraph-block-container > .quote) + affine-paragraph:has(> .affine-block-component > .affine-paragraph-block-container > .quote):has(+ affine-paragraph > .affine-block-component > .affine-paragraph-block-container > .quote) > .affine-block-component > .affine-paragraph-block-container > .quote::after {
+  height: 100%;
+}
+
+/* Body text sizes (editor/textSize.ts). Relative, so they scale with the
+ * page's own Small text / font preferences rather than pinning a pixel size;
+ * the line height follows the size, or a small line would sit in a full-size
+ * line box and the saving would be only half of what it looks like. */
+affine-paragraph[data-mn-size='small'] > .affine-block-component > .affine-paragraph-block-container > .affine-paragraph-rich-text-wrapper,
+affine-list[data-mn-size='small'] .affine-list-rich-text-wrapper {
+  font-size: 0.8125em;
+  line-height: 1.55;
+}
+affine-paragraph[data-mn-size='large'] > .affine-block-component > .affine-paragraph-block-container > .affine-paragraph-rich-text-wrapper,
+affine-list[data-mn-size='large'] .affine-list-rich-text-wrapper {
+  font-size: 1.1875em;
+  line-height: 1.5;
+}
+/* Fine print reads as secondary: one step quieter, never grey-on-grey. */
+affine-paragraph[data-mn-size='small'] > .affine-block-component > .affine-paragraph-block-container > .affine-paragraph-rich-text-wrapper.text,
+affine-list[data-mn-size='small'] .affine-list-rich-text-wrapper {
+  color: var(--muted);
+}

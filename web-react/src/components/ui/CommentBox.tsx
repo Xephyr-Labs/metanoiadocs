@@ -1,5 +1,8 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, type KeyboardEvent } from 'react';
+import { forwardRef, useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { cn } from '../../lib/cn';
+import type { UserRow } from '../../lib/docsApi';
+import { applyMention, matchPeople, mentionQuery } from '../../lib/mentions';
+import { Avatar } from './Avatar';
 
 /**
  * The box a comment is typed into.
@@ -15,6 +18,11 @@ import { cn } from '../../lib/cn';
  *    visible start of the text — landed there. So the caret is remembered on
  *    every blur and put back whenever the box is focused by anything other
  *    than a click that places it deliberately.
+ *
+ * `people` turns on @-mentions: typing "@" offers the matching teammates in a
+ * menu above the box, which the keyboard drives — ↑/↓ to move, Enter or Tab
+ * to pick, Esc to close. It lives here rather than in each caller because two
+ * callers had grown two menus, and neither answered the arrow keys.
  *
  * `draftKey` keeps the text itself across a remount: switching the side panel
  * to Outline and back unmounts the comments tab, and that used to throw away a
@@ -40,12 +48,26 @@ interface Props {
   draftKey?: string;
   className?: string;
   maxHeight?: number;
+  /** Who an "@" can mention. Omitted: no mention menu. */
+  people?: UserRow[];
 }
 
 export const CommentBox = forwardRef<CommentBoxHandle, Props>(function CommentBox(
-  { value, onChange, onEnter, placeholder, draftKey, className, maxHeight = 160 },
+  { value, onChange, onEnter, placeholder, draftKey, className, maxHeight = 160, people },
   ref,
 ) {
+  // The menu is closed by Esc or by leaving the box, and reopens on the next
+  // keystroke; `active` is the highlighted row.
+  const [dismissed, setDismissed] = useState(false);
+  const [active, setActive] = useState(0);
+  const listId = useId();
+  const query = people && !dismissed ? mentionQuery(value) : null;
+  const matches = query === null ? [] : matchPeople(people!, query);
+  const at = Math.min(active, Math.max(0, matches.length - 1));
+  const pickPerson = (u: UserRow) => {
+    onChange(applyMention(value, u.username));
+    setActive(0);
+  };
   const area = useRef<HTMLTextAreaElement>(null);
   const caret = useRef<{ start: number; end: number } | null>(null);
   // Set between a pointerdown on the box and the focus it causes: that click is
@@ -140,13 +162,60 @@ export const CommentBox = forwardRef<CommentBoxHandle, Props>(function CommentBo
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.nativeEvent.isComposing) return;
+    if (matches.length) {
+      const step = e.key === 'ArrowDown' ? 1 : e.key === 'ArrowUp' ? -1 : 0;
+      if (step) {
+        e.preventDefault();
+        setActive((at + step + matches.length) % matches.length);
+        return;
+      }
+      if ((e.key === 'Enter' && !e.shiftKey) || e.key === 'Tab') {
+        e.preventDefault();
+        pickPerson(matches[at]);
+        return;
+      }
+      if (e.key === 'Escape') {
+        // The menu's Esc, not the panel's.
+        e.preventDefault();
+        e.stopPropagation();
+        setDismissed(true);
+        return;
+      }
+    }
     // An IME's Enter confirms the composition; it is not "send".
-    if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing) return;
+    if (e.key !== 'Enter' || e.shiftKey) return;
     e.preventDefault();
     onEnter();
   };
 
   return (
+    <div className="relative min-w-0 flex-1">
+    {matches.length > 0 && (
+      <div
+        id={listId}
+        role="listbox"
+        aria-label="Mention someone"
+        className="absolute bottom-full left-0 right-0 z-10 mb-2 overflow-hidden rounded-lg border border-line bg-canvas py-1 shadow-pop"
+      >
+        {matches.map((u, i) => (
+          <div
+            key={u.id}
+            id={`${listId}-${i}`}
+            role="option"
+            aria-selected={i === at}
+            // mousedown, not click: the box would blur first and close the menu.
+            onMouseDown={(e) => { e.preventDefault(); pickPerson(u); }}
+            onMouseEnter={() => setActive(i)}
+            className={cn('flex cursor-pointer items-center gap-2 px-2.5 py-1.5 text-sm', i === at && 'bg-hover')}
+          >
+            <Avatar name={u.name || u.username || u.email} size={18} />
+            <span className="font-medium text-ink">{u.name || u.username}</span>
+            <span className="truncate text-2xs text-faint">@{u.username}</span>
+          </div>
+        ))}
+      </div>
+    )}
     <textarea
       ref={area}
       rows={1}
@@ -154,18 +223,25 @@ export const CommentBox = forwardRef<CommentBoxHandle, Props>(function CommentBo
       placeholder={placeholder}
       onChange={(e) => {
         caret.current = { start: e.target.selectionStart, end: e.target.selectionEnd };
+        setDismissed(false);
+        setActive(0);
         onChange(e.target.value);
       }}
       onKeyDown={onKeyDown}
+      role={people ? 'combobox' : undefined}
+      aria-expanded={people ? matches.length > 0 : undefined}
+      aria-controls={matches.length ? listId : undefined}
+      aria-activedescendant={matches.length ? `${listId}-${at}` : undefined}
       onSelect={remember}
-      onBlur={remember}
+      onBlur={() => { remember(); setDismissed(true); }}
       onPointerDown={() => { clicking.current = true; }}
       onFocus={() => {
         if (clicking.current) { clicking.current = false; return; }
         // Keyboard or programmatic focus: back to where the caret was.
         requestAnimationFrame(restore);
       }}
-      className={cn('block min-w-0 flex-1 resize-none bg-transparent text-sm leading-5 outline-none placeholder:text-faint', className)}
+      className={cn('block w-full resize-none bg-transparent text-sm leading-5 outline-none placeholder:text-faint', className)}
     />
+    </div>
   );
 });

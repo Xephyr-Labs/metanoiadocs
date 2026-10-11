@@ -17,6 +17,8 @@ import {
   type ProjectMode, type PropOption, type PropRow, type RelatedRow, type SprintRow, type TaskDetail, type TaskPatch, type TaskRow, type BuiltinOverride,
 } from '../../lib/tasksApi';
 import { LazyEditor } from '../../editor/LazyEditor';
+import { focusDocEnd } from '../../editor/blockGaps';
+import { EditorBar } from '../editor/EditorBar';
 import { IconButton } from '../ui/IconButton';
 import { Menu } from '../ui/Menu';
 import { useDocLinking } from '../../hooks/useDocLinking';
@@ -138,6 +140,8 @@ export function TaskPeek({
   const [depPick, setDepPick] = useState('');
   const [docId, setDocId] = useState<string | null>(task?.doc_id ?? null);
   const [detail, setDetail] = useState<TaskDetail | null>(null);
+  // The notes editor, once mounted: the formatting bar above it drives it.
+  const [notesEl, setNotesEl] = useState<Element | null>(null);
   // A task's page is a page like any other, so it can be filed in a folder
   // straight from here rather than being hunted down in the sidebar first.
   const moveTo = useMoveToFolder(docId);
@@ -187,7 +191,14 @@ export function TaskPeek({
   // reach the board underneath.
   useEffect(() => {
     if (!task) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      // Esc inside the notes belongs to the editor — closing the slash menu, a
+      // link popup, a selection. It used to close the whole task as well.
+      const t = e.target instanceof Element ? e.target : null;
+      if (t?.closest('.mn-peek-editor, .blocksuite-portal, affine-slash-menu')) return;
+      onClose();
+    };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [task, onClose]);
@@ -484,9 +495,27 @@ export function TaskPeek({
             the loudest thing in the panel and said nothing new. */}
         <section className="mn-peek-editor">
           {/* Without the document's own title the body starts on blank canvas,
-              which reads as a rendering fault rather than an empty page. */}
-          <p className="px-4 pt-3 text-xs text-muted">Notes</p>
+              which reads as a rendering fault rather than an empty page. The
+              formatting bar rides along with the label and stays in reach while
+              the notes scroll: the floating toolbar only appears once text is
+              selected, which left the notes with no visible way to format. */}
+          <div className="sticky top-0 z-10 flex items-center border-b border-line bg-canvas">
+            <p className="shrink-0 pl-4 text-xs text-muted">Notes</p>
+            {/* A wrapper with a width: the bar measures itself (a size
+                container) to decide what to fold away, and as a bare flex item
+                it measured zero and folded everything. */}
+            {docId && <div className="min-w-0 flex-1"><EditorBar editor={notesEl} mode="page" /></div>}
+          </div>
           {docId && (
+            // A click under the last line puts the caret there. A task's notes
+            // are often one short line, and a click anywhere else in the panel
+            // used to leave focus nowhere.
+            <div
+              className="min-h-56 cursor-text pb-6"
+              onMouseDown={(e) => {
+                if (notesEl && e.button === 0 && focusDocEnd(notesEl, e.clientY)) e.preventDefault();
+              }}
+            >
             <LazyEditor
               docId={docId}
               title={task.title}
@@ -507,7 +536,9 @@ export function TaskPeek({
               pages={linkTargets}
               createPage={createLinkedPage}
               onOpenDoc={(id) => { ws.select(id); onClose(); }}
+              onEditor={setNotesEl}
             />
+            </div>
           )}
         </section>
       </div>

@@ -9,7 +9,6 @@ import { tasksApi, type DocTask } from '../../lib/tasksApi';
 import { openReview, useReviewState } from '../../lib/reviewMode';
 import { relativeTime } from '../../lib/time';
 import { toast } from '../../lib/toast';
-import { useOutsideClick } from '../../hooks/useOutsideClick';
 import { useWorkspace } from '../../store/workspace';
 import { useAuth } from '../../store/auth';
 import { cn } from '../../lib/cn';
@@ -28,17 +27,6 @@ const GuestChip = () => (
   <span className="rounded bg-hover px-1 py-px text-[10px] font-medium uppercase tracking-wide text-muted">Guest</span>
 );
 
-/** "@" + word characters at the end of a draft: the handle being typed. */
-function useMentions(text: string, members: UserRow[], dismissed: boolean) {
-  const match = text.match(/@([a-z0-9._-]*)$/i);
-  const query = match ? match[1].toLowerCase() : null;
-  return query !== null && !dismissed
-    ? members
-        .filter((m) => m.username && (m.username.toLowerCase().includes(query) || (m.name || '').toLowerCase().includes(query)))
-        .slice(0, 6)
-    : [];
-}
-const withMention = (text: string, m: UserRow) => text.replace(/@([a-z0-9._-]*)$/i, `@${m.username} `);
 
 /**
  * The page's comments: threads to read, answer, resolve and reopen, and
@@ -69,9 +57,7 @@ export function CommentsTab({ docId }: { docId: string }) {
   // on the page — without this they are only visible from the board, which is
   // not where somebody reading the page looks for them.
   const [task, setTask] = useState<DocTask | null>(null);
-  const [mentionDismissed, setMentionDismissed] = useState(false);
   const [, bumpDetached] = useState(0);
-  const composerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<CommentBoxHandle>(null);
   const replacementRef = useRef<CommentBoxHandle>(null);
   const cardRefs = useRef(new Map<string, HTMLDivElement>());
@@ -125,8 +111,6 @@ export function CommentsTab({ docId }: { docId: string }) {
     return () => { clearTimeout(t0); clearTimeout(t); };
   }, [focusId, comments]);
 
-  const mentions = useMentions(draft, members, mentionDismissed);
-  useOutsideClick(composerRef, useCallback(() => setMentionDismissed(true), []), mentions.length > 0);
 
   const run = async (key: string, fn: () => Promise<unknown>, fail = 'Something went wrong') => {
     setBusy(key);
@@ -438,6 +422,7 @@ export function CommentsTab({ docId }: { docId: string }) {
                       value={replyText}
                       onChange={setReplyText}
                       onEnter={() => { void sendReply(c.id); }}
+                      people={members}
                       placeholder="Reply…"
                       className="px-2.5 py-1.5"
                     />
@@ -464,7 +449,7 @@ export function CommentsTab({ docId }: { docId: string }) {
       </div>
 
       {mayComment ? (
-        <div ref={composerRef} className="relative border-t border-line p-3">
+        <div className="relative border-t border-line p-3">
           {anchor && (
             <div className="mb-2 rounded-md bg-comment px-2.5 py-1.5">
               <div className="flex items-center gap-2">
@@ -504,34 +489,14 @@ export function CommentsTab({ docId }: { docId: string }) {
               </div>
             </div>
           )}
-          {mentions.length > 0 && (
-            <div className="absolute bottom-[52px] left-3 right-3 z-10 overflow-hidden rounded-lg border border-line bg-canvas shadow-pop">
-              {mentions.map((m) => (
-                <button
-                  key={m.id}
-                  type="button"
-                  onMouseDown={(e) => { e.preventDefault(); setDraft((d) => withMention(d, m)); }}
-                  className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-sm hover:bg-hover"
-                >
-                  <Avatar name={m.name || m.username || m.email} size={18} />
-                  <span className="font-medium text-ink">{m.name || m.username}</span>
-                  <span className="truncate text-2xs text-faint">@{m.username}</span>
-                </button>
-              ))}
-            </div>
-          )}
           <div className="flex items-end gap-2 rounded-md ring-1 ring-inset ring-line focus-within:ring-2 focus-within:ring-accent">
             <CommentBox
               ref={inputRef}
               draftKey={draftKey}
               value={draft}
-              onChange={(v) => { setDraft(v); setMentionDismissed(false); }}
-              onEnter={() => {
-                // If the mention menu is open, Enter picks the top suggestion
-                // instead of submitting a half-typed handle.
-                if (mentions.length > 0) { setDraft((d) => withMention(d, mentions[0])); return; }
-                void add();
-              }}
+              onChange={setDraft}
+              onEnter={() => { void add(); }}
+              people={members}
               placeholder={suggesting ? 'Why? (optional)' : anchor ? 'Comment on selection…' : 'Add a comment…  @ to mention'}
               className="px-3 py-2"
             />

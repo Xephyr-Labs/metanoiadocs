@@ -431,6 +431,8 @@ export function commentToolbarExtensions() {
 }
 
 // ---- selection wiring
+const touchOnly = () => window.matchMedia('(hover: none)').matches;
+
 /** Whether BlockSuite's own selection toolbar is up (and so carries our actions). */
 function toolbarShowing(): boolean {
   const w = document.querySelector('affine-toolbar-widget');
@@ -466,8 +468,8 @@ export function attachComments(
   // would mean a page with threads looks like a page without any.
   load().then(applyCommentHighlights).catch(() => {});
 
-  // Fallback buttons for when BlockSuite's toolbar doesn't show: a read-only
-  // page, or a phone.
+  // Buttons for when BlockSuite's toolbar doesn't show: a read-only page, or
+  // a phone.
   const bar = document.createElement('div');
   bar.className = 'fixed z-50 hidden items-center gap-0.5 rounded-md border border-line bg-canvas p-0.5 shadow-pop';
   const mkButton = (label: string, mode: 'comment' | 'suggest') => {
@@ -479,8 +481,8 @@ export function attachComments(
     b.addEventListener('pointerdown', (e) => { e.preventDefault(); pick(mode); });
     return b;
   };
-  const commentBtn = mkButton('💬 Comment', 'comment');
-  const suggestBtn = mkButton('✎ Suggest', 'suggest');
+  const commentBtn = mkButton('Comment', 'comment');
+  const suggestBtn = mkButton('Suggest', 'suggest');
   bar.append(commentBtn);
   if (canSuggest) bar.append(suggestBtn);
   document.body.appendChild(bar);
@@ -530,10 +532,13 @@ export function attachComments(
       bar.style.left = `${Math.min(window.innerWidth - width - 8, Math.max(8, r.left + r.width / 2 - width / 2))}px`;
     };
     if (readonly) return show();
-    // Where BlockSuite's toolbar comes up it carries Comment and Suggest
-    // itself. The fallback waits for it and appears only if it never does:
-    // shown first and taken down once the toolbar arrived, the two flashed
-    // over each other on every selection.
+    // Where the page is editable, BlockSuite's own selection toolbar carries
+    // Comment and Suggest, so these buttons are for phones only (no toolbar
+    // over a selection there). On a desktop they used to wait 400ms for the
+    // toolbar and appear if it was not up yet — and the toolbar often comes
+    // up later than that, so the two sets of buttons stacked on top of each
+    // other.
+    if (!touchOnly()) return hide();
     timers.push(setTimeout(() => {
       if (anchor === next && !sel.isCollapsed && sel.rangeCount && !toolbarShowing()) show();
     }, 400));
@@ -544,7 +549,7 @@ export function attachComments(
     // On touch a tap is how you place the cursor; opening the full-screen
     // comments sheet instead made commented text impossible to edit. Phones
     // reach threads through the margin dots and the top-bar button.
-    if (!applied.length || window.matchMedia('(hover: none)').matches) return;
+    if (!applied.length || touchOnly()) return;
     // A commented image: a click on it opens its thread, like marked text.
     const onImage = e.target instanceof Node
       ? applied.find((a) => a.el?.contains(e.target as Node))

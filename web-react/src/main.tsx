@@ -10,6 +10,7 @@ import './index.css';
 import { installFilePickerFallback } from './editor/filePicker';
 import { applyDocFont, applySmallText } from './lib/docPrefs';
 import { installAppUpdates } from './lib/appUpdate';
+import { canonicalizeLegacyAddress } from './lib/route';
 
 // Before anything renders: Brave (and Firefox, and Safari, and a locked-down
 // Chrome) has no showOpenFilePicker, and every upload path in the editor calls
@@ -32,6 +33,10 @@ window.addEventListener('vite:preloadError', (event) => {
   sessionStorage.setItem('mn-build-reload', String(Date.now()));
   location.reload();
 });
+
+// A link copied in AFFiNE (/workspace/<ws>/<page>?blockIds=…) opens that page
+// and block, not the dashboard. Before anything reads the address.
+canonicalizeLegacyAddress();
 
 // Notice new builds instead of running the precached old one indefinitely.
 installAppUpdates();
