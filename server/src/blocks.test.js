@@ -288,3 +288,17 @@ test('<small> and <big> lines set the body text size and come back out', () => {
   assert.equal(by('<small>Heading').get('prop:mnSize'), undefined);
   assert.equal(docToMarkdown(state).markdown, md);
 });
+
+test('two <small> runs on one line stay literal rather than leaving tags in the text', () => {
+  const p = blocksIn(buildDocState('T', '<small>a</small> and <small>b</small>')).find((b) => String(b.get('prop:text') ?? '').includes('and'));
+  assert.equal(p.get('prop:mnSize'), undefined);
+  assert.equal(p.get('prop:text').toString(), '<small>a</small> and <small>b</small>');
+});
+
+test('a quote with every line in <small> is one small quote, and comes back as one', () => {
+  const state = buildDocState('T', '> <small>a</small>\n> <small>b</small>');
+  const q = blocksIn(state).find((b) => b.get('prop:type') === 'quote');
+  assert.equal(q.get('prop:mnSize'), 'small');
+  assert.equal(q.get('prop:text').toString(), 'a\nb');
+  assert.equal(docToMarkdown(state).markdown, '> <small>a\n> b</small>');
+});

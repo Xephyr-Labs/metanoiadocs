@@ -65,7 +65,7 @@ const nameOf = (v, kind) => {
 
 /** `<small>…</small>` or `<big>…</big>` around a whole line: a body-text size
  *  (the editor's Text size; stored as `prop:mnSize`, see textSize.ts). */
-const SIZE_RE = /^<(small|big)>([\s\S]*)<\/\1>$/;
+const SIZE_RE = /^<(small|big)>((?:(?!<\/?\1>)[\s\S])*)<\/\1>$/;
 const SIZE_TAG = { small: 'small', large: 'big' };
 
 /** A string → runs of text with the marks that apply to them, nesting included. */
@@ -298,8 +298,20 @@ const imageAsParagraph = (d) =>
  *  wrapper asked for. Headings keep their own scale and take no size. */
 function sizedText(desc) {
   const text = String(desc.text ?? '');
-  const m = /^h[1-6]$/.test(desc.type || '') ? null : text.match(SIZE_RE);
-  return m ? { text: m[2], size: m[1] === 'small' ? 'small' : 'large' } : { text, size: null };
+  if (/^h[1-6]$/.test(desc.type || '')) return { text, size: null };
+  const size = (tag) => (tag === 'small' ? 'small' : 'large');
+  // One wrapper around the whole line (or the whole of a multi-line quote) —
+  // and never two on one line, `<small>a</small> and <small>b</small>`, which
+  // a greedy match would have read as one with the tags left in the middle.
+  const m = text.match(SIZE_RE);
+  if (m) return { text: m[2], size: size(m[1]) };
+  // A quote whose lines were each wrapped (`> <small>a</small>` per line,
+  // joined into one block on import) is sized when every line agrees.
+  const lines = text.split('\n').map((l) => l.match(SIZE_RE));
+  if (lines.length > 1 && lines.every((l) => l && l[1] === lines[0][1])) {
+    return { text: lines.map((l) => l[2]).join('\n'), size: size(lines[0][1]) };
+  }
+  return { text, size: null };
 }
 
 /** A body line's markdown wrapped back in its size tag, if it has one. */

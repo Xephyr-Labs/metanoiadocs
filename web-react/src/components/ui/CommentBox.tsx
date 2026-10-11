@@ -64,6 +64,19 @@ export const CommentBox = forwardRef<CommentBoxHandle, Props>(function CommentBo
   const query = people && !dismissed ? mentionQuery(value) : null;
   const matches = query === null ? [] : matchPeople(people!, query);
   const at = Math.min(active, Math.max(0, matches.length - 1));
+  // Above the box by default (the composer sits at the bottom of the panel),
+  // below it when the scrolling list it sits in has no room above — a reply
+  // box near the top of the threads would otherwise have its menu cut off.
+  const [below, setBelow] = useState(false);
+  const open = matches.length > 0;
+  useLayoutEffect(() => {
+    const el = area.current;
+    if (!open || !el) return;
+    let scroller: HTMLElement | null = el.parentElement;
+    while (scroller && !/(auto|scroll)/.test(getComputedStyle(scroller).overflowY)) scroller = scroller.parentElement;
+    const roomAbove = el.getBoundingClientRect().top - (scroller?.getBoundingClientRect().top ?? 0);
+    setBelow(roomAbove < matches.length * 32 + 16);
+  }, [open, matches.length]);
   const pickPerson = (u: UserRow) => {
     onChange(applyMention(value, u.username));
     setActive(0);
@@ -196,7 +209,10 @@ export const CommentBox = forwardRef<CommentBoxHandle, Props>(function CommentBo
         id={listId}
         role="listbox"
         aria-label="Mention someone"
-        className="absolute bottom-full left-0 right-0 z-10 mb-2 overflow-hidden rounded-lg border border-line bg-canvas py-1 shadow-pop"
+        className={cn(
+          'absolute left-0 right-0 z-10 overflow-hidden rounded-lg border border-line bg-canvas py-1 shadow-pop',
+          below ? 'top-full mt-2' : 'bottom-full mb-2',
+        )}
       >
         {matches.map((u, i) => (
           <div

@@ -395,37 +395,50 @@ const hasTextSelection = (ctx: ToolbarContext) => {
   return !!sel && !sel.isCollapsed();
 };
 
-/** Toolbar actions for the text-selection toolbar (flavour `affine:note`). */
+/** Text selected in a table cell. A cell is not a TextSelection to BlockSuite
+ *  (it is the table's own selection), so it is read off the page instead. */
+const hasCellText = () => {
+  const sel = document.getSelection();
+  if (!sel || sel.isCollapsed || !sel.rangeCount) return false;
+  const node = sel.getRangeAt(0).commonAncestorContainer;
+  const el = node instanceof Element ? node : node.parentElement;
+  return !!el?.closest('affine-table') && !!sel.toString().trim();
+};
+
+const actions = (selected: (ctx: ToolbarContext) => boolean) => [
+  {
+    placement: ActionPlacement.Normal,
+    id: 'z.metanoia-comment',
+    tooltip: 'Comment',
+    // Labelled: a bare speech bubble among the format icons went
+    // unnoticed, and readers looked for the old floating buttons.
+    label: 'Comment',
+    showLabel: true,
+    icon: CommentIcon(),
+    when: (ctx: ToolbarContext) => caps.comment && selected(ctx),
+    run: () => pickSelection?.('comment'),
+  },
+  {
+    placement: ActionPlacement.Normal,
+    id: 'z.metanoia-suggest',
+    tooltip: 'Suggest edit',
+    label: 'Suggest',
+    showLabel: true,
+    icon: EditIcon(),
+    when: (ctx: ToolbarContext) => caps.suggest && selected(ctx),
+    run: () => pickSelection?.('suggest'),
+  },
+];
+
+/** Comment and Suggest on the text-selection toolbar (flavour `affine:note`),
+ *  which is also the toolbar text selected in a table cell gets. The floating
+ *  buttons are kept for read-only pages and phones, so on a desktop this is
+ *  the way in for both. */
 export function commentToolbarExtensions() {
   return [
     ToolbarModuleExtension({
       id: BlockFlavourIdentifier('custom:affine:note'),
-      config: {
-        actions: [
-          {
-            placement: ActionPlacement.Normal,
-            id: 'z.metanoia-comment',
-            tooltip: 'Comment',
-            // Labelled: a bare speech bubble among the format icons went
-            // unnoticed, and readers looked for the old floating buttons.
-            label: 'Comment',
-            showLabel: true,
-            icon: CommentIcon(),
-            when: (ctx: ToolbarContext) => caps.comment && hasTextSelection(ctx),
-            run: () => pickSelection?.('comment'),
-          },
-          {
-            placement: ActionPlacement.Normal,
-            id: 'z.metanoia-suggest',
-            tooltip: 'Suggest edit',
-            label: 'Suggest',
-            showLabel: true,
-            icon: EditIcon(),
-            when: (ctx: ToolbarContext) => caps.suggest && hasTextSelection(ctx),
-            run: () => pickSelection?.('suggest'),
-          },
-        ],
-      },
+      config: { actions: actions((ctx) => hasTextSelection(ctx) || hasCellText()) },
     }),
   ];
 }

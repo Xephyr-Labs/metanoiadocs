@@ -18,8 +18,9 @@ const DB_PATH = /^\/db\/([^/?#]+)(?:\/([^/?#]+))?/;
  *  `/workspace/<workspace>/<page>?blockIds=<block>`. The pages kept their ids
  *  in the migration, so every link copied in AFFiNE still names a real page
  *  here — it only needs reading. Without this the app saw no page in the path
- *  and opened the home dashboard instead. */
-const AFFINE_PATH = /^\/workspace\/[^/?#]+\/([^/?#]+)/;
+ *  and opened the home dashboard instead. AFFiNE's own non-page addresses
+ *  (`/all`, `/collection/…`, `/trash`, …) are not pages and are left alone. */
+const AFFINE_PATH = /^\/workspace\/[^/?#]+\/(?!(?:all|collection|tag|trash|journals|settings|home)(?:[/?#]|$))([^/?#]+)/;
 
 /** Every address this app answers, and nothing else on the origin.
  *

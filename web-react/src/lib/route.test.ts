@@ -81,6 +81,12 @@ describe('links copied in AFFiNE', () => {
     expect(answers('/workspace')).toBe(false);
   });
 
+  it('are not read as pages when they are AFFiNE\'s own screens', () => {
+    for (const screen of ['all', 'collection/c1', 'tag/t1', 'trash', 'journals']) {
+      expect(parseRoute(`/workspace/ws/${screen}`).docId).toBe(null);
+    }
+  });
+
   it('do not change what a query means on our own addresses', () => {
     expect(parseRoute('/d/abc', '', '?blockIds=x').blockId).toBe(null);
   });

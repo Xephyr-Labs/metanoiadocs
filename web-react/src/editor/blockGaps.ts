@@ -125,6 +125,12 @@ function headingEnter(std: StdLike, chosen: { type: string; blockId?: string }[]
   if (!sel || sel.to || sel.from.index !== 0 || sel.from.length !== 0) return false;
   const block = std.store.getModelById(sel.from.blockId) as (ModelLike & { props?: { type?: string } }) | null;
   if (block?.flavour !== 'affine:paragraph' || !/^h[1-6]$/.test(block.props?.type ?? '') || !block.text?.length) return false;
+  // The editor's selection can be stale — left behind while the title or a
+  // field outside the editor has the caret. Only act when the browser's caret
+  // really is in this heading.
+  const anchor = document.getSelection()?.anchorNode;
+  const anchorEl = anchor instanceof Element ? anchor : anchor?.parentElement;
+  if (anchorEl?.closest('[data-block-id]')?.getAttribute('data-block-id') !== block.id) return false;
   const parent = std.store.getParent(block);
   if (!parent) return false;
   std.store.captureSync?.();

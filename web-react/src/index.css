@@ -1622,22 +1622,24 @@ affine-paragraph:has(> .affine-block-component > .affine-paragraph-block-contain
   height: 100%;
 }
 
-/* Body text sizes (editor/textSize.ts). Relative, so they scale with the
+/* Body text sizes (editor/textSize.ts). Child selectors all the way down: a
+ * nested list item renders inside its parent's element, so a descendant
+ * selector would size every child of a small item too. Relative, so they scale with the
  * page's own Small text / font preferences rather than pinning a pixel size;
  * the line height follows the size, or a small line would sit in a full-size
  * line box and the saving would be only half of what it looks like. */
 affine-paragraph[data-mn-size='small'] > .affine-block-component > .affine-paragraph-block-container > .affine-paragraph-rich-text-wrapper,
-affine-list[data-mn-size='small'] .affine-list-rich-text-wrapper {
+affine-list[data-mn-size='small'] > .affine-block-component > .affine-list-block-container > .affine-list-rich-text-wrapper {
   font-size: 0.8125em;
   line-height: 1.55;
 }
 affine-paragraph[data-mn-size='large'] > .affine-block-component > .affine-paragraph-block-container > .affine-paragraph-rich-text-wrapper,
-affine-list[data-mn-size='large'] .affine-list-rich-text-wrapper {
+affine-list[data-mn-size='large'] > .affine-block-component > .affine-list-block-container > .affine-list-rich-text-wrapper {
   font-size: 1.1875em;
   line-height: 1.5;
 }
 /* Fine print reads as secondary: one step quieter, never grey-on-grey. */
 affine-paragraph[data-mn-size='small'] > .affine-block-component > .affine-paragraph-block-container > .affine-paragraph-rich-text-wrapper.text,
-affine-list[data-mn-size='small'] .affine-list-rich-text-wrapper {
+affine-list[data-mn-size='small'] > .affine-block-component > .affine-list-block-container > .affine-list-rich-text-wrapper {
   color: var(--muted);
 }

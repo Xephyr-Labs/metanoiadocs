@@ -194,9 +194,11 @@ export function TaskPeek({
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || e.defaultPrevented) return;
       // Esc inside the notes belongs to the editor — closing the slash menu, a
-      // link popup, a selection. It used to close the whole task as well.
+      // link popup, turning a text selection into a block selection. It used
+      // to close the whole task as well. The bar above the notes is not the
+      // editor; Esc there still closes.
       const t = e.target instanceof Element ? e.target : null;
-      if (t?.closest('.mn-peek-editor, .blocksuite-portal, affine-slash-menu')) return;
+      if (t?.closest('.mn-peek-editor editor-host, .blocksuite-portal, affine-slash-menu')) return;
       onClose();
     };
     window.addEventListener('keydown', onKey);
