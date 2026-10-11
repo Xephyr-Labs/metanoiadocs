@@ -15,7 +15,7 @@ import { useAuth } from '../../store/auth';
 import { ActorMark } from '../ui/ActorMark';
 import { IconButton } from '../ui/IconButton';
 import { CommentBox, savedDraft, type CommentBoxHandle } from '../ui/CommentBox';
-import { Reactions } from '../ui/Reactions';
+import { ReactionPicker, Reactions } from '../ui/Reactions';
 import { ClampedText } from '../ui/ClampedText';
 import { emojify, toggleLocal } from '../../lib/emoji';
 
@@ -262,6 +262,7 @@ export function TaskComments({
         )}
         <div className="mt-1.5 flex flex-wrap items-center gap-2">
           <Reactions reactions={c.reactions} onToggle={(e) => void react(c.id, e)} className="mt-0" />
+          <ReactionPicker reactions={c.reactions} onToggle={(e) => void react(c.id, e)} reveal="group-hover/comment:opacity-100" />
           <button
             type="button"
             onClick={() => openReply(thread, c.id)}
