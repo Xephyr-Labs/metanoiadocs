@@ -37,7 +37,7 @@ import { attachLinkedDocMenu } from './linkedDocMenu';
 import { missingDocMetas } from './docMetas';
 import { blockLinkExtensions } from './blockLinks';
 import { socialEmbedExtensions } from './socialEmbeds';
-import { attachNoLinkedDocShortcut } from './noLinkedDocConvert';
+import { attachNoLinkedDocShortcut, noLinkedDocConvertCanvasExtension } from './noLinkedDocConvert';
 import { attachImageAlign } from './imageAlign';
 import { attachBlockGaps } from './blockGaps';
 import { attachTableFormat } from './tableFormat';
@@ -474,6 +474,7 @@ export async function mountEditor(
     // Panel colours are a property of the document, so a public viewer must see
     // them too; the toolbar they are set from never opens for them.
     ...calloutExtensions(),
+    noLinkedDocConvertCanvasExtension(),
     // Comment and Suggest edit on the text toolbar. Not on a public link (its
     // floating buttons cover it), a version or a draft — a draft's comments
     // would have nowhere to live.

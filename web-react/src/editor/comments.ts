@@ -446,12 +446,13 @@ export function commentToolbarExtensions() {
 // ---- selection wiring
 const touchOnly = () => window.matchMedia('(hover: none)').matches;
 
-/** Whether BlockSuite's selection toolbar is up and drawn above `y` — so the
- *  space under the selection is free. */
-function toolbarAbove(y: number): boolean {
-  const et = document.querySelector('affine-toolbar-widget')?.shadowRoot?.querySelector('editor-toolbar');
+/** Whether `root`'s selection toolbar is up and drawn under `y` — the one
+ *  case where the space under the selection is taken. Not up yet counts as
+ *  free: BlockSuite draws it above the selection when it comes. */
+function toolbarBelow(root: Element, y: number): boolean {
+  const et = root.querySelector('affine-toolbar-widget')?.shadowRoot?.querySelector('editor-toolbar');
   const r = et?.getBoundingClientRect();
-  return !!r && r.width > 0 && r.top < y;
+  return !!r && r.width > 0 && r.top > y;
 }
 
 export function attachComments(
@@ -540,7 +541,7 @@ export function attachComments(
       suggestBtn.style.display = next.multi ? 'none' : '';
       const width = canSuggest ? 190 : 110;
       bar.style.display = 'flex';
-      bar.style.top = below ? `${r.bottom + 10}px` : `${Math.max(8, r.top - 40)}px`;
+      bar.style.top = below ? `${Math.min(window.innerHeight - 44, r.bottom + 10)}px` : `${Math.max(8, r.top - 40)}px`;
       bar.style.left = `${Math.min(window.innerWidth - width - 8, Math.max(8, r.left + r.width / 2 - width / 2))}px`;
     };
     if (readonly) return show();
@@ -553,7 +554,7 @@ export function attachComments(
     // past its right edge, out of reach. So these always come up, under the
     // selection where the toolbar (drawn above it) cannot cover them.
     timers.push(setTimeout(() => {
-      if (anchor === next && !sel.isCollapsed && sel.rangeCount) show(toolbarAbove(sel.getRangeAt(0).getBoundingClientRect().top));
+      if (anchor === next && !sel.isCollapsed && sel.rangeCount) show(!toolbarBelow(root, sel.getRangeAt(0).getBoundingClientRect().bottom));
     }, 400));
   };
 

@@ -1044,7 +1044,9 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
     // query on each of those buys nothing.
     if (!assignees && !applied.length) {
       emit('task.updated', rows[0]);
-      return res.json(rows[0]);
+      // The editor's name rides along: the raw row has only the id, and the
+      // panel's "Edited … by" kept the previous editor's name without it.
+      return res.json({ ...rows[0], updated_by_name: req.user.name ?? null });
     }
     const { rows: full } = await pool.query(`${TASK_SELECT} WHERE t.id = $1`, [req.params.id]);
     const task = full[0] ?? rows[0];

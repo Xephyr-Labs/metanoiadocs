@@ -148,12 +148,18 @@ export function TaskPeek({
   const moveTo = useMoveToFolder(docId);
   // Due date history: out of the way under ⋯, loaded when asked for.
   const [dueHistory, setDueHistory] = useState<DueChange[] | null | 'loading'>(null);
-  useEffect(() => { setDueHistory(null); }, [task?.id]);
-  const showDueHistory = () => {
-    if (!task) return;
-    setDueHistory('loading');
-    tasksApi.dueHistory(task.id).then(setDueHistory).catch(() => setDueHistory([]));
-  };
+  const [dueHistoryOpen, setDueHistoryOpen] = useState(false);
+  useEffect(() => { setDueHistoryOpen(false); }, [task?.id]);
+  // Reloaded when the due date changes while it is open; a reply for a task
+  // the panel has since moved off is dropped.
+  useEffect(() => {
+    if (!dueHistoryOpen || !task) { setDueHistory(null); return; }
+    let live = true;
+    setDueHistory((h) => (Array.isArray(h) ? h : 'loading'));
+    tasksApi.dueHistory(task.id).then((h) => { if (live) setDueHistory(h); }).catch(() => { if (live) setDueHistory([]); });
+    return () => { live = false; };
+  }, [dueHistoryOpen, task?.id, task?.due_at]); // eslint-disable-line react-hooks/exhaustive-deps
+  const showDueHistory = () => setDueHistoryOpen(true);
   // Without these the notes editor installs no link extensions at all, so
   // every page reference in a task's notes rendered as "Deleted page" and
   // clicked through to nothing. See useDocLinking.
@@ -454,13 +460,13 @@ export function TaskPeek({
           <section className="px-4 py-3" aria-label="Due date history">
             <div className="mb-1.5 flex items-center justify-between">
               <h3 className="text-2xs font-semibold uppercase text-muted">Due date history</h3>
-              <IconButton size="sm" icon={<X size={14} />} label="Hide due date history" onClick={() => setDueHistory(null)} />
+              <IconButton size="sm" icon={<X size={14} />} label="Hide due date history" onClick={() => setDueHistoryOpen(false)} />
             </div>
             {dueHistory === 'loading' ? (
               <p className="text-xs text-faint">Loading…</p>
             ) : dueHistory.length === 0 ? (
               <p className="text-xs text-faint">
-                {task.due_at ? `Due ${calendarDate(task.due_at)} since it was set.` : 'No due date yet.'} Changes are recorded from 12 October.
+                {task.due_at ? `Due ${calendarDate(String(task.due_at).slice(0, 10))} since it was set.` : 'No due date yet.'} Changes are recorded from 12 October 2026.
               </p>
             ) : (
               <ol className="space-y-1">
@@ -580,14 +586,14 @@ export function TaskPeek({
       </div>
 
       <footer className="flex shrink-0 items-center gap-3 border-t border-line px-3 py-2.5">
-        <p className="min-w-0 flex-1 truncate pl-1 text-2xs text-faint">
+        <p className="min-w-0 flex-1 pl-1 text-2xs leading-snug text-faint">
           {task.created_at && (
             <span title={fullTime(task.created_at)}>
               Created {calendarDate(task.created_at)}{task.created_by_name ? ` by ${task.created_by_name}` : ''}
             </span>
           )}
           {task.updated_at && task.updated_at !== task.created_at && (
-            <span title={fullTime(task.updated_at)}>
+            <span title={fullTime(task.updated_at)} className="whitespace-nowrap">
               {' · '}Edited {relativeTime(task.updated_at)}{task.updated_by_name ? ` by ${task.updated_by_name}` : ''}
             </span>
           )}

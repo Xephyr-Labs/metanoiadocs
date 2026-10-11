@@ -8,6 +8,9 @@
 // Oct it emptied a whole page ("Team Video Brief"); a version restore got it
 // back. A linked page is still one "@" or "/" away, and those make a real one.
 
+import { ToolbarModuleExtension, type ToolbarModuleConfig } from '@blocksuite/affine/shared/services';
+import { BlockFlavourIdentifier } from '@blocksuite/affine/std';
+
 /** Merged over BlockSuite's own action of the same id, in the toolbar module
  *  that reaches every block (blockLinks.ts). */
 export const noLinkedDocConvertAction = { id: 'e.convert-to-linked-doc', when: () => false };
@@ -15,13 +18,33 @@ export const noLinkedDocConvertAction = { id: 'e.convert-to-linked-doc', when: (
 const isConvertShortcut = (e: KeyboardEvent) =>
   (e.metaKey || e.ctrlKey) && e.shiftKey && !e.altKey && e.key.toLowerCase() === 'l';
 
-/** Swallow the shortcut before BlockSuite's two bindings of it see it. */
+/** Swallow the shortcut before BlockSuite's two bindings of it see it. Both
+ *  act only on whole selected blocks, and picking blocks blurs the text, so
+ *  the key then arrives on the body — listened for on the document, as
+ *  BlockSuite itself does. */
 export function attachNoLinkedDocShortcut(editor: HTMLElement): () => void {
   const onKeyDown = (e: KeyboardEvent) => {
     if (!isConvertShortcut(e)) return;
+    const t = e.target;
+    if (!(t instanceof Node) || !(editor.contains(t) || t === document.body)) return;
     e.preventDefault();
     e.stopPropagation();
   };
-  editor.addEventListener('keydown', onKeyDown, true);
-  return () => editor.removeEventListener('keydown', onKeyDown, true);
+  document.addEventListener('keydown', onKeyDown, true);
+  return () => document.removeEventListener('keydown', onKeyDown, true);
 }
+
+/** On the canvas the same conversion lives in the ⋯ menu ("Turn into linked
+ *  doc", "Create linked doc"), nested in its conversions group. */
+export const noLinkedDocConvertCanvasExtension = () => ToolbarModuleExtension({
+  id: BlockFlavourIdentifier('custom:affine:surface:*'),
+  config: {
+    actions: [{
+      id: 'd.conversions',
+      actions: [
+        { id: 'a.turn-into-linked-doc', when: () => false },
+        { id: 'b.create-linked-doc', when: () => false },
+      ],
+    }],
+  } as unknown as ToolbarModuleConfig,
+});

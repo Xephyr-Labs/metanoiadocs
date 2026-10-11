@@ -86,17 +86,20 @@ export function DocMetaBand({
         </span>
       )}
       {edited && (
-        <>
+        <span className="flex items-center gap-x-2">
           <span title={fullTime(page.updatedAt)}>Edited {relativeTime(page.updatedAt)}</span>
           <span aria-hidden>·</span>
-        </>
+        </span>
       )}
       {/* A fixed date, always there: "edited 2h ago" says nothing about how
           old the page is. */}
-      <span title={fullTime(page.createdAt ?? page.updatedAt)}>Created {calendarDate(page.createdAt ?? page.updatedAt)}</span>
-      <span aria-hidden>·</span>
-      <span>{minutes} min read</span>
-      <span aria-hidden>·</span>
+      {/* Each dot ends its item rather than starting the next, so a wrapped
+          line never opens on a lone separator. */}
+      <span className="flex items-center gap-x-2">
+        <span title={fullTime(page.createdAt ?? page.updatedAt)}>Created {calendarDate(page.createdAt ?? page.updatedAt)}</span>
+        <span aria-hidden>·</span>
+      </span>
+      <span className="flex items-center gap-x-2"><span>{minutes} min read</span><span aria-hidden>·</span></span>
       <button
         type="button"
         onClick={() => ws.toggleLove(page.id)}

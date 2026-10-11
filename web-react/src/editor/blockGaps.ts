@@ -290,12 +290,15 @@ export function focusDocEnd(editor: Element, clientY: number): boolean {
   // sent to a line nobody could see.
   const noteEl = std.view.getBlock(note.id);
   if (!noteEl || clientY <= noteEl.getBoundingClientRect().bottom) return false;
+  const shown = (m: ModelLike) => !!std.view.getBlock(m.id)?.getClientRects().length;
   const last = note.children[note.children.length - 1];
-  const lastEl = last ? std.view.getBlock(last.id) : null;
-  // The last line is folded away: a caret there, or a new line after it, would
-  // be hidden as well. Leave the click to the editor.
-  if (last && !lastEl?.getClientRects().length) return false;
-  let target = last && TEXT.has(last.flavour) && last.flavour !== 'affine:code' ? last : null;
+  // The last lines folded under a collapsed heading are not drawn, and a new
+  // line after them would be folded too: the caret goes to the end of the last
+  // line that shows instead — usually that heading, where Enter opens it.
+  const folded = !!last && !shown(last);
+  const end = folded ? [...note.children].reverse().find(shown) : last;
+  let target = end && TEXT.has(end.flavour) && end.flavour !== 'affine:code' ? end : null;
+  if (!target && folded) return false;
   if (!target) {
     std.store.captureSync?.();
     const id = std.store.addBlock('affine:paragraph', {}, note, note.children.length);
