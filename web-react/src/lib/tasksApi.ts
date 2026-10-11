@@ -284,6 +284,8 @@ export interface Assignee {
   name: string;
 }
 
+export interface DueChange { from: string | null; to: string | null; at: string; by_name: string | null }
+
 export interface TaskRow {
   id: string;
   project_id: string;
@@ -580,6 +582,9 @@ export const tasksApi = {
     req(`/sprints/${id}`, { method: 'PATCH', ...body(b) }),
   deleteSprint: (id: string) => req(`/sprints/${id}`, { method: 'DELETE' }),
 
+  /** Every move of the due date, oldest first. `from` of the first is the
+   *  date the task had before anyone changed it. */
+  dueHistory: (taskId: string): Promise<DueChange[]> => req(`/tasks/${taskId}/due-history`),
   comments: (taskId: string): Promise<TaskComment[]> => req(`/tasks/${taskId}/comments`),
   addComment: (taskId: string, b: { body: string; parentId?: string | null }): Promise<TaskComment> =>
     req(`/tasks/${taskId}/comments`, { method: 'POST', ...body(b) }),

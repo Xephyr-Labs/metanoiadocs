@@ -1005,6 +1005,37 @@ export async function initSchema() {
       FOR EACH ROW
       WHEN (NEW.updated_at IS DISTINCT FROM OLD.updated_at OR NEW.updated_by IS DISTINCT FROM OLD.updated_by)
       EXECUTE FUNCTION record_doc_editor();
+
+    -- Every change to a task's due date, for the "due date history" under the
+    -- task's ⋯ menu. A trigger for the same reason as doc_editors: due dates
+    -- move from the side panel, the board, the gantt, Andy, automations and
+    -- repeats, and one recorder here catches all of them. The changer is the
+    -- row's updated_by, which every write path sets alongside. Failures are
+    -- swallowed: history must never be why a date change is lost.
+    CREATE TABLE IF NOT EXISTS task_due_changes (
+      id         BIGSERIAL PRIMARY KEY,
+      task_id    TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      from_date  DATE,
+      to_date    DATE,
+      changed_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+      changed_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS task_due_changes_task_idx ON task_due_changes(task_id, changed_at);
+    CREATE OR REPLACE FUNCTION record_task_due_change() RETURNS trigger AS $fn$
+    BEGIN
+      BEGIN
+        INSERT INTO task_due_changes (task_id, from_date, to_date, changed_by)
+        VALUES (NEW.id, OLD.due_at, NEW.due_at, NEW.updated_by);
+      EXCEPTION WHEN others THEN
+        RAISE WARNING 'task_due_changes not recorded for %: %', NEW.id, SQLERRM;
+      END;
+      RETURN NULL;
+    END
+    $fn$ LANGUAGE plpgsql;
+    CREATE OR REPLACE TRIGGER tasks_record_due_change AFTER UPDATE OF due_at ON tasks
+      FOR EACH ROW
+      WHEN (NEW.due_at IS DISTINCT FROM OLD.due_at)
+      EXECUTE FUNCTION record_task_due_change();
   `);
 
   await normalizeLegacyFolderImport();

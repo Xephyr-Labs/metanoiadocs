@@ -446,13 +446,13 @@ export function commentToolbarExtensions() {
 // ---- selection wiring
 const touchOnly = () => window.matchMedia('(hover: none)').matches;
 
-/** Whether BlockSuite's own selection toolbar is up (and so carries our actions). */
-function toolbarShowing(): boolean {
-  const w = document.querySelector('affine-toolbar-widget');
-  const et = w?.shadowRoot?.querySelector('editor-toolbar') as HTMLElement | null;
-  if (!et) return false;
-  const r = et.getBoundingClientRect();
-  return r.width > 0 && r.height > 0;
+/** Whether `root`'s selection toolbar is up and drawn under `y` — the one
+ *  case where the space under the selection is taken. Not up yet counts as
+ *  free: BlockSuite draws it above the selection when it comes. */
+function toolbarBelow(root: Element, y: number): boolean {
+  const et = root.querySelector('affine-toolbar-widget')?.shadowRoot?.querySelector('editor-toolbar');
+  const r = et?.getBoundingClientRect();
+  return !!r && r.width > 0 && r.top > y;
 }
 
 export function attachComments(
@@ -535,25 +535,26 @@ export function attachComments(
     const next = selectionAnchor(root) as (CommentAnchor & { multi?: boolean }) | null;
     if (!next) return hide();
     anchor = next;
-    const show = () => {
+    const show = (below = false) => {
       const r = sel.getRangeAt(0).getBoundingClientRect();
       commentBtn.style.display = '';
       suggestBtn.style.display = next.multi ? 'none' : '';
       const width = canSuggest ? 190 : 110;
       bar.style.display = 'flex';
-      bar.style.top = `${Math.max(8, r.top - 40)}px`;
+      bar.style.top = below ? `${Math.min(window.innerHeight - 44, r.bottom + 10)}px` : `${Math.max(8, r.top - 40)}px`;
       bar.style.left = `${Math.min(window.innerWidth - width - 8, Math.max(8, r.left + r.width / 2 - width / 2))}px`;
     };
     if (readonly) return show();
     // Where the page is editable, BlockSuite's own selection toolbar carries
-    // Comment and Suggest, so these buttons are for phones only (no toolbar
-    // over a selection there). On a desktop they used to wait 400ms for the
-    // toolbar and appear if it was not up yet — and the toolbar often comes
-    // up later than that, so the two sets of buttons stacked on top of each
-    // other.
+    // Comment and Suggest. On a desktop these buttons used to wait 400ms for
+    // that toolbar and appear if it was not up yet — and it often comes up
+    // later than that, so the two sets stacked on top of each other.
     if (!touchOnly()) return hide();
+    // On a phone the toolbar is wider than the screen and Comment/Suggest sit
+    // past its right edge, out of reach. So these always come up, under the
+    // selection where the toolbar (drawn above it) cannot cover them.
     timers.push(setTimeout(() => {
-      if (anchor === next && !sel.isCollapsed && sel.rangeCount && !toolbarShowing()) show();
+      if (anchor === next && !sel.isCollapsed && sel.rangeCount) show(!toolbarBelow(root, sel.getRangeAt(0).getBoundingClientRect().bottom));
     }, 400));
   };
 

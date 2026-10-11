@@ -10,6 +10,7 @@ import { BlockFlavourIdentifier, TextSelection } from '@blocksuite/affine/std';
 import { LinkIcon } from '@blocksuite/icons/lit';
 import { docUrl } from '../lib/route';
 import { copyText } from '../lib/clipboard';
+import { noLinkedDocConvertAction } from './noLinkedDocConvert';
 
 /** Actions to add to every block toolbar in `docId`'s editor. */
 export function blockLinkExtensions(docId: string) {
@@ -51,6 +52,9 @@ export function blockLinkExtensions(docId: string) {
               );
             },
           },
+          // Here because this is the one module that reaches every block, and a
+          // second module under the same id would replace this one.
+          noLinkedDocConvertAction,
         ],
       },
     }),

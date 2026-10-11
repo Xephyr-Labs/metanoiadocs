@@ -1,9 +1,9 @@
 // Emoji for comments: the reactions offered, and turning typed shortcodes
 // (":thumbsup:", ":)") into the emoji they stand for.
 
-/** One tap under every comment: agree, disagree, love it, sad. */
+/** The top row of the reaction picker: agree, disagree, love it, sad. */
 export const QUICK_REACTIONS = ['👍', '👎', '❤️', '😢'] as const;
-/** Behind the "+": the rest of the set. Must match server/src/reactions.js. */
+/** The rest of the picker. Must match server/src/reactions.js. */
 export const MORE_REACTIONS = ['😂', '🎉', '👀', '🙏', '🔥', '✅', '😮', '🚀', '💯', '🤔', '👏', '😍'] as const;
 
 export interface Reaction { emoji: string; count: number; mine?: boolean; names?: string[] }

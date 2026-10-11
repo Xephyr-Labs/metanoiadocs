@@ -14,7 +14,7 @@ import { useAuth } from '../../store/auth';
 import { cn } from '../../lib/cn';
 import { TaskComments } from '../project/TaskComments';
 import { Avatar } from '../ui/Avatar';
-import { Reactions } from '../ui/Reactions';
+import { ReactionPicker, Reactions } from '../ui/Reactions';
 import { ClampedText } from '../ui/ClampedText';
 import { emojify, toggleLocal } from '../../lib/emoji';
 import { EmptyState } from '../ui/EmptyState';
@@ -205,10 +205,11 @@ export function CommentsTab({ docId }: { docId: string }) {
     ) : null;
 
   /** Edit (your own words only) and delete (yours, or anything on a page you own). */
-  const renderActions = (c: CommentRow) => {
+  const renderActions = (c: CommentRow, reveal: string) => {
     const mine = !!c.author_id && c.author_id === me;
     return (
       <span className="flex shrink-0 items-center gap-1.5">
+        {mayComment && <ReactionPicker reactions={c.reactions} onToggle={(e) => void react(c.id, e)} reveal={reveal} />}
         {mine && (
           <button type="button" onClick={() => setEditing({ id: c.id, text: c.body })} aria-label="Edit" className="text-faint hover:text-ink">
             <Pencil size={12} />
@@ -372,7 +373,7 @@ export function CommentsTab({ docId }: { docId: string }) {
                 {c.guest && <GuestChip />}
                 {c.kind === 'suggestion' && <SquarePen size={12} className="shrink-0 text-accent-strong" aria-label="Suggested change" />}
                 <span className="shrink-0 text-2xs text-faint">{relativeTime(c.created_at)}</span>
-                {renderActions(c)}
+                {renderActions(c, 'group-hover/card:opacity-100')}
                 <span className="ml-auto shrink-0">
                   {c.resolved ? (
                     mayResolve ? (
@@ -399,14 +400,14 @@ export function CommentsTab({ docId }: { docId: string }) {
               <Reactions reactions={c.reactions} onToggle={mayComment ? (e) => void react(c.id, e) : undefined} />
 
               {thread.map((r) => (
-                <div key={r.id} className="mt-2.5 flex items-start gap-2 border-l-2 border-line pl-2.5">
+                <div key={r.id} className="group/reply mt-2.5 flex items-start gap-2 border-l-2 border-line pl-2.5">
                   <Avatar name={r.author_name} size={18} />
                   <div className="min-w-0 flex-1">
                     <p className="flex items-center gap-1.5 text-2xs font-medium text-ink">
                       <span className="truncate">{r.author_name}</span>
                       {r.guest && <GuestChip />}
                       <span className="shrink-0 font-normal text-faint">· {relativeTime(r.created_at)}</span>
-                      {renderActions(r)}
+                      {renderActions(r, 'group-hover/reply:opacity-100')}
                     </p>
                     {renderBody(r, 'text-sm text-ink')}
                     <Reactions reactions={r.reactions} onToggle={mayComment ? (e) => void react(r.id, e) : undefined} />

@@ -36,6 +36,8 @@ import { attachLinkSearch } from './linkSearch';
 import { attachLinkedDocMenu } from './linkedDocMenu';
 import { missingDocMetas } from './docMetas';
 import { blockLinkExtensions } from './blockLinks';
+import { socialEmbedExtensions } from './socialEmbeds';
+import { attachNoLinkedDocShortcut, noLinkedDocConvertCanvasExtension } from './noLinkedDocConvert';
 import { attachImageAlign } from './imageAlign';
 import { attachBlockGaps } from './blockGaps';
 import { attachTableFormat } from './tableFormat';
@@ -182,6 +184,8 @@ export async function mountEditor(
   // Register the chart schema into the store's DI (this is the channel the
   // collection actually uses; the standalone `schema` above is not wired in).
   collection.storeExtensions = [
+    // Ahead of BlockSuite's own: the first embed provider to match wins.
+    ...socialEmbedExtensions,
     ...storeManager.get('store'),
     MetanoiaChartBlockSchemaExtension, MetanoiaDatabaseBlockSchemaExtension,
     MetanoiaColumnsBlockSchemaExtension, MetanoiaColumnBlockSchemaExtension,
@@ -470,6 +474,7 @@ export async function mountEditor(
     // Panel colours are a property of the document, so a public viewer must see
     // them too; the toolbar they are set from never opens for them.
     ...calloutExtensions(),
+    noLinkedDocConvertCanvasExtension(),
     // Comment and Suggest edit on the text toolbar. Not on a public link (its
     // floating buttons cover it), a version or a draft — a draft's comments
     // would have nowhere to live.
@@ -569,6 +574,9 @@ export async function mountEditor(
   // A click in the gap above or below an image opens a line there, instead of
   // sending the caret to the top of the page (see blockGaps.ts).
   const detachBlockGaps = attachBlockGaps(editor as unknown as Parameters<typeof attachBlockGaps>[0]);
+  // "Create Linked Doc" lost a page's text to a doc that was never saved
+  // (noLinkedDocConvert.ts).
+  const detachNoLinkedDoc = attachNoLinkedDocShortcut(editor as unknown as HTMLElement);
 
   // Ctrl+B and the other marks reach table cells: a word in one cell, or every
   // cell of a selected row, column or range (see tableFormat.ts).
@@ -695,6 +703,7 @@ export async function mountEditor(
       try { detachImageAlign(); } catch { /* noop */ }
       try { detachColumns(); } catch { /* noop */ }
       try { detachBlockGaps(); } catch { /* noop */ }
+      try { detachNoLinkedDoc(); } catch { /* noop */ }
       try { detachTableFormat(); } catch { /* noop */ }
       try { detachTableDrag(); } catch { /* noop */ }
       try { detachSelectAll(); } catch { /* noop */ }

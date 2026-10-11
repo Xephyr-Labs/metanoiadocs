@@ -8,7 +8,7 @@ import { createPortal } from 'react-dom';
 import type { Intelligence } from '../../lib/docsApi';
 import { avatarFor } from '../../lib/avatar';
 import { cn } from '../../lib/cn';
-import { relativeTime } from '../../lib/time';
+import { calendarDate, fullTime, relativeTime } from '../../lib/time';
 import type { Page } from '../../lib/types';
 import { useWorkspace } from '../../store/workspace';
 import { ActorMark } from '../ui/ActorMark';
@@ -85,14 +85,21 @@ export function DocMetaBand({
           {edited && <ActorMark kind={page.updatedByKind} via={page.updatedVia} name={who} />}
         </span>
       )}
-      <span>
-        {edited
-          ? `Edited ${relativeTime(page.updatedAt)}`
-          : `Created ${relativeTime(page.createdAt ?? page.updatedAt)}`}
+      {edited && (
+        <span className="flex items-center gap-x-2">
+          <span title={fullTime(page.updatedAt)}>Edited {relativeTime(page.updatedAt)}</span>
+          <span aria-hidden>·</span>
+        </span>
+      )}
+      {/* A fixed date, always there: "edited 2h ago" says nothing about how
+          old the page is. */}
+      {/* Each dot ends its item rather than starting the next, so a wrapped
+          line never opens on a lone separator. */}
+      <span className="flex items-center gap-x-2">
+        <span title={fullTime(page.createdAt ?? page.updatedAt)}>Created {calendarDate(page.createdAt ?? page.updatedAt)}</span>
+        <span aria-hidden>·</span>
       </span>
-      <span aria-hidden>·</span>
-      <span>{minutes} min read</span>
-      <span aria-hidden>·</span>
+      <span className="flex items-center gap-x-2"><span>{minutes} min read</span><span aria-hidden>·</span></span>
       <button
         type="button"
         onClick={() => ws.toggleLove(page.id)}

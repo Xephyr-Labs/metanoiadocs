@@ -1044,12 +1044,30 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
     // query on each of those buys nothing.
     if (!assignees && !applied.length) {
       emit('task.updated', rows[0]);
-      return res.json(rows[0]);
+      // The editor's name rides along: the raw row has only the id, and the
+      // panel's "Edited … by" kept the previous editor's name without it.
+      return res.json({ ...rows[0], updated_by_name: req.user.name ?? null });
     }
     const { rows: full } = await pool.query(`${TASK_SELECT} WHERE t.id = $1`, [req.params.id]);
     const task = full[0] ?? rows[0];
     emit('task.updated', task);
     res.json(task);
+  }));
+
+  // Every move of the due date, oldest first (task_due_changes, db.js), with
+  // the date the task started with — the first change's "from".
+  app.get('/api/tasks/:id/due-history', requireUser, wrap(async (req, res) => {
+    const { rows } = await pool.query(
+      `SELECT c.from_date::text AS "from", c.to_date::text AS "to", c.changed_at AS at,
+              u.name AS by_name
+         FROM task_due_changes c
+         JOIN tasks t ON t.id = c.task_id AND t.deleted_at IS NULL
+         LEFT JOIN users u ON u.id = c.changed_by
+        WHERE c.task_id = $1
+        ORDER BY c.changed_at, c.id`,
+      [req.params.id]
+    );
+    res.json(rows);
   }));
 
   // The other half of the link: a page knows which task it belongs to, so the

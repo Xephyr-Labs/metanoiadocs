@@ -27,3 +27,22 @@ export function relativeTime(iso: string | null | undefined): string {
   if (d < 7) return `${d}d ago`;
   return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
+
+/** A fixed date: "Oct 4", with the year when it is not this year's. */
+export function calendarDate(iso: string | null | undefined): string {
+  if (!iso) return '';
+  // A bare date is a calendar day, not UTC midnight — parsed as UTC it showed
+  // the day before anywhere west of Greenwich.
+  const d = new Date(/^\d{4}-\d{2}-\d{2}$/.test(iso) ? `${iso}T00:00:00` : iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const year = d.getFullYear() === new Date().getFullYear() ? undefined : 'numeric';
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year });
+}
+
+/** Date and time to the minute, for a tooltip: "Oct 4, 2026, 3:26 PM". */
+export function fullTime(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+}

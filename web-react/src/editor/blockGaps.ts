@@ -58,6 +58,7 @@ interface StoreLike {
   getModelById(id: string): ModelLike | null;
   getParent(model: ModelLike): ModelLike | null;
   addBlock(flavour: string, props: Record<string, unknown>, parent: ModelLike, index?: number): string;
+  updateBlock(model: ModelLike, props: Record<string, unknown>): void;
   captureSync?(): void;
 }
 interface StdLike {
@@ -122,9 +123,11 @@ function headingEnter(std: StdLike, chosen: { type: string; blockId?: string }[]
   const sel = chosen.length === 1 && chosen[0].type === 'text'
     ? (chosen[0] as unknown as { from: { blockId: string; index: number; length: number }; to: unknown })
     : null;
-  if (!sel || sel.to || sel.from.index !== 0 || sel.from.length !== 0) return false;
-  const block = std.store.getModelById(sel.from.blockId) as (ModelLike & { props?: { type?: string } }) | null;
+  if (!sel || sel.to || sel.from.length !== 0) return false;
+  const block = std.store.getModelById(sel.from.blockId) as (ModelLike & { props?: { type?: string; collapsed?: boolean } }) | null;
   if (block?.flavour !== 'affine:paragraph' || !/^h[1-6]$/.test(block.props?.type ?? '') || !block.text?.length) return false;
+  const atEnd = sel.from.index === block.text.length;
+  if (sel.from.index !== 0 && !(atEnd && block.props?.collapsed)) return false;
   // The editor's selection can be stale — left behind while the title or a
   // field outside the editor has the caret. Only act when the browser's caret
   // really is in this heading.
@@ -134,7 +137,43 @@ function headingEnter(std: StdLike, chosen: { type: string; blockId?: string }[]
   const parent = std.store.getParent(block);
   if (!parent) return false;
   std.store.captureSync?.();
-  std.store.addBlock('affine:paragraph', { type: 'text' }, parent, parent.children.indexOf(block));
+  if (sel.from.index === 0) {
+    std.store.addBlock('affine:paragraph', { type: 'text' }, parent, parent.children.indexOf(block));
+    return true;
+  }
+  // Enter at the end of a folded heading. BlockSuite adds a second heading
+  // after the hidden section — the only place a line would not be folded away
+  // too — so a new line of text was out of reach. Open the section and start
+  // a text line at its top instead.
+  std.store.updateBlock(block, { collapsed: false });
+  const id = std.store.addBlock('affine:paragraph', { type: 'text' }, parent, parent.children.indexOf(block) + 1);
+  std.selection.setGroup('note', [
+    std.selection.create(TextSelection, { from: { blockId: id, index: 0, length: 0 }, to: null }),
+  ]);
+  return true;
+}
+
+/**
+ * Alt+Enter starts a new line inside the block, as Shift+Enter does — the
+ * Excel and chat-box habit. BlockSuite binds nothing to it, so the browser had
+ * the key, and on some systems that scrolled the page to its end.
+ */
+function altEnter(std: StdLike): boolean {
+  const [sel] = std.selection.value as unknown as { type: string; from: { blockId: string; index: number; length: number }; to: unknown }[];
+  if (std.selection.value.length !== 1 || sel?.type !== 'text' || sel.to) return false;
+  const block = std.store.getModelById(sel.from.blockId);
+  if (!block || !TEXT.has(block.flavour) || block.flavour === 'affine:code' || !block.text) return false;
+  // Only where the browser's caret really is (see headingEnter).
+  const anchor = document.getSelection()?.anchorNode;
+  const anchorEl = anchor instanceof Element ? anchor : anchor?.parentElement;
+  if (anchorEl?.closest('[data-block-id]')?.getAttribute('data-block-id') !== block.id) return false;
+  const text = block.text as unknown as { delete(i: number, n: number): void; insert(s: string, i: number): void };
+  std.store.captureSync?.();
+  if (sel.from.length) text.delete(sel.from.index, sel.from.length);
+  text.insert('\n', sel.from.index);
+  std.selection.setGroup('note', [
+    std.selection.create(TextSelection, { from: { blockId: block.id, index: sel.from.index + 1, length: 0 }, to: null }),
+  ]);
   return true;
 }
 
@@ -187,8 +226,13 @@ export function attachBlockGaps(editor: Element & { std?: StdLike }): () => void
   const onKeyDown = (event: KeyboardEvent) => {
     const std = editor.std;
     if (!std || std.store.readonly || event.key !== 'Enter' || event.isComposing) return;
-    if (event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return;
     if (event.target instanceof Node && !editor.contains(event.target) && event.target !== document.body) return;
+    if (event.altKey && !event.shiftKey && !event.metaKey && !event.ctrlKey && altEnter(std)) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    if (event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return;
     // Typing into a field inside a card (an inline table's cell, a caption)
     // can leave the card itself block-selected; that Enter belongs to the field.
     if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement
@@ -240,10 +284,21 @@ export function focusDocEnd(editor: Element, clientY: number): boolean {
   const root = (std.store as unknown as { root: ModelLike | null }).root;
   const note = root?.children.find((c) => c.flavour === 'affine:note');
   if (!note) return false;
+  // Measure the note, not its last block: a block folded under a collapsed
+  // heading is not drawn, measures zero, and made every click in the notes
+  // look like a click below the end — each one was swallowed and the caret
+  // sent to a line nobody could see.
+  const noteEl = std.view.getBlock(note.id);
+  if (!noteEl || clientY <= noteEl.getBoundingClientRect().bottom) return false;
+  const shown = (m: ModelLike) => !!std.view.getBlock(m.id)?.getClientRects().length;
   const last = note.children[note.children.length - 1];
-  const lastEl = last ? std.view.getBlock(last.id) : null;
-  if (lastEl && clientY <= lastEl.getBoundingClientRect().bottom) return false;
-  let target = last && TEXT.has(last.flavour) && last.flavour !== 'affine:code' ? last : null;
+  // The last lines folded under a collapsed heading are not drawn, and a new
+  // line after them would be folded too: the caret goes to the end of the last
+  // line that shows instead — usually that heading, where Enter opens it.
+  const folded = !!last && !shown(last);
+  const end = folded ? [...note.children].reverse().find(shown) : last;
+  let target = end && TEXT.has(end.flavour) && end.flavour !== 'affine:code' ? end : null;
+  if (!target && folded) return false;
   if (!target) {
     std.store.captureSync?.();
     const id = std.store.addBlock('affine:paragraph', {}, note, note.children.length);
