@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { daysUntil, relativeTime } from './time';
+import { calendarDate, daysUntil, relativeTime } from './time';
 
 const inHours = (h: number) => new Date(Date.now() + h * 3_600_000).toISOString();
 
@@ -23,5 +23,15 @@ describe('relativeTime — sub-minute', () => {
   it('never says 0m ago', () => {
     expect(relativeTime(new Date(Date.now() - 50_000).toISOString())).toBe('just now');
     expect(relativeTime(new Date(Date.now() - 61_000).toISOString())).toBe('1m ago');
+  });
+});
+
+describe('calendarDate', () => {
+  it('reads a bare date as that calendar day, whatever the time zone', () => {
+    const year = new Date().getFullYear();
+    expect(calendarDate(`${year}-10-20`)).toBe(new Date(year, 9, 20).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }));
+  });
+  it('adds the year only when it is not this one', () => {
+    expect(calendarDate('2020-03-05')).toContain('2020');
   });
 });

@@ -4,8 +4,9 @@
  * states: opening · loaded · data mode · no page yet · dependency added ·
  *         dependency removed · backlinked · empty property · deleting
  */
-import { ChevronDown, ExternalLink, Link2, MoreHorizontal, Plus, Settings2, Trash2, X } from 'lucide-react';
+import { ArrowRight, CalendarClock, ChevronDown, ExternalLink, Link2, MoreHorizontal, Plus, Settings2, Trash2, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { calendarDate, fullTime, relativeTime } from '../../lib/time';
 import type { UserRow } from '../../lib/docsApi';
 import { cn } from '../../lib/cn';
 import { STATUS_DOT } from '../../lib/grouping';
@@ -14,7 +15,7 @@ import { useWorkspace } from '../../store/workspace';
 import { builtinProps, isAuditProp, visibleProps } from '../../lib/builtinProps';
 import {
   tasksApi, STATUS_LABEL,
-  type ProjectMode, type PropOption, type PropRow, type RelatedRow, type SprintRow, type TaskDetail, type TaskPatch, type TaskRow, type BuiltinOverride,
+  type ProjectMode, type PropOption, type PropRow, type RelatedRow, type SprintRow, type TaskDetail, type TaskPatch, type TaskRow, type BuiltinOverride, type DueChange,
 } from '../../lib/tasksApi';
 import { LazyEditor } from '../../editor/LazyEditor';
 import { focusDocEnd } from '../../editor/blockGaps';
@@ -145,6 +146,14 @@ export function TaskPeek({
   // A task's page is a page like any other, so it can be filed in a folder
   // straight from here rather than being hunted down in the sidebar first.
   const moveTo = useMoveToFolder(docId);
+  // Due date history: out of the way under ⋯, loaded when asked for.
+  const [dueHistory, setDueHistory] = useState<DueChange[] | null | 'loading'>(null);
+  useEffect(() => { setDueHistory(null); }, [task?.id]);
+  const showDueHistory = () => {
+    if (!task) return;
+    setDueHistory('loading');
+    tasksApi.dueHistory(task.id).then(setDueHistory).catch(() => setDueHistory([]));
+  };
   // Without these the notes editor installs no link extensions at all, so
   // every page reference in a task's notes rendered as "Deleted page" and
   // clicked through to nothing. See useDocLinking.
@@ -278,13 +287,11 @@ export function TaskPeek({
           disabled={!docId}
           onClick={() => { if (docId) { ws.select(docId); onClose(); } }}
         />
-        {moveTo && (
-          <Menu
-            align="end"
-            items={[moveTo]}
-            trigger={<span><IconButton icon={<MoreHorizontal size={16} />} label="Task page actions" /></span>}
-          />
-        )}
+        <Menu
+          align="end"
+          items={[...(moveTo ? [moveTo] : []), { icon: CalendarClock, label: 'Due date history', onSelect: showDueHistory }]}
+          trigger={<span><IconButton icon={<MoreHorizontal size={16} />} label="Task actions" /></span>}
+        />
         <IconButton icon={<X size={16} />} label="Close" onClick={onClose} />
       </header>
 
@@ -443,6 +450,33 @@ export function TaskPeek({
           </button>
         </section>
 
+        {dueHistory !== null && (
+          <section className="px-4 py-3" aria-label="Due date history">
+            <div className="mb-1.5 flex items-center justify-between">
+              <h3 className="text-2xs font-semibold uppercase text-muted">Due date history</h3>
+              <IconButton size="sm" icon={<X size={14} />} label="Hide due date history" onClick={() => setDueHistory(null)} />
+            </div>
+            {dueHistory === 'loading' ? (
+              <p className="text-xs text-faint">Loading…</p>
+            ) : dueHistory.length === 0 ? (
+              <p className="text-xs text-faint">
+                {task.due_at ? `Due ${calendarDate(task.due_at)} since it was set.` : 'No due date yet.'} Changes are recorded from 12 October.
+              </p>
+            ) : (
+              <ol className="space-y-1">
+                {dueHistory.map((c, i) => (
+                  <li key={i} className="flex flex-wrap items-center gap-x-1.5 text-xs">
+                    <span className="text-muted">{c.from ? calendarDate(c.from) : 'No date'}</span>
+                    <ArrowRight size={11} className="text-faint" aria-label="to" />
+                    <span className="font-medium text-ink">{c.to ? calendarDate(c.to) : 'No date'}</span>
+                    <span className="text-faint" title={fullTime(c.at)}>· {c.by_name ?? 'Someone'}, {relativeTime(c.at)}</span>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </section>
+        )}
+
         {/* A data database's rows are records, not work — nothing to hand over
             and no status for a rule to fire on. */}
         {mode !== 'data' && (
@@ -545,7 +579,19 @@ export function TaskPeek({
         </section>
       </div>
 
-      <footer className="flex shrink-0 justify-end border-t border-line px-3 py-2.5">
+      <footer className="flex shrink-0 items-center gap-3 border-t border-line px-3 py-2.5">
+        <p className="min-w-0 flex-1 truncate pl-1 text-2xs text-faint">
+          {task.created_at && (
+            <span title={fullTime(task.created_at)}>
+              Created {calendarDate(task.created_at)}{task.created_by_name ? ` by ${task.created_by_name}` : ''}
+            </span>
+          )}
+          {task.updated_at && task.updated_at !== task.created_at && (
+            <span title={fullTime(task.updated_at)}>
+              {' · '}Edited {relativeTime(task.updated_at)}{task.updated_by_name ? ` by ${task.updated_by_name}` : ''}
+            </span>
+          )}
+        </p>
         <button
           type="button"
           onClick={() => { onDelete(task.id); onClose(); }}

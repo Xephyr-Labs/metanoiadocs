@@ -153,6 +153,30 @@ function headingEnter(std: StdLike, chosen: { type: string; blockId?: string }[]
   return true;
 }
 
+/**
+ * Alt+Enter starts a new line inside the block, as Shift+Enter does — the
+ * Excel and chat-box habit. BlockSuite binds nothing to it, so the browser had
+ * the key, and on some systems that scrolled the page to its end.
+ */
+function altEnter(std: StdLike): boolean {
+  const [sel] = std.selection.value as unknown as { type: string; from: { blockId: string; index: number; length: number }; to: unknown }[];
+  if (std.selection.value.length !== 1 || sel?.type !== 'text' || sel.to) return false;
+  const block = std.store.getModelById(sel.from.blockId);
+  if (!block || !TEXT.has(block.flavour) || block.flavour === 'affine:code' || !block.text) return false;
+  // Only where the browser's caret really is (see headingEnter).
+  const anchor = document.getSelection()?.anchorNode;
+  const anchorEl = anchor instanceof Element ? anchor : anchor?.parentElement;
+  if (anchorEl?.closest('[data-block-id]')?.getAttribute('data-block-id') !== block.id) return false;
+  const text = block.text as unknown as { delete(i: number, n: number): void; insert(s: string, i: number): void };
+  std.store.captureSync?.();
+  if (sel.from.length) text.delete(sel.from.index, sel.from.length);
+  text.insert('\n', sel.from.index);
+  std.selection.setGroup('note', [
+    std.selection.create(TextSelection, { from: { blockId: block.id, index: sel.from.index + 1, length: 0 }, to: null }),
+  ]);
+  return true;
+}
+
 export function attachBlockGaps(editor: Element & { std?: StdLike }): () => void {
   let pressed: { x: number; y: number } | null = null;
   const onPointerDown = (event: PointerEvent) => { pressed = { x: event.clientX, y: event.clientY }; };
@@ -202,8 +226,13 @@ export function attachBlockGaps(editor: Element & { std?: StdLike }): () => void
   const onKeyDown = (event: KeyboardEvent) => {
     const std = editor.std;
     if (!std || std.store.readonly || event.key !== 'Enter' || event.isComposing) return;
-    if (event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return;
     if (event.target instanceof Node && !editor.contains(event.target) && event.target !== document.body) return;
+    if (event.altKey && !event.shiftKey && !event.metaKey && !event.ctrlKey && altEnter(std)) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    if (event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return;
     // Typing into a field inside a card (an inline table's cell, a caption)
     // can leave the card itself block-selected; that Enter belongs to the field.
     if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement

@@ -1052,6 +1052,22 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
     res.json(task);
   }));
 
+  // Every move of the due date, oldest first (task_due_changes, db.js), with
+  // the date the task started with — the first change's "from".
+  app.get('/api/tasks/:id/due-history', requireUser, wrap(async (req, res) => {
+    const { rows } = await pool.query(
+      `SELECT c.from_date::text AS "from", c.to_date::text AS "to", c.changed_at AS at,
+              u.name AS by_name
+         FROM task_due_changes c
+         JOIN tasks t ON t.id = c.task_id AND t.deleted_at IS NULL
+         LEFT JOIN users u ON u.id = c.changed_by
+        WHERE c.task_id = $1
+        ORDER BY c.changed_at, c.id`,
+      [req.params.id]
+    );
+    res.json(rows);
+  }));
+
   // The other half of the link: a page knows which task it belongs to, so the
   // page can offer a way back to the board it came from. Null for the great
   // majority of pages, which belong to no task at all.

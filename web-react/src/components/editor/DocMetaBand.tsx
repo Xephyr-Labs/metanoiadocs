@@ -8,7 +8,7 @@ import { createPortal } from 'react-dom';
 import type { Intelligence } from '../../lib/docsApi';
 import { avatarFor } from '../../lib/avatar';
 import { cn } from '../../lib/cn';
-import { relativeTime } from '../../lib/time';
+import { calendarDate, fullTime, relativeTime } from '../../lib/time';
 import type { Page } from '../../lib/types';
 import { useWorkspace } from '../../store/workspace';
 import { ActorMark } from '../ui/ActorMark';
@@ -85,11 +85,15 @@ export function DocMetaBand({
           {edited && <ActorMark kind={page.updatedByKind} via={page.updatedVia} name={who} />}
         </span>
       )}
-      <span>
-        {edited
-          ? `Edited ${relativeTime(page.updatedAt)}`
-          : `Created ${relativeTime(page.createdAt ?? page.updatedAt)}`}
-      </span>
+      {edited && (
+        <>
+          <span title={fullTime(page.updatedAt)}>Edited {relativeTime(page.updatedAt)}</span>
+          <span aria-hidden>·</span>
+        </>
+      )}
+      {/* A fixed date, always there: "edited 2h ago" says nothing about how
+          old the page is. */}
+      <span title={fullTime(page.createdAt ?? page.updatedAt)}>Created {calendarDate(page.createdAt ?? page.updatedAt)}</span>
       <span aria-hidden>·</span>
       <span>{minutes} min read</span>
       <span aria-hidden>·</span>
