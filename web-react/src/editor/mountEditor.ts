@@ -45,6 +45,7 @@ import { attachFileDrop } from './fileDrop';
 import { imageToolbarExtensions } from './imageToolbar';
 import { pageViewportExtension } from './pageViewport';
 import { attachCalloutPanels, calloutExtensions } from './callout';
+import { attachTextSize } from './textSize';
 import { chartEffects, chartViewExtensions } from './chart';
 import { MetanoiaChartBlockSchema, MetanoiaChartBlockSchemaExtension } from './chart/chart-model';
 import {
@@ -591,6 +592,13 @@ export async function mountEditor(
     onChange: (cb) => { doc.spaceDoc.on('update', cb); return () => doc.spaceDoc.off('update', cb); },
   });
 
+  // Paint each body block's stored text size onto the DOM (see textSize.ts).
+  const detachTextSize = attachTextSize({
+    store: store as unknown as Parameters<typeof attachTextSize>[0]['store'],
+    root: editor,
+    onChange: (cb) => { doc.spaceDoc.on('update', cb); return () => doc.spaceDoc.off('update', cb); },
+  });
+
   // Render read-only diagram previews under ```mermaid code blocks. Mermaid is
   // dynamically imported inside here, so it only loads for docs that use it.
   const detachMermaid = attachMermaidPreviews({
@@ -692,6 +700,7 @@ export async function mountEditor(
       try { detachSelectAll(); } catch { /* noop */ }
       try { detachFileDrop?.(); } catch { /* noop */ }
       try { detachCalloutPanels(); } catch { /* noop */ }
+      try { detachTextSize(); } catch { /* noop */ }
       try { detachMermaid(); } catch { /* noop */ }
       try { detachMarkdownPaste?.(); } catch { /* noop */ }
       try { detachForeignClipboard(); } catch { /* noop */ }

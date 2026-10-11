@@ -60,3 +60,34 @@ describe('the database address', () => {
     expect(parseRoute('/d/abc', '#block-7').blockId).toBe('block-7');
   });
 });
+
+describe('links copied in AFFiNE', () => {
+  const affine = '/workspace/39226e31-533f-4ec2-813c-45f722cd31d4/74g-D-KA6Rw0ovnQvNAmr';
+
+  it('open the page they name, at the block they name', () => {
+    const r = parseRoute(affine, '', '?mode=page&blockIds=sYrowQxAX_');
+    expect(r.docId).toBe('74g-D-KA6Rw0ovnQvNAmr');
+    expect(r.blockId).toBe('sYrowQxAX_');
+  });
+
+  it('open the page when no block is named', () => {
+    const r = parseRoute(affine, '', '?mode=page');
+    expect(r.docId).toBe('74g-D-KA6Rw0ovnQvNAmr');
+    expect(r.blockId).toBe(null);
+  });
+
+  it('are served the app shell', () => {
+    expect(answers(affine)).toBe(true);
+    expect(answers('/workspace')).toBe(false);
+  });
+
+  it('are not read as pages when they are AFFiNE\'s own screens', () => {
+    for (const screen of ['all', 'collection/c1', 'tag/t1', 'trash', 'journals']) {
+      expect(parseRoute(`/workspace/ws/${screen}`).docId).toBe(null);
+    }
+  });
+
+  it('do not change what a query means on our own addresses', () => {
+    expect(parseRoute('/d/abc', '', '?blockIds=x').blockId).toBe(null);
+  });
+});

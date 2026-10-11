@@ -8,7 +8,7 @@ import { updateBlockType } from '@blocksuite/affine/blocks/note';
 import { toggleLink } from '@blocksuite/affine/inlines/link';
 import { getTextStyle, toggleBold, toggleCode, toggleItalic, toggleStrike } from '@blocksuite/affine/inlines/preset';
 import {
-  AlignHorizontalDistributeCenter, AlignHorizontalJustifyCenter, AlignHorizontalJustifyEnd,
+  AArrowDown, AArrowUp, ALargeSmall, AlignHorizontalDistributeCenter, AlignHorizontalJustifyCenter, AlignHorizontalJustifyEnd,
   AlignHorizontalJustifyStart, AlignVerticalDistributeCenter, AlignVerticalJustifyCenter,
   AlignVerticalJustifyEnd, AlignVerticalJustifyStart,
   Bold, Check, ChevronDown, Code, Download, FileText, Italic, Link2, List, ListOrdered,
@@ -18,6 +18,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { applyAlign, selectedCount } from '../../editor/designAlign';
 import { exportCanvasPng } from '../../editor/designExport';
 import { tableMarkActive, toggleTableLink, toggleTableMark } from '../../editor/tableFormat';
+import { selectionSize, setSelectionSize, type TextSize } from '../../editor/textSize';
 import { MOD_LABEL } from '../../lib/hotkeys';
 import { toast } from '../../lib/toast';
 import { MIN_FOR, type AlignMode } from '../../lib/align';
@@ -40,6 +41,13 @@ const BLOCK_TYPES: {
   { id: 'h3', label: 'Heading 3', flavour: 'affine:paragraph', props: { type: 'h3' } },
   { id: 'quote', label: 'Quote', flavour: 'affine:paragraph', props: { type: 'quote' } },
   { id: 'code', label: 'Code block', flavour: 'affine:code', props: {} },
+];
+
+/** Body text only — headings have their own scale. */
+const SIZES: { id: TextSize | 'normal'; label: string; icon: typeof Bold }[] = [
+  { id: 'small', label: 'Small text', icon: AArrowDown },
+  { id: 'normal', label: 'Normal size', icon: ALargeSmall },
+  { id: 'large', label: 'Large text', icon: AArrowUp },
 ];
 
 const LISTS = [
@@ -79,11 +87,14 @@ interface Props {
   mode: EditorMode;
   /** A design has no page view — the toggle drops the Page segment. */
   design?: boolean;
-  onMode: (m: EditorMode) => void;
-  fullWidth: boolean;
-  onFullWidth: (v: boolean) => void;
+  /** The page/canvas switch, the contents and the width buttons. Left out by
+   *  a page shown inside something else (a task's notes), where the page is
+   *  always a page and its width is the panel's. */
+  onMode?: (m: EditorMode) => void;
+  fullWidth?: boolean;
+  onFullWidth?: (v: boolean) => void;
   /** The table-of-contents button; EditorArea decides what it does. */
-  toc: { label: string; active: boolean; onClick: () => void };
+  toc?: { label: string; active: boolean; onClick: () => void };
 }
 
 /**
@@ -95,6 +106,9 @@ interface Props {
 export function EditorBar({ editor, mode, design, onMode, fullWidth, onFullWidth, toc }: Props) {
   const [marks, setMarks] = useState<Record<string, boolean>>({});
   const [blockLabel, setBlockLabel] = useState<string | null>(null);
+  // The selection's body-text size; null when it is mixed, or nothing sizable
+  // (a heading, a code block) is selected.
+  const [size, setSize] = useState<TextSize | 'normal' | null>(null);
   // Cells of a table are selected (one cell's text, or a row, column or
   // range): the marks work on them, nothing else on the bar does.
   const [inTable, setInTable] = useState(false);
@@ -142,6 +156,7 @@ export function EditorBar({ editor, mode, design, onMode, fullWidth, onFullWidth
             setMarks({ ...(ctx?.textStyle ?? {}) });
           } catch { setMarks({}); }
         }
+        setSize(selectionSize(s));
         try {
           // `selection.find` takes a selection CLASS, not a string — passing
           // 'text' silently returns undefined, which read as "no caret" and
@@ -202,6 +217,12 @@ export function EditorBar({ editor, mode, design, onMode, fullWidth, onFullWidth
     try { s.command.chain().pipe(updateBlockType, { flavour, props }).run(); } catch { /* noop */ }
   };
 
+  const applySize = (next: TextSize | 'normal') => {
+    const s = std();
+    if (s && setSelectionSize(s, next)) setSize(next);
+    else toast('Text size applies to body text — not headings or code');
+  };
+
   // Edgeless is a canvas — block formatting has nothing to act on there, so the
   // bar collapses to just the mode switch rather than showing dead controls.
   //
@@ -239,6 +260,35 @@ export function EditorBar({ editor, mode, design, onMode, fullWidth, onFullWidth
                   >
                     <span className="flex-1">{b.label}</span>
                     {blockLabel === b.label && <Check size={14} className="text-accent-strong" />}
+                  </DM.Item>
+                ))}
+              </DM.Content>
+            </DM.Portal>
+          </DM.Root>
+
+          <DM.Root>
+            <DM.Trigger asChild>
+              <span>
+                <IconButton
+                  size="sm"
+                  icon={<ALargeSmall size={15} />}
+                  label="Text size"
+                  disabled={idle}
+                  active={size === 'small' || size === 'large'}
+                />
+              </span>
+            </DM.Trigger>
+            <DM.Portal>
+              <DM.Content align="start" sideOffset={4} className="z-50 w-44 rounded-lg border border-line bg-canvas p-1 shadow-pop animate-scale-in">
+                {SIZES.map((z) => (
+                  <DM.Item
+                    key={z.id}
+                    onSelect={() => applySize(z.id)}
+                    className="flex cursor-pointer select-none items-center gap-2 rounded px-2 py-[6px] text-sm text-ink outline-none data-[highlighted]:bg-hover"
+                  >
+                    <z.icon size={14} className="shrink-0 text-muted" />
+                    <span className="flex-1">{z.label}</span>
+                    {size === z.id && <Check size={14} className="text-accent-strong" />}
                   </DM.Item>
                 ))}
               </DM.Content>
@@ -336,7 +386,7 @@ export function EditorBar({ editor, mode, design, onMode, fullWidth, onFullWidth
 
       <span className="flex-1" />
 
-      <SegmentedControl
+      {onMode && <SegmentedControl
         aria-label="Editor mode"
         value={mode}
         onChange={(m) => onMode(m as EditorMode)}
@@ -345,8 +395,8 @@ export function EditorBar({ editor, mode, design, onMode, fullWidth, onFullWidth
           { value: 'edgeless', label: 'Edgeless', icon: <PencilRuler size={14} /> },
           { value: 'slides', label: 'Slides', icon: <Presentation size={14} /> },
         ]}
-      />
-      {!edgeless && (
+      />}
+      {!edgeless && toc && (
         <IconButton
           className="ml-0.5"
           icon={<ListTree size={16} />}
@@ -355,7 +405,7 @@ export function EditorBar({ editor, mode, design, onMode, fullWidth, onFullWidth
           onClick={toc.onClick}
         />
       )}
-      {!edgeless && (
+      {!edgeless && onFullWidth && (
         <IconButton
           className={cn('ml-0.5')}
           icon={fullWidth ? <Minimize2 size={16} /> : <Maximize2 size={16} />}

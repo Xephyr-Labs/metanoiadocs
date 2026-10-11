@@ -19,30 +19,8 @@ import { Reactions } from '../ui/Reactions';
 import { ClampedText } from '../ui/ClampedText';
 import { emojify, toggleLocal } from '../../lib/emoji';
 
-/**
- * The handle being typed, if the caret is inside one.
- *
- * Only the run of characters after the last `@` on the line, and only while it
- * still looks like a handle — a space ends it, so "@ada replied" stops
- * suggesting after "ada". Returns null when there is nothing to complete,
- * which is the common case and the one that must cost nothing.
- *
- * Exported for its test: the menu opening at the wrong moment is the whole
- * failure mode of an @-picker, and it needs no DOM to check.
- */
-export function mentionQuery(text: string): string | null {
-  const at = text.lastIndexOf('@');
-  if (at < 0) return null;
-  // A handle starts a word: an email address typed into a comment is not one.
-  if (at > 0 && !/\s/.test(text[at - 1])) return null;
-  const rest = text.slice(at + 1);
-  return /^[a-z0-9._-]*$/i.test(rest) ? rest.toLowerCase() : null;
-}
-
-/** Replace the handle being typed with the one that was picked. */
-export function applyMention(text: string, username: string): string {
-  return `${text.slice(0, text.lastIndexOf('@'))}@${username} `;
-}
+// Kept importable from here for the existing test.
+export { applyMention, mentionQuery } from '../../lib/mentions';
 
 /**
  * Top-level comments, each with its replies, in posting order.
@@ -109,7 +87,6 @@ export function TaskComments({
   const [draft, setDraft] = useState(() => savedDraft(draftKey));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [dismissed, setDismissed] = useState(false);
   const [editing, setEditing] = useState<{ id: string; text: string } | null>(null);
   // The thread the reply box sits under, and the comment actually answered —
   // a reply's author is the one told, even though it files under the thread.
@@ -141,20 +118,6 @@ export function TaskComments({
       document.removeEventListener('visibilitychange', refresh);
     };
   }, [taskId]);
-
-  const query = dismissed ? null : mentionQuery(draft);
-  const suggestions =
-    query === null
-      ? []
-      : users
-          .filter((u) => `${u.username ?? ''} ${u.name ?? ''}`.toLowerCase().includes(query))
-          .slice(0, 5);
-
-  const pick = (u: UserRow) => {
-    setDraft(applyMention(draft, u.username));
-    setDismissed(true);
-    inputRef.current?.focus();
-  };
 
   const send = async () => {
     const body = draft.trim();
@@ -342,6 +305,7 @@ export function TaskComments({
                         value={replyText}
                         onChange={setReplyText}
                         onEnter={() => { void sendReply(); }}
+                        people={users}
                         placeholder="Reply…"
                         className="px-2.5 py-1.5"
                       />
@@ -361,43 +325,14 @@ export function TaskComments({
       )}
 
       <div className="relative mt-2.5">
-        {suggestions.length > 0 && (
-          <div className="absolute bottom-[38px] left-0 right-0 z-10 overflow-hidden rounded-lg border border-line bg-canvas shadow-pop">
-            {suggestions.map((u) => (
-              <button
-                key={u.id}
-                type="button"
-                // mousedown, not click: the input blurs first otherwise and the
-                // menu is gone before the click can land.
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  pick(u);
-                }}
-                className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-sm hover:bg-hover"
-              >
-                <Avatar name={u.name || u.username || u.email} size={18} />
-                <span className="font-medium text-ink">{u.name || u.username}</span>
-                <span className="truncate text-2xs text-faint">@{u.username}</span>
-              </button>
-            ))}
-          </div>
-        )}
         <div className="flex items-end gap-2 rounded-md ring-1 ring-inset ring-line focus-within:ring-2 focus-within:ring-accent">
           <CommentBox
             ref={inputRef}
             draftKey={draftKey}
             value={draft}
-            onChange={(v) => {
-              setDraft(v);
-              setDismissed(false);
-            }}
-            onEnter={() => {
-              if (suggestions.length > 0) {
-                pick(suggestions[0]);
-                return;
-              }
-              send();
-            }}
+            onChange={setDraft}
+            onEnter={() => { void send(); }}
+            people={users}
             placeholder="Add a comment…  @ to mention"
             className="px-2.5 py-1.5"
           />

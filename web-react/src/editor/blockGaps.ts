@@ -109,6 +109,35 @@ function openLine(std: StdLike, container: ModelLike, card: ModelLike, side: 'ab
   ]);
 }
 
+/**
+ * Enter with the caret at the very start of a heading puts a plain text line
+ * above it, and leaves the caret on the heading — Notion's rule.
+ *
+ * BlockSuite splits the heading there instead, so the line it made above was
+ * an empty *heading*: typing into it gave a second, giant title, and the way
+ * to a paragraph above a heading was Enter, Up, then changing the block type
+ * back by hand. Above the first heading on a page there was no other way in.
+ */
+function headingEnter(std: StdLike, chosen: { type: string; blockId?: string }[]): boolean {
+  const sel = chosen.length === 1 && chosen[0].type === 'text'
+    ? (chosen[0] as unknown as { from: { blockId: string; index: number; length: number }; to: unknown })
+    : null;
+  if (!sel || sel.to || sel.from.index !== 0 || sel.from.length !== 0) return false;
+  const block = std.store.getModelById(sel.from.blockId) as (ModelLike & { props?: { type?: string } }) | null;
+  if (block?.flavour !== 'affine:paragraph' || !/^h[1-6]$/.test(block.props?.type ?? '') || !block.text?.length) return false;
+  // The editor's selection can be stale — left behind while the title or a
+  // field outside the editor has the caret. Only act when the browser's caret
+  // really is in this heading.
+  const anchor = document.getSelection()?.anchorNode;
+  const anchorEl = anchor instanceof Element ? anchor : anchor?.parentElement;
+  if (anchorEl?.closest('[data-block-id]')?.getAttribute('data-block-id') !== block.id) return false;
+  const parent = std.store.getParent(block);
+  if (!parent) return false;
+  std.store.captureSync?.();
+  std.store.addBlock('affine:paragraph', { type: 'text' }, parent, parent.children.indexOf(block));
+  return true;
+}
+
 export function attachBlockGaps(editor: Element & { std?: StdLike }): () => void {
   let pressed: { x: number; y: number } | null = null;
   const onPointerDown = (event: PointerEvent) => { pressed = { x: event.clientX, y: event.clientY }; };
@@ -165,6 +194,11 @@ export function attachBlockGaps(editor: Element & { std?: StdLike }): () => void
     if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement
       || event.target instanceof HTMLSelectElement) return;
     const chosen = std.selection.value;
+    if (headingEnter(std, chosen)) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
     // Only a card picked as a whole opens a line. A table cell being typed in
     // is also a selection on the table block (BlockSuite's 'table' selection,
     // set the moment a cell gets the caret), and treating it as a picked card
@@ -188,4 +222,45 @@ export function attachBlockGaps(editor: Element & { std?: StdLike }): () => void
     document.removeEventListener('pointerdown', onPointerDown, true);
     document.removeEventListener('click', onClick, true);
   };
+}
+
+/**
+ * A click under the last line of a short document puts the caret at its end —
+ * on the last line when that is text, or on a new line after a card.
+ *
+ * In a page that runs the height of the screen nobody misses this, but a
+ * task's notes are often one empty line in a panel: a click anywhere but
+ * exactly on that line landed on nothing, focus stayed on the page, and the
+ * letters typed next went to the app's shortcuts instead (`n` opened Quick
+ * capture). Returns false when the click was not below the content.
+ */
+export function focusDocEnd(editor: Element, clientY: number): boolean {
+  const std = (editor.querySelector('editor-host') as { std?: StdLike } | null)?.std;
+  if (!std || std.store.readonly) return false;
+  const root = (std.store as unknown as { root: ModelLike | null }).root;
+  const note = root?.children.find((c) => c.flavour === 'affine:note');
+  if (!note) return false;
+  const last = note.children[note.children.length - 1];
+  const lastEl = last ? std.view.getBlock(last.id) : null;
+  if (lastEl && clientY <= lastEl.getBoundingClientRect().bottom) return false;
+  let target = last && TEXT.has(last.flavour) && last.flavour !== 'affine:code' ? last : null;
+  if (!target) {
+    std.store.captureSync?.();
+    const id = std.store.addBlock('affine:paragraph', {}, note, note.children.length);
+    target = std.store.getModelById(id);
+  }
+  if (!target) return false;
+  const id = target.id;
+  const caret = () => std.selection.setGroup('note', [
+    std.selection.create(TextSelection, { from: { blockId: id, index: target!.text?.length ?? 0, length: 0 }, to: null }),
+  ]);
+  // The click landed outside the editor, so BlockSuite's event dispatcher is
+  // not "active" and would keep the selection to itself instead of putting the
+  // browser's caret there — the keys then went to the page. Marking it active
+  // is what BlockSuite's own focusTextModel does. Again after a frame: a line
+  // added just now is not drawn yet.
+  (std as unknown as { event: { active: boolean } }).event.active = true;
+  caret();
+  requestAnimationFrame(caret);
+  return true;
 }

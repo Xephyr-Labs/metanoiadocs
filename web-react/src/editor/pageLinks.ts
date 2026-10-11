@@ -14,7 +14,7 @@
 import { ActionPlacement, DocDisplayMetaProvider, ToolbarModuleExtension } from '@blocksuite/affine/shared/services';
 import { BlockFlavourIdentifier } from '@blocksuite/affine/std';
 import { OpenInNewIcon } from '@blocksuite/icons/lit';
-import { docUrl } from '../lib/route';
+import { docUrl, pageLinkTarget } from '../lib/route';
 import { insertLinkedNode, RefNodeSlotsProvider } from '@blocksuite/affine/inlines/reference';
 import { LinkedWidgetConfigExtension } from '@blocksuite/affine/widgets/linked-doc';
 import { computed, signal } from '@preact/signals-core';
@@ -337,14 +337,40 @@ export function pageLinkExtensions({ pages, currentId, createPage }: PageLinkOpt
 }
 
 /**
- * Route clicks on a reference chip back into the app instead of letting
- * BlockSuite try to open a doc that isn't in this collection.
+ * Open a page in the app, scrolled to one of its blocks when the link names
+ * one. The block rides on the address (`#<block>`), which is where the editor
+ * looks once the page has rendered — and a hashchange is announced by hand,
+ * because a link to a block on the page already open replaces only the
+ * fragment and nothing would otherwise notice.
+ */
+function openTarget(onOpen: (docId: string) => void, docId: string, blockId: string | null, newTab: boolean) {
+  if (newTab) { window.open(docUrl(docId, blockId ?? undefined), '_blank', 'noopener'); return; }
+  onOpen(docId);
+  if (!blockId) return;
+  history.replaceState(history.state, '', `${location.pathname}#${encodeURIComponent(blockId)}`);
+  window.dispatchEvent(new HashChangeEvent('hashchange'));
+}
+
+/**
+ * Route clicks on a reference chip, and on a plain link to one of this
+ * workspace's pages, back into the app.
+ *
+ * A chip: BlockSuite would look for the doc in this collection and find
+ * nothing. A link: "Copy link to block" pastes as an ordinary hyperlink with
+ * `target=_blank`, so following one opened a second copy of the app in a new
+ * tab — and links copied in AFFiNE before the move pointed at an address the
+ * app did not read, so they landed on the dashboard. Both kinds now open the
+ * page here and scroll to the block they name; ⌘/Ctrl or a middle click still
+ * means a new tab.
+ *
  * Returns a detach function; the underlying subject is a module-level singleton
  * in BlockSuite, so failing to unsubscribe would leak across mounts.
  */
 export function attachRefClicks(editor: Element, onOpen: (docId: string) => void) {
   interface RefClick {
     pageId?: string;
+    /** AFFiNE's "link to block" chips carry the block here. */
+    params?: { blockIds?: string[] };
     /** Set by the toolbar action above and by a middle click (BlockSuite
      *  maps button 1 to it); a ⌘/Ctrl click carries the intent on the event. */
     openMode?: string;
@@ -357,10 +383,24 @@ export function attachRefClicks(editor: Element, onOpen: (docId: string) => void
   const sub = slots?.docLinkClicked?.subscribe((e) => {
     if (!e?.pageId) return;
     const newTab = e.openMode === 'open-in-new-tab' || !!e.event?.metaKey || !!e.event?.ctrlKey;
-    if (newTab) window.open(docUrl(e.pageId), '_blank', 'noopener');
-    else onOpen(e.pageId);
+    openTarget(onOpen, e.pageId, e.params?.blockIds?.[0] ?? null, newTab);
   });
+
+  // Capture, so this runs before the anchor's own navigation.
+  const onClick = (e: MouseEvent) => {
+    if (e.button !== 0 || e.shiftKey || e.altKey) return;
+    const a = e.composedPath().find((n): n is HTMLAnchorElement => n instanceof HTMLAnchorElement);
+    if (!a?.closest('affine-link')) return;
+    const target = pageLinkTarget(a.href);
+    if (!target) return;
+    e.preventDefault();
+    e.stopPropagation();
+    openTarget(onOpen, target.docId, target.blockId, e.metaKey || e.ctrlKey);
+  };
+  const el = editor as HTMLElement;
+  el.addEventListener('click', onClick, true);
   return () => {
+    el.removeEventListener('click', onClick, true);
     try { sub?.unsubscribe(); } catch { /* noop */ }
   };
 }

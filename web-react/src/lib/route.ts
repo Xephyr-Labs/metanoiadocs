@@ -14,6 +14,13 @@ const DOC_PATH = /^\/d\/([^/?#]+)/;
 const FOLDER_PATH = /^\/f\/([^/?#]+)/;
 /** A database, and optionally which of its saved views. */
 const DB_PATH = /^\/db\/([^/?#]+)(?:\/([^/?#]+))?/;
+/** AFFiNE's page address, from before the move to MetanoiaDocs:
+ *  `/workspace/<workspace>/<page>?blockIds=<block>`. The pages kept their ids
+ *  in the migration, so every link copied in AFFiNE still names a real page
+ *  here — it only needs reading. Without this the app saw no page in the path
+ *  and opened the home dashboard instead. AFFiNE's own non-page addresses
+ *  (`/all`, `/collection/…`, `/trash`, …) are not pages and are left alone. */
+const AFFINE_PATH = /^\/workspace\/[^/?#]+\/(?!(?:all|collection|tag|trash|journals|settings|home)(?:[/?#]|$))([^/?#]+)/;
 
 /** Every address this app answers, and nothing else on the origin.
  *
@@ -22,7 +29,7 @@ const DB_PATH = /^\/db\/([^/?#]+)(?:\/([^/?#]+))?/;
  *  /jira, and a fallback that covered the whole origin handed them the app shell
  *  out of the precache instead of letting the request reach Caddy. A new route
  *  here is a new route there — that is the point of the shared list. */
-export const APP_PATHS = [/^\/$/, DOC_PATH, FOLDER_PATH, DB_PATH];
+export const APP_PATHS = [/^\/$/, DOC_PATH, FOLDER_PATH, DB_PATH, AFFINE_PATH];
 
 export const docUrl = (docId: string, blockId?: string) =>
   `${location.origin}/d/${encodeURIComponent(docId)}${blockId ? `#${encodeURIComponent(blockId)}` : ''}`;
@@ -63,10 +70,13 @@ export interface Route {
  *  DOM — this suite runs in node, and a route is exactly the sort of thing
  *  worth a test. */
 export function parseRoute(pathname: string, hash = '', search = ''): Route {
-  const doc = DOC_PATH.exec(pathname);
+  const doc = DOC_PATH.exec(pathname) ?? AFFINE_PATH.exec(pathname);
   const folder = FOLDER_PATH.exec(pathname);
   const db = DB_PATH.exec(pathname);
-  const fragment = hash.replace(/^#/, '');
+  // AFFiNE put the block in the query (`blockIds`, comma-separated); ours is
+  // the fragment.
+  const legacyBlock = AFFINE_PATH.test(pathname) ? new URLSearchParams(search).get('blockIds')?.split(',')[0] : null;
+  const fragment = hash.replace(/^#/, '') || legacyBlock || '';
   return {
     docId: doc ? decodeURIComponent(doc[1]) : null,
     folderId: folder ? decodeURIComponent(folder[1]) : null,
@@ -75,6 +85,28 @@ export function parseRoute(pathname: string, hash = '', search = ''): Route {
     blockId: fragment ? decodeURIComponent(fragment) : null,
     taskId: db ? new URLSearchParams(search).get('task') : null,
   };
+}
+
+/**
+ * The page and block a link points at, when it is a link to a page in this
+ * workspace — ours (`/d/<id>#<block>`) or one copied in AFFiNE before the move.
+ * Null for anything else, including other apps on this origin.
+ */
+export function pageLinkTarget(href: string): { docId: string; blockId: string | null } | null {
+  let url: URL;
+  try { url = new URL(href, location.origin); } catch { return null; }
+  if (url.origin !== location.origin) return null;
+  const { docId, blockId } = parseRoute(url.pathname, url.hash, url.search);
+  return docId ? { docId, blockId } : null;
+}
+
+/** An AFFiNE-era address in the bar is rewritten to ours before the app reads
+ *  it, so everything downstream — the open page, the block reveal, the back
+ *  button — sees one shape. */
+export function canonicalizeLegacyAddress(): void {
+  if (!AFFINE_PATH.test(location.pathname)) return;
+  const { docId, blockId } = readRoute();
+  if (docId) history.replaceState(null, '', docUrl(docId, blockId ?? undefined));
 }
 
 /** What the current address says is open. Every part may be absent. */

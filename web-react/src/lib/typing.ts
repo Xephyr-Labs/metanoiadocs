@@ -12,8 +12,12 @@
 export function isTyping(target: EventTarget | null): boolean {
   const el = target instanceof Element ? target : null;
   if (!el) return false;
+  // `editor-host` too: with a whole block selected (an image, a block picked by
+  // its drag handle) focus sits on the editor itself rather than on any
+  // contenteditable, and an `n` or `x` there belongs to the editor — it used to
+  // open Quick capture from inside a task's notes.
   return !!el.closest(
-    'input, textarea, select, [contenteditable=""], [contenteditable="true"], [role="textbox"], [role="combobox"]',
+    'input, textarea, select, [contenteditable=""], [contenteditable="true"], [role="textbox"], [role="combobox"], editor-host',
   );
 }
 
