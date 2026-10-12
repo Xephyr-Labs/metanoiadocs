@@ -34,10 +34,11 @@ import { lockedFor, noteFailure, clearFailures, lockoutError } from './throttle.
 import { idleAbort } from './idle-abort.js';
 import { aiTools } from './ai-tools.js';
 import { getSetting, setSetting } from './db.js';
+import { runDataMigrations } from './data-migrations.js';
 import * as Y from 'yjs';
 import { mentionHandles } from './mentions.js';
 import { docCommentRecipients } from './comment-recipients.js';
-import { buildDocState, appendMarkdownToDoc, appendPageReference, extractText, extractBlocks, docToMarkdown } from './blocks.js';
+import { buildDocState, appendMarkdownToDoc, appendPageReference, extractText, extractBlocks, docToMarkdown, fixTableOrderKeys } from './blocks.js';
 import { rewriteDoc } from './restore.js';
 import { applyTextSuggestion, parseDraftName, registerSuggestionRoutes } from './suggestions.js';
 import { registerReactionRoutes, withReactions } from './reactions.js';
@@ -80,6 +81,8 @@ const WEB_DIST = path.resolve(__dirname, '../../web-react/dist');
 const STALE_MONTHS = Number(process.env.STALE_MONTHS || 6);
 
 await initSchema();
+// Before the server listens: see data-migrations.js.
+await runDataMigrations(pool);
 
 // One-shot backfill: compute signals for docs that don't have them yet. Runs
 // sequentially in the background so a large workspace doesn't stampede the pool.
@@ -2402,7 +2405,7 @@ app.get('/api/docs/:id/versions', requireUser, async (req, res) => {
   const { rows } = await pool.query(
     `SELECT v.id, v.label, v.created_at, u.name AS author, u.email AS author_email
        FROM doc_versions v LEFT JOIN users u ON u.id = v.created_by
-      WHERE v.doc_id = $1 ORDER BY v.created_at DESC LIMIT 50`,
+      WHERE v.doc_id = $1 ORDER BY v.created_at DESC LIMIT ${KEEP_VERSIONS + KEEP_REPLACE_COPIES}`,
     [req.params.id]
   );
   res.json(rows);
@@ -2455,12 +2458,25 @@ async function snapshotVersion(docId, state, label, userId) {
     'INSERT INTO doc_versions (id, doc_id, state, label, created_by) VALUES ($1, $2, $3, $4, $5)',
     [id, docId, state, label, userId]
   );
+  await pruneVersions(docId);
+  return id;
+}
+
+/** Keep the newest 50 versions of a page, and beside them the newest 20
+ *  "Before replace" copies. Counted apart because an agent rewriting a page
+ *  a few dozen times would otherwise push every older autosave out of the
+ *  page's history. */
+const KEEP_VERSIONS = 50;
+const KEEP_REPLACE_COPIES = 20;
+async function pruneVersions(docId) {
   await pool.query(
-    `DELETE FROM doc_versions WHERE doc_id = $1 AND id NOT IN (
-       SELECT id FROM doc_versions WHERE doc_id = $1 ORDER BY created_at DESC LIMIT 50)`,
+    `DELETE FROM doc_versions WHERE doc_id = $1
+       AND id NOT IN (SELECT id FROM doc_versions WHERE doc_id = $1 AND label IS DISTINCT FROM 'Before replace'
+                       ORDER BY created_at DESC LIMIT ${KEEP_VERSIONS})
+       AND id NOT IN (SELECT id FROM doc_versions WHERE doc_id = $1 AND label = 'Before replace'
+                       ORDER BY created_at DESC LIMIT ${KEEP_REPLACE_COPIES})`,
     [docId]
   );
-  return id;
 }
 
 /**
@@ -2493,6 +2509,9 @@ app.post('/api/docs/:id/versions/:vid/restore-in-place', requireUser, wrap(async
   const target = live || (() => { const d = new Y.Doc(); Y.applyUpdate(d, new Uint8Array(cur.state)); return d; })();
   try {
     rewriteDoc(target, v.rows[0].state);
+    // A version from before the table repair brings its broken order keys
+    // back with it (data-migrations.js); mend them on the way in.
+    fixTableOrderKeys(target);
   } catch (e) {
     await pool.query('DELETE FROM doc_versions WHERE id = $1', [undoId]);
     return res.status(400).json({ error: e.message || 'could not restore that version' });
@@ -3188,12 +3207,7 @@ const hocuspocus = new Hocuspocus({
             'INSERT INTO doc_versions (id, doc_id, state, label) VALUES ($1, $2, $3, $4)',
             [crypto.randomUUID(), documentName, buf, 'autosave']
           );
-          // Keep the last 50 versions per doc.
-          await pool.query(
-            `DELETE FROM doc_versions WHERE doc_id = $1 AND id NOT IN (
-               SELECT id FROM doc_versions WHERE doc_id = $1 ORDER BY created_at DESC LIMIT 50)`,
-            [documentName]
-          );
+          await pruneVersions(documentName);
         }
       },
     }),

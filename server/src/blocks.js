@@ -968,3 +968,55 @@ export function normalizeDocState(existing, opts = {}) {
 
   return Y.encodeStateAsUpdate(doc);
 }
+
+/**
+ * Whether BlockSuite's table will accept `key` as an order key. Its table
+ * sorts rows and columns with the fractional-indexing library, which rejects
+ * any key whose fractional part ends in "0" (and the one smallest key); the
+ * server's own tables used to be written with such keys (a000000, a000010…),
+ * and next to one the editor could add no row or column. Mirrors the
+ * library's validateOrderKey.
+ */
+export function validOrderKey(key) {
+  if (typeof key !== 'string' || !/^[0-9A-Za-z]+$/.test(key)) return false;
+  const head = key.charCodeAt(0);
+  let intLen;
+  if (head >= 97 && head <= 122) intLen = head - 97 + 2; // a..z
+  else if (head >= 65 && head <= 90) intLen = 90 - head + 2; // A..Z
+  else return false;
+  if (key.length < intLen) return false;
+  if (key === 'A' + '0'.repeat(26)) return false;
+  return !key.slice(intLen).endsWith('0');
+}
+
+/**
+ * Give every table in `doc` valid row and column order keys, keeping the
+ * order the editor shows (code-point order of the old keys). Only a table
+ * with at least one invalid key is touched, and then all of its rows (or
+ * columns) are renumbered, so the result is a clean sequence. Returns how many
+ * tables changed. Safe to run again: a fixed table has nothing invalid left.
+ */
+export function fixTableOrderKeys(doc) {
+  const orderKey = (n) => 'a' + String(n).padStart(6, '0') + '1';
+  let fixed = 0;
+  doc.transact(() => {
+    for (const [, b] of doc.getMap('blocks')) {
+      if (!(b instanceof Y.Map) || b.get('sys:flavour') !== 'affine:table') continue;
+      let changed = false;
+      for (const kind of ['rows', 'columns']) {
+        const re = new RegExp(`^prop:${kind}\\.(.+)\\.order$`);
+        const entries = [];
+        for (const k of b.keys()) {
+          const m = re.exec(k);
+          if (m) entries.push({ k, v: b.get(k) });
+        }
+        if (!entries.length || entries.every((e) => validOrderKey(e.v))) continue;
+        entries.sort((x, y) => (String(x.v) > String(y.v) ? 1 : String(x.v) < String(y.v) ? -1 : 0));
+        entries.forEach((e, i) => b.set(e.k, orderKey(i)));
+        changed = true;
+      }
+      if (changed) fixed++;
+    }
+  });
+  return fixed;
+}

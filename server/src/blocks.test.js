@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as Y from 'yjs';
-import { appendMarkdownToDoc, appendPageReference, buildDocState, collectMarkdownLinks, docToMarkdown, extractText } from './blocks.js';
+import { appendMarkdownToDoc, appendPageReference, buildDocState, collectMarkdownLinks, docToMarkdown, extractText, fixTableOrderKeys, validOrderKey } from './blocks.js';
 
 // The editor's own key generator, when the web app's dependencies are installed
 // alongside — the real proof that a table built here takes new rows.
@@ -403,3 +403,37 @@ test('appends land in the page-view note, not a canvas-only note listed first', 
   assert.equal(r.doc.getMap('blocks').get('canvas-note').get('sys:children').length, 0);
   assert.equal(r.doc.getMap('blocks').get(r.bodyId).get('sys:children').length, 2);
 });
+
+test('validOrderKey matches the editor\'s library', async () => {
+    let fi;
+    try { fi = await import('../../web-react/node_modules/fractional-indexing/src/index.js'); } catch { return; }
+    for (const k of ['a0', 'a000000', 'a000010', 'a0000001', 'a0V', 'Zz', 'b0001', 'a1']) {
+      let ok = true;
+      try { fi.generateKeyBetween(k, null); } catch { ok = false; }
+      assert.equal(validOrderKey(k), ok, k);
+    }
+});
+
+test('fixTableOrderKeys renumbers a table with bad keys, keeping its order, and only once', () => {
+    const doc = new Y.Doc();
+    const blocks = doc.getMap('blocks');
+    const t = new Y.Map();
+    blocks.set('t', t);
+    t.set('sys:flavour', 'affine:table');
+    // Rows as the old server wrote them, plus one the editor inserted.
+    t.set('prop:rows.r0.order', 'a000000');
+    t.set('prop:rows.r1.order', 'a000001');
+    t.set('prop:rows.rX.order', 'a0000005');
+    t.set('prop:rows.r2.order', 'a000002');
+    t.set('prop:columns.c0.order', 'a0V');
+    t.set('prop:columns.c1.order', 'a0l');
+    assert.equal(fixTableOrderKeys(doc), 1);
+    const order = (kind) => [...t.keys()].filter((k) => k.startsWith(`prop:${kind}.`))
+      .sort((x, y) => (t.get(x) > t.get(y) ? 1 : -1)).map((k) => k.split('.')[1]);
+    // Code-point order, as the editor showed it: 'a0000005' < 'a000001'.
+  assert.deepEqual(order('rows'), ['r0', 'rX', 'r1', 'r2']);
+    for (const k of t.keys()) if (k.endsWith('.order')) assert.ok(validOrderKey(t.get(k)), t.get(k));
+    // Valid columns were left as they were.
+    assert.equal(t.get('prop:columns.c0.order'), 'a0V');
+    assert.equal(fixTableOrderKeys(doc), 0);
+  });

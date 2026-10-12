@@ -98,9 +98,16 @@ export function registerGuestCommentRoutes(app, { wrap, notify, emit, changed = 
     const doc = await commentable(req, res);
     if (!doc) return;
     const { rows } = await pool.query(
-      `SELECT id, block_id, quote, body, author_name, guest, parent_id, resolved, created_at, edited_at,
-              kind, suggestion, suggestion_status, quote_occurrence
-         FROM comments WHERE doc_id = $1 AND task_id IS NULL ORDER BY created_at ASC`,
+      // A member's stored author_name is their email when they had no display
+      // name (the member route falls back to it), so for members the name is
+      // read from the account instead — the same one reactions show.
+      `SELECT c.id, c.block_id, c.quote, c.body,
+              CASE WHEN c.guest THEN c.author_name
+                   ELSE coalesce(nullif(u.name, ''), u.username, 'Team member') END AS author_name,
+              c.guest, c.parent_id, c.resolved, c.created_at, c.edited_at,
+              c.kind, c.suggestion, c.suggestion_status, c.quote_occurrence
+         FROM comments c LEFT JOIN users u ON u.id = c.author_id
+        WHERE c.doc_id = $1 AND c.task_id IS NULL ORDER BY c.created_at ASC`,
       [doc.id],
     );
     // Who reacted, by name only — a guest sees the same counts members do.
