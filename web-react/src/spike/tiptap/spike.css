@@ -1,0 +1,38 @@
+/* SPIKE: just enough page styling for a fair feel test. */
+.mn-spike .tiptap { outline: none; font-size: 16px; line-height: 1.6; }
+.mn-spike .tiptap > * + * { margin-top: 0.5em; }
+.mn-spike .tiptap h1 { font-size: 28px; font-weight: 700; margin-top: 1em; }
+.mn-spike .tiptap h2 { font-size: 23px; font-weight: 650; margin-top: 0.9em; }
+.mn-spike .tiptap h3 { font-size: 19px; font-weight: 600; margin-top: 0.8em; }
+.mn-spike .tiptap h4, .mn-spike .tiptap h5, .mn-spike .tiptap h6 { font-weight: 600; }
+.mn-spike .tiptap ul { list-style: disc; padding-left: 1.4em; }
+.mn-spike .tiptap ol { list-style: decimal; padding-left: 1.4em; }
+.mn-spike .tiptap ul[data-type='taskList'] { list-style: none; padding-left: 0.2em; }
+.mn-spike .tiptap ul[data-type='taskList'] li { display: flex; gap: 0.5em; }
+.mn-spike .tiptap blockquote { border-left: 3px solid var(--line-strong); padding-left: 0.9em; }
+.mn-spike .tiptap code { background: var(--surface-2); border-radius: 4px; padding: 0.1em 0.3em; font-size: 0.9em; }
+.mn-spike .tiptap pre { background: var(--surface-2); border-radius: 8px; padding: 0.8em 1em; overflow-x: auto; }
+.mn-spike .tiptap pre code { background: none; padding: 0; }
+.mn-spike .tiptap a { color: var(--accent); text-decoration: underline; }
+.mn-spike .tiptap hr { border: 0; border-top: 1px solid var(--line); margin: 1.2em 0; }
+.mn-spike .tiptap img { max-width: 100%; border-radius: 6px; }
+.mn-spike .tiptap .tableWrapper { overflow-x: auto; }
+.mn-spike .tiptap table { border-collapse: collapse; min-width: 100%; }
+.mn-spike .tiptap td, .mn-spike .tiptap th { border: 1px solid var(--line); padding: 4px 8px; vertical-align: top; min-width: 80px; }
+.mn-spike .tiptap th { background: var(--surface-2); font-weight: 600; text-align: left; }
+
+.mn-spike-bar {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 60;
+  display: flex; align-items: center; height: 46px; padding: 0 4px;
+  background: var(--canvas); border-top: 1px solid var(--line);
+  box-shadow: 0 -4px 10px rgb(0 0 0 / 0.05);
+  will-change: transform;
+}
+.mn-spike-bar-items { flex: 1; display: flex; overflow-x: auto; scrollbar-width: none; }
+.mn-spike-bar button {
+  flex: 0 0 auto; width: 44px; height: 40px; display: grid; place-items: center;
+  border-radius: 8px; color: var(--ink);
+}
+.mn-spike-bar button[aria-pressed='true'] { background: var(--selected); color: var(--accent); }
+.mn-spike-bar button:disabled { opacity: 0.35; }
+.mn-spike-bar > button { border-left: 1px solid var(--line); border-radius: 0; }
