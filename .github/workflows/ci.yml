@@ -64,6 +64,63 @@ jobs:
         working-directory: web-react
         run: npm run build
 
+  # The editor in a real browser against a real server: typing in a long page
+  # must not cost much more per key than in a short one (e2e/perf-typing.mjs).
+  # Unit tests run in node and cannot see this; a per-keystroke cost that grew
+  # with the page once made typing in long documents crawl unnoticed.
+  editor-perf:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: metanoia
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: metanoiadocs
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U metanoia -d metanoiadocs"
+          --health-interval 5s --health-retries 20
+    env:
+      DATABASE_URL: postgresql://metanoia:ci@localhost:5432/metanoiadocs
+      PORT: '8092'
+      BASE_URL: http://localhost:8092
+      ADMIN_EMAIL: ci@example.com
+      ADMIN_PASSWORD: ci-password-1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            server/package-lock.json
+            web-react/package-lock.json
+            e2e/package-lock.json
+      - name: Build web
+        working-directory: web-react
+        run: npm ci --no-audit --no-fund && npm run build
+      - name: Start server
+        working-directory: server
+        run: |
+          npm ci --omit=dev --no-audit --no-fund
+          nohup node src/index.js > ../server.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf -o /dev/null http://localhost:8092/ && break; sleep 1; done
+          curl -sf -o /dev/null http://localhost:8092/ || (cat ../server.log; exit 1)
+      - name: Typing cost
+        working-directory: e2e
+        env:
+          BASE: http://localhost:8092
+          E2E_USER: admin
+          E2E_PASSWORD: ci-password-1
+        run: |
+          npm ci --no-audit --no-fund
+          npx playwright install --with-deps chromium
+          npm run perf
+      - name: Server log
+        if: failure()
+        run: cat server.log
+
   image:
     needs: test
     if: github.event_name == 'push'

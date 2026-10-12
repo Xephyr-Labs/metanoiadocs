@@ -1,0 +1,11 @@
+{
+  "name": "metanoiadocs-e2e",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "perf": "node perf-typing.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.62.1"
+  }
+}

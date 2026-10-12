@@ -62,12 +62,15 @@ import {
 import { createVirtualKeyboardProvider } from './virtualKeyboard';
 import { hideFloatingTextToolbar, keyboardToolbarExtension } from './keyboardToolbar';
 import { keepCaretVisible } from './keepCaretVisible';
+import { installFastRangeQuery } from './fastRangeQuery';
 import { fixAndroidRecompose } from './androidRecompose';
 
 let effectsInstalled = false;
 function installEffects() {
   if (effectsInstalled) return;
   itEffects();
+  // Typing cost that grew with the page's length (fastRangeQuery.ts).
+  installFastRangeQuery();
   // Nothing to add for the floating table of contents: the view manager builds
   // OutlineViewExtension during mount and its effect() defines those elements.
   // Registering them here as well threw NotSupportedError on the second define

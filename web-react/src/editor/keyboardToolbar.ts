@@ -7,6 +7,7 @@
 // the bar: insert (+), turn-into (Aa), the styles, then BlockSuite's own items
 // (image, undo/redo, indent, lists, …) — the bar scrolls sideways.
 import { getTextStyle } from '@blocksuite/affine/inlines/preset';
+import { caretTextStyle } from './caretTextStyle';
 import {
   defaultKeyboardToolbarConfig,
   KeyboardToolbarConfigExtension,
@@ -33,7 +34,9 @@ const STYLE_KEY: Record<string, 'bold' | 'italic' | 'underline' | 'strike' | 'co
 let shared: { std: unknown; style: Record<string, unknown> | null } | null = null;
 function textStyleOf(std: { command: { exec: (c: unknown) => unknown } }) {
   if (shared?.std !== std) {
-    const [, ctx] = std.command.exec(getTextStyle) as [unknown, { textStyle?: Record<string, unknown> }];
+    // The caret's own line when it can (caretTextStyle.ts), else the page-wide look-up.
+    const fast = caretTextStyle(std as never);
+    const [, ctx] = fast ? [true, { textStyle: fast }] : std.command.exec(getTextStyle) as [unknown, { textStyle?: Record<string, unknown> }];
     shared = { std, style: ctx?.textStyle ?? null };
     // All the buttons render in one synchronous pass; the next render looks
     // again, so a style changed in between is never shown stale.
