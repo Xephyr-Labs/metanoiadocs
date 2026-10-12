@@ -60,6 +60,7 @@ import {
   MetanoiaColumnBlockSchema, MetanoiaColumnBlockSchemaExtension,
 } from './columns';
 import { createVirtualKeyboardProvider } from './virtualKeyboard';
+import { hideFloatingTextToolbar, keyboardToolbarExtension } from './keyboardToolbar';
 import { keepCaretVisible } from './keepCaretVisible';
 import { fixAndroidRecompose } from './androidRecompose';
 
@@ -475,6 +476,8 @@ export async function mountEditor(
     // them too; the toolbar they are set from never opens for them.
     ...calloutExtensions(),
     noLinkedDocConvertCanvasExtension(),
+    // Phones: bold/italic/link… on the bar over the keyboard, not behind "Aa".
+    keyboardToolbarExtension(),
     // Comment and Suggest edit on the text toolbar. Not on a public link (its
     // floating buttons cover it), a version or a draft — a draft's comments
     // would have nowhere to live.
@@ -683,6 +686,8 @@ export async function mountEditor(
   }
   // Phones: the line being typed stays above the keyboard's formatting bar.
   const detachCaret = IS_MOBILE && !noWrite ? keepCaretVisible(editor as unknown as HTMLElement) : () => {};
+  // Phones: the text styles are on that bar, so not floating over the text too.
+  const detachFloatingText = IS_MOBILE && !noWrite ? hideFloatingTextToolbar(editor as unknown as HTMLElement) : () => {};
   // Android keyboards recompose the word under the caret; see androidRecompose.
   const detachRecompose = IS_ANDROID && !noWrite ? fixAndroidRecompose(editor as unknown as HTMLElement) : () => {};
 
@@ -717,6 +722,7 @@ export async function mountEditor(
       try { themeObserver.disconnect(); } catch { /* noop */ }
       try { virtualKeyboard.dispose(); } catch { /* noop */ }
       try { detachCaret(); } catch { /* noop */ }
+      try { detachFloatingText(); } catch { /* noop */ }
       try { detachRecompose(); } catch { /* noop */ }
       try { doc.spaceDoc.off('update', push); } catch { /* noop */ }
       try { provider?.destroy(); } catch { /* noop */ }

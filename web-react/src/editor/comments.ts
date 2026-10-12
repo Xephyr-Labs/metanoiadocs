@@ -541,7 +541,13 @@ export function attachComments(
       suggestBtn.style.display = next.multi ? 'none' : '';
       const width = canSuggest ? 190 : 110;
       bar.style.display = 'flex';
-      bar.style.top = below ? `${Math.min(window.innerHeight - 44, r.bottom + 10)}px` : `${Math.max(8, r.top - 40)}px`;
+      // The bottom of what can be seen: above the keyboard, and above the
+      // phone's formatting bar on it, which these must not cover.
+      const vv = window.visualViewport;
+      const floor = (vv ? vv.offsetTop + vv.height : window.innerHeight)
+        - (document.querySelector('affine-keyboard-toolbar')?.getBoundingClientRect().height ?? 0) - 8;
+      const under = r.bottom + 10;
+      bar.style.top = below && under + 36 <= floor ? `${under}px` : `${Math.max(8, r.top - 40)}px`;
       bar.style.left = `${Math.min(window.innerWidth - width - 8, Math.max(8, r.left + r.width / 2 - width / 2))}px`;
     };
     if (readonly) return show();

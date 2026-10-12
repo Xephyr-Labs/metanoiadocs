@@ -1551,6 +1551,14 @@ affine-editor-container .doc-title-container {
 affine-keyboard-toolbar {
   bottom: var(--kb, 0px) !important;
 }
+/* Under the bar BlockSuite keeps its insert/style panel at the keyboard's
+ * height at all times — sized for an app whose layout ends at the keyboard. On
+ * the web that empty panel stood between the bar and the keyboard, so the bar
+ * floated a keyboard's height too high over a blank slab. The panel only takes
+ * room while it has something in it (the keyboard is put away then). */
+affine-keyboard-tool-panel:not(:has(*)) {
+  display: none !important;
+}
 /* The slash menu keeps itself on screen by measuring its host element, which
  * is inline and zero-wide while the 280px menu lives in its shadow root — so
  * the clamp never fires, and a "/" typed past mid-line on a phone opened the

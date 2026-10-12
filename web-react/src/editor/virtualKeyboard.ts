@@ -7,27 +7,15 @@ interface ViewportLike {
   removeEventListener: (type: string, listener: () => void) => void;
 }
 
-interface KeyboardLike {
-  show?: () => void;
-  hide?: () => void;
-}
-
 export interface VirtualKeyboardProvider {
   readonly visible$: ReturnType<typeof signal<boolean>>;
   readonly height$: ReturnType<typeof signal<number>>;
-  show: () => void;
-  hide: () => void;
   dispose: () => void;
 }
 
 function browserViewport(): ViewportLike | null {
   if (typeof window === 'undefined' || !window.visualViewport) return null;
   return window.visualViewport;
-}
-
-function browserKeyboard(): KeyboardLike | null {
-  if (typeof navigator === 'undefined') return null;
-  return (navigator as Navigator & { virtualKeyboard?: KeyboardLike }).virtualKeyboard ?? null;
 }
 
 // Below this a height change is the address bar, not a keyboard.
@@ -54,10 +42,13 @@ export function createKeyboardMeter() {
   };
 }
 
-export function createVirtualKeyboardProvider(
-  viewport: ViewportLike | null = browserViewport(),
-  keyboard: KeyboardLike | null = browserKeyboard(),
-) {
+/** No show/hide on purpose: neither phone browser can do it from script
+ *  (navigator.virtualKeyboard only acts under virtualkeyboardpolicy=manual,
+ *  and iOS has no such API). Without them BlockSuite's phone toolbar falls back
+ *  to inputmode="none" on the editor, which does put the keyboard away when its
+ *  insert/style panel opens and brings it back when the panel closes. With
+ *  no-op versions here the panel opened behind a keyboard that never moved. */
+export function createVirtualKeyboardProvider(viewport: ViewportLike | null = browserViewport()) {
   const visible$ = signal(false);
   const height$ = signal(0);
   const measure = createKeyboardMeter();
@@ -83,8 +74,6 @@ export function createVirtualKeyboardProvider(
   return {
     visible$,
     height$,
-    show: () => keyboard?.show?.(),
-    hide: () => keyboard?.hide?.(),
     dispose: () => {
       viewport?.removeEventListener('resize', update);
       viewport?.removeEventListener('scroll', update);

@@ -3,12 +3,12 @@ import { createKeyboardMeter, createVirtualKeyboardProvider } from './virtualKey
 
 describe('createVirtualKeyboardProvider', () => {
   it('provides a safe desktop fallback without viewport or keyboard APIs', () => {
-    const provider = createVirtualKeyboardProvider(null, null);
+    const provider = createVirtualKeyboardProvider(null);
 
     expect(provider.visible$.value).toBe(false);
     expect(provider.height$.value).toBe(0);
-    expect(() => provider.show?.()).not.toThrow();
-    expect(() => provider.hide?.()).not.toThrow();
+    // BlockSuite's inputmode fallback only engages when these are absent.
+    expect('show' in provider || 'hide' in provider).toBe(false);
   });
 });
 
