@@ -78,7 +78,7 @@ function SpikeGate({ id }: { id: string }) {
 // async web-component mount and can tear down the editor before it settles.
 const shareMatch = location.pathname.match(/^\/share\/(.+)$/);
 // SPIKE: /spike/tiptap/<doc id> opens that page in Tiptap (read-only to the server).
-const spikeMatch = location.pathname.match(/^\/spike\/tiptap\/([^/]+)$/);
+const spikeMatch = location.pathname.match(/^\/spike\/tiptap\/?([^/]*)$/);
 const SpikePage = lazy(() => import('./spike/tiptap/SpikePage'));
 // The two addresses seen by people with no account: one publishes a page to
 // read, the other takes work in. Both mount before the app, because neither

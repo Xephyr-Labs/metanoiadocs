@@ -28,8 +28,8 @@ async function load(id: string): Promise<Loaded> {
 export default function SpikePage({ id }: { id: string }) {
   const [data, setData] = useState<Loaded | null>(null);
   const [error, setError] = useState('');
-  useEffect(() => { load(id).then(setData, (e) => setError(String(e?.message ?? e))); }, [id]);
-  if (error) return <p className="p-6 text-ink">{error}</p>;
+  useEffect(() => { if (id) load(id).then(setData, (e) => setError(String(e?.message ?? e))); }, [id]);
+  if (error || !id) return <Picker note={id ? (/403|forbidden/i.test(error) ? 'Your account cannot open that page.' : error) : ''} />;
   if (!data) return <p className="p-6 text-muted">Loading…</p>;
   return <SpikeEditor data={data} />;
 }
@@ -135,6 +135,30 @@ function KeyboardBar({ editor }: { editor: Editor }) {
       <button type="button" aria-label="Hide keyboard" onClick={() => editor.commands.blur()}>
         <Keyboard size={20} />
       </button>
+    </div>
+  );
+}
+
+/** The pages this account can open, to try any of them in Tiptap. */
+function Picker({ note }: { note: string }) {
+  const [docs, setDocs] = useState<{ id: string; title: string }[] | null>(null);
+  useEffect(() => {
+    docsApi.list().then((rows) => setDocs(
+      [...rows].sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at))).slice(0, 40)
+        .map((r) => ({ id: r.id, title: r.title || 'Untitled' })),
+    ), () => setDocs([]));
+  }, []);
+  return (
+    <div className="mx-auto max-w-[720px] bg-canvas p-5 text-ink">
+      {note && <p className="mb-3 rounded-md bg-surface-2 p-3 text-[14px]">{note}</p>}
+      <h1 className="mb-3 text-[20px] font-semibold">Open a page in Tiptap</h1>
+      {!docs ? <p className="text-muted">Loading…</p> : !docs.length ? <p className="text-muted">No pages.</p> : (
+        <ul className="divide-y divide-line">
+          {docs.map((d) => (
+            <li key={d.id}><a className="block py-3 text-[16px]" href={`/spike/tiptap/${d.id}`}>{d.title}</a></li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
