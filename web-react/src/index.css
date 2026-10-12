@@ -1556,6 +1556,17 @@ affine-keyboard-toolbar {
   bottom: auto !important;
   transform: translateY(-100%);
 }
+/* Thumb-sized: BlockSuite draws the bar 46px tall with 36px buttons packed 8px
+ * apart, under the 44px a finger needs, so neighbours got hit by mistake. */
+affine-keyboard-toolbar .keyboard-toolbar {
+  height: 52px !important;
+  gap: 2px !important;
+}
+affine-keyboard-toolbar .item-container { gap: 2px !important; }
+affine-keyboard-toolbar icon-button {
+  width: 44px !important;
+  height: 44px !important;
+}
 /* Under the bar BlockSuite keeps its insert/style panel at the keyboard's
  * height at all times — sized for an app whose layout ends at the keyboard. On
  * the web that empty panel stood between the bar and the keyboard, so the bar
