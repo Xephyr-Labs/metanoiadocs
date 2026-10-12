@@ -37,7 +37,7 @@ import { attachLinkedDocMenu } from './linkedDocMenu';
 import { missingDocMetas } from './docMetas';
 import { blockLinkExtensions } from './blockLinks';
 import { socialEmbedExtensions } from './socialEmbeds';
-import { attachNoLinkedDocShortcut, noLinkedDocConvertCanvasExtension } from './noLinkedDocConvert';
+import { attachNoLinkedDocShortcut, dropDatabaseRowDoc, dropNewDocSlashItem, noLinkedDocConvertCanvasExtension } from './noLinkedDocConvert';
 import { attachImageAlign } from './imageAlign';
 import { attachBlockGaps } from './blockGaps';
 import { attachTableFormat } from './tableFormat';
@@ -580,6 +580,9 @@ export async function mountEditor(
   // "Create Linked Doc" lost a page's text to a doc that was never saved
   // (noLinkedDocConvert.ts).
   const detachNoLinkedDoc = attachNoLinkedDocShortcut(editor as unknown as HTMLElement);
+  // …and "/New Doc" and a database row's "create a linked doc", the same kind.
+  dropNewDocSlashItem((editor as unknown as { std: Parameters<typeof dropNewDocSlashItem>[0] }).std);
+  dropDatabaseRowDoc();
 
   // Ctrl+B and the other marks reach table cells: a word in one cell, or every
   // cell of a selected row, column or range (see tableFormat.ts).

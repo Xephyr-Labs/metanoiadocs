@@ -25,7 +25,7 @@ export function flattenTextStyles(items: KeyboardToolbarItem[]): KeyboardToolbar
 
 // Each style button shades itself by asking for the selection's styles, and
 // the bar re-renders on every keystroke now that they are on it: five full
-// look-ups of the selection, several times per key. One per frame is shared, and the
+// look-ups of the selection, several times per key. One per render is shared, and the
 // shade is the app's selected colour, not a fixed black that vanished in dark.
 const STYLE_KEY: Record<string, 'bold' | 'italic' | 'underline' | 'strike' | 'code'> = {
   Bold: 'bold', Italic: 'italic', UnderLine: 'underline', StrikeThrough: 'strike', Code: 'code',
@@ -35,9 +35,9 @@ function textStyleOf(std: { command: { exec: (c: unknown) => unknown } }) {
   if (shared?.std !== std) {
     const [, ctx] = std.command.exec(getTextStyle) as [unknown, { textStyle?: Record<string, unknown> }];
     shared = { std, style: ctx?.textStyle ?? null };
-    // The bar renders several times per keystroke; the shade is good for
-    // one frame.
-    requestAnimationFrame(() => { shared = null; });
+    // All the buttons render in one synchronous pass; the next render looks
+    // again, so a style changed in between is never shown stale.
+    queueMicrotask(() => { shared = null; });
   }
   return shared.style;
 }
@@ -47,20 +47,41 @@ function sharedShading(item: KeyboardToolbarItem): KeyboardToolbarItem {
   return { ...item, background: ({ std }) => (textStyleOf(std as never)?.[key] ? 'var(--selected)' : '') };
 }
 
+/** The "+" panel's "New page" makes a doc that is never saved — the text
+ *  linked to it is lost on reload (noLinkedDocConvert.ts). "Linked page" stays:
+ *  it opens the "@" menu, which makes real pages. */
+export function dropNewPage(items: KeyboardToolbarItem[]): KeyboardToolbarItem[] {
+  return items.map((item) =>
+    'groups' in item
+      ? {
+        ...item,
+        groups: item.groups.map((g) =>
+          'items' in g ? { ...g, items: g.items.filter((i) => i.name !== 'NewPage') } : g,
+        ),
+      }
+      : item,
+  );
+}
+
 export const keyboardToolbarExtension = () =>
-  KeyboardToolbarConfigExtension({ items: flattenTextStyles(defaultKeyboardToolbarConfig.items) });
+  KeyboardToolbarConfigExtension({ items: dropNewPage(flattenTextStyles(defaultKeyboardToolbarConfig.items)) });
 
 /**
  * With the styles on the bar, BlockSuite's floating toolbar over a text
  * selection is a second copy of them — wider than a phone, cut off at the
  * right edge, and laid over the very words just selected. It lives in the
- * toolbar widget's shadow root, so the rule is adopted there. Only the text
- * one goes (`data-inline`, set for a selection in a note): an image's, a
- * link's or a table's toolbar still comes up.
+ * toolbar widget's shadow root, so the rule is adopted there.
+ *
+ * Only while the page's own text has focus, which is when the bar is up. A
+ * table or database cell is an editing host of its own: focus moves into it,
+ * the bar goes away, and the floating toolbar (which marks itself the same
+ * way, `data-inline`) is the only formatting a cell has — so it stays.
  */
 export function hideFloatingTextToolbar(root: Element): () => void {
   const sheet = new CSSStyleSheet();
   sheet.replaceSync('editor-toolbar[data-inline] { display: none !important; }');
+  const sync = () => { sheet.disabled = document.activeElement?.tagName !== 'AFFINE-PAGE-ROOT'; };
+  sync();
   let host: ShadowRoot | null = null;
   const adopt = () => {
     const sr = root.querySelector('affine-toolbar-widget')?.shadowRoot ?? null;
@@ -75,8 +96,12 @@ export function hideFloatingTextToolbar(root: Element): () => void {
   const mo = new MutationObserver(adopt);
   mo.observe(root, { childList: true, subtree: true });
   adopt();
+  document.addEventListener('focusin', sync);
+  document.addEventListener('focusout', sync);
   return () => {
     mo.disconnect();
+    document.removeEventListener('focusin', sync);
+    document.removeEventListener('focusout', sync);
     if (host) host.adoptedStyleSheets = host.adoptedStyleSheets.filter((s) => s !== sheet);
   };
 }

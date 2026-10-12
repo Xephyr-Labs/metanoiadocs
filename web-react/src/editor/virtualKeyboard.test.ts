@@ -7,8 +7,9 @@ describe('createVirtualKeyboardProvider', () => {
 
     expect(provider.visible$.value).toBe(false);
     expect(provider.height$.value).toBe(0);
-    // BlockSuite's inputmode fallback only engages when these are absent.
-    expect('show' in provider || 'hide' in provider).toBe(false);
+    expect(() => provider.show()).not.toThrow();
+    expect(() => provider.hide()).not.toThrow();
+    expect(() => provider.dispose()).not.toThrow();
   });
 });
 
@@ -36,9 +37,25 @@ describe('createKeyboardMeter', () => {
     expect(meter(412, 839, 839, 0).height).toBe(0);
   });
 
-  it('starts over when the width changes (rotation)', () => {
+  it('starts over at a new width (rotation)', () => {
     const meter = createKeyboardMeter();
     meter(412, 839, 839, 0);
     expect(meter(839, 412, 412, 0).height).toBe(0);
+  });
+
+  it('keeps the keyboard open when rotated back with it up (Android)', () => {
+    const meter = createKeyboardMeter();
+    meter(412, 839, 839, 0);
+    expect(meter(412, 539, 539, 0).height).toBe(300);
+    meter(839, 412, 412, 0);
+    // Back to portrait, keyboard still up, layout already shrunk.
+    expect(meter(412, 539, 539, 0).height).toBe(300);
+  });
+
+  it('does not read iOS panning the page as the keyboard closing', () => {
+    const meter = createKeyboardMeter();
+    meter(390, 664, 664, 0);
+    // Keyboard up (300) and the visible area panned 250px down the page.
+    expect(meter(390, 664, 364, 250)).toEqual({ height: 300, overlay: 50 });
   });
 });

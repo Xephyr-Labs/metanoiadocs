@@ -8,6 +8,12 @@
 // Oct it emptied a whole page ("Team Video Brief"); a version restore got it
 // back. A linked page is still one "@" or "/" away, and those make a real one.
 
+// BlockSuite has several ways to move text into a "linked doc" it creates
+// with `workspace.createDoc()` — a doc that lives only in this tab and is never
+// saved. After a reload the text is gone and a "Deleted page" card or a dead
+// link is left in its place (Team Video Brief, 11 Oct). Every way in is shut
+// here; the "@" menu is ours (pageLinks.ts) and makes real pages.
+import { LinkedDocSlashMenuConfigIdentifier } from '@blocksuite/affine/blocks/embed-doc';
 import { ToolbarModuleExtension, type ToolbarModuleConfig } from '@blocksuite/affine/shared/services';
 import { BlockFlavourIdentifier } from '@blocksuite/affine/std';
 
@@ -24,6 +30,11 @@ const isConvertShortcut = (e: KeyboardEvent) =>
  *  BlockSuite itself does. */
 export function attachNoLinkedDocShortcut(editor: HTMLElement): () => void {
   const onKeyDown = (e: KeyboardEvent) => {
+    if (e.key === '[' && keepBrackets(editor)) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
     if (!isConvertShortcut(e)) return;
     const t = e.target;
     if (!(t instanceof Node) || !(editor.contains(t) || t === document.body)) return;
@@ -48,3 +59,49 @@ export const noLinkedDocConvertCanvasExtension = () => ToolbarModuleExtension({
     }],
   } as unknown as ToolbarModuleConfig,
 });
+
+/** The text before and after a selection inside one line of text. */
+export function bracketed(before: string, after: string) {
+  return before.endsWith('[') && after.startsWith(']');
+}
+
+/**
+ * "[" typed over a selection that already sits between "[" and "]" — the
+ * second "[" of "[[" — is where BlockSuite deletes "[text]" and moves the text
+ * into a new unsaved doc. Typed here instead: the selection becomes "[text]",
+ * so "[[" over a word leaves "[[word]]" in the line, the way it reads.
+ * True when it was handled (the key must then go no further).
+ */
+function keepBrackets(editor: HTMLElement): boolean {
+  const sel = document.getSelection();
+  if (!sel || sel.isCollapsed || !sel.rangeCount) return false;
+  const range = sel.getRangeAt(0);
+  const start = range.startContainer instanceof Element ? range.startContainer : range.startContainer.parentElement;
+  const line = start?.closest('[data-v-root]');
+  if (!line || !editor.contains(line) || !line.contains(range.endContainer)) return false;
+  const head = document.createRange();
+  head.selectNodeContents(line);
+  head.setEnd(range.startContainer, range.startOffset);
+  const tail = document.createRange();
+  tail.selectNodeContents(line);
+  tail.setStart(range.endContainer, range.endOffset);
+  if (!bracketed(head.toString(), tail.toString())) return false;
+  return document.execCommand('insertText', false, `[${range.toString()}]`);
+}
+
+/** "/New Doc" makes one of those docs too. Its menu entry lives in a config
+ *  object BlockSuite reads each time the menu opens; the entry is taken out
+ *  of it. "/Linked Doc" stays — it opens the "@" menu. */
+export function dropNewDocSlashItem(std: { getOptional: (id: unknown) => unknown }) {
+  const cfg = std.getOptional(LinkedDocSlashMenuConfigIdentifier) as { items?: unknown } | null;
+  if (cfg && Array.isArray(cfg.items)) {
+    cfg.items = cfg.items.filter((i: { name?: string }) => i.name !== 'New Doc');
+  }
+}
+
+/** A table-view database row's peek offers "Click to create a linked doc",
+ *  which also swaps the row's title for a link to such a doc. Not offered. */
+export function dropDatabaseRowDoc() {
+  const NoteRenderer = customElements.get('database-datasource-note-renderer');
+  if (NoteRenderer) (NoteRenderer.prototype as { renderNote: () => unknown }).renderNote = () => null;
+}

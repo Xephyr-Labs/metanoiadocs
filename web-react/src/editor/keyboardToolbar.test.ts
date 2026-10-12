@@ -16,3 +16,15 @@ describe('flattenTextStyles', () => {
     expect(flattenTextStyles(items)).toBe(items);
   });
 });
+
+describe('dropNewPage', () => {
+  it('takes "New page" out of the + panel and leaves the rest', async () => {
+    const { dropNewPage } = await import('./keyboardToolbar');
+    const dyn = () => null;
+    const items = [{ groups: [{ name: 'Page', items: [{ name: 'NewPage' }, { name: 'LinkedPage' }] }, dyn] }, { name: 'Undo' }] as never[];
+    const out = dropNewPage(items) as unknown as { groups?: unknown[] }[];
+    expect((out[0].groups![0] as { items: { name: string }[] }).items.map((i) => i.name)).toEqual(['LinkedPage']);
+    expect(out[0].groups![1]).toBe(dyn);
+    expect(out[1]).toBe(items[1]);
+  });
+});
