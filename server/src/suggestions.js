@@ -30,6 +30,9 @@ function attributesAt(text, index) {
   return {};
 }
 
+/** A resolved anchor in some live text other than `text`. */
+const liveElsewhere = (pos, text) => !!pos && pos.type !== text && !pos.type?._item?.deleted;
+
 /** Where a stored Yjs relative position (base64) points in `doc` now, or null. */
 function resolveAnchor(doc, encoded) {
   try {
@@ -50,13 +53,16 @@ const isSpace = (ch) => /\s/.test(ch);
  * quote whose line breaks had been collapsed to spaces. Replacing the whole
  * range flattened its line breaks and gave every word the first one's format.
  */
-function replaceMinimal(text, index, raw, replacement) {
-  // [i, a) of raw becomes [j, b) of replacement; a whitespace run on both
-  // sides is stepped over whole, however long either one is.
+function replaceMinimal(text, index, raw, replacement, lenientSpace = true) {
+  // [i, a) of raw becomes [j, b) of replacement; with `lenientSpace` a
+  // whitespace run on both sides is stepped over whole, however long either
+  // one is. Without it (a suggestion typed over the raw text, line breaks
+  // included) whitespace is compared like any other character, so joining two
+  // lines or dropping a double space is a change, not nothing.
   let i = 0;
   let j = 0;
   while (i < raw.length && j < replacement.length) {
-    if (isSpace(raw[i]) && isSpace(replacement[j])) {
+    if (lenientSpace && isSpace(raw[i]) && isSpace(replacement[j])) {
       while (i < raw.length && isSpace(raw[i])) i++;
       while (j < replacement.length && isSpace(replacement[j])) j++;
     } else if (raw[i] === replacement[j]) { i++; j++; } else break;
@@ -64,7 +70,7 @@ function replaceMinimal(text, index, raw, replacement) {
   let a = raw.length;
   let b = replacement.length;
   while (a > i && b > j) {
-    if (isSpace(raw[a - 1]) && isSpace(replacement[b - 1])) {
+    if (lenientSpace && isSpace(raw[a - 1]) && isSpace(replacement[b - 1])) {
       while (a > i && isSpace(raw[a - 1])) a--;
       while (b > j && isSpace(replacement[b - 1])) b--;
     } else if (raw[a - 1] === replacement[b - 1]) { a--; b--; } else break;
@@ -72,8 +78,14 @@ function replaceMinimal(text, index, raw, replacement) {
   const at = index + i;
   const removed = a - i;
   const inserted = replacement.slice(j, b);
-  // The look of the text it replaces, or else of what it follows.
-  const attrs = attributesAt(text, removed > 0 || at === 0 ? at : at - 1);
+  // The look of the text it replaces; for a pure insertion, of the quoted
+  // character it follows — or, at the very start of the quote, of the quote's
+  // first character, never of whatever sits just outside the passage (a link
+  // or a page reference there is not this text's). A page reference or an
+  // equation belongs to one embedded character and is never carried over.
+  const attrs = attributesAt(text, removed > 0 || i === 0 ? at : at - 1);
+  delete attrs.reference;
+  delete attrs.latex;
   if (removed > 0) text.delete(at, removed);
   if (inserted) text.insert(at, inserted, attrs);
 }
@@ -97,20 +109,28 @@ export function applyTextSuggestion(doc, blockId, quote, replacement, occurrence
   if (!(text instanceof Y.Text)) return false;
   const raw = text.toString();
   let hit;
-  if (anchors?.start && anchors?.end) {
-    const a = resolveAnchor(doc, anchors.start);
-    const b = resolveAnchor(doc, anchors.end);
-    if (!a || !b || a.type !== text || b.type !== text || b.index <= a.index) return false;
+  const a = anchors?.start && anchors?.end ? resolveAnchor(doc, anchors.start) : null;
+  const b = a ? resolveAnchor(doc, anchors.end) : null;
+  if (a && b && a.type === text && b.type === text) {
+    if (b.index <= a.index) return false;
     if (normalizeQuote(raw.slice(a.index, b.index)) !== normalizeQuote(quote)) return false;
     hit = { index: a.index, length: b.index - a.index };
+  } else if (anchors?.start && anchors?.end && (liveElsewhere(a, text) || liveElsewhere(b, text))) {
+    // Pinned to text that still exists, but not this block's: not this passage.
+    return false;
   } else {
+    // No anchors, or the text they were taken in is gone — a version restore
+    // rewrites every block, same words and all, into new text objects. Then
+    // the quote is found as it was before anchors existed.
     // The copy that was selected. If edits since have left fewer copies, only
     // an unambiguous single one is still safe to change.
     hit = findQuote(raw, quote, occurrence);
     if (!hit && occurrence > 0 && !findQuote(raw, quote, 1)) hit = findQuote(raw, quote);
     if (!hit) return false;
   }
-  replaceMinimal(text, hit.index, raw.slice(hit.index, hit.index + hit.length), replacement || '');
+  // Anchored rows come from the raw-text composer; older ones were typed over
+  // a quote with its whitespace collapsed, and are matched leniently.
+  replaceMinimal(text, hit.index, raw.slice(hit.index, hit.index + hit.length), replacement || '', !(anchors?.start && anchors?.end));
   return true;
 }
 

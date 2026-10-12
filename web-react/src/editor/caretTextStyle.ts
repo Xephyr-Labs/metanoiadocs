@@ -19,10 +19,16 @@ interface StdLike {
   view?: { getBlock(id: string): Element | null | undefined };
 }
 
+const FORMATTED = new Set(['affine:paragraph', 'affine:list', 'affine:code']);
+
 export function caretTextStyle(std: StdLike): Record<string, unknown> | null {
   const sel = std.selection?.value?.find((s) => s.type === 'text');
   if (!sel?.from || (sel.to && sel.to.blockId !== sel.from.blockId)) return null;
-  const block = std.view?.getBlock(sel.from.blockId);
+  const block = std.view?.getBlock(sel.from.blockId) as (Element & { model?: { flavour?: string } }) | null | undefined;
+  // Only the blocks getTextStyle reads text formatting from (its
+  // FORMAT_TEXT_SUPPORT_FLAVOURS); any other block goes the long way round, so
+  // the buttons never claim a style BlockSuite would not apply there.
+  if (!block || !FORMATTED.has(block.model?.flavour ?? '')) return null;
   const inline = (block?.querySelector('rich-text') as { inlineEditor?: InlineEditorLike } | null)?.inlineEditor;
   const range = inline?.getInlineRange();
   if (!inline || !range) return null;

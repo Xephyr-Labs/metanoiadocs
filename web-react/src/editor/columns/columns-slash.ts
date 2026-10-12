@@ -37,7 +37,8 @@ const item = (count: number, order: number) => ({
     // The line the "/" was typed on is empty once the menu has taken the
     // command back out of it; the row takes its place rather than leaving a
     // blank line above it, the way a block picked from the menu does.
-    if (model.flavour === 'affine:paragraph' && model.text?.length === 0) {
+    // Never one with lines nested under it: deleting it would take them along.
+    if (model.flavour === 'affine:paragraph' && model.text?.length === 0 && !model.children?.length) {
       try { model.store.deleteBlock?.(model); } catch { /* the row is in; a spare line is harmless */ }
     }
     // The caret goes into the first column, where the reader is about to

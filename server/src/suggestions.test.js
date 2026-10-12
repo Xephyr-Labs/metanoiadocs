@@ -288,3 +288,45 @@ test('a review decision does not overwrite an edit made to the page after the re
   assert.equal(out.stale, 1);
   assert.ok(textBlock(main, 'Owner Shared line.'), 'the owner\'s edit is still there');
 });
+
+test('anchored suggestions still apply after a version restore rewrote the page', async () => {
+  const { rewriteDoc } = await import('./restore.js');
+  const at = (text, i, assoc) => Buffer.from(Y.encodeRelativePosition(Y.createRelativePositionFromTypeIndex(text, i, assoc))).toString('base64');
+  const doc = docFromState(buildDocState('T', 'the cat and the dog\n'));
+  const { text } = textBlock(doc, 'the cat and the dog');
+  const anchors = { start: at(text, 12, 0), end: at(text, 15, -1) }; // the second "the"
+  // Restore the very same state: every block is rewritten into new text.
+  rewriteDoc(doc, Y.encodeStateAsUpdate(doc));
+  const now = textBlock(doc, 'the cat and the dog');
+  assert.notEqual(now.text, text);
+  assert.equal(applyTextSuggestion(doc, now.id, 'the', 'a', 1, anchors), true);
+  assert.equal(now.text.toString(), 'the cat and a dog');
+});
+
+test('anchors into another block that still exists are refused', () => {
+  const at = (text, i, assoc) => Buffer.from(Y.encodeRelativePosition(Y.createRelativePositionFromTypeIndex(text, i, assoc))).toString('base64');
+  const doc = docFromState(buildDocState('T', 'first the\n\nsecond the\n'));
+  const one = textBlock(doc, 'first the');
+  const two = textBlock(doc, 'second the');
+  const anchors = { start: at(one.text, 6, 0), end: at(one.text, 9, -1) };
+  assert.equal(applyTextSuggestion(doc, two.id, 'the', 'a', 0, anchors), false);
+  assert.equal(two.text.toString(), 'second the');
+});
+
+test('a whitespace-only suggestion typed over the raw text changes the whitespace', () => {
+  const at = (text, i, assoc) => Buffer.from(Y.encodeRelativePosition(Y.createRelativePositionFromTypeIndex(text, i, assoc))).toString('base64');
+  const doc = docFromState(buildDocState('T', 'one\n'));
+  const { id, text } = textBlock(doc, 'one');
+  text.insert(3, '\ntwo  three');
+  const anchors = { start: at(text, 0, 0), end: at(text, text.length, -1) };
+  assert.equal(applyTextSuggestion(doc, id, 'one two three', 'one two three', 0, anchors), true);
+  assert.equal(text.toString(), 'one two three');
+});
+
+test('text added at the start of a passage does not take the link before it', () => {
+  const doc = docFromState(buildDocState('T', 'Linkworld\n'));
+  const { id, text } = textBlock(doc, 'Linkworld');
+  text.format(0, 4, { link: 'https://example.com' });
+  assert.equal(applyTextSuggestion(doc, id, 'world', 'big world'), true);
+  assert.deepEqual(text.toDelta(), [{ insert: 'Link', attributes: { link: 'https://example.com' } }, { insert: 'big world' }]);
+});

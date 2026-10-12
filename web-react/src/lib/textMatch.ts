@@ -47,11 +47,13 @@ export const encodeAnchor = (t: Y.Text, index: number, assoc = 0) =>
 /**
  * Which copy of `quote` in `t` a thread's anchors point at now, or null when
  * the anchored passage no longer reads as the quote — the server refuses to
- * apply it then, so it is detached rather than shown on another copy.
+ * apply it then, so it is detached rather than shown on another copy. Undefined
+ * when the anchors have nothing left to point into (their text was replaced
+ * wholesale, as a version restore does): the quote is then matched as before.
  */
-export function anchoredOccurrence(t: Y.Text, quote: string, start: string, end: string): number | null {
+export function anchoredOccurrence(t: Y.Text, quote: string, start: string, end: string): number | null | undefined {
   const doc = t.doc;
-  if (!doc) return null;
+  if (!doc) return undefined;
   const at = (s: string) => {
     try {
       return Y.createAbsolutePositionFromRelativePosition(Y.decodeRelativePosition(Uint8Array.from(atob(s), (c) => c.charCodeAt(0))), doc);
@@ -59,13 +61,18 @@ export function anchoredOccurrence(t: Y.Text, quote: string, start: string, end:
   };
   const a = at(start);
   const b = at(end);
-  if (!a || !b || a.type !== t || b.type !== t || b.index <= a.index) return null;
+  // The text the anchors were taken in is gone — a version restore rewrites
+  // every block into new text objects, same words and all. Nothing to pin
+  // to: the caller finds the quote the way it did before anchors existed.
+  const gone = (p: typeof a) => !p || !!(p.type as unknown as { _item?: { deleted?: boolean } | null })._item?.deleted;
+  if (gone(a) || gone(b)) return undefined;
+  if (a!.type !== t || b!.type !== t || b!.index <= a!.index) return null;
   const raw = t.toString();
-  if (normalizeQuote(raw.slice(a.index, b.index)) !== normalizeQuote(quote)) return null;
+  if (normalizeQuote(raw.slice(a!.index, b!.index)) !== normalizeQuote(quote)) return null;
   let n = 0;
   while (n < 1000) {
     const hit = findQuote(raw, quote, n);
-    if (!hit || hit.index >= a.index) break;
+    if (!hit || hit.index >= a!.index) break;
     n++;
   }
   return n;

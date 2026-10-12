@@ -560,11 +560,19 @@ app.patch('/api/me', requireUser, async (req, res) => {
 });
 
 // Admin: change a member's role. Guards against demoting yourself or the last admin.
-// The latest integrity scan (integrity.js); ?run=1 scans now.
+// The latest integrity scan (integrity.js); ?run=1 scans now. A page this
+// admin cannot open is listed without its title.
 app.get('/api/admin/integrity', requireUser, requireAdmin, wrap(async (req, res) => {
-  if (req.query.run === '1') return res.json(await runIntegrityScan(pool));
-  const r = (await pool.query('SELECT run_at, scanned, issues FROM integrity_reports ORDER BY run_at DESC LIMIT 1')).rows[0];
-  res.json(r ?? { run_at: null, scanned: 0, issues: [] });
+  const canSee = async (docId, userId) => !!(await grantOn(docId, userId));
+  const r = req.query.run === '1'
+    ? await runIntegrityScan(pool, { canSee })
+    : (await pool.query('SELECT run_at, scanned, issues FROM integrity_reports ORDER BY run_at DESC LIMIT 1')).rows[0]
+      ?? { run_at: null, scanned: 0, issues: [] };
+  const seen = new Map();
+  for (const i of r.issues) {
+    if (!seen.has(i.docId)) seen.set(i.docId, await canSee(i.docId, req.user.id));
+  }
+  res.json({ ...r, issues: r.issues.map((i) => (seen.get(i.docId) ? i : { ...i, title: 'A page you cannot open' })) });
 }));
 
 app.patch('/api/users/:id/role', requireUser, requireAdmin, async (req, res) => {
@@ -3307,7 +3315,7 @@ server.on('upgrade', async (request, socket, head) => {
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`MetanoiaDocs server on :${PORT}  base=${BASE_URL}`);
   startTrashSweeper();
-  startIntegrityScan(pool);
+  startIntegrityScan(pool, { canSee: async (docId, userId) => !!(await grantOn(docId, userId)) });
   startReminders();
 startAutomationSweeper();
 });

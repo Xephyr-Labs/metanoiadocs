@@ -15,7 +15,7 @@ const MIGRATIONS = [
       const { rows } = await pool.query(
         `SELECT s.doc_id FROM doc_states s JOIN docs d ON d.id = s.doc_id`,
       );
-      let docs = 0, tables = 0;
+      let docs = 0, tables = 0, failed = 0;
       for (const { doc_id: docId } of rows) {
         const client = await pool.connect();
         try {
@@ -33,13 +33,17 @@ const MIGRATIONS = [
           await client.query('COMMIT');
           docs++; tables += n;
         } catch (err) {
+          // One page that cannot be read or written must not stop the rest
+          // (nor hold every later boot up re-reading them all): it is logged
+          // and left as it was, and the integrity scan reports what remains.
           await client.query('ROLLBACK').catch(() => {});
-          throw err;
+          failed++;
+          console.error(`[migrate] table keys: page ${docId} skipped:`, err.message);
         } finally {
           client.release();
         }
       }
-      return `${tables} table(s) in ${docs} page(s)`;
+      return `${tables} table(s) in ${docs} page(s)${failed ? `, ${failed} page(s) skipped` : ''}`;
     },
   },
 ];

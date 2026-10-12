@@ -192,7 +192,8 @@ function rangeForThread(
     if (anchors && t) {
       const n = anchoredOccurrence(t, quote, anchors.start, anchors.end);
       if (n === null) return null;
-      occurrence = n;
+      // undefined: the anchored text was replaced (a restore) — by quote.
+      if (n !== undefined) occurrence = n;
     }
     // Enough text past the block for a quote that runs into the next ones.
     const idx = indexText(root, anchored, quote.length * 2 + 400);

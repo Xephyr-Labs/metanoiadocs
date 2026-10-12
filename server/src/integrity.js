@@ -63,7 +63,7 @@ export function scanDocState(state, pageExists) {
 
 /** Scan every page once; store the report; tell admins about pages newly
  *  found damaged. Returns the report. */
-export async function runIntegrityScan(pool) {
+export async function runIntegrityScan(pool, { canSee = async () => true } = {}) {
   const ids = new Set((await pool.query('SELECT id FROM docs')).rows.map((r) => r.id));
   const { rows } = await pool.query(
     `SELECT s.doc_id, s.state, d.title FROM doc_states s JOIN docs d ON d.id = s.doc_id WHERE d.deleted_at IS NULL`,
@@ -92,6 +92,8 @@ export async function runIntegrityScan(pool) {
     for (const [docId, list] of byDoc) {
       const body = list.map((i) => i.detail).join('; ').slice(0, 500);
       for (const a of admins) {
+        // Being an admin opens no private page; the inbox would show its title.
+        if (!(await canSee(docId, a.id))) continue;
         await pool.query(
           `INSERT INTO notifications (id, user_id, actor_id, actor_name, doc_id, kind, body)
            VALUES ($1, $2, NULL, 'Integrity check', $3, 'integrity', $4)`,
@@ -106,9 +108,9 @@ export async function runIntegrityScan(pool) {
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** Ten minutes after boot (out of the way of start-up), then daily. Logged,
- *  never fatal. */
-export function startIntegrityScan(pool) {
-  const run = () => runIntegrityScan(pool)
+ *  never fatal. `canSee(docId, userId)` decides which admins hear of a page. */
+export function startIntegrityScan(pool, opts) {
+  const run = () => runIntegrityScan(pool, opts)
     .then((r) => console.log(`[integrity] ${r.scanned} page(s), ${r.issues.length} problem(s), ${r.fresh} new`))
     .catch((e) => console.error('[integrity] scan failed', e));
   // ponytail: a timer, not a scheduler — a restart just runs it again sooner.
