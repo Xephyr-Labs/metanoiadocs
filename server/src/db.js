@@ -976,6 +976,14 @@ export async function initSchema() {
     -- docs.updated_by is overwritten by every save, so the person who wrote
     -- most of a page vanishes the moment someone fixes a typo; comment
     -- notifications need the whole list.
+    -- Nightly integrity scan results (integrity.js), newest 60 kept.
+    CREATE TABLE IF NOT EXISTS integrity_reports (
+      id      TEXT PRIMARY KEY,
+      run_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+      scanned INT NOT NULL,
+      issues  JSONB NOT NULL DEFAULT '[]'
+    );
+
     CREATE TABLE IF NOT EXISTS doc_editors (
       doc_id        TEXT NOT NULL REFERENCES docs(id) ON DELETE CASCADE,
       user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

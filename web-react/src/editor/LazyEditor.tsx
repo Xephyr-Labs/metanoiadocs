@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect } from 'react';
 import { PageSkeleton } from '../components/ui/Skeleton';
+import { PagePreview, usePagePreview } from '../components/editor/PagePreview';
 import type { EditorProps } from './BlockSuiteEditor';
 
 // BlockSuite is by far the heaviest dependency. Loading it in a lazy chunk keeps
@@ -31,9 +32,10 @@ export function usePrefetchEditor() {
 }
 
 export function LazyEditor(props: EditorProps) {
+  const preview = usePagePreview(props.docId, !!(props.share || props.snapshot || props.draft) || props.mode !== 'page');
   return (
-    <Suspense fallback={<PageSkeleton />}>
-      <BlockSuiteEditor {...props} />
+    <Suspense fallback={preview ? <PagePreview title={preview.title} html={preview.html} /> : <PageSkeleton />}>
+      <BlockSuiteEditor {...props} preview={preview} />
     </Suspense>
   );
 }

@@ -3,6 +3,7 @@ import type { EditorMode } from '../lib/types';
 import { cn } from '../lib/cn';
 import { readRoute, revealBlock } from '../lib/route';
 import { PageSkeleton } from '../components/ui/Skeleton';
+import { PagePreview, type PagePreviewData } from '../components/editor/PagePreview';
 import { mountEditor } from './mountEditor';
 import { keepGrammarlyOut } from './noGrammarly';
 import type { CommentRows } from './comments';
@@ -38,6 +39,8 @@ export interface EditorProps {
   role?: string;
   /** Suggesting mode: edit this draft (its sync name) instead of the page. */
   draft?: string;
+  /** The page as plain HTML, shown until the editor is ready (LazyEditor). */
+  preview?: PagePreviewData | null;
 }
 
 /**
@@ -46,7 +49,7 @@ export interface EditorProps {
  */
 export function BlockSuiteEditor({
   docId, title, mode, userName, share, guestComments, snapshot, fullWidth,
-  onTitle, onSaved, pages, createPage, onOpenDoc, onRemoteRewrite, onEditor, role, draft,
+  onTitle, onSaved, pages, createPage, onOpenDoc, onRemoteRewrite, onEditor, role, draft, preview,
 }: EditorProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const instRef = useRef<Awaited<ReturnType<typeof mountEditor>> | null>(null);
@@ -164,7 +167,7 @@ export function BlockSuiteEditor({
     <div className={cn(edgeless ? 'bs-fill relative h-full' : 'relative min-h-[70vh]', !edgeless && fullWidth && 'bs-fullwidth')}>
       {loading && (
         <div className="absolute inset-0 z-10 bg-canvas">
-          <PageSkeleton />
+          {preview && preview.docId === docId && !edgeless ? <PagePreview title={preview.title} html={preview.html} /> : <PageSkeleton />}
         </div>
       )}
       {failed && (

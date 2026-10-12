@@ -35,6 +35,7 @@ import { idleAbort } from './idle-abort.js';
 import { aiTools } from './ai-tools.js';
 import { getSetting, setSetting } from './db.js';
 import { runDataMigrations } from './data-migrations.js';
+import { runIntegrityScan, startIntegrityScan } from './integrity.js';
 import * as Y from 'yjs';
 import { mentionHandles } from './mentions.js';
 import { docCommentRecipients } from './comment-recipients.js';
@@ -43,7 +44,7 @@ import { rewriteDoc } from './restore.js';
 import { applyTextSuggestion, parseDraftName, registerSuggestionRoutes } from './suggestions.js';
 import { registerReactionRoutes, withReactions } from './reactions.js';
 import { wouldFolderCycle } from './folders.js';
-import { printHtml } from './print.js';
+import { bodyHtml, printHtml } from './print.js';
 import { docxFromMarkdown } from './docx.js';
 import { fileToMarkdown, IMPORT_EXTENSIONS } from './import.js';
 import { registerMcpRoute } from './mcp-http.js';
@@ -559,6 +560,13 @@ app.patch('/api/me', requireUser, async (req, res) => {
 });
 
 // Admin: change a member's role. Guards against demoting yourself or the last admin.
+// The latest integrity scan (integrity.js); ?run=1 scans now.
+app.get('/api/admin/integrity', requireUser, requireAdmin, wrap(async (req, res) => {
+  if (req.query.run === '1') return res.json(await runIntegrityScan(pool));
+  const r = (await pool.query('SELECT run_at, scanned, issues FROM integrity_reports ORDER BY run_at DESC LIMIT 1')).rows[0];
+  res.json(r ?? { run_at: null, scanned: 0, issues: [] });
+}));
+
 app.patch('/api/users/:id/role', requireUser, requireAdmin, async (req, res) => {
   const role = req.body?.role === 'admin' ? 'admin' : 'collaborator';
   if (req.params.id === req.user.id && role !== 'admin') {
@@ -1024,6 +1032,16 @@ app.get('/api/docs/:id/export.docx', requireUser, wrap(async (req, res) => {
 }));
 
 // Print-ready HTML — the browser turns it into the PDF (see print.js).
+// The page as plain HTML, for the moment between opening it and BlockSuite
+// being ready to edit it (a second or more on a long page or a phone). Read
+// only, never cached: it is the content, not a copy of it.
+app.get('/api/docs/:id/preview', requireUser, wrap(async (req, res) => {
+  const out = await docAsMarkdown(req.params.id, req.user.id);
+  if (out.status !== 200) return res.status(out.status).json({ error: out.status === 403 ? 'forbidden' : 'not found' });
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.json({ title: out.title, html: bodyHtml(out.markdown) });
+}));
+
 app.get('/api/docs/:id/print', requireUser, async (req, res) => {
   const out = await docAsMarkdown(req.params.id, req.user.id);
   if (out.status !== 200) return res.status(out.status).json({ error: out.status === 403 ? 'forbidden' : 'not found' });
@@ -3289,6 +3307,7 @@ server.on('upgrade', async (request, socket, head) => {
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`MetanoiaDocs server on :${PORT}  base=${BASE_URL}`);
   startTrashSweeper();
+  startIntegrityScan(pool);
   startReminders();
 startAutomationSweeper();
 });
