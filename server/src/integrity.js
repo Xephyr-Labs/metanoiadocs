@@ -65,26 +65,41 @@ export function scanDocState(state, pageExists) {
  *  found damaged. Returns the report. */
 export async function runIntegrityScan(pool, { canSee = async () => true } = {}) {
   const ids = new Set((await pool.query('SELECT id FROM docs')).rows.map((r) => r.id));
-  const { rows } = await pool.query(
-    `SELECT s.doc_id, s.state, d.title FROM doc_states s JOIN docs d ON d.id = s.doc_id WHERE d.deleted_at IS NULL`,
-  );
+  const pages = (await pool.query(
+    `SELECT s.doc_id FROM doc_states s JOIN docs d ON d.id = s.doc_id WHERE d.deleted_at IS NULL ORDER BY s.doc_id`,
+  )).rows.map((r) => r.doc_id);
   const found = [];
-  for (const { doc_id: docId, state, title } of rows) {
-    let issues;
-    try { issues = scanDocState(state, (id) => ids.has(id)); } catch (err) {
-      issues = [{ kind: 'unreadable', detail: `state could not be decoded: ${err.message}` }];
+  // A batch of pages at a time, and a turn of the event loop between them:
+  // decoding is synchronous, and all of it in one go held up every live
+  // editor's sync and every request for as long as the scan took.
+  const BATCH = 25;
+  for (let at = 0; at < pages.length; at += BATCH) {
+    const { rows } = await pool.query(
+      'SELECT s.doc_id, s.state, d.title FROM doc_states s JOIN docs d ON d.id = s.doc_id WHERE s.doc_id = ANY($1)',
+      [pages.slice(at, at + BATCH)],
+    );
+    for (const { doc_id: docId, state, title } of rows) {
+      let issues;
+      try { issues = scanDocState(state, (id) => ids.has(id)); } catch (err) {
+        issues = [{ kind: 'unreadable', detail: `state could not be decoded: ${err.message}` }];
+      }
+      for (const i of issues) found.push({ docId, title, ...i });
     }
-    for (const i of issues) found.push({ docId, title, ...i });
+    await new Promise((res) => setImmediate(res));
   }
-  const prev = (await pool.query('SELECT issues FROM integrity_reports ORDER BY run_at DESC LIMIT 1')).rows[0]?.issues ?? [];
+  const last = (await pool.query('SELECT issues FROM integrity_reports ORDER BY run_at DESC LIMIT 1')).rows[0];
+  const prev = last?.issues ?? [];
   const key = (i) => `${i.docId}|${i.kind}|${i.blockId ?? ''}`;
   const known = new Set(prev.map(key));
   await pool.query('INSERT INTO integrity_reports (id, scanned, issues) VALUES ($1, $2, $3)',
-    [crypto.randomUUID(), rows.length, JSON.stringify(found)]);
+    [crypto.randomUUID(), pages.length, JSON.stringify(found)]);
   await pool.query(`DELETE FROM integrity_reports WHERE id NOT IN (
     SELECT id FROM integrity_reports ORDER BY run_at DESC LIMIT 60)`);
 
-  const fresh = found.filter((i) => !known.has(key(i)));
+  // The very first scan is a baseline: everything it finds is old news, and
+  // telling every admin about all of it at once would bury the inbox. From
+  // then on, only what a scan finds that the last one did not.
+  const fresh = last ? found.filter((i) => !known.has(key(i))) : [];
   const byDoc = new Map();
   for (const i of fresh) byDoc.set(i.docId, [...(byDoc.get(i.docId) ?? []), i]);
   if (byDoc.size) {
@@ -102,7 +117,7 @@ export async function runIntegrityScan(pool, { canSee = async () => true } = {})
       }
     }
   }
-  return { scanned: rows.length, issues: found, fresh: fresh.length };
+  return { scanned: pages.length, issues: found, fresh: fresh.length };
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;

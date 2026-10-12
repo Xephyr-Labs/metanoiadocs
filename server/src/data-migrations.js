@@ -4,7 +4,7 @@
 // recorded in data_migrations; a failure leaves it unrecorded (it runs again
 // on the next boot) and is logged, never fatal: the app works without it.
 import * as Y from 'yjs';
-import { fixTableOrderKeys } from './blocks.js';
+import { fixTableOrderKeys, stateWithValidTableKeys } from './blocks.js';
 
 const MIGRATIONS = [
   {
@@ -44,6 +44,30 @@ const MIGRATIONS = [
         }
       }
       return `${tables} table(s) in ${docs} page(s)${failed ? `, ${failed} page(s) skipped` : ''}`;
+    },
+  },
+  {
+    // The same for open Suggesting-mode drafts, base and draft alike: mended
+    // on one side only, every table would read as changed in the review.
+    name: '2026-10-table-order-keys-drafts',
+    async run(pool) {
+      const { rows } = await pool.query(`SELECT id FROM doc_suggestions WHERE status = 'draft'`);
+      let fixed = 0, failed = 0;
+      for (const { id } of rows) {
+        try {
+          const r = (await pool.query('SELECT base_state, state FROM doc_suggestions WHERE id = $1', [id])).rows[0];
+          if (!r) continue;
+          const base = stateWithValidTableKeys(r.base_state);
+          const state = stateWithValidTableKeys(r.state);
+          if (base === r.base_state && state === r.state) continue;
+          await pool.query('UPDATE doc_suggestions SET base_state = $2, state = $3 WHERE id = $1', [id, base, state]);
+          fixed++;
+        } catch (err) {
+          failed++;
+          console.error(`[migrate] table keys: draft ${id} skipped:`, err.message);
+        }
+      }
+      return `${fixed} draft(s)${failed ? `, ${failed} skipped` : ''}`;
     },
   },
 ];

@@ -39,7 +39,7 @@ import { runIntegrityScan, startIntegrityScan } from './integrity.js';
 import * as Y from 'yjs';
 import { mentionHandles } from './mentions.js';
 import { docCommentRecipients } from './comment-recipients.js';
-import { buildDocState, appendMarkdownToDoc, appendPageReference, extractText, extractBlocks, docToMarkdown, fixTableOrderKeys } from './blocks.js';
+import { buildDocState, appendMarkdownToDoc, appendPageReference, extractText, extractBlocks, docToMarkdown, fixTableOrderKeys, stateWithValidTableKeys } from './blocks.js';
 import { rewriteDoc } from './restore.js';
 import { applyTextSuggestion, parseDraftName, registerSuggestionRoutes } from './suggestions.js';
 import { registerReactionRoutes, withReactions } from './reactions.js';
@@ -1091,9 +1091,14 @@ app.post('/api/docs/:id/content', requireUser, wrap(async (req, res) => {
     // A replace throws the whole body away, so it is undoable from History the
     // way a restore is. Taken from the live document, before the write, so it
     // holds the edits still waiting on the debounced save.
-    if (mode === 'replace' && conn.document?.getMap('blocks').size) {
+    const had = !!conn.document?.getMap('blocks').size;
+    if (mode === 'replace' && had) {
       await snapshotVersion(docId, Buffer.from(Y.encodeStateAsUpdate(conn.document)), 'Before replace', req.user.id);
     }
+    // An append that finds no text note to append to (a canvas-only page)
+    // rewrites the page too, canvas and all — undoable the same way. Which one
+    // it will be is only known inside the write, so the state is kept now.
+    const before = mode === 'append' && had ? Buffer.from(Y.encodeStateAsUpdate(conn.document)) : null;
     await conn.transact((doc) => {
       if (mode === 'append' && appendMarkdownToDoc(doc, markdown)) {
         // appended in place
@@ -1103,6 +1108,7 @@ app.post('/api/docs/:id/content', requireUser, wrap(async (req, res) => {
       }
       state = Buffer.from(Y.encodeStateAsUpdate(doc));
     });
+    if (before && rewrote) await snapshotVersion(docId, before, 'Before replace', req.user.id);
   } finally {
     await conn.disconnect();
   }
@@ -2587,7 +2593,8 @@ app.post('/api/docs/:id/versions/:vid/restore', requireUser, async (req, res) =>
     await client.query('BEGIN');
     await client.query('INSERT INTO docs (id, title, created_by) VALUES ($1, $2, $3)', [newId, title, req.user.id]);
     await client.query(`INSERT INTO doc_access (doc_id, user_id, role) VALUES ($1, $2, 'owner')`, [newId, req.user.id]);
-    await client.query('INSERT INTO doc_states (doc_id, state) VALUES ($1, $2)', [newId, v.rows[0].state]);
+    // An old version keeps the table keys the boot repair fixed; mend them.
+    await client.query('INSERT INTO doc_states (doc_id, state) VALUES ($1, $2)', [newId, stateWithValidTableKeys(v.rows[0].state)]);
     await client.query('COMMIT');
   } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
   res.json({ id: newId, title });

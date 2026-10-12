@@ -451,7 +451,8 @@ export async function mountEditor(
     const before = titleNow();
     let stored: string;
     try {
-      const res = await fetch(`/api/docs/${docId}/title`, { credentials: 'same-origin' });
+      // Not forever: until this settles the title is held back from saving.
+      const res = await fetch(`/api/docs/${docId}/title`, { credentials: 'same-origin', signal: AbortSignal.timeout(10000) });
       if (!res.ok) return;
       stored = String((await res.json())?.title ?? '');
     } catch { return; /* offline: the Yjs title stands; nothing is overwritten */ }

@@ -437,3 +437,19 @@ test('fixTableOrderKeys renumbers a table with bad keys, keeping its order, and 
     assert.equal(t.get('prop:columns.c0.order'), 'a0V');
     assert.equal(fixTableOrderKeys(doc), 0);
   });
+
+test('stateWithValidTableKeys mends a copied state, and leaves a sound one untouched', async () => {
+  const { stateWithValidTableKeys } = await import('./blocks.js');
+  const doc = new Y.Doc();
+  const t = new Y.Map();
+  doc.getMap('blocks').set('t', t);
+  t.set('sys:flavour', 'affine:table');
+  t.set('prop:rows.r0.order', 'a000000');
+  const bad = Buffer.from(Y.encodeStateAsUpdate(doc));
+  const fixed = stateWithValidTableKeys(bad);
+  assert.notEqual(fixed, bad);
+  const back = new Y.Doc();
+  Y.applyUpdate(back, new Uint8Array(fixed));
+  assert.ok(validOrderKey(back.getMap('blocks').get('t').get('prop:rows.r0.order')));
+  assert.equal(stateWithValidTableKeys(fixed), fixed);
+});

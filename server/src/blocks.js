@@ -1020,3 +1020,13 @@ export function fixTableOrderKeys(doc) {
   });
   return fixed;
 }
+
+/** A stored state with its tables' order keys made valid (see above); the
+ *  same bytes back when there was nothing to mend. For states copied in
+ *  whole — a version restored as a new page, a draft — that would otherwise
+ *  bring back keys the boot repair fixed. */
+export function stateWithValidTableKeys(state) {
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, new Uint8Array(state));
+  return fixTableOrderKeys(doc) ? Buffer.from(Y.encodeStateAsUpdate(doc)) : state;
+}
