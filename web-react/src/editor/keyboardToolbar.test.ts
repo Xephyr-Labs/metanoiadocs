@@ -8,7 +8,7 @@ describe('flattenTextStyles', () => {
       { items: [{ name: 'TurnInto', groups: [] }, { name: 'Bold' }, { name: 'InlineTex' }, { name: 'Link' }], autoShow: () => null },
       { name: 'Undo' },
     ] as never[];
-    expect(flattenTextStyles(items).map((i: { name?: string }) => i.name)).toEqual(['More', 'TurnInto', 'Bold', 'Link', 'Undo']);
+    expect(flattenTextStyles(items).map((i) => (i as { name?: string }).name)).toEqual(['More', 'TurnInto', 'Bold', 'Link', 'Undo']);
   });
 
   it('leaves a bar without that level alone', () => {
