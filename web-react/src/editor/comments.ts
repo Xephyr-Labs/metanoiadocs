@@ -8,8 +8,9 @@ import { useEffect, useState } from 'react';
 import { ActionPlacement, ToolbarModuleExtension, type ToolbarContext } from '@blocksuite/affine/shared/services';
 import { BlockFlavourIdentifier, TextSelection } from '@blocksuite/affine/std';
 import { CommentIcon, EditIcon } from '@blocksuite/icons/lit';
+import * as Y from 'yjs';
 import { docsApi } from '../lib/docsApi';
-import { findQuote, normalizeQuote } from '../lib/textMatch';
+import { anchoredOccurrence, encodeAnchor, findQuote, normalizeQuote } from '../lib/textMatch';
 
 export interface CommentAnchor {
   quote: string;
@@ -18,6 +19,13 @@ export interface CommentAnchor {
   mode?: 'comment' | 'suggest';
   /** Which copy of the quote in its block was selected (0 = first). */
   occurrence?: number;
+  /** The passage as the block holds it, line breaks and all — what a
+   *  suggestion's replacement starts from. The quote has them collapsed. */
+  raw?: string;
+  /** Yjs relative positions (base64) of the passage's start and end in its
+   *  block's text: they stay on the selected characters through later edits. */
+  anchorStart?: string;
+  anchorEnd?: string;
 }
 
 const HL_NAME = 'mn-comment';
@@ -156,6 +164,12 @@ function rangeFrom(idx: ReturnType<typeof indexText>, hit: { index: number; leng
   return range;
 }
 
+/** A block element's own text, as the shared document holds it. */
+function yTextOf(el: Element | null): Y.Text | null {
+  const t = (el as unknown as { model?: { text?: { yText?: unknown } } } | null)?.model?.text?.yText;
+  return t instanceof Y.Text && t.doc ? t : null;
+}
+
 /**
  * Where a thread's quote is on the page now.
  *
@@ -166,9 +180,20 @@ function rangeFrom(idx: ReturnType<typeof indexText>, hit: { index: number; leng
  * when the block itself is gone is the rest of the page searched, and then
  * only an unambiguous, single match counts.
  */
-function rangeForThread(root: Element, blockId: string | null, quote: string, occurrence = 0): Range | null {
+function rangeForThread(
+  root: Element, blockId: string | null, quote: string, occurrence = 0,
+  anchors: { start: string; end: string } | null = null,
+): Range | null {
   const anchored = blockId ? root.querySelector(`[data-block-id="${CSS.escape(blockId)}"]`) : null;
   if (anchored) {
+    // Anchors name the copy outright; the stored occurrence goes stale as soon
+    // as another copy is typed in front of it.
+    const t = anchors ? yTextOf(anchored) : null;
+    if (anchors && t) {
+      const n = anchoredOccurrence(t, quote, anchors.start, anchors.end);
+      if (n === null) return null;
+      occurrence = n;
+    }
     // Enough text past the block for a quote that runs into the next ones.
     const idx = indexText(root, anchored, quote.length * 2 + 400);
     // The copy that was selected; if edits left fewer copies, a sole one.
@@ -193,6 +218,8 @@ interface HighlightRow {
   kind?: string;
   suggestion_status?: string | null;
   quote_occurrence?: number;
+  anchor_start?: string | null;
+  anchor_end?: string | null;
 }
 
 /** Open threads whose text is no longer on the page. */
@@ -229,7 +256,8 @@ export function applyCommentHighlights(rows: HighlightRow[]) {
     if (!whole && IMAGE_LABEL.test(c.quote)) { nextDetached.add(c.id); continue; }
     const quote = normalizeQuote(c.quote);
     if (!quote) continue;
-    const r = rangeForThread(hlRoot, c.block_id, quote, c.quote_occurrence ?? 0);
+    const r = rangeForThread(hlRoot, c.block_id, quote, c.quote_occurrence ?? 0,
+      c.anchor_start && c.anchor_end ? { start: c.anchor_start, end: c.anchor_end } : null);
     if (!r) { nextDetached.add(c.id); continue; }
     applied.push({ range: r, id: c.id });
     if (c.kind === 'suggestion' && !c.suggestion_status) suggestionRanges.push(r);
@@ -365,7 +393,22 @@ function selectionAnchor(root: Element): CommentAnchor | null {
   const endBlock = endEl?.closest('[data-block-id]')?.getAttribute('data-block-id') ?? null;
   const blockEl = startEl?.closest('[data-block-id]') ?? null;
   const occurrence = blockEl ? occurrenceAt(blockEl, range, quote) : 0;
-  return { quote, blockId, occurrence, ...(endBlock && endBlock !== blockId ? { multi: true } : {}) } as CommentAnchor & { multi?: boolean };
+  const multi = !!endBlock && endBlock !== blockId;
+  // The same passage in the block's own text, which is what a suggestion
+  // changes: its exact characters, and anchors that stay on them.
+  const t = multi ? null : yTextOf(blockEl);
+  const raw = t?.toString() ?? '';
+  const hit = t ? findQuote(raw, quote, occurrence) : null;
+  const pinned = t && hit
+    ? {
+      raw: raw.slice(hit.index, hit.index + hit.length),
+      // The end sticks to the last selected character, so text typed just
+      // after the passage doesn't become part of it.
+      anchorStart: encodeAnchor(t, hit.index, 0),
+      anchorEnd: encodeAnchor(t, hit.index + hit.length, -1),
+    }
+    : {};
+  return { quote, blockId, occurrence, ...pinned, ...(multi ? { multi: true } : {}) } as CommentAnchor & { multi?: boolean };
 }
 
 /**
@@ -512,7 +555,11 @@ export function attachComments(
     // A suggestion replaces one passage of one block; longer or wider
     // selections stay comments rather than becoming a change that can't apply.
     const suggest = mode === 'suggest' && !a.multi && a.quote.length < 500;
-    setPending({ quote: a.quote, blockId: a.blockId, occurrence: a.occurrence, mode: suggest ? 'suggest' : 'comment' });
+    setPending({
+      quote: a.quote, blockId: a.blockId, occurrence: a.occurrence,
+      raw: a.raw, anchorStart: a.anchorStart, anchorEnd: a.anchorEnd,
+      mode: suggest ? 'suggest' : 'comment',
+    });
     // Collapse the selection: if it stays live, the editor treats the next
     // keystroke as "replace selection" and eats the selected text.
     document.getSelection()?.removeAllRanges();

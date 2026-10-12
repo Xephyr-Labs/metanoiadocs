@@ -150,6 +150,9 @@ export interface CommentRow {
   suggestion?: string | null;
   /** Which copy of the quote in its block was selected (0 = first). */
   quote_occurrence?: number;
+  /** Yjs relative positions of the passage's ends (base64); null on older rows. */
+  anchor_start?: string | null;
+  anchor_end?: string | null;
   /** Null while a suggestion waits for a decision. */
   suggestion_status?: 'accepted' | 'rejected' | null;
   decided_by_name?: string | null;
@@ -193,6 +196,8 @@ export interface DraftChange {
   gone: boolean;
   /** This exact version of the change; a decision names it, so a later edit isn't applied unseen. */
   sig: string;
+  /** The same for the page's own copy of the block, as listed (null when it has none). */
+  mainSig: string | null;
 }
 
 export interface SuggestionDetail extends SuggestionDraft {
@@ -465,7 +470,10 @@ export const docsApi = {
   intelligence: (id: string): Promise<Intelligence> => req(`/docs/${id}/intelligence`),
 
   comments: (id: string): Promise<CommentRow[]> => req(`/docs/${id}/comments`),
-  addComment: (id: string, body: string, opts?: { parentId?: string; blockId?: string | null; quote?: string; occurrence?: number; kind?: 'suggestion'; suggestion?: string }) =>
+  addComment: (id: string, body: string, opts?: {
+    parentId?: string; blockId?: string | null; quote?: string; occurrence?: number;
+    anchorStart?: string; anchorEnd?: string; kind?: 'suggestion'; suggestion?: string;
+  }) =>
     req(`/docs/${id}/comments`, { method: 'POST', body: JSON.stringify({ body, ...opts }) }),
   resolveComment: (cid: string, resolved: boolean) =>
     req(`/comments/${cid}/resolve`, { method: 'POST', body: JSON.stringify({ resolved }) }),
@@ -487,11 +495,11 @@ export const docsApi = {
   submitSuggestion: (sid: string, message?: string) =>
     req(`/suggestions/${sid}/submit`, { method: 'POST', body: JSON.stringify({ message }) }),
   decideChanges: (sid: string, body: {
-    accept?: { id: string; sig: string }[];
+    accept?: { id: string; sig: string; mainSig: string | null }[];
     reject?: { id: string; sig: string }[];
     all?: 'accept' | 'reject';
     /** With `all`: every change the review showed. */
-    seen?: { id: string; sig: string }[];
+    seen?: { id: string; sig: string; mainSig: string | null }[];
   }): Promise<{ applied: number; skipped: number; stale: number; remaining: number; closed: boolean }> =>
     req(`/suggestions/${sid}/decide`, { method: 'POST', body: JSON.stringify(body) }),
   discardSuggestion: (sid: string) => req(`/suggestions/${sid}`, { method: 'DELETE' }),

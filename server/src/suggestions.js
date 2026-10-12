@@ -15,7 +15,7 @@
 import crypto from 'node:crypto';
 import * as Y from 'yjs';
 import { cloneValue } from './restore.js';
-import { findQuote } from './text-match.js';
+import { findQuote, normalizeQuote } from './text-match.js';
 
 // ── suggestion cards ───────────────────────────────────────────────────────
 
@@ -30,25 +30,87 @@ function attributesAt(text, index) {
   return {};
 }
 
+/** Where a stored Yjs relative position (base64) points in `doc` now, or null. */
+function resolveAnchor(doc, encoded) {
+  try {
+    const rel = Y.decodeRelativePosition(new Uint8Array(Buffer.from(String(encoded), 'base64')));
+    return Y.createAbsolutePositionFromRelativePosition(rel, doc);
+  } catch {
+    return null;
+  }
+}
+
+const isSpace = (ch) => /\s/.test(ch);
+
+/**
+ * Turn `raw` (the text in [index, index + raw.length) of `text`) into
+ * `replacement`, touching only the part that differs. What the two share at
+ * either end stays as it is, formatting and all; a whitespace run counts as
+ * shared whatever it is made of, because older suggestions were typed over a
+ * quote whose line breaks had been collapsed to spaces. Replacing the whole
+ * range flattened its line breaks and gave every word the first one's format.
+ */
+function replaceMinimal(text, index, raw, replacement) {
+  // [i, a) of raw becomes [j, b) of replacement; a whitespace run on both
+  // sides is stepped over whole, however long either one is.
+  let i = 0;
+  let j = 0;
+  while (i < raw.length && j < replacement.length) {
+    if (isSpace(raw[i]) && isSpace(replacement[j])) {
+      while (i < raw.length && isSpace(raw[i])) i++;
+      while (j < replacement.length && isSpace(replacement[j])) j++;
+    } else if (raw[i] === replacement[j]) { i++; j++; } else break;
+  }
+  let a = raw.length;
+  let b = replacement.length;
+  while (a > i && b > j) {
+    if (isSpace(raw[a - 1]) && isSpace(replacement[b - 1])) {
+      while (a > i && isSpace(raw[a - 1])) a--;
+      while (b > j && isSpace(replacement[b - 1])) b--;
+    } else if (raw[a - 1] === replacement[b - 1]) { a--; b--; } else break;
+  }
+  const at = index + i;
+  const removed = a - i;
+  const inserted = replacement.slice(j, b);
+  // The look of the text it replaces, or else of what it follows.
+  const attrs = attributesAt(text, removed > 0 || at === 0 ? at : at - 1);
+  if (removed > 0) text.delete(at, removed);
+  if (inserted) text.insert(at, inserted, attrs);
+}
+
 /**
  * Replace `quote` inside block `blockId` with `replacement`. False when the
  * block or the quoted text is no longer there — the page moved on, and the
  * suggestion can't be applied blind.
+ *
+ * `anchors` ({ start, end }: encoded Yjs relative positions taken when the
+ * passage was selected) pin the exact copy that was chosen. With them, the
+ * passage is that range or nothing: if its text no longer reads as the quote,
+ * the suggestion is stale, and another copy of the same words elsewhere in the
+ * block is not the one it was about. Rows from before anchors fall back to
+ * finding the quote by occurrence.
  */
-export function applyTextSuggestion(doc, blockId, quote, replacement, occurrence = 0) {
+export function applyTextSuggestion(doc, blockId, quote, replacement, occurrence = 0, anchors = null) {
   const block = doc.getMap('blocks').get(blockId);
   if (!(block instanceof Y.Map)) return false;
   const text = block.get('prop:text');
   if (!(text instanceof Y.Text)) return false;
   const raw = text.toString();
-  // The copy that was selected. If edits since have left fewer copies, only
-  // an unambiguous single one is still safe to change.
-  let hit = findQuote(raw, quote, occurrence);
-  if (!hit && occurrence > 0 && !findQuote(raw, quote, 1)) hit = findQuote(raw, quote);
-  if (!hit) return false;
-  const attrs = attributesAt(text, hit.index);
-  text.delete(hit.index, hit.length);
-  if (replacement) text.insert(hit.index, replacement, attrs);
+  let hit;
+  if (anchors?.start && anchors?.end) {
+    const a = resolveAnchor(doc, anchors.start);
+    const b = resolveAnchor(doc, anchors.end);
+    if (!a || !b || a.type !== text || b.type !== text || b.index <= a.index) return false;
+    if (normalizeQuote(raw.slice(a.index, b.index)) !== normalizeQuote(quote)) return false;
+    hit = { index: a.index, length: b.index - a.index };
+  } else {
+    // The copy that was selected. If edits since have left fewer copies, only
+    // an unambiguous single one is still safe to change.
+    hit = findQuote(raw, quote, occurrence);
+    if (!hit && occurrence > 0 && !findQuote(raw, quote, 1)) hit = findQuote(raw, quote);
+    if (!hit) return false;
+  }
+  replaceMinimal(text, hit.index, raw.slice(hit.index, hit.index + hit.length), replacement || '');
   return true;
 }
 
@@ -97,6 +159,8 @@ function blockSig(block) {
   return JSON.stringify(parts);
 }
 
+const digest = (s) => crypto.createHash('sha1').update(s).digest('base64url');
+
 /** What a block reads as, for the review list. */
 function blockText(block) {
   if (!(block instanceof Y.Map)) return '';
@@ -142,9 +206,11 @@ function walk(blocks) {
  * The changes `draft` makes to `base`, in reading order, each with what it
  * would do to `main` (the page as it is now).
  *
- * @returns {{id, kind: 'added'|'removed'|'modified', flavour, label, type, before, after, sig, mainChanged, gone}[]}
+ * @returns {{id, kind: 'added'|'removed'|'modified', flavour, label, type, before, after, sig, mainSig, mainChanged, gone}[]}
  *   `sig` identifies this exact version of the change, so a decision on it can
- *   be told apart from a later, different edit to the same block. `mainChanged`
+ *   be told apart from a later, different edit to the same block. `mainSig` is
+ *   the same for the page's own copy of the block as the reviewer saw it, so an
+ *   edit to the page after the review was listed is not overwritten unseen. `mainChanged`
  *   says the page's own copy of the block was edited since the draft began —
  *   accepting overwrites that. `gone` says the block no longer exists on the
  *   page at all.
@@ -173,7 +239,7 @@ export function computeChanges(baseDoc, draftDoc, mainDoc) {
       // New in the draft. Already on the page means it arrived some other way.
       if (m instanceof Y.Map) continue;
       const sig = blockSig(d);
-      changes.push({ id, kind: 'added', ...describe(d), before: '', after: blockText(d), sig, mainChanged: false, gone: false, pos });
+      changes.push({ id, kind: 'added', ...describe(d), before: '', after: blockText(d), sig, mainSig: null, mainChanged: false, gone: false, pos });
       continue;
     }
     const sig = blockSig(d);
@@ -181,7 +247,7 @@ export function computeChanges(baseDoc, draftDoc, mainDoc) {
     const gone = !(m instanceof Y.Map);
     changes.push({
       id, kind: 'modified', ...describe(d),
-      before: blockText(b), after: blockText(d), sig,
+      before: blockText(b), after: blockText(d), sig, mainSig: gone ? null : digest(blockSig(m)),
       mainChanged: !gone && blockSig(m) !== blockSig(b), gone, pos,
     });
   }
@@ -206,7 +272,7 @@ export function computeChanges(baseDoc, draftDoc, mainDoc) {
     }
     changes.push({
       id, kind: 'removed', ...describe(b), before: blockText(b), after: '',
-      sig: `removed:${blockSig(b)}`, mainChanged: blockSig(m) !== blockSig(b), gone: false, pos,
+      sig: `removed:${blockSig(b)}`, mainSig: digest(blockSig(m)), mainChanged: blockSig(m) !== blockSig(b), gone: false, pos,
     });
   }
 
@@ -298,6 +364,22 @@ export function applyChange(mainDoc, draftDoc, baseDoc, change) {
         if (survivors.length) kids.insert(i, survivors);
       }
       main.delete(id);
+      // A column with nothing left in it, and a row with no columns left, go
+      // too. The editor tidies these after its own edits only (tidyColumns
+      // skips remote ones), and this edit arrives from the server: the page was
+      // left with an empty column nobody could click into.
+      let empty = pid;
+      for (const flavour of ['metanoia:column', 'metanoia:columns']) {
+        const box = main.get(empty);
+        if (box?.get?.('sys:flavour') !== flavour || childrenOf(box).length) break;
+        const up = parentIn(main, empty);
+        if (up) {
+          const sibs = main.get(up).get('sys:children');
+          sibs.delete(sibs.toArray().indexOf(empty), 1);
+        }
+        main.delete(empty);
+        empty = up;
+      }
     } else {
       removeTree(main, id); // detached already: nowhere to move its children to
     }
@@ -547,21 +629,29 @@ export function registerSuggestionRoutes(app, { requireUser, wrap, pool, grantOn
     const draftDoc = docFromState(draftState(v.row));
     const decisions = { ...(v.row.decisions || {}) };
     // A decision is about the version of a change the reviewer was shown. Each
-    // entry is { id, sig }; "all" carries every change the review listed, in
-    // `seen`. A change the suggester has edited since has a different sig and
-    // is left for another look rather than applied sight unseen.
+    // entry is { id, sig, mainSig }; "all" carries every change the review
+    // listed, in `seen`. A change the suggester has edited since has a
+    // different sig, and one whose block someone edited on the page since the
+    // review was listed has a different mainSig; either is left for another
+    // look rather than applied sight unseen — accepting over the page's newer
+    // edit would silently throw it away.
     const entries = (list) => (Array.isArray(list) ? list : [])
-      .map((e) => (typeof e === 'string' ? { id: e, sig: null } : { id: String(e?.id), sig: e?.sig ?? null }));
+      .map((e) => (typeof e === 'string' ? { id: e, sig: null } : { id: String(e?.id), sig: e?.sig ?? null, mainSig: e?.mainSig }));
     const seen = entries(req.body?.seen);
     const all = req.body?.all;
     const acceptList = all === 'accept' ? seen : entries(req.body?.accept);
     const rejectList = all === 'reject' ? seen : entries(req.body?.reject);
-    const acceptIds = new Map(acceptList.map((e) => [e.id, e.sig]));
-    const rejectIds = new Map(rejectList.map((e) => [e.id, e.sig]));
+    const acceptIds = new Map(acceptList.map((e) => [e.id, e]));
+    const rejectIds = new Map(rejectList.map((e) => [e.id, e]));
     // "all" with no `seen` list (a direct API call, not the review page) means
     // every change open right now.
     const allNow = all && !Array.isArray(req.body?.seen) ? all : null;
-    const matches = (map, c) => map.has(c.id) && (map.get(c.id) === null || map.get(c.id) === c.sig);
+    const matches = (map, c, checkMain) => {
+      const e = map.get(c.id);
+      if (!e || (e.sig !== null && e.sig !== c.sig)) return false;
+      // Declining leaves the page alone, so only an accept cares how it reads now.
+      return !checkMain || e.mainSig === undefined || e.mainSig === c.mainSig;
+    };
 
     let applied = 0;
     let skipped = 0;
@@ -572,8 +662,8 @@ export function registerSuggestionRoutes(app, { requireUser, wrap, pool, grantOn
       await conn.transact((mainDoc) => {
         const open = pending(computeChanges(baseDoc, draftDoc, mainDoc), decisions);
         for (const c of open) {
-          const accept = allNow === 'accept' || matches(acceptIds, c);
-          const reject = !accept && (allNow === 'reject' || matches(rejectIds, c));
+          const accept = allNow === 'accept' || matches(acceptIds, c, true);
+          const reject = !accept && (allNow === 'reject' || matches(rejectIds, c, false));
           if (!accept && !reject && (acceptIds.has(c.id) || rejectIds.has(c.id))) stale++;
           if (accept) {
             if (applyChange(mainDoc, draftDoc, baseDoc, c)) { applied++; decisions[c.id] = { d: 'accepted', sig: c.sig }; }

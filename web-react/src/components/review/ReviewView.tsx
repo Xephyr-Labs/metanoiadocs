@@ -64,7 +64,9 @@ export function ReviewView({ sid, docId }: { sid: string; docId: string }) {
     setBusy(key);
     try {
       const r = await docsApi.decideChanges(sid, body);
-      if (r.stale) toast(`${r.stale} change${r.stale === 1 ? ' was' : 's were'} edited after you opened this review — here is the latest.`);
+      // Stale: the suggester edited it, or someone edited that part of the
+      // page, after this list was loaded. Nothing was applied for it.
+      if (r.stale) toast(`${r.stale} change${r.stale === 1 ? ' was' : 's were'} edited, in the draft or on the page, after you opened this review — here is the latest.`);
       if (r.skipped) toast(`${r.skipped} change${r.skipped === 1 ? '' : 's'} could not be applied — that part of the page was deleted.`);
       if (r.closed) {
         toast('Review finished');
@@ -107,10 +109,10 @@ export function ReviewView({ sid, docId }: { sid: string; docId: string }) {
         <div className="flex shrink-0 items-center gap-1.5">
           {reviewer && detail.changes.length > 0 && (
             <>
-              <Button variant="ghost" size="sm" leftIcon={<X size={14} />} disabled={!!busy} onClick={() => decide('all', { all: 'reject', seen: detail.changes.map(({ id, sig }) => ({ id, sig })) })}>
+              <Button variant="ghost" size="sm" leftIcon={<X size={14} />} disabled={!!busy} onClick={() => decide('all', { all: 'reject', seen: detail.changes.map(({ id, sig, mainSig }) => ({ id, sig, mainSig })) })}>
                 Decline all
               </Button>
-              <Button variant="primary" size="sm" leftIcon={busy === 'all' ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} disabled={!!busy} onClick={() => decide('all', { all: 'accept', seen: detail.changes.map(({ id, sig }) => ({ id, sig })) })}>
+              <Button variant="primary" size="sm" leftIcon={busy === 'all' ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} disabled={!!busy} onClick={() => decide('all', { all: 'accept', seen: detail.changes.map(({ id, sig, mainSig }) => ({ id, sig, mainSig })) })}>
                 Accept all
               </Button>
             </>
@@ -149,7 +151,7 @@ export function ReviewView({ sid, docId }: { sid: string; docId: string }) {
                       size="sm"
                       disabled={!!busy || c.gone}
                       leftIcon={busy === c.id ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-                      onClick={() => decide(c.id, { accept: [{ id: c.id, sig: c.sig }] })}
+                      onClick={() => decide(c.id, { accept: [{ id: c.id, sig: c.sig, mainSig: c.mainSig }] })}
                       className={cn(!c.gone && 'text-accent-strong')}
                     >
                       Accept

@@ -22,6 +22,7 @@
 import crypto from 'node:crypto';
 import { pool } from './db.js';
 import { withReactions } from './reactions.js';
+import { commentAnchors } from './text-match.js';
 
 export const SHARE_ACCESS = ['view', 'comment'];
 export const shareAccess = (value) => (value === 'comment' ? 'comment' : 'view');
@@ -105,7 +106,7 @@ export function registerGuestCommentRoutes(app, { wrap, notify, emit, changed = 
               CASE WHEN c.guest THEN c.author_name
                    ELSE coalesce(nullif(u.name, ''), u.username, 'Team member') END AS author_name,
               c.guest, c.parent_id, c.resolved, c.created_at, c.edited_at,
-              c.kind, c.suggestion, c.suggestion_status, c.quote_occurrence
+              c.kind, c.suggestion, c.suggestion_status, c.quote_occurrence, c.anchor_start, c.anchor_end
          FROM comments c LEFT JOIN users u ON u.id = c.author_id
         WHERE c.doc_id = $1 AND c.task_id IS NULL ORDER BY c.created_at ASC`,
       [doc.id],
@@ -142,13 +143,15 @@ export function registerGuestCommentRoutes(app, { wrap, notify, emit, changed = 
     const key = crypto.randomBytes(24).toString('base64url');
     const blockId = typeof req.body?.blockId === 'string' ? req.body.blockId.slice(0, 64) : null;
     await pool.query(
-      `INSERT INTO comments (id, doc_id, block_id, quote, body, author_id, author_name, parent_id, guest, guest_key_hash, quote_occurrence)
-       VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, true, $8, $9)`,
+      `INSERT INTO comments (id, doc_id, block_id, quote, body, author_id, author_name, parent_id, guest, guest_key_hash, quote_occurrence,
+                             anchor_start, anchor_end)
+       VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, true, $8, $9, $10, $11)`,
       [id, doc.id, parentId ? null : blockId, parentId ? '' : String(req.body?.quote || '').slice(0, 500),
        body, name, parentId, hashKey(key),
        // Which copy of the quoted words in that block, as for a member's comment;
        // without it a guest's highlight lands on the first "the" in the line.
-       Math.max(0, Math.min(1000, Number.parseInt(req.body?.occurrence, 10) || 0))],
+       Math.max(0, Math.min(1000, Number.parseInt(req.body?.occurrence, 10) || 0)),
+       ...commentAnchors(parentId ? null : req.body)],
     );
     notify({ commentId: id, docId: doc.id, body, actor: { id: null, name: `${name} (guest)` }, mentions: false, parentId })
       .catch((e) => console.error('[notify] guest comment:', e.message));
