@@ -218,6 +218,23 @@ describe('security — sanitize + safe merge', () => {
     expect(({} as Record<string, unknown>).x).toBeUndefined();
   });
 
+  it('drops what ECharts writes into the page as HTML, keeps canvas formatters', () => {
+    const merged = mergeAdvancedOptions({ tooltip: { trigger: 'axis' } }, JSON.parse(`{
+      "tooltip": { "formatter": "<img src=x onerror=alert(1)>", "extraCssText": "x", "appendTo": "body", "show": true },
+      "xAxis": { "axisLabel": { "formatter": "{value} %" } },
+      "graphic": [{ "type": "text", "tooltip": { "content": "<img src=x onerror=alert(2)>" } }],
+      "series": [{ "type": "bar", "tooltip": { "formatter": "<b>x</b>" }, "label": { "formatter": "{c}" } }],
+      "toolbox": { "feature": { "dataView": { "title": "<img src=x>", "lang": ["<img>"] } } },
+      "title": { "text": "t", "link": "javascript:alert(3)", "sublink": "https://example.com" }
+    }`));
+    expect(merged.tooltip).toEqual({ trigger: 'axis', show: true });
+    expect((merged as Record<string, unknown>).xAxis).toEqual({ axisLabel: { formatter: '{value} %' } });
+    expect((merged as Record<string, unknown>).graphic).toEqual([{ type: 'text', tooltip: {} }]);
+    expect('toolbox' in merged).toBe(false);
+    expect((merged as Record<string, unknown>).title).toEqual({ text: 't', sublink: 'https://example.com' });
+    expect(normalizeChartProps({ advancedOptions: { legend: { formatter: '{name}' } } }).advancedOptions).toEqual({ legend: { formatter: '{name}' } });
+  });
+
   it('normalizeChartProps sanitizes advancedOptions', () => {
     const n = normalizeChartProps({ advancedOptions: { animation: false, bad: () => 1 } });
     expect(n.advancedOptions).toEqual({ animation: false });

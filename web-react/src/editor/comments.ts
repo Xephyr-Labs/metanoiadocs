@@ -8,8 +8,9 @@ import { useEffect, useState } from 'react';
 import { ActionPlacement, ToolbarModuleExtension, type ToolbarContext } from '@blocksuite/affine/shared/services';
 import { BlockFlavourIdentifier, TextSelection } from '@blocksuite/affine/std';
 import { CommentIcon, EditIcon } from '@blocksuite/icons/lit';
+import * as Y from 'yjs';
 import { docsApi } from '../lib/docsApi';
-import { findQuote, normalizeQuote } from '../lib/textMatch';
+import { anchoredOccurrence, encodeAnchor, findQuote, normalizeQuote } from '../lib/textMatch';
 
 export interface CommentAnchor {
   quote: string;
@@ -18,6 +19,13 @@ export interface CommentAnchor {
   mode?: 'comment' | 'suggest';
   /** Which copy of the quote in its block was selected (0 = first). */
   occurrence?: number;
+  /** The passage as the block holds it, line breaks and all — what a
+   *  suggestion's replacement starts from. The quote has them collapsed. */
+  raw?: string;
+  /** Yjs relative positions (base64) of the passage's start and end in its
+   *  block's text: they stay on the selected characters through later edits. */
+  anchorStart?: string;
+  anchorEnd?: string;
 }
 
 const HL_NAME = 'mn-comment';
@@ -108,15 +116,18 @@ const INVISIBLE = /[​﻿]/;
 
 /**
  * The editor's text from `from` onward, one entry per character pointing back
- * at its DOM position. A space stands between blocks, which is how a selection
- * across two paragraphs reads back — and so how its quote was stored.
+ * at its DOM position. A space stands between lines — between blocks, and
+ * between the lines of one block, which BlockSuite draws as one <v-line> per
+ * "\n" without ever putting the "\n" in the DOM. That is how a selection
+ * across them reads back, so how its quote was stored, and the server's
+ * matching (against the block's text, "\n" included) agrees with it.
  */
 function indexText(root: Element, from: Element | null, limit: number) {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   if (from) walker.currentNode = from;
   let raw = '';
   const at: { node: Text; offset: number }[] = [];
-  let lastBlock: Element | null = null;
+  let lastLine: Element | null = null;
   let anchorLen = from ? -1 : Infinity;
   for (let n = walker.nextNode(); n && raw.length < limit; n = walker.nextNode()) {
     const node = n as Text;
@@ -126,13 +137,14 @@ function indexText(root: Element, from: Element | null, limit: number) {
     // quote like "paragraph" matched the CSS class names in that sheet — the
     // highlight landed on invisible text and the passage looked unmarked.
     if (!node.parentElement?.closest('[data-v-text]')) continue;
-    const block = node.parentElement?.closest('[data-block-id]') ?? null;
+    // A new block always starts a new line, so the line alone decides.
+    const line = node.parentElement?.closest('v-line') ?? null;
     const text = node.textContent || '';
-    if (block !== lastBlock && raw.length && at.length) {
+    if (line !== lastLine && raw.length && at.length) {
       raw += ' ';
       at.push(at[at.length - 1]);
     }
-    lastBlock = block;
+    lastLine = line;
     for (let i = 0; i < text.length; i++) {
       if (INVISIBLE.test(text[i])) continue;
       raw += text[i];
@@ -152,6 +164,12 @@ function rangeFrom(idx: ReturnType<typeof indexText>, hit: { index: number; leng
   return range;
 }
 
+/** A block element's own text, as the shared document holds it. */
+function yTextOf(el: Element | null): Y.Text | null {
+  const t = (el as unknown as { model?: { text?: { yText?: unknown } } } | null)?.model?.text?.yText;
+  return t instanceof Y.Text && t.doc ? t : null;
+}
+
 /**
  * Where a thread's quote is on the page now.
  *
@@ -162,9 +180,21 @@ function rangeFrom(idx: ReturnType<typeof indexText>, hit: { index: number; leng
  * when the block itself is gone is the rest of the page searched, and then
  * only an unambiguous, single match counts.
  */
-function rangeForThread(root: Element, blockId: string | null, quote: string, occurrence = 0): Range | null {
+function rangeForThread(
+  root: Element, blockId: string | null, quote: string, occurrence = 0,
+  anchors: { start: string; end: string } | null = null,
+): Range | null {
   const anchored = blockId ? root.querySelector(`[data-block-id="${CSS.escape(blockId)}"]`) : null;
   if (anchored) {
+    // Anchors name the copy outright; the stored occurrence goes stale as soon
+    // as another copy is typed in front of it.
+    const t = anchors ? yTextOf(anchored) : null;
+    if (anchors && t) {
+      const n = anchoredOccurrence(t, quote, anchors.start, anchors.end);
+      if (n === null) return null;
+      // undefined: the anchored text was replaced (a restore) — by quote.
+      if (n !== undefined) occurrence = n;
+    }
     // Enough text past the block for a quote that runs into the next ones.
     const idx = indexText(root, anchored, quote.length * 2 + 400);
     // The copy that was selected; if edits left fewer copies, a sole one.
@@ -189,6 +219,8 @@ interface HighlightRow {
   kind?: string;
   suggestion_status?: string | null;
   quote_occurrence?: number;
+  anchor_start?: string | null;
+  anchor_end?: string | null;
 }
 
 /** Open threads whose text is no longer on the page. */
@@ -225,7 +257,8 @@ export function applyCommentHighlights(rows: HighlightRow[]) {
     if (!whole && IMAGE_LABEL.test(c.quote)) { nextDetached.add(c.id); continue; }
     const quote = normalizeQuote(c.quote);
     if (!quote) continue;
-    const r = rangeForThread(hlRoot, c.block_id, quote, c.quote_occurrence ?? 0);
+    const r = rangeForThread(hlRoot, c.block_id, quote, c.quote_occurrence ?? 0,
+      c.anchor_start && c.anchor_end ? { start: c.anchor_start, end: c.anchor_end } : null);
     if (!r) { nextDetached.add(c.id); continue; }
     applied.push({ range: r, id: c.id });
     if (c.kind === 'suggestion' && !c.suggestion_status) suggestionRanges.push(r);
@@ -361,7 +394,22 @@ function selectionAnchor(root: Element): CommentAnchor | null {
   const endBlock = endEl?.closest('[data-block-id]')?.getAttribute('data-block-id') ?? null;
   const blockEl = startEl?.closest('[data-block-id]') ?? null;
   const occurrence = blockEl ? occurrenceAt(blockEl, range, quote) : 0;
-  return { quote, blockId, occurrence, ...(endBlock && endBlock !== blockId ? { multi: true } : {}) } as CommentAnchor & { multi?: boolean };
+  const multi = !!endBlock && endBlock !== blockId;
+  // The same passage in the block's own text, which is what a suggestion
+  // changes: its exact characters, and anchors that stay on them.
+  const t = multi ? null : yTextOf(blockEl);
+  const raw = t?.toString() ?? '';
+  const hit = t ? findQuote(raw, quote, occurrence) : null;
+  const pinned = t && hit
+    ? {
+      raw: raw.slice(hit.index, hit.index + hit.length),
+      // The end sticks to the last selected character, so text typed just
+      // after the passage doesn't become part of it.
+      anchorStart: encodeAnchor(t, hit.index, 0),
+      anchorEnd: encodeAnchor(t, hit.index + hit.length, -1),
+    }
+    : {};
+  return { quote, blockId, occurrence, ...pinned, ...(multi ? { multi: true } : {}) } as CommentAnchor & { multi?: boolean };
 }
 
 /**
@@ -369,21 +417,16 @@ function selectionAnchor(root: Element): CommentAnchor | null {
  * comment or suggestion on the second "the" in a line stays on the second.
  */
 function occurrenceAt(block: Element, range: Range, quote: string): number {
-  const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
-  let all = '';
-  let before = -1;
-  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
-    if (!n.parentElement?.closest('[data-v-text]')) continue;
-    const text = n.textContent || '';
-    if (n === range.startContainer) {
-      before = all.length + text.slice(0, range.startOffset).replace(new RegExp(INVISIBLE.source, 'g'), '').length;
-    }
-    all += text.replace(new RegExp(INVISIBLE.source, 'g'), '');
-  }
+  // Read the block the way the highlighter does, so the count is of the same
+  // copies it will find. The first character inside the selection marks where
+  // it starts — found by position, because a selection can start on an
+  // element (a line, a block) rather than in a text node.
+  const idx = indexText(block, null, Infinity);
+  const before = idx.at.findIndex((p) => range.comparePoint(p.node, p.offset) >= 0);
   if (before < 0) return 0;
   let count = 0;
   for (let k = 0; k < 1000; k++) {
-    const hit = findQuote(all, quote, k);
+    const hit = findQuote(idx.raw, quote, k);
     if (!hit || hit.index >= before) break;
     count++;
   }
@@ -479,7 +522,9 @@ export function attachComments(
   // Load once on open. The highlights, the gutter pips and the top-bar count
   // all come from this, so waiting for someone to open the comments panel
   // would mean a page with threads looks like a page without any.
-  load().then(applyCommentHighlights).catch(() => {});
+  // Only while this is still the page shown: a slow load for the page just
+  // left would otherwise paint its threads over the next one.
+  load().then((rows) => { if (hlRoot === root && hlDocId === docId) applyCommentHighlights(rows); }).catch(() => {});
 
   // Buttons for when BlockSuite's toolbar doesn't show: a read-only page, or
   // a phone.
@@ -511,7 +556,11 @@ export function attachComments(
     // A suggestion replaces one passage of one block; longer or wider
     // selections stay comments rather than becoming a change that can't apply.
     const suggest = mode === 'suggest' && !a.multi && a.quote.length < 500;
-    setPending({ quote: a.quote, blockId: a.blockId, occurrence: a.occurrence, mode: suggest ? 'suggest' : 'comment' });
+    setPending({
+      quote: a.quote, blockId: a.blockId, occurrence: a.occurrence,
+      raw: a.raw, anchorStart: a.anchorStart, anchorEnd: a.anchorEnd,
+      mode: suggest ? 'suggest' : 'comment',
+    });
     // Collapse the selection: if it stays live, the editor treats the next
     // keystroke as "replace selection" and eats the selected text.
     document.getSelection()?.removeAllRanges();
@@ -541,7 +590,13 @@ export function attachComments(
       suggestBtn.style.display = next.multi ? 'none' : '';
       const width = canSuggest ? 190 : 110;
       bar.style.display = 'flex';
-      bar.style.top = below ? `${Math.min(window.innerHeight - 44, r.bottom + 10)}px` : `${Math.max(8, r.top - 40)}px`;
+      // The bottom of what can be seen: above the keyboard, and above the
+      // phone's formatting bar on it, which these must not cover.
+      const vv = window.visualViewport;
+      const floor = (vv ? vv.offsetTop + vv.height : window.innerHeight)
+        - (document.querySelector('affine-keyboard-toolbar')?.getBoundingClientRect().height ?? 0) - 8;
+      const under = r.bottom + 10;
+      bar.style.top = below && under + 36 <= floor ? `${under}px` : `${Math.max(8, r.top - 40)}px`;
       bar.style.left = `${Math.min(window.innerWidth - width - 8, Math.max(8, r.left + r.width / 2 - width / 2))}px`;
     };
     if (readonly) return show();
@@ -645,16 +700,18 @@ export function attachComments(
     timers.forEach(clearTimeout);
     offUpdate();
     bar.remove();
+    root.querySelectorAll(`[${MARK_ATTR}]`).forEach((el) => el.removeAttribute(MARK_ATTR));
+    // The rest is shared by whichever editor attached last. On a quick move
+    // between pages the old editor can detach after the new one attached, and
+    // clearing it then wiped the new page's highlights and its open composer.
+    if (hlRoot !== root) return;
     if (supported) {
       (CSS as unknown as { highlights: Map<string, unknown> }).highlights.delete(HL_NAME);
       (CSS as unknown as { highlights: Map<string, unknown> }).highlights.delete(HL_SUGGESTION);
     }
-    root.querySelectorAll(`[${MARK_ATTR}]`).forEach((el) => el.removeAttribute(MARK_ATTR));
-    if (hlRoot === root) {
-      hlRoot = null; hlDocId = null; hlLoad = null; applied = []; lastRows = [];
-      caps = { comment: false, suggest: false };
-      pickSelection = null;
-    }
+    hlRoot = null; hlDocId = null; hlLoad = null; applied = []; lastRows = [];
+    caps = { comment: false, suggest: false };
+    pickSelection = null;
     setPending(null);
     setFocus(null);
   };

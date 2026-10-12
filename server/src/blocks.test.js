@@ -1,7 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as Y from 'yjs';
-import { appendMarkdownToDoc, buildDocState, collectMarkdownLinks, docToMarkdown, extractText } from './blocks.js';
+import { appendMarkdownToDoc, appendPageReference, buildDocState, collectMarkdownLinks, docToMarkdown, extractText, fixTableOrderKeys, validOrderKey } from './blocks.js';
+
+// The editor's own key generator, when the web app's dependencies are installed
+// alongside — the real proof that a table built here takes new rows.
+const fractional = await import('../../web-react/node_modules/fractional-indexing/src/index.js').catch(() => null);
 
 /** Every `reference` attribute in a built doc state, in no particular order. */
 function referencesIn(state) {
@@ -301,4 +305,151 @@ test('a quote with every line in <small> is one small quote, and comes back as o
   assert.equal(q.get('prop:mnSize'), 'small');
   assert.equal(q.get('prop:text').toString(), 'a\nb');
   assert.equal(docToMarkdown(state).markdown, '> <small>a\n> b</small>');
+});
+
+/** A built table's row and column order keys, each list in stored order. */
+function tableOrders(state) {
+  const table = blocksIn(state).find((b) => b.get('sys:flavour') === 'affine:table');
+  const pick = (re) => [...table.keys()].filter((k) => re.test(k)).map((k) => table.get(k));
+  return { table, rows: pick(/^prop:rows\..+\.order$/), cols: pick(/^prop:columns\..+\.order$/) };
+}
+
+const twelveRows = ['| h |', '| --- |', ...Array.from({ length: 11 }, (_, i) => `| r${i} |`)].join('\n');
+
+test('table order keys are ones the editor can insert beside', () => {
+  const { rows } = tableOrders(buildDocState('T', twelveRows));
+  assert.equal(rows.length, 12);
+  // fractional-indexing's rule: integer part `a` + one digit, and the fraction
+  // after it never ends in '0' (a000000 and a000010 used to).
+  for (const k of rows) assert.match(k, /^a\d[0-9A-Za-z]*[1-9A-Za-z]$/);
+});
+
+test('the editor can add a row after, and between, built table rows', { skip: !fractional && 'web-react dependencies not installed' }, () => {
+  const sorted = tableOrders(buildDocState('T', twelveRows)).rows.sort();
+  for (let i = 0; i < sorted.length; i++) {
+    const next = sorted[i + 1] ?? null;
+    const k = fractional.generateKeyBetween(sorted[i], next);
+    assert.ok(k > sorted[i] && (next === null || k < next));
+  }
+});
+
+test('table rows export in the editor\'s code-point order, not locale order', () => {
+  const state = buildDocState('T', '| a |\n| --- |\n| b |');
+  const { table } = tableOrders(state);
+  // Keys the editor itself would write: 'aZ' sorts before 'aa' by code point.
+  const ids = [...table.keys()].filter((k) => /^prop:rows\..+\.order$/.test(k));
+  const doc = table.doc;
+  doc.transact(() => { table.set(ids[0], 'aa'); table.set(ids[1], 'aZ'); });
+  const md = docToMarkdown(Y.encodeStateAsUpdate(doc)).markdown;
+  assert.match(md, /^\| b \|\n\| --- \|\n\| a \|$/);
+});
+
+test('a pipe inside a table cell survives export and re-import', () => {
+  const md = '| expr | means |\n| --- | --- |\n| a \\| b | either |';
+  const out = docToMarkdown(buildDocState('T', md)).markdown;
+  assert.equal(out, md);
+  const cells = blocksIn(buildDocState('T', md))
+    .find((b) => b.get('sys:flavour') === 'affine:table');
+  const texts = [...cells.keys()].filter((k) => k.startsWith('prop:cells.')).map((k) => cells.get(k).toString());
+  assert.ok(texts.includes('a | b'));
+});
+
+test('a plain callout round-trips as plain, keeping its emoji', () => {
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, buildDocState('T', '> [!NOTE]\n> body'));
+  const callout = [...doc.getMap('blocks').values()].find((b) => b.get('sys:flavour') === 'affine:callout');
+  // What the editor leaves after "Neutral": no panel type, the reader's emoji.
+  doc.transact(() => { callout.delete('prop:mnPanel'); callout.set('prop:emoji', '💡'); });
+  const md = docToMarkdown(Y.encodeStateAsUpdate(doc)).markdown;
+  assert.equal(md, '> [!CALLOUT 💡]\n> body');
+  const back = blocksIn(buildDocState('T', md)).find((b) => b.get('sys:flavour') === 'affine:callout');
+  assert.equal(back.get('prop:mnPanel'), undefined);
+  assert.equal(back.get('prop:emoji'), '💡');
+  assert.equal(docToMarkdown(buildDocState('T', md)).markdown, md);
+});
+
+/** A doc whose blocks map lists an edgeless-only note before the page's body note. */
+function docWithCanvasNoteFirst() {
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, buildDocState('T', 'body'));
+  const blocks = doc.getMap('blocks');
+  const entries = [...blocks.entries()];
+  const body = entries.find(([, b]) => b.get('sys:flavour') === 'affine:note');
+  const page = entries.find(([, b]) => b.get('sys:flavour') === 'affine:page')[1];
+  const fresh = new Y.Doc();
+  const into = fresh.getMap('blocks');
+  fresh.transact(() => {
+    const canvas = new Y.Map();
+    canvas.set('sys:id', 'canvas-note');
+    canvas.set('sys:flavour', 'affine:note');
+    canvas.set('prop:displayMode', 'edgeless');
+    canvas.set('sys:children', new Y.Array());
+    into.set('canvas-note', canvas);
+    for (const [id, b] of entries) into.set(id, b.clone());
+  });
+  into.get(entries.find(([, b]) => b === page)[0]).get('sys:children').push(['canvas-note']);
+  return { doc: fresh, bodyId: body[0] };
+}
+
+test('appends land in the page-view note, not a canvas-only note listed first', () => {
+  const a = docWithCanvasNoteFirst();
+  assert.equal(a.doc.getMap('blocks').keys().next().value, 'canvas-note');
+  assert.equal(appendMarkdownToDoc(a.doc, 'added'), true);
+  assert.equal(a.doc.getMap('blocks').get('canvas-note').get('sys:children').length, 0);
+  assert.match(docToMarkdown(Y.encodeStateAsUpdate(a.doc)).markdown, /body\n\nadded/);
+
+  const r = docWithCanvasNoteFirst();
+  assert.equal(appendPageReference(r.doc, 'id-arch'), true);
+  assert.equal(r.doc.getMap('blocks').get('canvas-note').get('sys:children').length, 0);
+  assert.equal(r.doc.getMap('blocks').get(r.bodyId).get('sys:children').length, 2);
+});
+
+test('validOrderKey matches the editor\'s library', async () => {
+    let fi;
+    try { fi = await import('../../web-react/node_modules/fractional-indexing/src/index.js'); } catch { return; }
+    for (const k of ['a0', 'a000000', 'a000010', 'a0000001', 'a0V', 'Zz', 'b0001', 'a1']) {
+      let ok = true;
+      try { fi.generateKeyBetween(k, null); } catch { ok = false; }
+      assert.equal(validOrderKey(k), ok, k);
+    }
+});
+
+test('fixTableOrderKeys renumbers a table with bad keys, keeping its order, and only once', () => {
+    const doc = new Y.Doc();
+    const blocks = doc.getMap('blocks');
+    const t = new Y.Map();
+    blocks.set('t', t);
+    t.set('sys:flavour', 'affine:table');
+    // Rows as the old server wrote them, plus one the editor inserted.
+    t.set('prop:rows.r0.order', 'a000000');
+    t.set('prop:rows.r1.order', 'a000001');
+    t.set('prop:rows.rX.order', 'a0000005');
+    t.set('prop:rows.r2.order', 'a000002');
+    t.set('prop:columns.c0.order', 'a0V');
+    t.set('prop:columns.c1.order', 'a0l');
+    assert.equal(fixTableOrderKeys(doc), 1);
+    const order = (kind) => [...t.keys()].filter((k) => k.startsWith(`prop:${kind}.`))
+      .sort((x, y) => (t.get(x) > t.get(y) ? 1 : -1)).map((k) => k.split('.')[1]);
+    // Code-point order, as the editor showed it: 'a0000005' < 'a000001'.
+  assert.deepEqual(order('rows'), ['r0', 'rX', 'r1', 'r2']);
+    for (const k of t.keys()) if (k.endsWith('.order')) assert.ok(validOrderKey(t.get(k)), t.get(k));
+    // Valid columns were left as they were.
+    assert.equal(t.get('prop:columns.c0.order'), 'a0V');
+    assert.equal(fixTableOrderKeys(doc), 0);
+  });
+
+test('stateWithValidTableKeys mends a copied state, and leaves a sound one untouched', async () => {
+  const { stateWithValidTableKeys } = await import('./blocks.js');
+  const doc = new Y.Doc();
+  const t = new Y.Map();
+  doc.getMap('blocks').set('t', t);
+  t.set('sys:flavour', 'affine:table');
+  t.set('prop:rows.r0.order', 'a000000');
+  const bad = Buffer.from(Y.encodeStateAsUpdate(doc));
+  const fixed = stateWithValidTableKeys(bad);
+  assert.notEqual(fixed, bad);
+  const back = new Y.Doc();
+  Y.applyUpdate(back, new Uint8Array(fixed));
+  assert.ok(validOrderKey(back.getMap('blocks').get('t').get('prop:rows.r0.order')));
+  assert.equal(stateWithValidTableKeys(fixed), fixed);
 });

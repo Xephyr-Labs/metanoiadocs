@@ -3,7 +3,7 @@ import {
   applyColumnDrop, insertColumnRow, planColumnDrop, sideForDrop, tidyColumns,
   type ModelLike, type Side, type StoreLike,
 } from './columns-dnd';
-import { allowColumnChildren, COLUMN_FLAVOUR, COLUMNS_FLAVOUR } from './columns-model';
+import { allowColumnChildren, COLUMN_FLAVOUR, COLUMNS_FLAVOUR, MAX_COLUMNS } from './columns-model';
 
 /** Just enough of a Store to move blocks around a tree. */
 function fakeStore() {
@@ -35,7 +35,10 @@ function fakeStore() {
     getParent: (model) => parents.get(model.id) ?? null,
     getModelById: (id) => byId.get(id) ?? null,
     addBlock: (flavour, _props, parent, index) => add(flavour, parent, index).id,
-    moveBlocks: (models, newParent, sibling, before) => {
+    moveBlocks: (models, parentRef, sibling, before) => {
+      // By id, like the real store — a parent made earlier in the same
+      // transaction is only an id there.
+      const newParent = byId.get(parentRef.id) ?? parentRef;
       for (const model of models) {
         detach(model);
         const kids = newParent.children!;
@@ -48,6 +51,29 @@ function fakeStore() {
     captureSync: () => {},
   };
   return store;
+}
+
+/**
+ * The fake store, plus what BlockSuite's store does inside `transact`: one Yjs
+ * update per call, and no model for a block added until the transaction ends.
+ */
+function transactingStore() {
+  const store = fakeStore();
+  let open = false;
+  const fresh = new Set<string>();
+  const updates = { count: 0 };
+  const addBlock = store.addBlock;
+  const getModelById = store.getModelById;
+  Object.assign(store, {
+    addBlock: (...a: Parameters<typeof addBlock>) => {
+      const id = addBlock(...a);
+      if (open) fresh.add(id); else updates.count++;
+      return id;
+    },
+    getModelById: (id: string) => (fresh.has(id) ? null : getModelById(id)),
+    transact: (fn: () => void) => { open = true; fn(); open = false; fresh.clear(); updates.count++; },
+  });
+  return { store, updates };
 }
 
 /** note > [p1, p2] — the shape every drop starts from. */
@@ -157,6 +183,26 @@ describe('planColumnDrop', () => {
     expect(plan(store, 'right', column, [p1])).toEqual({ kind: 'beside', columnId: column.id, side: 'right' });
   });
 
+  it('adds no column to a full row', () => {
+    const { store, note, p1 } = noteWithTwo();
+    const row = store.add(COLUMNS_FLAVOUR, note);
+    const columns = Array.from({ length: MAX_COLUMNS - 1 }, () => store.add(COLUMN_FLAVOUR, row));
+    const inside = store.add('affine:paragraph', columns[0]);
+    expect(plan(store, 'right', inside, [p1])?.kind).toBe('beside');
+    store.add(COLUMN_FLAVOUR, row);
+    expect(plan(store, 'right', inside, [p1])).toBeNull();
+    expect(plan(store, 'left', columns[0], [p1])).toBeNull();
+  });
+
+  it('still lets a full row rearrange its own columns', () => {
+    const { store, note } = noteWithTwo();
+    const row = store.add(COLUMNS_FLAVOUR, note);
+    const columns = Array.from({ length: MAX_COLUMNS }, () => store.add(COLUMN_FLAVOUR, row));
+    const blocks = columns.map((c) => store.add('affine:paragraph', c));
+    // The last column's only block, dropped beside the first: that column empties.
+    expect(plan(store, 'left', blocks[0], [blocks[MAX_COLUMNS - 1]])?.kind).toBe('beside');
+  });
+
   it('leaves containers that own their own layout alone', () => {
     const { store, note, p1 } = noteWithTwo();
     const callout = store.add('affine:callout', note);
@@ -238,6 +284,45 @@ describe('tidyColumns', () => {
     store.readonly = true;
     expect(tidyColumns(store, note)).toBe(false);
     expect(row.children!.length).toBe(1);
+  });
+});
+
+describe('one Yjs update per edit', () => {
+  const seed = () => {
+    const { store, updates } = transactingStore();
+    const note = store.add('affine:note');
+    const p1 = store.add('affine:paragraph', note);
+    const p2 = store.add('affine:paragraph', note);
+    return { store, updates, note, p1, p2 };
+  };
+
+  it('builds a whole row in one transaction', () => {
+    const { store, updates, note, p1, p2 } = seed();
+    const row = applyColumnDrop(store, { kind: 'wrap', targetId: p1.id, side: 'left' }, [p2]);
+    expect(updates.count).toBe(1);
+    expect(note.children!.map(c => c.flavour)).toEqual([COLUMNS_FLAVOUR, 'affine:paragraph']);
+    expect(row!.children!.map(c => c.children!.map(b => b.id))).toEqual([[p2.id], [p1.id]]);
+  });
+
+  it('adds a column beside, and the trailing line, in one transaction', () => {
+    const { store, updates, note, p1 } = seed();
+    const row = store.add(COLUMNS_FLAVOUR, note);
+    const a = store.add(COLUMN_FLAVOUR, row);
+    store.add('affine:paragraph', a);
+    store.add(COLUMN_FLAVOUR, row);
+    // The row ends the note once p1 has moved out from under it.
+    applyColumnDrop(store, { kind: 'beside', columnId: a.id, side: 'right' }, [p1]);
+    expect(updates.count).toBe(1);
+    expect(row.children![1].children!.map(c => c.id)).toEqual([p1.id]);
+    expect(note.children!.map(c => c.flavour)).toEqual(['affine:paragraph', COLUMNS_FLAVOUR, 'affine:paragraph']);
+  });
+
+  it('seeds a row from the slash menu in one transaction', () => {
+    const { store, updates, note, p2 } = seed();
+    const id = insertColumnRow(store, p2, 2);
+    expect(updates.count).toBe(1);
+    expect(note.children!.map(c => c.flavour)).toEqual(['affine:paragraph', 'affine:paragraph', COLUMNS_FLAVOUR, 'affine:paragraph']);
+    expect(store.getModelById(id!)!.children!.map(c => c.children!.length)).toEqual([1, 1]);
   });
 });
 

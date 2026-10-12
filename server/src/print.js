@@ -148,6 +148,12 @@ a { color: #1b64da; text-decoration: none; }
  * A standalone HTML page for one document. `auto` makes it open the print
  * dialog on load, which is the whole point when it is opened from "Export PDF".
  */
+/** Just the page's body, rendered the same safe way: the editor shows it while
+ *  BlockSuite is still starting, so a page can be read before it is editable. */
+export function bodyHtml(markdown) {
+  return blocksToHtml(parseMarkdown(markdown).map(imageDescAsParagraph));
+}
+
 export function printHtml({ title, icon, markdown, meta, auto = true }) {
   const body = blocksToHtml(parseMarkdown(markdown).map(imageDescAsParagraph));
   return `<!doctype html>

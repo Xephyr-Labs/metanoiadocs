@@ -5,7 +5,7 @@
 // The geometry lives in `lib/align.ts` and is tested there; this file only
 // reads the selection, hands it over, and writes back what moved.
 import { Bound } from '@blocksuite/affine/global/gfx';
-import { GfxControllerIdentifier } from '@blocksuite/affine/std/gfx';
+import { GfxControllerIdentifier, isGfxGroupCompatibleModel } from '@blocksuite/affine/std/gfx';
 import { alignBoxes, movedBoxes, MIN_FOR, type AlignMode, type Box } from '../lib/align';
 
 /** Loosely typed at the BlockSuite boundary, like the rest of our editor glue. */
@@ -72,10 +72,30 @@ export function applyAlign(editor: Element | null, mode: AlignMode): number {
   const moved = movedBoxes(before, after);
   if (!moved.length) return 0;
 
+  const selected = new Set(elements);
   gfx.doc.transact(() => {
     for (const i of moved) {
       const b = after[i];
-      gfx.updateElement(elements[i], { xywh: new Bound(b.x, b.y, b.w, b.h).serialize() });
+      const el = elements[i];
+      gfx.updateElement(el, { xywh: new Bound(b.x, b.y, b.w, b.h).serialize() });
+      if (!isGfxGroupCompatibleModel(el)) continue;
+      // A group's (or mind map's) xywh is derived from its children and its
+      // setter is a no-op, so the write above moved nothing; a frame does move,
+      // but leaves its contents behind. Shift every descendant by the same
+      // offset, the way BlockSuite's own drag does. A nested group's write is
+      // the same harmless no-op; anything also selected on its own already has
+      // its own target.
+      const dx = b.x - before[i].x;
+      const dy = b.y - before[i].y;
+      // Contents of a group nested in this one that is selected too follow
+      // that group's own move, not this one's as well.
+      const nested = (el.descendantElements as Any[]).filter((x) => selected.has(x) && isGfxGroupCompatibleModel(x));
+      for (const d of el.descendantElements as Any[]) {
+        if (selected.has(d)) continue;
+        if (nested.some((n) => (n.descendantElements as Any[]).includes(d))) continue;
+        const db = Bound.deserialize(d.xywh);
+        gfx.updateElement(d, { xywh: new Bound(db.x + dx, db.y + dy, db.w, db.h).serialize() });
+      }
     }
   });
   return moved.length;

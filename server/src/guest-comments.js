@@ -22,6 +22,7 @@
 import crypto from 'node:crypto';
 import { pool } from './db.js';
 import { withReactions } from './reactions.js';
+import { commentAnchors } from './text-match.js';
 
 export const SHARE_ACCESS = ['view', 'comment'];
 export const shareAccess = (value) => (value === 'comment' ? 'comment' : 'view');
@@ -98,9 +99,16 @@ export function registerGuestCommentRoutes(app, { wrap, notify, emit, changed = 
     const doc = await commentable(req, res);
     if (!doc) return;
     const { rows } = await pool.query(
-      `SELECT id, block_id, quote, body, author_name, guest, parent_id, resolved, created_at, edited_at,
-              kind, suggestion, suggestion_status
-         FROM comments WHERE doc_id = $1 AND task_id IS NULL ORDER BY created_at ASC`,
+      // A member's stored author_name is their email when they had no display
+      // name (the member route falls back to it), so for members the name is
+      // read from the account instead — the same one reactions show.
+      `SELECT c.id, c.block_id, c.quote, c.body,
+              CASE WHEN c.guest THEN c.author_name
+                   ELSE coalesce(nullif(u.name, ''), u.username, 'Team member') END AS author_name,
+              c.guest, c.parent_id, c.resolved, c.created_at, c.edited_at,
+              c.kind, c.suggestion, c.suggestion_status, c.quote_occurrence, c.anchor_start, c.anchor_end
+         FROM comments c LEFT JOIN users u ON u.id = c.author_id
+        WHERE c.doc_id = $1 AND c.task_id IS NULL ORDER BY c.created_at ASC`,
       [doc.id],
     );
     // Who reacted, by name only — a guest sees the same counts members do.
@@ -135,10 +143,15 @@ export function registerGuestCommentRoutes(app, { wrap, notify, emit, changed = 
     const key = crypto.randomBytes(24).toString('base64url');
     const blockId = typeof req.body?.blockId === 'string' ? req.body.blockId.slice(0, 64) : null;
     await pool.query(
-      `INSERT INTO comments (id, doc_id, block_id, quote, body, author_id, author_name, parent_id, guest, guest_key_hash)
-       VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, true, $8)`,
+      `INSERT INTO comments (id, doc_id, block_id, quote, body, author_id, author_name, parent_id, guest, guest_key_hash, quote_occurrence,
+                             anchor_start, anchor_end)
+       VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, true, $8, $9, $10, $11)`,
       [id, doc.id, parentId ? null : blockId, parentId ? '' : String(req.body?.quote || '').slice(0, 500),
-       body, name, parentId, hashKey(key)],
+       body, name, parentId, hashKey(key),
+       // Which copy of the quoted words in that block, as for a member's comment;
+       // without it a guest's highlight lands on the first "the" in the line.
+       Math.max(0, Math.min(1000, Number.parseInt(req.body?.occurrence, 10) || 0)),
+       ...commentAnchors(parentId ? null : req.body)],
     );
     notify({ commentId: id, docId: doc.id, body, actor: { id: null, name: `${name} (guest)` }, mentions: false, parentId })
       .catch((e) => console.error('[notify] guest comment:', e.message));

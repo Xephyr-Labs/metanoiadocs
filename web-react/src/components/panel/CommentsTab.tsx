@@ -96,7 +96,9 @@ export function CommentsTab({ docId }: { docId: string }) {
   // panel slide-in, which otherwise steals focus back.
   useEffect(() => {
     if (!anchor) return;
-    if (anchor.mode === 'suggest') setReplacement(anchor.quote);
+    // The passage as the block has it: prefilled from the collapsed quote, a
+    // line break inside it came back as a space and was accepted that way.
+    if (anchor.mode === 'suggest') setReplacement(anchor.raw ?? anchor.quote);
     setFilter(anchor.mode === 'suggest' ? 'suggestions' : 'open');
     const t = setTimeout(() => (anchor.mode === 'suggest' ? replacementRef : inputRef).current?.focus(), 300);
     return () => clearTimeout(t);
@@ -123,9 +125,12 @@ export function CommentsTab({ docId }: { docId: string }) {
     const body = draft.trim();
     if (busy) return;
     if (suggesting && anchor) {
-      if (replacement === anchor.quote) { toast('Change the text to suggest something different'); return; }
+      if (replacement === (anchor.raw ?? anchor.quote)) { toast('Change the text to suggest something different'); return; }
       await run('add', async () => {
-        await docsApi.addComment(docId, body, { blockId: anchor.blockId, quote: anchor.quote, occurrence: anchor.occurrence, kind: 'suggestion', suggestion: replacement });
+        await docsApi.addComment(docId, body, {
+          blockId: anchor.blockId, quote: anchor.quote, occurrence: anchor.occurrence,
+          anchorStart: anchor.anchorStart, anchorEnd: anchor.anchorEnd, kind: 'suggestion', suggestion: replacement,
+        });
         setDraft('');
         setReplacement('');
         clearPendingAnchor();
@@ -134,7 +139,9 @@ export function CommentsTab({ docId }: { docId: string }) {
     }
     if (!body) return;
     await run('add', async () => {
-      await docsApi.addComment(docId, body, anchor ? { blockId: anchor.blockId, quote: anchor.quote, occurrence: anchor.occurrence } : undefined);
+      await docsApi.addComment(docId, body, anchor
+        ? { blockId: anchor.blockId, quote: anchor.quote, occurrence: anchor.occurrence, anchorStart: anchor.anchorStart, anchorEnd: anchor.anchorEnd }
+        : undefined);
       setDraft('');
       clearPendingAnchor();
     }, 'Could not post the comment');

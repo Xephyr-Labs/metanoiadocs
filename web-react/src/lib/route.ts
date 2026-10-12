@@ -69,6 +69,13 @@ export interface Route {
 /** The parsing half, kept apart from `location` so it can be tested without a
  *  DOM — this suite runs in node, and a route is exactly the sort of thing
  *  worth a test. */
+/** decodeURIComponent that keeps a malformed escape ("%E0%A4%A") as typed:
+ *  parseRoute runs inside a capture click handler, where a throw would break
+ *  every link click on the page. */
+const decode = (s: string) => {
+  try { return decodeURIComponent(s); } catch { return s; }
+};
+
 export function parseRoute(pathname: string, hash = '', search = ''): Route {
   const doc = DOC_PATH.exec(pathname) ?? AFFINE_PATH.exec(pathname);
   const folder = FOLDER_PATH.exec(pathname);
@@ -78,11 +85,11 @@ export function parseRoute(pathname: string, hash = '', search = ''): Route {
   const legacyBlock = AFFINE_PATH.test(pathname) ? new URLSearchParams(search).get('blockIds')?.split(',')[0] : null;
   const fragment = hash.replace(/^#/, '') || legacyBlock || '';
   return {
-    docId: doc ? decodeURIComponent(doc[1]) : null,
-    folderId: folder ? decodeURIComponent(folder[1]) : null,
-    projectId: db ? decodeURIComponent(db[1]) : null,
-    viewId: db?.[2] ? decodeURIComponent(db[2]) : null,
-    blockId: fragment ? decodeURIComponent(fragment) : null,
+    docId: doc ? decode(doc[1]) : null,
+    folderId: folder ? decode(folder[1]) : null,
+    projectId: db ? decode(db[1]) : null,
+    viewId: db?.[2] ? decode(db[2]) : null,
+    blockId: fragment ? decode(fragment) : null,
     taskId: db ? new URLSearchParams(search).get('task') : null,
   };
 }

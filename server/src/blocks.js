@@ -151,8 +151,10 @@ export function collectMarkdownLinks(markdown, resolveLink) {
 const isTableLine = (l) => /^\s*\|.*\|\s*$/.test(l);
 const isTableSep = (cells) => cells.length > 0 && cells.every((c) => /^:?-{1,}:?$/.test(c.trim()));
 const splitRow = (l) => {
-  // "| a | b |" -> ["a","b"] — drop the empty edges from the border pipes.
-  const parts = l.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim());
+  // "| a | b |" -> ["a","b"] — drop the empty edges from the border pipes. A
+  // `\|` is a pipe inside a cell (the export writes them that way), not a border.
+  const parts = l.trim().replace(/^\|/, '').replace(/\|$/, '').split(/(?<!\\)\|/)
+    .map((c) => c.trim().replace(/\\\|/g, '|'));
   return parts;
 };
 
@@ -163,12 +165,17 @@ const indentDepth = (s) => Math.floor(s.replace(/\t/g, '  ').length / 2);
 
 // Panel types, as the web editor stores them (`prop:mnPanel`, see
 // web-react/src/editor/callout.ts). GitHub's five alert names map onto them.
+// A plain callout has no panel type at all — the editor stores neutral as the
+// prop's absence — and is written `[!CALLOUT 💡]`, its emoji inside the marker,
+// because that emoji is all that tells one plain callout from another.
 const PANEL_EMOJI = { info: 'ℹ️', note: '📝', success: '✅', warning: '⚠️', error: '❌' };
 const PANEL_ALIASES = {
   info: 'info', note: 'note', success: 'success', warning: 'warning', error: 'error',
-  tip: 'success', important: 'info', caution: 'error', danger: 'error',
+  tip: 'success', important: 'info', caution: 'error', danger: 'error', callout: null,
 };
-const PANEL_RE = new RegExp(`^>\\s?\\[!(${Object.keys(PANEL_ALIASES).join('|')})\\]\\s*(.*)$`, 'i');
+// BlockSuite's own default icon, for a plain callout written without one.
+const CALLOUT_EMOJI = '😀';
+const PANEL_RE = new RegExp(`^>\\s?\\[!(${Object.keys(PANEL_ALIASES).join('|')})(?:\\s+([^\\]\\s]+))?\\]\\s*(.*)$`, 'i');
 
 /** Markdown → flat block descriptors (block-level structure; inline text is literal). */
 export function parseMarkdown(md) {
@@ -227,7 +234,7 @@ export function parseMarkdown(md) {
     // is kept as its text.
     if ((m = line.match(PANEL_RE))) {
       const inner = [];
-      if (m[2].trim()) inner.push(m[2]);
+      if (m[3].trim()) inner.push(m[3]);
       while (i + 1 < lines.length && /^>/.test(lines[i + 1])) inner.push(lines[++i].replace(/^>\s?/, ''));
       const panel = PANEL_ALIASES[m[1].toLowerCase()];
       // A panel quoted inside this one (`> > [!WARNING]`) cannot nest, so its
@@ -240,7 +247,7 @@ export function parseMarkdown(md) {
             : [{ flavour: 'affine:paragraph', type: 'text', text: d.text ?? (d.rows || []).map((r) => r.join(' | ')).join(' ') }]);
       // An empty panel still needs a line to type into.
       if (!children.length) children.push({ flavour: 'affine:paragraph', type: 'text', text: '' });
-      out.push({ flavour: 'affine:callout', panel, emoji: PANEL_EMOJI[panel], children });
+      out.push({ flavour: 'affine:callout', panel, emoji: m[2] || PANEL_EMOJI[panel] || CALLOUT_EMOJI, children });
       blank = false;
       continue;
     }
@@ -285,8 +292,8 @@ export const imageDescAsParagraph = (d) =>
 const calloutAsQuote = (d) => ({
   flavour: 'affine:paragraph',
   type: 'quote',
-  text: [`**${d.panel[0].toUpperCase()}${d.panel.slice(1)}:**`,
-    ...d.children.map((c) => c.text)].join(' '),
+  text: [d.panel ? `**${d.panel[0].toUpperCase()}${d.panel.slice(1)}:**` : d.emoji,
+    ...d.children.map((c) => c.text)].filter(Boolean).join(' '),
 });
 
 const imageAsParagraph = (d) =>
@@ -333,15 +340,18 @@ function makeBlock(blocks, desc, resolveLink, pending) {
   } else if (desc.flavour === 'affine:callout') {
     b.set('prop:emoji', desc.emoji);
     b.set('prop:text', new Y.Text());
-    b.set('prop:mnPanel', desc.panel);
+    if (desc.panel) b.set('prop:mnPanel', desc.panel);
     // `b` is not in the doc yet, so read back through it would be undefined.
     children.push(makeBlocks(blocks, desc.children, resolveLink, pending));
   } else if (desc.flavour === 'affine:table') {
     // BlockSuite 0.22 table: flat keys — prop:rows.<id>.{rowId,order},
     // prop:columns.<id>.{columnId,order}, prop:cells.<row>:<col>.text.
-    // `order` is a lexicographically-sortable fractional-index string; a fixed
-    // zero-padded counter sorts identically and stays simple.
-    const orderKey = (n) => 'a' + String(n).padStart(6, '0');
+    // `order` is a fractional-index key (the `fractional-indexing` package the
+    // editor inserts rows with). A fixed zero-padded counter sorts identically
+    // and stays simple — but that package rejects a key whose fraction ends in
+    // '0' (a000000, a000010), and then the editor cannot add a row or column
+    // beside it. The trailing '1' keeps every key valid and the order intact.
+    const orderKey = (n) => 'a' + String(n).padStart(6, '0') + '1';
     const rows = desc.rows || [];
     const colCount = rows.reduce((m, r) => Math.max(m, r.length), 0) || 1;
     const rowIds = rows.map(() => blockId());
@@ -638,8 +648,11 @@ function tableMarkdown(b, opts) {
     if (m) cols.push({ id: m[1], order: String(b.get(key) ?? '') });
   }
   if (!rows.length || !cols.length) return '';
-  rows.sort((x, y) => x.order.localeCompare(y.order));
-  cols.sort((x, y) => x.order.localeCompare(y.order));
+  // By code point, as the editor sorts them (table-data-manager.ts). Fractional
+  // keys mix cases — 'aZ' sorts before 'aa' — and localeCompare flips those.
+  const byOrder = (x, y) => (x.order > y.order ? 1 : -1);
+  rows.sort(byOrder);
+  cols.sort(byOrder);
   // A cell may hold newlines and pipes; both would break the row apart.
   const cell = (r, c) =>
     inlineMarkdown(b.get(`prop:cells.${r}:${c}.text`), opts).replace(/\|/g, '\\|').replace(/\n+/g, ' ').trim();
@@ -742,8 +755,11 @@ export function docToMarkdown(existing, opts = {}) {
         if (kids instanceof Y.Array) for (const c of kids.toArray()) walk(c, 0);
         const body = joinParts(parts);
         parts = outer;
-        const panel = String(b.get('prop:mnPanel') || 'note').toUpperCase();
-        parts.push({ text: [`> [!${panel}]`, ...(body ? body.split('\n') : [])].map((l, i) => (i && l ? `> ${l}` : i ? '>' : l)).join('\n') });
+        const panel = b.get('prop:mnPanel');
+        const marker = PANEL_EMOJI[panel]
+          ? `> [!${panel.toUpperCase()}]`
+          : `> [!CALLOUT${b.get('prop:emoji') ? ` ${b.get('prop:emoji')}` : ''}]`;
+        parts.push({ text: [marker, ...(body ? body.split('\n') : [])].map((l, i) => (i && l ? `> ${l}` : i ? '>' : l)).join('\n') });
         return;
       }
       case 'affine:latex':
@@ -789,6 +805,24 @@ function joinParts(parts) {
 }
 
 /**
+ * The note an append lands in: the page's first note that shows in page view.
+ * Map order is not page order, and the first note found may be one set to
+ * edgeless-only — text appended there never shows on the page. With no such
+ * note, any note still beats none: a false return makes the caller rewrite the
+ * whole body, which would throw away what the canvas holds.
+ */
+function bodyNote(blocks) {
+  const isNote = (b) => b instanceof Y.Map && b.get('sys:flavour') === 'affine:note';
+  const page = [...blocks.values()].find((b) => b instanceof Y.Map && b.get('sys:flavour') === 'affine:page');
+  const kids = page?.get('sys:children');
+  const notes = (kids instanceof Y.Array ? kids.toArray() : []).map((id) => blocks.get(id)).filter(isNote);
+  return notes.find((n) => n.get('prop:displayMode') !== 'edgeless')
+    ?? notes[0]
+    ?? [...blocks.values()].find(isNote)
+    ?? null;
+}
+
+/**
  * Append a paragraph holding one page reference to a LIVE Yjs document.
  *
  * Unlike the functions either side of this one, it mutates a doc it is handed
@@ -806,10 +840,7 @@ function joinParts(parts) {
  */
 export function appendPageReference(doc, pageId) {
   const blocks = doc.getMap('blocks');
-  let note = null;
-  for (const [, b] of blocks) {
-    if (b instanceof Y.Map && b.get('sys:flavour') === 'affine:note') { note = b; break; }
-  }
+  const note = bodyNote(blocks);
   if (!note) return false;
   const children = note.get('sys:children');
   if (!(children instanceof Y.Array)) return false;
@@ -835,11 +866,8 @@ export function appendPageReference(doc, pageId) {
  */
 export function appendMarkdownToDoc(doc, markdown) {
   const blocks = doc.getMap('blocks');
-  // find the note (first affine:note); a doc without one has no body yet.
-  let note = null;
-  for (const [, b] of blocks) {
-    if (b instanceof Y.Map && b.get('sys:flavour') === 'affine:note') { note = b; break; }
-  }
+  // A doc without a note has no body yet.
+  const note = bodyNote(blocks);
   if (!note) return false;
   const descs = parseMarkdown(markdown);
   const pending = [];
@@ -939,4 +967,66 @@ export function normalizeDocState(existing, opts = {}) {
   applyMarks(pending);
 
   return Y.encodeStateAsUpdate(doc);
+}
+
+/**
+ * Whether BlockSuite's table will accept `key` as an order key. Its table
+ * sorts rows and columns with the fractional-indexing library, which rejects
+ * any key whose fractional part ends in "0" (and the one smallest key); the
+ * server's own tables used to be written with such keys (a000000, a000010…),
+ * and next to one the editor could add no row or column. Mirrors the
+ * library's validateOrderKey.
+ */
+export function validOrderKey(key) {
+  if (typeof key !== 'string' || !/^[0-9A-Za-z]+$/.test(key)) return false;
+  const head = key.charCodeAt(0);
+  let intLen;
+  if (head >= 97 && head <= 122) intLen = head - 97 + 2; // a..z
+  else if (head >= 65 && head <= 90) intLen = 90 - head + 2; // A..Z
+  else return false;
+  if (key.length < intLen) return false;
+  if (key === 'A' + '0'.repeat(26)) return false;
+  return !key.slice(intLen).endsWith('0');
+}
+
+/**
+ * Give every table in `doc` valid row and column order keys, keeping the
+ * order the editor shows (code-point order of the old keys). Only a table
+ * with at least one invalid key is touched, and then all of its rows (or
+ * columns) are renumbered, so the result is a clean sequence. Returns how many
+ * tables changed. Safe to run again: a fixed table has nothing invalid left.
+ */
+export function fixTableOrderKeys(doc) {
+  const orderKey = (n) => 'a' + String(n).padStart(6, '0') + '1';
+  let fixed = 0;
+  doc.transact(() => {
+    for (const [, b] of doc.getMap('blocks')) {
+      if (!(b instanceof Y.Map) || b.get('sys:flavour') !== 'affine:table') continue;
+      let changed = false;
+      for (const kind of ['rows', 'columns']) {
+        const re = new RegExp(`^prop:${kind}\\.(.+)\\.order$`);
+        const entries = [];
+        for (const k of b.keys()) {
+          const m = re.exec(k);
+          if (m) entries.push({ k, v: b.get(k) });
+        }
+        if (!entries.length || entries.every((e) => validOrderKey(e.v))) continue;
+        entries.sort((x, y) => (String(x.v) > String(y.v) ? 1 : String(x.v) < String(y.v) ? -1 : 0));
+        entries.forEach((e, i) => b.set(e.k, orderKey(i)));
+        changed = true;
+      }
+      if (changed) fixed++;
+    }
+  });
+  return fixed;
+}
+
+/** A stored state with its tables' order keys made valid (see above); the
+ *  same bytes back when there was nothing to mend. For states copied in
+ *  whole — a version restored as a new page, a draft — that would otherwise
+ *  bring back keys the boot repair fixed. */
+export function stateWithValidTableKeys(state) {
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, new Uint8Array(state));
+  return fixTableOrderKeys(doc) ? Buffer.from(Y.encodeStateAsUpdate(doc)) : state;
 }

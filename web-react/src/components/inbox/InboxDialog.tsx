@@ -114,6 +114,7 @@ const INBOX_VERBS: Partial<Record<string, string>> = {
   suggestion_rejected: 'declined your suggestion on',
   review_requested: 'asked you to review changes to',
   review_done: 'reviewed your changes to',
+  integrity: 'found a problem in',
 };
 
 export function InboxDialog() {

@@ -80,7 +80,9 @@ export function attachColumns({
 }: {
   editor: Element & { std?: StdLike };
   store: StoreLike & { id?: string; doc?: { id?: string }; root?: ModelLike | null };
-  onChange: (cb: () => void) => () => void;
+  /** Y.Doc 'update' listener signature; the transaction says whether the
+   *  change was made here or applied from a collaborator. */
+  onChange: (cb: (update: unknown, origin: unknown, doc: unknown, tr?: { local?: boolean }) => void) => () => void;
 }): () => void {
   const docIds = [store.id, store.doc?.id].filter(Boolean) as string[];
 
@@ -329,12 +331,20 @@ export function attachColumns({
   // Empty columns can also appear without us — a backspace, or the built-in
   // handler moving a column's last block away — so the sweep runs on document
   // change, one frame later so it sees the finished state.
+  //
+  // Only changes made on this client, though (undo included). A collaborator's
+  // edit can arrive split across several updates, applied in separate tasks;
+  // sweeping between them deleted a row they were still filling, orphaning the
+  // block they were moving into it. Their own client tidies their own edits.
   let frame = 0;
   const sweep = () => {
     frame = 0;
     try { tidyColumns(store, store.root); } catch { /* mid-transaction: next change */ }
   };
-  const schedule = () => { if (!frame) frame = requestAnimationFrame(sweep); };
+  const schedule = (_update: unknown, _origin: unknown, _doc: unknown, tr?: { local?: boolean }) => {
+    if (tr?.local === false) return;
+    if (!frame) frame = requestAnimationFrame(sweep);
+  };
   const off = onChange(schedule);
 
   return () => {

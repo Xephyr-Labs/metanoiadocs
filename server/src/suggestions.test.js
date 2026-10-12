@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as Y from 'yjs';
 import { buildDocState, extractText } from './blocks.js';
-import { applyTextSuggestion, applyChange, computeChanges, docFromState, parseDraftName, draftName, syncText } from './suggestions.js';
+import { applyTextSuggestion, applyChange, computeChanges, docFromState, parseDraftName, draftName, registerSuggestionRoutes, syncText } from './suggestions.js';
 import { findQuote } from './text-match.js';
 
 const state = (doc) => Y.encodeStateAsUpdate(doc);
@@ -143,4 +143,190 @@ test('accepting a removed block keeps the children the page still has', () => {
   const text = extractText(state(main)).text;
   assert.doesNotMatch(text, /Parent line/);
   assert.match(text, /Child line/);
+});
+
+test('accepting a new bullet that the draft indented an existing bullet under moves it, not copies it', () => {
+  const { base, draft, main } = fork('- first\n- second\n');
+  // Suggester adds bullet N after "first" and indents "second" under it.
+  const x = textBlock(draft, 'second');
+  draft.transact(() => {
+    const blocks = draft.getMap('blocks');
+    let noteKids;
+    for (const [, b] of blocks) {
+      const kids = b.get('sys:children');
+      if (kids instanceof Y.Array && kids.toArray().includes(x.id)) noteKids = kids;
+    }
+    noteKids.delete(noteKids.toArray().indexOf(x.id), 1);
+    const n = new Y.Map();
+    n.set('sys:id', 'bullet-n');
+    n.set('sys:flavour', 'affine:list');
+    n.set('prop:type', 'bulleted');
+    const t = new Y.Text(); t.insert(0, 'new'); n.set('prop:text', t);
+    const kids = new Y.Array(); kids.push([x.id]); n.set('sys:children', kids);
+    blocks.set('bullet-n', n);
+    noteKids.push(['bullet-n']);
+  });
+  const baseDoc = docFromState(base);
+  const added = computeChanges(baseDoc, draft, main).find((c) => c.kind === 'added');
+  assert.equal(applyChange(main, draft, baseDoc, added), true);
+
+  const parents = [...main.getMap('blocks')]
+    .filter(([, b]) => b.get('sys:children')?.toArray().includes(x.id))
+    .map(([id]) => id);
+  assert.deepEqual(parents, ['bullet-n'], 'one parent, the new bullet');
+  assert.equal(extractText(state(main)).text, 'first\nnew\nsecond');
+});
+test('accepting a suggestion keeps the line breaks it did not change', () => {
+  const doc = docFromState(buildDocState('T', 'placeholder\n'));
+  const { id, text } = textBlock(doc, 'placeholder');
+  text.delete(0, text.length);
+  text.insert(0, 'line one\nline two');
+  assert.equal(applyTextSuggestion(doc, id, 'one line two', 'one line 2'), true);
+  assert.equal(text.toString(), 'line one\nline 2');
+  assert.equal(applyTextSuggestion(doc, id, 'line one line 2', 'line one\nline 3'), true);
+  assert.equal(text.toString(), 'line one\nline 3');
+  // A blank line between, typed over as one space, is still a blank line.
+  text.insert(8, '\n');
+  assert.equal(applyTextSuggestion(doc, id, 'one line 3', 'one line three'), true);
+  assert.equal(text.toString(), 'line one\n\nline three');
+});
+
+test('accepting a suggestion leaves formatting where it was', () => {
+  const doc = docFromState(buildDocState('T', 'Bold and plain\n'));
+  const { id, text } = textBlock(doc, 'Bold and plain');
+  text.format(0, 4, { bold: true });
+  assert.equal(applyTextSuggestion(doc, id, 'Bold and plain', 'Bold and simple'), true);
+  assert.deepEqual(text.toDelta(), [{ insert: 'Bold', attributes: { bold: true } }, { insert: ' and simple' }]);
+  assert.equal(applyTextSuggestion(doc, id, 'Bold and', 'Strong and'), true);
+  assert.deepEqual(text.toDelta(), [{ insert: 'Strong', attributes: { bold: true } }, { insert: ' and simple' }]);
+});
+
+test('a suggestion with anchors changes its own copy, or nothing', () => {
+  const at = (text, i, assoc) => Buffer.from(Y.encodeRelativePosition(Y.createRelativePositionFromTypeIndex(text, i, assoc))).toString('base64');
+  const doc = docFromState(buildDocState('T', 'the cat and the dog\n'));
+  const { id, text } = textBlock(doc, 'the cat and the dog');
+  const anchors = { start: at(text, 12, 0), end: at(text, 15, -1) }; // the second "the"
+  text.insert(0, 'the ');
+  assert.equal(applyTextSuggestion(doc, id, 'the', 'a', 1, anchors), true);
+  assert.equal(text.toString(), 'the the cat and a dog');
+
+  const doc2 = docFromState(buildDocState('T', 'the cat and the dog\n'));
+  const b = textBlock(doc2, 'the cat and the dog');
+  const anchors2 = { start: at(b.text, 12, 0), end: at(b.text, 15, -1) };
+  b.text.delete(12, 4);
+  assert.equal(applyTextSuggestion(doc2, b.id, 'the', 'a', 1, anchors2), false);
+  assert.equal(b.text.toString(), 'the cat and dog');
+});
+
+test('accepting the removal of a column\'s only block takes the empty column and row with it', () => {
+  const base = docFromState(buildDocState('T', 'Above\n\nLeft\n'));
+  const blocks = base.getMap('blocks');
+  const left = textBlock(base, 'Left');
+  const above = textBlock(base, 'Above');
+  const box = (id, flavour, kids) => {
+    const m = new Y.Map();
+    m.set('sys:id', id);
+    m.set('sys:flavour', flavour);
+    const arr = new Y.Array(); arr.push(kids); m.set('sys:children', arr);
+    blocks.set(id, m);
+  };
+  base.transact(() => {
+    for (const [, b] of blocks) {
+      const kids = b.get('sys:children');
+      if (kids instanceof Y.Array && kids.toArray().includes(left.id)) {
+        kids.delete(kids.toArray().indexOf(left.id), 1);
+        box('col', 'metanoia:column', [left.id]);
+        box('row', 'metanoia:columns', ['col']);
+        kids.push(['row']);
+      }
+    }
+  });
+  const draft = docFromState(state(base));
+  const main = docFromState(state(base));
+  draft.transact(() => {
+    draft.getMap('blocks').get('col').get('sys:children').delete(0, 1);
+    draft.getMap('blocks').delete(left.id);
+  });
+  const baseDoc = docFromState(state(base));
+  const removed = computeChanges(baseDoc, draft, main).find((c) => c.kind === 'removed' && c.id === left.id);
+  assert.equal(applyChange(main, draft, baseDoc, removed), true);
+  const mb = main.getMap('blocks');
+  assert.equal(mb.has('col'), false);
+  assert.equal(mb.has('row'), false);
+  assert.ok(mb.has(above.id));
+  assert.ok(![...mb.values()].some((b) => b.get('sys:children')?.toArray().includes('row')));
+});
+
+test('a review decision does not overwrite an edit made to the page after the review was listed', async () => {
+  const { base, draft, main } = fork('Shared line.\n');
+  textBlock(draft, 'Shared line.').text.insert(0, 'Draft ');
+  const [c] = computeChanges(docFromState(base), draft, main);
+  textBlock(main, 'Shared line.').text.insert(0, 'Owner ');
+
+  const routes = {};
+  const app = { get() {}, delete() {}, post: (path, ...h) => { routes[path] = h[h.length - 1]; } };
+  const row = {
+    id: 's1', doc_id: 'd1', author_id: 'u2', status: 'submitted', decisions: {},
+    base_state: Buffer.from(base), state: Buffer.from(state(draft)),
+  };
+  registerSuggestionRoutes(app, {
+    requireUser: () => {}, wrap: (fn) => fn,
+    pool: { query: async (sql) => ({ rows: /^\s*SELECT/.test(sql) ? [row] : [], rowCount: 1 }) },
+    grantOn: async () => 'owner', canEdit: () => true, canSuggest: () => true,
+    getHocuspocus: () => ({
+      documents: new Map(),
+      openDirectConnection: async () => ({ transact: async (fn) => fn(main), disconnect: async () => {} }),
+    }),
+    notifyUser: async () => {}, recordDocEditors: async () => {},
+  });
+  let out;
+  await routes['/api/suggestions/:sid/decide'](
+    { params: { sid: 's1' }, user: { id: 'u1' }, body: { accept: [{ id: c.id, sig: c.sig, mainSig: c.mainSig }] } },
+    { status() { return this; }, json(v) { out = v; } },
+  );
+  assert.equal(out.applied, 0);
+  assert.equal(out.stale, 1);
+  assert.ok(textBlock(main, 'Owner Shared line.'), 'the owner\'s edit is still there');
+});
+
+test('anchored suggestions still apply after a version restore rewrote the page', async () => {
+  const { rewriteDoc } = await import('./restore.js');
+  const at = (text, i, assoc) => Buffer.from(Y.encodeRelativePosition(Y.createRelativePositionFromTypeIndex(text, i, assoc))).toString('base64');
+  const doc = docFromState(buildDocState('T', 'the cat and the dog\n'));
+  const { text } = textBlock(doc, 'the cat and the dog');
+  const anchors = { start: at(text, 12, 0), end: at(text, 15, -1) }; // the second "the"
+  // Restore the very same state: every block is rewritten into new text.
+  rewriteDoc(doc, Y.encodeStateAsUpdate(doc));
+  const now = textBlock(doc, 'the cat and the dog');
+  assert.notEqual(now.text, text);
+  assert.equal(applyTextSuggestion(doc, now.id, 'the', 'a', 1, anchors), true);
+  assert.equal(now.text.toString(), 'the cat and a dog');
+});
+
+test('anchors into another block that still exists are refused', () => {
+  const at = (text, i, assoc) => Buffer.from(Y.encodeRelativePosition(Y.createRelativePositionFromTypeIndex(text, i, assoc))).toString('base64');
+  const doc = docFromState(buildDocState('T', 'first the\n\nsecond the\n'));
+  const one = textBlock(doc, 'first the');
+  const two = textBlock(doc, 'second the');
+  const anchors = { start: at(one.text, 6, 0), end: at(one.text, 9, -1) };
+  assert.equal(applyTextSuggestion(doc, two.id, 'the', 'a', 0, anchors), false);
+  assert.equal(two.text.toString(), 'second the');
+});
+
+test('a whitespace-only suggestion typed over the raw text changes the whitespace', () => {
+  const at = (text, i, assoc) => Buffer.from(Y.encodeRelativePosition(Y.createRelativePositionFromTypeIndex(text, i, assoc))).toString('base64');
+  const doc = docFromState(buildDocState('T', 'one\n'));
+  const { id, text } = textBlock(doc, 'one');
+  text.insert(3, '\ntwo  three');
+  const anchors = { start: at(text, 0, 0), end: at(text, text.length, -1) };
+  assert.equal(applyTextSuggestion(doc, id, 'one two three', 'one two three', 0, anchors), true);
+  assert.equal(text.toString(), 'one two three');
+});
+
+test('text added at the start of a passage does not take the link before it', () => {
+  const doc = docFromState(buildDocState('T', 'Linkworld\n'));
+  const { id, text } = textBlock(doc, 'Linkworld');
+  text.format(0, 4, { link: 'https://example.com' });
+  assert.equal(applyTextSuggestion(doc, id, 'world', 'big world'), true);
+  assert.deepEqual(text.toDelta(), [{ insert: 'Link', attributes: { link: 'https://example.com' } }, { insert: 'big world' }]);
 });

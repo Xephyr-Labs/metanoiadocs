@@ -34,15 +34,17 @@ import { lockedFor, noteFailure, clearFailures, lockoutError } from './throttle.
 import { idleAbort } from './idle-abort.js';
 import { aiTools } from './ai-tools.js';
 import { getSetting, setSetting } from './db.js';
+import { runDataMigrations } from './data-migrations.js';
+import { runIntegrityScan, startIntegrityScan } from './integrity.js';
 import * as Y from 'yjs';
 import { mentionHandles } from './mentions.js';
 import { docCommentRecipients } from './comment-recipients.js';
-import { buildDocState, appendMarkdownToDoc, appendPageReference, extractText, extractBlocks, docToMarkdown } from './blocks.js';
+import { buildDocState, appendMarkdownToDoc, appendPageReference, extractText, extractBlocks, docToMarkdown, fixTableOrderKeys, stateWithValidTableKeys } from './blocks.js';
 import { rewriteDoc } from './restore.js';
 import { applyTextSuggestion, parseDraftName, registerSuggestionRoutes } from './suggestions.js';
 import { registerReactionRoutes, withReactions } from './reactions.js';
 import { wouldFolderCycle } from './folders.js';
-import { printHtml } from './print.js';
+import { bodyHtml, printHtml } from './print.js';
 import { docxFromMarkdown } from './docx.js';
 import { fileToMarkdown, IMPORT_EXTENSIONS } from './import.js';
 import { registerMcpRoute } from './mcp-http.js';
@@ -59,6 +61,7 @@ import { linkFor } from './push-rules.js';
 import { registerFolderRoutes, visibleFolder } from './folders-routes.js';
 import { registerWebhookRoutes, emit, startWebhookWorker } from './webhooks.js';
 import { registerGuestCommentRoutes, shareAccess } from './guest-comments.js';
+import { commentAnchors } from './text-match.js';
 import { registerAgentRoutes, enqueueRun } from './agent-runs.js';
 import { registerAutomationRoutes, startAutomationSweeper } from './automations.js';
 import { registerFormRoutes } from './forms.js';
@@ -80,6 +83,8 @@ const WEB_DIST = path.resolve(__dirname, '../../web-react/dist');
 const STALE_MONTHS = Number(process.env.STALE_MONTHS || 6);
 
 await initSchema();
+// Before the server listens: see data-migrations.js.
+await runDataMigrations(pool);
 
 // One-shot backfill: compute signals for docs that don't have them yet. Runs
 // sequentially in the background so a large workspace doesn't stampede the pool.
@@ -555,6 +560,21 @@ app.patch('/api/me', requireUser, async (req, res) => {
 });
 
 // Admin: change a member's role. Guards against demoting yourself or the last admin.
+// The latest integrity scan (integrity.js); ?run=1 scans now. A page this
+// admin cannot open is listed without its title.
+app.get('/api/admin/integrity', requireUser, requireAdmin, wrap(async (req, res) => {
+  const canSee = async (docId, userId) => !!(await grantOn(docId, userId));
+  const r = req.query.run === '1'
+    ? await runIntegrityScan(pool, { canSee })
+    : (await pool.query('SELECT run_at, scanned, issues FROM integrity_reports ORDER BY run_at DESC LIMIT 1')).rows[0]
+      ?? { run_at: null, scanned: 0, issues: [] };
+  const seen = new Map();
+  for (const i of r.issues) {
+    if (!seen.has(i.docId)) seen.set(i.docId, await canSee(i.docId, req.user.id));
+  }
+  res.json({ ...r, issues: r.issues.map((i) => (seen.get(i.docId) ? i : { ...i, title: 'A page you cannot open' })) });
+}));
+
 app.patch('/api/users/:id/role', requireUser, requireAdmin, async (req, res) => {
   const role = req.body?.role === 'admin' ? 'admin' : 'collaborator';
   if (req.params.id === req.user.id && role !== 'admin') {
@@ -926,6 +946,17 @@ app.post('/api/docs/:id/links', requireUser, wrap(async (req, res) => {
 }));
 
 // Read a doc's title + plain text (decoded from the Yjs state; used by API clients).
+// The page's name as stored now. The editor reconciles its title block to
+// this once it has synced, instead of to the name it was mounted with — that
+// came from the sidebar list, which can be an hour old, and writing it back
+// undid a teammate's rename (or a version restore's) on every open.
+app.get('/api/docs/:id/title', requireUser, async (req, res) => {
+  if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
+  const d = await pool.query('SELECT title FROM docs WHERE id = $1 AND deleted_at IS NULL', [req.params.id]);
+  if (!d.rows[0]) return res.status(404).json({ error: 'not found' });
+  res.json({ title: d.rows[0].title ?? '' });
+});
+
 app.get('/api/docs/:id/text', requireUser, async (req, res) => {
   if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
   const d = await pool.query('SELECT title FROM docs WHERE id = $1 AND deleted_at IS NULL', [req.params.id]);
@@ -1009,6 +1040,16 @@ app.get('/api/docs/:id/export.docx', requireUser, wrap(async (req, res) => {
 }));
 
 // Print-ready HTML — the browser turns it into the PDF (see print.js).
+// The page as plain HTML, for the moment between opening it and BlockSuite
+// being ready to edit it (a second or more on a long page or a phone). Read
+// only, never cached: it is the content, not a copy of it.
+app.get('/api/docs/:id/preview', requireUser, wrap(async (req, res) => {
+  const out = await docAsMarkdown(req.params.id, req.user.id);
+  if (out.status !== 200) return res.status(out.status).json({ error: out.status === 403 ? 'forbidden' : 'not found' });
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.json({ title: out.title, html: bodyHtml(out.markdown) });
+}));
+
 app.get('/api/docs/:id/print', requireUser, async (req, res) => {
   const out = await docAsMarkdown(req.params.id, req.user.id);
   if (out.status !== 200) return res.status(out.status).json({ error: out.status === 403 ? 'forbidden' : 'not found' });
@@ -1047,6 +1088,17 @@ app.post('/api/docs/:id/content', requireUser, wrap(async (req, res) => {
   let rewrote = mode === 'replace';
   const conn = await hocuspocus.openDirectConnection(docId, { docId, user: req.user });
   try {
+    // A replace throws the whole body away, so it is undoable from History the
+    // way a restore is. Taken from the live document, before the write, so it
+    // holds the edits still waiting on the debounced save.
+    const had = !!conn.document?.getMap('blocks').size;
+    if (mode === 'replace' && had) {
+      await snapshotVersion(docId, Buffer.from(Y.encodeStateAsUpdate(conn.document)), 'Before replace', req.user.id);
+    }
+    // An append that finds no text note to append to (a canvas-only page)
+    // rewrites the page too, canvas and all — undoable the same way. Which one
+    // it will be is only known inside the write, so the state is kept now.
+    const before = mode === 'append' && had ? Buffer.from(Y.encodeStateAsUpdate(conn.document)) : null;
     await conn.transact((doc) => {
       if (mode === 'append' && appendMarkdownToDoc(doc, markdown)) {
         // appended in place
@@ -1056,6 +1108,7 @@ app.post('/api/docs/:id/content', requireUser, wrap(async (req, res) => {
       }
       state = Buffer.from(Y.encodeStateAsUpdate(doc));
     });
+    if (before && rewrote) await snapshotVersion(docId, before, 'Before replace', req.user.id);
   } finally {
     await conn.disconnect();
   }
@@ -2385,7 +2438,7 @@ app.get('/api/docs/:id/versions', requireUser, async (req, res) => {
   const { rows } = await pool.query(
     `SELECT v.id, v.label, v.created_at, u.name AS author, u.email AS author_email
        FROM doc_versions v LEFT JOIN users u ON u.id = v.created_by
-      WHERE v.doc_id = $1 ORDER BY v.created_at DESC LIMIT 50`,
+      WHERE v.doc_id = $1 ORDER BY v.created_at DESC LIMIT ${KEEP_VERSIONS + KEEP_REPLACE_COPIES}`,
     [req.params.id]
   );
   res.json(rows);
@@ -2428,6 +2481,37 @@ app.get('/api/docs/:id/versions/:vid/state', requireUser, wrap(async (req, res) 
   res.type('application/octet-stream').send(Buffer.from(v.rows[0].state));
 }));
 
+/** Save `state` as a named version of the page, for undoing what comes next.
+ *  Keeps the same 50-version cap the autosave does: without it, restoring or
+ *  replacing repeatedly on a page nobody is editing would grow the history
+ *  without bound — the store hook only prunes when someone types. */
+async function snapshotVersion(docId, state, label, userId) {
+  const id = crypto.randomUUID();
+  await pool.query(
+    'INSERT INTO doc_versions (id, doc_id, state, label, created_by) VALUES ($1, $2, $3, $4, $5)',
+    [id, docId, state, label, userId]
+  );
+  await pruneVersions(docId);
+  return id;
+}
+
+/** Keep the newest 50 versions of a page, and beside them the newest 20
+ *  "Before replace" copies. Counted apart because an agent rewriting a page
+ *  a few dozen times would otherwise push every older autosave out of the
+ *  page's history. */
+const KEEP_VERSIONS = 50;
+const KEEP_REPLACE_COPIES = 20;
+async function pruneVersions(docId) {
+  await pool.query(
+    `DELETE FROM doc_versions WHERE doc_id = $1
+       AND id NOT IN (SELECT id FROM doc_versions WHERE doc_id = $1 AND label IS DISTINCT FROM 'Before replace'
+                       ORDER BY created_at DESC LIMIT ${KEEP_VERSIONS})
+       AND id NOT IN (SELECT id FROM doc_versions WHERE doc_id = $1 AND label = 'Before replace'
+                       ORDER BY created_at DESC LIMIT ${KEEP_REPLACE_COPIES})`,
+    [docId]
+  );
+}
+
 /**
  * Roll this page back to a version, in place.
  *
@@ -2443,29 +2527,24 @@ app.post('/api/docs/:id/versions/:vid/restore-in-place', requireUser, wrap(async
   const v = await pool.query('SELECT state FROM doc_versions WHERE id = $1 AND doc_id = $2', [req.params.vid, docId]);
   if (!v.rows[0]) return res.status(404).json({ error: 'version not found' });
 
-  const cur = await pool.query('SELECT state FROM doc_states WHERE doc_id = $1', [docId]);
-  if (!cur.rows[0]) return res.status(400).json({ error: 'nothing to restore over' });
-  const undoId = crypto.randomUUID();
-  await pool.query(
-    'INSERT INTO doc_versions (id, doc_id, state, label, created_by) VALUES ($1, $2, $3, $4, $5)',
-    [undoId, docId, cur.rows[0].state, 'Before restore', req.user.id]
-  );
-  // Same cap the autosave keeps. Without it, restoring repeatedly on a page
-  // nobody is editing would grow the history without bound — the store hook
-  // only prunes when someone types.
-  await pool.query(
-    `DELETE FROM doc_versions WHERE doc_id = $1 AND id NOT IN (
-       SELECT id FROM doc_versions WHERE doc_id = $1 ORDER BY created_at DESC LIMIT 50)`,
-    [docId]
-  );
-
   // `loadingDocuments` covers the sliver where someone opened the page a
   // moment ago and its state is still being fetched — restoring past that
   // document would be overwritten the instant it finished loading.
   const live = hocuspocus.documents.get(docId) || (await hocuspocus.loadingDocuments?.get(docId));
-  const target = live || (() => { const d = new Y.Doc(); Y.applyUpdate(d, new Uint8Array(cur.rows[0].state)); return d; })();
+  // The undo point is the live document when there is one: doc_states lags it
+  // by the save debounce, and the last seconds of typing would be missing from
+  // the very snapshot meant to bring them back.
+  const cur = live ? null : (await pool.query('SELECT state FROM doc_states WHERE doc_id = $1', [docId])).rows[0];
+  if (!live && !cur) return res.status(400).json({ error: 'nothing to restore over' });
+  const before = live ? Buffer.from(Y.encodeStateAsUpdate(live)) : cur.state;
+  const undoId = await snapshotVersion(docId, before, 'Before restore', req.user.id);
+
+  const target = live || (() => { const d = new Y.Doc(); Y.applyUpdate(d, new Uint8Array(cur.state)); return d; })();
   try {
     rewriteDoc(target, v.rows[0].state);
+    // A version from before the table repair brings its broken order keys
+    // back with it (data-migrations.js); mend them on the way in.
+    fixTableOrderKeys(target);
   } catch (e) {
     await pool.query('DELETE FROM doc_versions WHERE id = $1', [undoId]);
     return res.status(400).json({ error: e.message || 'could not restore that version' });
@@ -2514,7 +2593,8 @@ app.post('/api/docs/:id/versions/:vid/restore', requireUser, async (req, res) =>
     await client.query('BEGIN');
     await client.query('INSERT INTO docs (id, title, created_by) VALUES ($1, $2, $3)', [newId, title, req.user.id]);
     await client.query(`INSERT INTO doc_access (doc_id, user_id, role) VALUES ($1, $2, 'owner')`, [newId, req.user.id]);
-    await client.query('INSERT INTO doc_states (doc_id, state) VALUES ($1, $2)', [newId, v.rows[0].state]);
+    // An old version keeps the table keys the boot repair fixed; mend them.
+    await client.query('INSERT INTO doc_states (doc_id, state) VALUES ($1, $2)', [newId, stateWithValidTableKeys(v.rows[0].state)]);
     await client.query('COMMIT');
   } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
   res.json({ id: newId, title });
@@ -2526,7 +2606,7 @@ app.get('/api/docs/:id/comments', requireUser, async (req, res) => {
   const { rows } = await pool.query(
     `SELECT c.id, c.block_id, c.quote, c.body, c.author_id, c.author_name, c.parent_id, c.resolved,
             c.created_at, c.edited_at, c.guest, c.kind, c.suggestion, c.suggestion_status, c.quote_occurrence,
-            u.name AS decided_by_name
+            c.anchor_start, c.anchor_end, u.name AS decided_by_name
        FROM comments c LEFT JOIN users u ON u.id = c.decided_by
       WHERE c.doc_id = $1 ORDER BY c.created_at ASC`,
     [req.params.id]
@@ -2580,14 +2660,16 @@ app.post('/api/docs/:id/comments', requireUser, async (req, res) => {
   }
   const id = crypto.randomUUID();
   await pool.query(
-    `INSERT INTO comments (id, doc_id, block_id, quote, body, author_id, author_name, parent_id, kind, suggestion, quote_occurrence)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+    `INSERT INTO comments (id, doc_id, block_id, quote, body, author_id, author_name, parent_id, kind, suggestion, quote_occurrence,
+                           anchor_start, anchor_end)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
     [id, req.params.id, parentId ? null : (req.body?.blockId || null),
      parentId ? '' : String(req.body?.quote || '').slice(0, 500),
      body, req.user.id, req.user.name || req.user.email, parentId,
      suggestion ? 'suggestion' : 'comment', replacement,
      // Which copy of the quoted words in that block — "the" twice in a line.
-     Math.max(0, Math.min(1000, Number.parseInt(req.body?.occurrence, 10) || 0))]
+     Math.max(0, Math.min(1000, Number.parseInt(req.body?.occurrence, 10) || 0)),
+     ...commentAnchors(parentId ? null : req.body)]
   );
   // Fan out notifications for this comment (best-effort; never fails the comment).
   createCommentNotifications({
@@ -2872,7 +2954,7 @@ app.post('/api/comments/:cid/decision', requireUser, wrap(async (req, res) => {
   const accept = req.body?.decision === 'accept';
   if (!accept && req.body?.decision !== 'reject') return res.status(400).json({ error: 'accept or reject' });
   const { rows: [c] } = await pool.query(
-    `SELECT id, doc_id, block_id, quote, quote_occurrence, suggestion, suggestion_status, author_id, kind
+    `SELECT id, doc_id, block_id, quote, quote_occurrence, anchor_start, anchor_end, suggestion, suggestion_status, author_id, kind
        FROM comments WHERE id = $1 AND doc_id IS NOT NULL`,
     [req.params.cid]
   );
@@ -2898,7 +2980,8 @@ app.post('/api/comments/:cid/decision', requireUser, wrap(async (req, res) => {
       const conn = await hocuspocus.openDirectConnection(c.doc_id, { docId: c.doc_id, user: req.user });
       try {
         await conn.transact((doc) => {
-          applied = applyTextSuggestion(doc, c.block_id, c.quote, c.suggestion ?? '', c.quote_occurrence ?? 0);
+          applied = applyTextSuggestion(doc, c.block_id, c.quote, c.suggestion ?? '', c.quote_occurrence ?? 0,
+            { start: c.anchor_start, end: c.anchor_end });
         });
       } finally {
         await conn.disconnect();
@@ -3161,12 +3244,7 @@ const hocuspocus = new Hocuspocus({
             'INSERT INTO doc_versions (id, doc_id, state, label) VALUES ($1, $2, $3, $4)',
             [crypto.randomUUID(), documentName, buf, 'autosave']
           );
-          // Keep the last 50 versions per doc.
-          await pool.query(
-            `DELETE FROM doc_versions WHERE doc_id = $1 AND id NOT IN (
-               SELECT id FROM doc_versions WHERE doc_id = $1 ORDER BY created_at DESC LIMIT 50)`,
-            [documentName]
-          );
+          await pruneVersions(documentName);
         }
       },
     }),
@@ -3244,6 +3322,7 @@ server.on('upgrade', async (request, socket, head) => {
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`MetanoiaDocs server on :${PORT}  base=${BASE_URL}`);
   startTrashSweeper();
+  startIntegrityScan(pool, { canSee: async (docId, userId) => !!(await grantOn(docId, userId)) });
   startReminders();
 startAutomationSweeper();
 });

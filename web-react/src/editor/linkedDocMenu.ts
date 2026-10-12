@@ -146,7 +146,7 @@ export function attachLinkedDocMenu(
           label: u.name || (u.username ?? ''),
           hint: u.username ? `@${u.username}` : undefined,
         }));
-      const docs = rankPages(pages().filter((p) => p.id !== currentId), query)
+      const docs = rankPages(pages().filter((p) => p.id !== currentId && !p.private), query)
         .slice(0, MAX_PAGES)
         .map((p): Row => ({
           kind: 'page',

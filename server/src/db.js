@@ -547,6 +547,12 @@ export async function initSchema() {
     -- Which occurrence of the quote in its block the selection was (0 = first),
     -- so "the" chosen the second time it appears isn't applied to the first.
     ALTER TABLE comments ADD COLUMN IF NOT EXISTS quote_occurrence INTEGER NOT NULL DEFAULT 0;
+    -- Where the quoted passage starts and ends, as Yjs relative positions
+    -- (base64) in its block's text. They follow the very characters selected
+    -- through later edits, so a suggestion can't drift onto another copy of
+    -- the same words. Null on rows from before they were recorded.
+    ALTER TABLE comments ADD COLUMN IF NOT EXISTS anchor_start TEXT;
+    ALTER TABLE comments ADD COLUMN IF NOT EXISTS anchor_end TEXT;
 
     -- Emoji reactions on comments (see reactions.js): one per person per emoji.
     CREATE TABLE IF NOT EXISTS comment_reactions (
@@ -970,6 +976,14 @@ export async function initSchema() {
     -- docs.updated_by is overwritten by every save, so the person who wrote
     -- most of a page vanishes the moment someone fixes a typo; comment
     -- notifications need the whole list.
+    -- Nightly integrity scan results (integrity.js), newest 60 kept.
+    CREATE TABLE IF NOT EXISTS integrity_reports (
+      id      TEXT PRIMARY KEY,
+      run_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+      scanned INT NOT NULL,
+      issues  JSONB NOT NULL DEFAULT '[]'
+    );
+
     CREATE TABLE IF NOT EXISTS doc_editors (
       doc_id        TEXT NOT NULL REFERENCES docs(id) ON DELETE CASCADE,
       user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

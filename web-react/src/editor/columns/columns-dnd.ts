@@ -16,7 +16,7 @@
 // 'top'/'bottom' win everywhere except within ~17px of the ends. The side zone
 // has to be measured as a share of the block's own width instead.
 import {
-  COLUMN_FLAVOUR, COLUMNS_FLAVOUR,
+  COLUMN_FLAVOUR, COLUMNS_FLAVOUR, MAX_COLUMNS,
 } from './columns-model';
 
 export type Side = 'left' | 'right';
@@ -73,7 +73,36 @@ export interface StoreLike {
   ): void;
   deleteBlock(model: ModelLike): void;
   captureSync?(): void;
+  transact?(fn: () => void): void;
 }
+
+/**
+ * Run a multi-step edit as one Yjs transaction, so it leaves this client as one
+ * update. Done step by step, a drop went out as "empty row", "empty column",
+ * "block moved in"… and the collaborator's provider applied each on its own —
+ * any frame in between showed (and once swept away) a row with nothing in it.
+ *
+ * Inside the transaction BlockSuite has not built models for the blocks just
+ * added (it does that from the Yjs events, which fire when the transaction
+ * ends), so the steps refer to new blocks by id — see `parentRef`.
+ */
+export function inOneUpdate(store: StoreLike, fn: () => void): void {
+  if (store.transact) store.transact(fn);
+  else fn();
+}
+
+/** A block added earlier in the same transaction, good enough to move blocks
+ *  into: the store's moveBlocks only reads the parent's id. */
+const parentRef = (store: StoreLike, id: string, flavour: string): ModelLike =>
+  store.getModelById(id) ?? { id, flavour, children: [] };
+
+/** Whether `model` is the last of its siblings once `leaving` have moved out
+ *  — what ensureTrailingParagraph would see after the edit, worked out before
+ *  it, because inside the transaction the children lists are still the old ones. */
+const isLast = (parent: ModelLike, model: ModelLike, leaving: readonly ModelLike[] = []) => {
+  const siblings = (parent.children ?? []).filter((c) => !leaving.some((l) => l.id === c.id));
+  return siblings[siblings.length - 1]?.id === model.id;
+};
 
 /** Is `model` the block being dragged, or inside it? Dropping a block into
  *  itself would detach the subtree from the document. */
@@ -116,11 +145,23 @@ export function planColumnDrop({
   // rejected by the schema, and it is not what side-dropping on one should do.
   if (target.flavour === COLUMNS_FLAVOUR) return null;
 
-  if (target.flavour === COLUMN_FLAVOUR) return { kind: 'beside', columnId: target.id, side };
+  // A full row takes no more columns: the drop falls back to an ordinary one
+  // above or below, the same cap the row's own "Add column" menu keeps.
+  // A column the drag empties is swept away after the drop, so it does not
+  // count: rearranging a full row's own columns still works.
+  const beside = (column: ModelLike): ColumnDropPlan | null => {
+    const row = store.getParent(column);
+    const staying = (row?.children ?? []).filter(
+      (c) => !(c.children?.length && c.children.every((b) => draggedIds.includes(b.id))),
+    );
+    if (staying.length >= MAX_COLUMNS) return null;
+    return { kind: 'beside', columnId: column.id, side };
+  };
+  if (target.flavour === COLUMN_FLAVOUR) return beside(target);
 
   const parent = store.getParent(target);
   if (!parent) return null;
-  if (parent.flavour === COLUMN_FLAVOUR) return { kind: 'beside', columnId: parent.id, side };
+  if (parent.flavour === COLUMN_FLAVOUR) return beside(parent);
   // Only blocks sitting directly in the page body can start a row. Inside a
   // callout, a list or a database the container owns its own layout, and
   // wrapping there would be a surprise rather than a shortcut.
@@ -135,7 +176,6 @@ export function applyColumnDrop(
   plan: ColumnDropPlan,
   dragged: readonly ModelLike[],
 ): ModelLike | null {
-  store.captureSync?.();
   const moved = [...dragged];
 
   if (plan.kind === 'wrap') {
@@ -143,32 +183,37 @@ export function applyColumnDrop(
     const note = target && store.getParent(target);
     if (!target || !note) return null;
     const at = (note.children ?? []).indexOf(target);
-    const row = store.getModelById(store.addBlock(COLUMNS_FLAVOUR, {}, note, at < 0 ? undefined : at));
-    if (!row) return null;
-    // The target moves into its own column first, so the row is never empty
-    // and the two columns come out in the reader's order.
-    const keep = store.getModelById(store.addBlock(COLUMN_FLAVOUR, { width: 1 }, row));
-    if (!keep) return null;
-    store.moveBlocks([target], keep);
-    const dropped = store.getModelById(
-      store.addBlock(COLUMN_FLAVOUR, { width: 1 }, row, plan.side === 'left' ? 0 : 1),
-    );
-    if (!dropped) return null;
-    store.moveBlocks(moved, dropped);
-    ensureTrailingParagraph(store, row);
-    return row;
+    // The row takes the target's place, so it ends the note if the target does.
+    const last = isLast(note, target, moved);
+    store.captureSync?.();
+    let rowId = '';
+    inOneUpdate(store, () => {
+      rowId = store.addBlock(COLUMNS_FLAVOUR, {}, note, at < 0 ? undefined : at);
+      // The target moves into its own column first, so the two columns come
+      // out in the reader's order.
+      const keepId = store.addBlock(COLUMN_FLAVOUR, { width: 1 }, rowId);
+      store.moveBlocks([target], parentRef(store, keepId, COLUMN_FLAVOUR));
+      const droppedId = store.addBlock(COLUMN_FLAVOUR, { width: 1 }, rowId, plan.side === 'left' ? 0 : 1);
+      store.moveBlocks(moved, parentRef(store, droppedId, COLUMN_FLAVOUR));
+      if (last) store.addBlock('affine:paragraph', {}, note);
+    });
+    return store.getModelById(rowId);
   }
 
   const column = store.getModelById(plan.columnId);
   const row = column && store.getParent(column);
   if (!column || !row) return null;
   const at = (row.children ?? []).indexOf(column) + (plan.side === 'left' ? 0 : 1);
-  // The new column takes an even share of the row rather than of its
-  // neighbour: a fresh column that arrives a sliver wide can't be read.
-  const dropped = store.getModelById(store.addBlock(COLUMN_FLAVOUR, { width: 1 }, row, at));
-  if (!dropped) return null;
-  store.moveBlocks(moved, dropped);
-  ensureTrailingParagraph(store, row);
+  const note = store.getParent(row);
+  const last = !!note && isLast(note, row, moved);
+  store.captureSync?.();
+  inOneUpdate(store, () => {
+    // The new column takes an even share of the row rather than of its
+    // neighbour: a fresh column that arrives a sliver wide can't be read.
+    const droppedId = store.addBlock(COLUMN_FLAVOUR, { width: 1 }, row, at);
+    store.moveBlocks(moved, parentRef(store, droppedId, COLUMN_FLAVOUR));
+    if (last && note) store.addBlock('affine:paragraph', {}, note);
+  });
   return row;
 }
 
@@ -225,16 +270,19 @@ export function insertColumnRow(store: StoreLike, sibling: ModelLike, count: num
   const parent = store.getParent(sibling);
   if (!parent) return null;
   const at = (parent.children ?? []).indexOf(sibling) + 1;
-  const rowId = store.addBlock(COLUMNS_FLAVOUR, {}, parent, at);
-  const row = store.getModelById(rowId);
-  if (!row) return null;
-  for (let i = 0; i < count; i++) {
-    const columnId = store.addBlock(COLUMN_FLAVOUR, { width: 1 }, row);
-    // An empty column has nothing to aim at: the drag handle only offers a drop
-    // on a block, so a column with no blocks in it can never receive one. The
-    // placeholder paragraph is also where the caret lands when it is clicked.
-    store.addBlock('affine:paragraph', {}, columnId);
-  }
-  ensureTrailingParagraph(store, row);
-  return rowId;
+  // Last if it lands after the last block; read now, see applyColumnDrop.
+  const last = isLast(parent, sibling);
+  let rowId = '';
+  inOneUpdate(store, () => {
+    rowId = store.addBlock(COLUMNS_FLAVOUR, {}, parent, at);
+    for (let i = 0; i < count; i++) {
+      const columnId = store.addBlock(COLUMN_FLAVOUR, { width: 1 }, rowId);
+      // An empty column has nothing to aim at: the drag handle only offers a drop
+      // on a block, so a column with no blocks in it can never receive one. The
+      // placeholder paragraph is also where the caret lands when it is clicked.
+      store.addBlock('affine:paragraph', {}, columnId);
+    }
+    if (last) store.addBlock('affine:paragraph', {}, parent);
+  });
+  return store.getModelById(rowId) ? rowId : null;
 }

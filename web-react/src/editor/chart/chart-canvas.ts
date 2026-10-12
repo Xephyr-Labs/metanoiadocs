@@ -6,7 +6,7 @@
 // bundle.
 
 import { LitElement, css, html, type PropertyValues } from 'lit';
-import { customElement, property, state } from 'lit/decorators.js';
+import { property, state } from 'lit/decorators.js';
 import { createRef, ref } from 'lit/directives/ref.js';
 import type { EChartsInstance } from './echarts-setup';
 import { buildEChartsOption } from './buildEChartsOption';
@@ -24,7 +24,6 @@ function onSlot(slot: any, fn: () => void): (() => void) | null {
   return null;
 }
 
-@customElement('metanoia-chart-canvas')
 export class MetanoiaChartCanvas extends LitElement {
   static override styles = css`
     :host { display: block; width: 100%; height: 100%; position: relative; }

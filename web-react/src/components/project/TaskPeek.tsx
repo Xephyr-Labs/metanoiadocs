@@ -559,8 +559,13 @@ export function TaskPeek({
               }}
             >
             <LazyEditor
+              // A fresh editor per page and per role, never a remount into the
+              // same host while the last one may still be loading.
+              key={`${docId}:${ws.pages[docId]?.role ?? ''}`}
               docId={docId}
-              title={task.title}
+              // A page linked from elsewhere keeps its own name (the server
+              // decides so); the task's is only for the task's own new page.
+              title={ws.pages[docId]?.title || task.title}
               mode="page"
               userName={auth.user?.name ?? 'You'}
               fullWidth

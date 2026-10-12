@@ -7,6 +7,7 @@ import * as DM from '@radix-ui/react-dropdown-menu';
 import { updateBlockType } from '@blocksuite/affine/blocks/note';
 import { toggleLink } from '@blocksuite/affine/inlines/link';
 import { getTextStyle, toggleBold, toggleCode, toggleItalic, toggleStrike } from '@blocksuite/affine/inlines/preset';
+import { caretTextStyle } from '../../editor/caretTextStyle';
 import {
   AArrowDown, AArrowUp, ALargeSmall, AlignHorizontalDistributeCenter, AlignHorizontalJustifyCenter, AlignHorizontalJustifyEnd,
   AlignHorizontalJustifyStart, AlignVerticalDistributeCenter, AlignVerticalJustifyCenter,
@@ -136,6 +137,16 @@ export function EditorBar({ editor, mode, design, onMode, fullWidth, onFullWidth
     return host?.std ?? null;
   }, [editor]);
 
+  // This runs on every caret move, which is every keystroke. A new object for
+  // the same marks re-rendered the whole bar each time — its animated
+  // Page/Canvas switch included, which re-measured the layout on every key.
+  // The old object is kept when nothing changed.
+  const same = (next: Record<string, unknown>) => (prev: Record<string, boolean>) => {
+    const keys = new Set([...Object.keys(prev), ...Object.keys(next)]);
+    for (const k of keys) if (prev[k] !== next[k]) return next as Record<string, boolean>;
+    return prev;
+  };
+
   // Mirror the caret's formatting so the pressed states are honest. Reading on
   // selectionchange (rather than polling) keeps this free when nothing moves.
   useEffect(() => {
@@ -149,12 +160,15 @@ export function EditorBar({ editor, mode, design, onMode, fullWidth, onFullWidth
         const table = tableMarkActive(s, 'bold') !== null;
         setInTable(table);
         if (table) {
-          setMarks(Object.fromEntries(MARKS.map((m) => [m.id, !!tableMarkActive(s, m.id)])));
+          setMarks(same(Object.fromEntries(MARKS.map((m) => [m.id, !!tableMarkActive(s, m.id)]))));
         } else {
           try {
-            const [, ctx] = s.command.chain().pipe(getTextStyle).run();
-            setMarks({ ...(ctx?.textStyle ?? {}) });
-          } catch { setMarks({}); }
+            // The caret's own line when it can (caretTextStyle.ts): asking
+            // the whole page on every keystroke slowed typing in long pages.
+            const fast = caretTextStyle(s as never);
+            const [, ctx] = fast ? [true, { textStyle: fast }] : s.command.chain().pipe(getTextStyle).run();
+            setMarks(same({ ...(ctx?.textStyle ?? {}) }));
+          } catch { setMarks(same({})); }
         }
         setSize(selectionSize(s));
         try {

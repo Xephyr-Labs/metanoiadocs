@@ -4,11 +4,11 @@
 // Pure functions over a store, like columns-dnd.ts — the hover menu in
 // columns-block.ts and the keymap both call these, and the tests drive them
 // with the same fake store the drop rules use.
-import { ensureTrailingParagraph, tidyColumns, type ModelLike, type StoreLike } from './columns-dnd';
-import { COLUMN_FLAVOUR, COLUMNS_FLAVOUR } from './columns-model';
+import { ensureTrailingParagraph, inOneUpdate, tidyColumns, type ModelLike, type StoreLike } from './columns-dnd';
+import { COLUMN_FLAVOUR, COLUMNS_FLAVOUR, MAX_COLUMNS } from './columns-model';
 
 // Re-exported so everything that edits a row is reachable from one module.
-export { ensureTrailingParagraph };
+export { ensureTrailingParagraph, MAX_COLUMNS };
 
 /** Adding and resizing need one more method than a drop does. */
 export interface OpsStore extends StoreLike {
@@ -20,10 +20,6 @@ export interface TextModelLike extends ModelLike {
   text?: { length: number } | null;
   props?: { width?: number } | null;
 }
-
-/** Notion caps a row at four columns — past that a column is too narrow to
- *  read, and the gutters eat more width than the text. */
-export const MAX_COLUMNS = 4;
 
 const shareOf = (model: TextModelLike): number => {
   const width = model.props?.width;
@@ -102,11 +98,16 @@ export function addColumn(store: OpsStore, column: ModelLike, side: 'left' | 'ri
   const at = siblings.indexOf(column as TextModelLike) + (side === 'left' ? 0 : 1);
   const mean = siblings.reduce((sum, c) => sum + shareOf(c), 0) / (siblings.length || 1);
   store.captureSync?.();
-  const id = store.addBlock(COLUMN_FLAVOUR, { width: mean }, row, at < 0 ? undefined : at);
-  const added = store.getModelById(id);
-  // Same reason as insertColumnRow: an empty column has nothing to click, to
-  // type in, or to drop onto.
-  if (added) store.addBlock('affine:paragraph', {}, added);
+  let id = '';
+  // One transaction, so a collaborator never receives the column without its
+  // paragraph (see inOneUpdate). The paragraph goes in by parent id: the new
+  // column's model only exists once the transaction ends.
+  inOneUpdate(store, () => {
+    id = store.addBlock(COLUMN_FLAVOUR, { width: mean }, row, at < 0 ? undefined : at);
+    // Same reason as insertColumnRow: an empty column has nothing to click, to
+    // type in, or to drop onto.
+    store.addBlock('affine:paragraph', {}, id);
+  });
   return id;
 }
 
