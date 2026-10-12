@@ -135,6 +135,10 @@ export function attachMarkdownPaste(host: HTMLElement): () => void {
 
     const plain = data.getData('text/plain');
     const html = data.getData('text/html');
+    // Copied inside the editor: BlockSuite wraps a lossless snapshot of the
+    // blocks in its HTML (std/clipboard), and pastes from that. Rerouting it
+    // as markdown or table HTML would only lose what the snapshot keeps.
+    if (html.includes('data-blocksuite-snapshot')) return;
     const text = markdownToReplay(plain, html);
     // A table BlockSuite would lose rows of is replayed as HTML it can read.
     const tableHtml = text === null ? normalizeTableHtml(html) : null;

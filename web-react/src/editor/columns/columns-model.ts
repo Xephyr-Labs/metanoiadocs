@@ -8,6 +8,10 @@ import { BlockModel, BlockSchemaExtension, defineBlockSchema } from '@blocksuite
 export const COLUMNS_FLAVOUR = 'metanoia:columns';
 export const COLUMN_FLAVOUR = 'metanoia:column';
 
+/** Notion caps a row at four columns — past that a column is too narrow to
+ *  read, and the gutters eat more width than the text. */
+export const MAX_COLUMNS = 4;
+
 export interface ColumnProps {
   /** Flex-grow share of the row. Equal columns are all 1; dragging a gutter
    *  moves share between two neighbours and always keeps their sum. */

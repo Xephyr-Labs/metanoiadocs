@@ -59,7 +59,14 @@ interface CalloutModelLike {
 }
 interface StoreLike {
   updateBlock(model: unknown, props: Record<string, unknown>): void;
+  transact?(fn: () => void): void;
+  captureSync?(): void;
 }
+
+// BlockSuite's UndoManager only records Yjs changes whose origin is the doc's
+// own clientID, and only store.transact sets that origin. A bare yBlock.set has
+// none, so Ctrl+Z would revert the emoji but leave the colour behind.
+const transact = (store: StoreLike, fn: () => void) => (store.transact ? store.transact(fn) : fn());
 
 export const panelOf = (model: CalloutModelLike): PanelType | null => {
   const v = model.yBlock?.get(PROP);
@@ -68,17 +75,22 @@ export const panelOf = (model: CalloutModelLike): PanelType | null => {
 
 /** Set a callout's panel type, and its icon unless the reader chose one. */
 export function setPanel(model: CalloutModelLike, store: StoreLike, type: PanelType | null) {
-  if (!model.yBlock) return;
-  // Neutral is stored as the absence of the prop: a plain callout and one
-  // explicitly set back to neutral are the same block.
-  if (type === null) model.yBlock.delete(PROP);
-  else model.yBlock.set(PROP, type);
-  const emoji = model.props?.emoji ?? '';
-  if (OURS.has(emoji)) {
-    try {
-      store.updateBlock(model, { emoji: PANELS.find((p) => p.type === type)?.emoji ?? '😀' });
-    } catch { /* schema said no; the colour still applied */ }
-  }
+  const yBlock = model.yBlock;
+  if (!yBlock) return;
+  // One undo step for colour and icon together.
+  store.captureSync?.();
+  transact(store, () => {
+    // Neutral is stored as the absence of the prop: a plain callout and one
+    // explicitly set back to neutral are the same block.
+    if (type === null) yBlock.delete(PROP);
+    else yBlock.set(PROP, type);
+    const emoji = model.props?.emoji ?? '';
+    if (OURS.has(emoji)) {
+      try {
+        store.updateBlock(model, { emoji: PANELS.find((p) => p.type === type)?.emoji ?? '😀' });
+      } catch { /* schema said no; the colour still applied */ }
+    }
+  });
 }
 
 /** A filled swatch, so the menu reads as the panel colours it sets. */
@@ -112,7 +124,9 @@ function insertPanel(std: SlashStd, model: CalloutModelLike, type: PanelType) {
   // addBlock puts the model in the tree straight away, so the Y.Map is there to
   // write the type onto — see the note at the top.
   const created = (parent.children ?? []).find((c) => c.id === calloutId);
-  if (created) created.yBlock?.set(PROP, type);
+  // No captureSync here: the write lands inside the undo capture window of the
+  // addBlock just above, so undo removes the panel and its type as one step.
+  if (created?.yBlock) transact(store, () => created.yBlock?.set(PROP, type));
   // Land the cursor inside the panel, or the next keystroke goes to the empty
   // paragraph the slash menu was typed in. Same dance as BlockSuite's own
   // Callout item: the block has to be rendered before it can be focused.

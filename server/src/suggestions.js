@@ -327,19 +327,35 @@ export function applyChange(mainDoc, draftDoc, baseDoc, change) {
 
   // added
   if (main.has(id)) return true;
+  const dParent = parentIn(draft, id);
+  let pid = dParent && main.has(dParent) ? dParent : fallbackParent(main);
+  if (!pid) return false;
+
+  // Children the page already has were moved in by the draft — "add bullet N,
+  // indent bullet X under it" — so they leave their old parent rather than
+  // sitting in two places at once, which BlockSuite cannot load. One that is
+  // the new block's own landing spot, or above it, stays put: moving it in
+  // would loop the tree.
+  const above = new Set([pid]);
+  for (let p = parentIn(main, pid); p && !above.has(p); p = parentIn(main, p)) above.add(p);
+  const moved = childrenOf(d).filter((k) => main.has(k) && !above.has(k));
+  for (const k of moved) {
+    const from = parentIn(main, k);
+    if (!from) continue;
+    const arr = main.get(from).get('sys:children');
+    arr.delete(arr.toArray().indexOf(k), 1);
+  }
+
   const copy = new Y.Map();
   for (const [k, v] of d) {
     if (k === 'sys:children') continue;
     copy.set(k, cloneValue(v));
   }
   const kids = new Y.Array();
-  kids.push(childrenOf(d).filter((k) => main.has(k)));
+  kids.push(moved);
   copy.set('sys:children', kids);
   main.set(id, copy);
 
-  const dParent = parentIn(draft, id);
-  let pid = dParent && main.has(dParent) ? dParent : fallbackParent(main);
-  if (!pid) return false;
   const siblings = main.get(pid).get('sys:children');
   let index = dParent === pid ? 0 : siblings.length;
   if (dParent === pid) {

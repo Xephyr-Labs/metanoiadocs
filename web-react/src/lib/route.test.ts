@@ -91,3 +91,11 @@ describe('links copied in AFFiNE', () => {
     expect(parseRoute('/d/abc', '', '?blockIds=x').blockId).toBe(null);
   });
 });
+
+describe('a malformed escape in an address', () => {
+  it('is kept as typed instead of throwing', () => {
+    const r = parseRoute('/d/abc%E0%A4%A', '#blk%zz');
+    expect(r.docId).toBe('abc%E0%A4%A');
+    expect(r.blockId).toBe('blk%zz');
+  });
+});

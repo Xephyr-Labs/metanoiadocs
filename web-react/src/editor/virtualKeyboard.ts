@@ -21,6 +21,9 @@ function browserViewport(): ViewportLike | null {
   return window.visualViewport;
 }
 
+// Providers alive now (one per mounted editor); see dispose().
+let live = 0;
+
 // Below this a height change is the address bar, not a keyboard.
 const MIN_KEYBOARD = 120;
 
@@ -84,6 +87,7 @@ export function createVirtualKeyboardProvider(viewport: ViewportLike | null = br
     document.documentElement.style.setProperty('--kb', `${Math.round(overlay)}px`);
   };
 
+  let disposed = false;
   let muted: HTMLElement | null = null;
   let mutedWas = '';
   const show = () => {
@@ -104,6 +108,7 @@ export function createVirtualKeyboardProvider(viewport: ViewportLike | null = br
   viewport?.addEventListener('resize', update);
   viewport?.addEventListener('scroll', update);
   if (typeof document !== 'undefined') {
+    live++;
     document.addEventListener('focusout', onFocusOut, true);
     document.addEventListener('pointerdown', onPointerDown, true);
   }
@@ -115,12 +120,22 @@ export function createVirtualKeyboardProvider(viewport: ViewportLike | null = br
     show,
     hide,
     dispose: () => {
+      if (disposed) return;
+      disposed = true;
       show();
       viewport?.removeEventListener('resize', update);
       viewport?.removeEventListener('scroll', update);
       if (typeof document !== 'undefined') {
         document.removeEventListener('focusout', onFocusOut, true);
         document.removeEventListener('pointerdown', onPointerDown, true);
+        // Left set, a page closed with the keyboard up kept its padding on
+        // every view after it. Page-wide values, though, and a version
+        // preview's editor can sit over the page's: only the last one out
+        // clears them.
+        if (--live === 0) {
+          document.documentElement.style.removeProperty('--kb');
+          document.documentElement.style.removeProperty('--vv-bottom');
+        }
       }
     },
   };

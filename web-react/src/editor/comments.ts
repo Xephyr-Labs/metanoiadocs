@@ -108,15 +108,18 @@ const INVISIBLE = /[​﻿]/;
 
 /**
  * The editor's text from `from` onward, one entry per character pointing back
- * at its DOM position. A space stands between blocks, which is how a selection
- * across two paragraphs reads back — and so how its quote was stored.
+ * at its DOM position. A space stands between lines — between blocks, and
+ * between the lines of one block, which BlockSuite draws as one <v-line> per
+ * "\n" without ever putting the "\n" in the DOM. That is how a selection
+ * across them reads back, so how its quote was stored, and the server's
+ * matching (against the block's text, "\n" included) agrees with it.
  */
 function indexText(root: Element, from: Element | null, limit: number) {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   if (from) walker.currentNode = from;
   let raw = '';
   const at: { node: Text; offset: number }[] = [];
-  let lastBlock: Element | null = null;
+  let lastLine: Element | null = null;
   let anchorLen = from ? -1 : Infinity;
   for (let n = walker.nextNode(); n && raw.length < limit; n = walker.nextNode()) {
     const node = n as Text;
@@ -126,13 +129,14 @@ function indexText(root: Element, from: Element | null, limit: number) {
     // quote like "paragraph" matched the CSS class names in that sheet — the
     // highlight landed on invisible text and the passage looked unmarked.
     if (!node.parentElement?.closest('[data-v-text]')) continue;
-    const block = node.parentElement?.closest('[data-block-id]') ?? null;
+    // A new block always starts a new line, so the line alone decides.
+    const line = node.parentElement?.closest('v-line') ?? null;
     const text = node.textContent || '';
-    if (block !== lastBlock && raw.length && at.length) {
+    if (line !== lastLine && raw.length && at.length) {
       raw += ' ';
       at.push(at[at.length - 1]);
     }
-    lastBlock = block;
+    lastLine = line;
     for (let i = 0; i < text.length; i++) {
       if (INVISIBLE.test(text[i])) continue;
       raw += text[i];
@@ -369,21 +373,16 @@ function selectionAnchor(root: Element): CommentAnchor | null {
  * comment or suggestion on the second "the" in a line stays on the second.
  */
 function occurrenceAt(block: Element, range: Range, quote: string): number {
-  const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
-  let all = '';
-  let before = -1;
-  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
-    if (!n.parentElement?.closest('[data-v-text]')) continue;
-    const text = n.textContent || '';
-    if (n === range.startContainer) {
-      before = all.length + text.slice(0, range.startOffset).replace(new RegExp(INVISIBLE.source, 'g'), '').length;
-    }
-    all += text.replace(new RegExp(INVISIBLE.source, 'g'), '');
-  }
+  // Read the block the way the highlighter does, so the count is of the same
+  // copies it will find. The first character inside the selection marks where
+  // it starts — found by position, because a selection can start on an
+  // element (a line, a block) rather than in a text node.
+  const idx = indexText(block, null, Infinity);
+  const before = idx.at.findIndex((p) => range.comparePoint(p.node, p.offset) >= 0);
   if (before < 0) return 0;
   let count = 0;
   for (let k = 0; k < 1000; k++) {
-    const hit = findQuote(all, quote, k);
+    const hit = findQuote(idx.raw, quote, k);
     if (!hit || hit.index >= before) break;
     count++;
   }
@@ -479,7 +478,9 @@ export function attachComments(
   // Load once on open. The highlights, the gutter pips and the top-bar count
   // all come from this, so waiting for someone to open the comments panel
   // would mean a page with threads looks like a page without any.
-  load().then(applyCommentHighlights).catch(() => {});
+  // Only while this is still the page shown: a slow load for the page just
+  // left would otherwise paint its threads over the next one.
+  load().then((rows) => { if (hlRoot === root && hlDocId === docId) applyCommentHighlights(rows); }).catch(() => {});
 
   // Buttons for when BlockSuite's toolbar doesn't show: a read-only page, or
   // a phone.
@@ -651,16 +652,18 @@ export function attachComments(
     timers.forEach(clearTimeout);
     offUpdate();
     bar.remove();
+    root.querySelectorAll(`[${MARK_ATTR}]`).forEach((el) => el.removeAttribute(MARK_ATTR));
+    // The rest is shared by whichever editor attached last. On a quick move
+    // between pages the old editor can detach after the new one attached, and
+    // clearing it then wiped the new page's highlights and its open composer.
+    if (hlRoot !== root) return;
     if (supported) {
       (CSS as unknown as { highlights: Map<string, unknown> }).highlights.delete(HL_NAME);
       (CSS as unknown as { highlights: Map<string, unknown> }).highlights.delete(HL_SUGGESTION);
     }
-    root.querySelectorAll(`[${MARK_ATTR}]`).forEach((el) => el.removeAttribute(MARK_ATTR));
-    if (hlRoot === root) {
-      hlRoot = null; hlDocId = null; hlLoad = null; applied = []; lastRows = [];
-      caps = { comment: false, suggest: false };
-      pickSelection = null;
-    }
+    hlRoot = null; hlDocId = null; hlLoad = null; applied = []; lastRows = [];
+    caps = { comment: false, suggest: false };
+    pickSelection = null;
     setPending(null);
     setFocus(null);
   };

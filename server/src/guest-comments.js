@@ -99,7 +99,7 @@ export function registerGuestCommentRoutes(app, { wrap, notify, emit, changed = 
     if (!doc) return;
     const { rows } = await pool.query(
       `SELECT id, block_id, quote, body, author_name, guest, parent_id, resolved, created_at, edited_at,
-              kind, suggestion, suggestion_status
+              kind, suggestion, suggestion_status, quote_occurrence
          FROM comments WHERE doc_id = $1 AND task_id IS NULL ORDER BY created_at ASC`,
       [doc.id],
     );
@@ -135,10 +135,13 @@ export function registerGuestCommentRoutes(app, { wrap, notify, emit, changed = 
     const key = crypto.randomBytes(24).toString('base64url');
     const blockId = typeof req.body?.blockId === 'string' ? req.body.blockId.slice(0, 64) : null;
     await pool.query(
-      `INSERT INTO comments (id, doc_id, block_id, quote, body, author_id, author_name, parent_id, guest, guest_key_hash)
-       VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, true, $8)`,
+      `INSERT INTO comments (id, doc_id, block_id, quote, body, author_id, author_name, parent_id, guest, guest_key_hash, quote_occurrence)
+       VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, true, $8, $9)`,
       [id, doc.id, parentId ? null : blockId, parentId ? '' : String(req.body?.quote || '').slice(0, 500),
-       body, name, parentId, hashKey(key)],
+       body, name, parentId, hashKey(key),
+       // Which copy of the quoted words in that block, as for a member's comment;
+       // without it a guest's highlight lands on the first "the" in the line.
+       Math.max(0, Math.min(1000, Number.parseInt(req.body?.occurrence, 10) || 0))],
     );
     notify({ commentId: id, docId: doc.id, body, actor: { id: null, name: `${name} (guest)` }, mentions: false, parentId })
       .catch((e) => console.error('[notify] guest comment:', e.message));

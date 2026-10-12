@@ -134,6 +134,10 @@ interface MountArgs {
    *  The Yjs state has already converged; the editor has to be rebuilt for the
    *  screen to agree with it. */
   onRemoteRewrite?: () => void;
+  /** Aborted when the caller no longer wants this page (navigated away while
+   *  it loaded). Checked after each wait, so an abandoned mount stops before it
+   *  writes to the document or touches the screen the next page now owns. */
+  signal?: AbortSignal;
   /** The viewer's role on the page. Anything below editor ('suggester',
    *  'commenter', 'viewer') opens the page read-only — the sync server refuses
    *  their writes anyway, and an editable page that silently never saves is
@@ -161,7 +165,7 @@ function docModeService(editor: { mode: string }, mode: 'page' | 'edgeless') {
 
 export async function mountEditor(
   root: HTMLElement,
-  { docId, title, mode, userName, share, guestComments, snapshot, onTitle, onSaved, pages, createPage, onOpenDoc, onRemoteRewrite, role, draft }: MountArgs,
+  { docId, title, mode, userName, share, guestComments, snapshot, onTitle, onSaved, pages, createPage, onOpenDoc, onRemoteRewrite, role, draft, signal }: MountArgs,
 ) {
   installEffects();
   // Read-only for this viewer: a public link, a version preview, or a role
@@ -309,6 +313,20 @@ export async function mountEditor(
   });
   tooltipKiller.observe(document.body, { childList: true });
 
+  // What exists so far, undone. Every way out before the editor is up — a
+  // failure, or the caller having moved on — goes through here; otherwise the
+  // sync connection kept reconnecting and publishing this reader's presence on
+  // a page they had left, and the observer above stayed on the body.
+  const abandon = () => {
+    try { tooltipKiller.disconnect(); } catch { /* noop */ }
+    try { detachPresence(); } catch { /* noop */ }
+    try { provider?.destroy(); } catch { /* noop */ }
+    try { idb?.destroy(); } catch { /* noop */ }
+    try { collection.dispose?.(); } catch { /* noop */ }
+  };
+  const bail = (err: Error): never => { abandon(); throw err; };
+  const stillWanted = () => { if (signal?.aborted) bail(new DOMException('Mount abandoned', 'AbortError')); };
+
   // Whether the server's copy actually arrived. Everything below turns on this:
   // a slow sync and an empty document look identical from here, and only one of
   // them may be written to.
@@ -324,8 +342,13 @@ export async function mountEditor(
     // Long enough for a big document over a slow link. It no longer authorises
     // a write, so waiting costs a spinner rather than the document.
     setTimeout(() => finish(false), 20000);
+    // Nobody is waiting any more: stop now rather than hold the connection
+    // open for the rest of the 20s.
+    signal?.addEventListener('abort', () => finish(false), { once: true });
   });
 
+  // Before anything below writes to the document (seed, title, surface).
+  stillWanted();
   store.load();
 
   // Public viewer and version preview alike: read-only. Set before the editor
@@ -335,7 +358,7 @@ export async function mountEditor(
   // An archived state that decodes to nothing is a broken snapshot, not an
   // empty page — say so rather than rendering a blank sheet that looks like
   // the version wiped the document.
-  if (snapshot && !store.root) throw new Error('This version could not be rendered.');
+  if (snapshot && !store.root) bail(new Error('This version could not be rendered.'));
 
   // A document that has neither synced nor cached anything locally is unknown,
   // not empty. Seeding one on a timeout is what put a second, empty page root
@@ -343,7 +366,7 @@ export async function mountEditor(
   // seeded root and the document looked wiped. Fail loudly instead; the caller
   // offers a reload, and nothing is written.
   if (!synced && !store.root) {
-    throw new Error('This document could not be loaded — the server did not answer in time.');
+    bail(new Error('This document could not be loaded — the server did not answer in time.'));
   }
 
   // Only the first client to reach a still-empty doc seeds the skeleton (page ->
@@ -394,19 +417,55 @@ export async function mountEditor(
   // later the document held the name twice — LAT-80 in prod, one insert per
   // stale device. So until the provider syncs, nothing here writes: `live`
   // gates this and the push below alike.
+  //
+  // And against the name stored NOW, asked for here — not the `title` this
+  // was mounted with. That came from the sidebar list, which only refreshes on
+  // this user's own saves: opening a page a teammate renamed an hour ago wrote
+  // the old name back over theirs (and a restore's, on every open editor).
   let live = synced;
-  const reconcileTitle = () => {
+  // The title as last sent to (or read from) the server; see push() below.
+  let lastTitle = title;
+  // Until the stored name has been asked for, push() must not send a title:
+  // the Yjs one may be the stale one this is about to replace, and on a slow
+  // link the 1.2s push would otherwise win and write it back.
+  let titleSettled = false;
+  // Defined further down, once the editor is up; a no-op until then (the
+  // first real push at the end of mount sends anything held back).
+  let push: () => void = () => {};
+  const titleNow = () => {
+    try { return String((store.root as { props?: { title?: { toString(): string } } } | null)?.props?.title ?? ''); } catch { return ''; }
+  };
+  const reconcileTitle = async () => {
+    try { await settleTitle(); } finally {
+      titleSettled = true;
+      // What was held back while asking goes out now.
+      if (!signal?.aborted && !noWrite && !draft) push();
+    }
+  };
+  const settleTitle = async () => {
     // A draft's title is the suggester's proposal, not the page's to restore.
     if (noWrite || draft || !store.root) return;
+    const before = titleNow();
+    let stored: string;
     try {
-      const titleModel = (store.root as { props?: { title?: InstanceType<typeof Text> } }).props?.title;
+      const res = await fetch(`/api/docs/${docId}/title`, { credentials: 'same-origin' });
+      if (!res.ok) return;
+      stored = String((await res.json())?.title ?? '');
+    } catch { return; /* offline: the Yjs title stands; nothing is overwritten */ }
+    // Gone, or someone typed into the title while we asked: theirs stands.
+    if (signal?.aborted || titleNow() !== before) return;
+    try {
+      const titleModel = (store.root as { props?: { title?: InstanceType<typeof Text> } } | null)?.props?.title;
       const yjsTitle = titleModel ? titleModel.toString() : '';
-      if (titleModel && title && title !== yjsTitle) {
-        titleModel.replace(0, yjsTitle.length, title);
+      if (titleModel && stored && stored !== yjsTitle) {
+        titleModel.replace(0, yjsTitle.length, stored);
       }
+      // What the server holds is what the push below compares against, so a
+      // reconciled title is not PATCHed back as if it were typed.
+      lastTitle = stored || lastTitle;
     } catch { /* best effort — a save from the user's own typing still works */ }
   };
-  if (live) reconcileTitle();
+  if (live) void reconcileTitle();
 
   // Docs the server built (API, markdown import, templates) had no surface until
   // now, and edgeless/slides mount into the surface — without one the canvas is
@@ -512,6 +571,14 @@ export async function mountEditor(
 
   root.replaceChildren(editor);
   await editor.updateComplete;
+  // Moved on while it rendered: take this editor out (only this one — the
+  // next page's may already share the host) and stop before anything attaches.
+  if (signal?.aborted) {
+    try { themeObserver.disconnect(); } catch { /* noop */ }
+    try { virtualKeyboard.dispose(); } catch { /* noop */ }
+    editor.remove();
+    stillWanted();
+  }
 
   // The remote-caret painter is subscribed now, but it only learns about people
   // from awareness CHANGE events — and awareness synced before this mount, so
@@ -634,8 +701,7 @@ export async function mountEditor(
 
   // Debounced sync of title (sidebar) + plain text (search) back to the server.
   let timer: ReturnType<typeof setTimeout> | null = null;
-  let lastTitle = title;
-  const push = () => {
+  push = () => {
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
       // A cached copy's title and text are stale until the server's arrive;
@@ -662,7 +728,7 @@ export async function mountEditor(
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: text.slice(0, 100000), ...(links ? { links } : {}) }),
       }).then(() => onSaved?.()).catch(() => {});
-      if (docTitle && docTitle !== lastTitle) {
+      if (titleSettled && docTitle && docTitle !== lastTitle) {
         lastTitle = docTitle;
         onTitle?.(docTitle);
         fetch(`/api/docs/${docId}`, {
@@ -682,7 +748,7 @@ export async function mountEditor(
       provider?.on('synced', () => {
         if (live) return;
         live = true;
-        reconcileTitle();
+        void reconcileTitle();
         push();
       });
     }
@@ -731,7 +797,9 @@ export async function mountEditor(
       try { provider?.destroy(); } catch { /* noop */ }
       try { idb?.destroy(); } catch { /* noop */ }
       try { collection.dispose?.(); } catch { /* noop */ }
-      root.replaceChildren();
+      // This editor only: a remount into the same host may already have put
+      // the next one there.
+      editor.remove();
     },
   };
 }

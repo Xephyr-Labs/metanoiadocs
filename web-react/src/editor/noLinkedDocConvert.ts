@@ -65,28 +65,36 @@ export function bracketed(before: string, after: string) {
   return before.endsWith('[') && after.startsWith(']');
 }
 
+interface InlineEditorLike {
+  yText: { toString(): string };
+  getInlineRange(): { index: number; length: number } | null;
+  insertText(range: { index: number; length: number }, text: string): void;
+  setInlineRange(range: { index: number; length: number }): void;
+}
+
 /**
  * "[" typed over a selection that already sits between "[" and "]" — the
  * second "[" of "[[" — is where BlockSuite deletes "[text]" and moves the text
- * into a new unsaved doc. Typed here instead: the selection becomes "[text]",
- * so "[[" over a word leaves "[[word]]" in the line, the way it reads.
+ * into a new unsaved doc. Done here instead, through the line's own inline
+ * editor (the document, not just the screen): the selection is wrapped once
+ * more, the way BlockSuite wraps it on the first "[", so "[[" over a word
+ * leaves "[[word]]" in the line with the word still selected.
  * True when it was handled (the key must then go no further).
  */
 function keepBrackets(editor: HTMLElement): boolean {
   const sel = document.getSelection();
   if (!sel || sel.isCollapsed || !sel.rangeCount) return false;
-  const range = sel.getRangeAt(0);
-  const start = range.startContainer instanceof Element ? range.startContainer : range.startContainer.parentElement;
-  const line = start?.closest('[data-v-root]');
-  if (!line || !editor.contains(line) || !line.contains(range.endContainer)) return false;
-  const head = document.createRange();
-  head.selectNodeContents(line);
-  head.setEnd(range.startContainer, range.startOffset);
-  const tail = document.createRange();
-  tail.selectNodeContents(line);
-  tail.setStart(range.endContainer, range.endOffset);
-  if (!bracketed(head.toString(), tail.toString())) return false;
-  return document.execCommand('insertText', false, `[${range.toString()}]`);
+  const node = sel.getRangeAt(0).startContainer;
+  const line = (node instanceof Element ? node : node.parentElement)?.closest('[data-v-root]');
+  if (!line || !editor.contains(line)) return false;
+  const inline = (line as Element & { inlineEditor?: InlineEditorLike }).inlineEditor;
+  const range = inline?.getInlineRange();
+  if (!inline || !range || !range.length) return false;
+  const text = inline.yText.toString();
+  if (!bracketed(text.slice(0, range.index), text.slice(range.index + range.length))) return false;
+  inline.insertText(range, `[${text.slice(range.index, range.index + range.length)}]`);
+  inline.setInlineRange({ index: range.index + 1, length: range.length });
+  return true;
 }
 
 /** "/New Doc" makes one of those docs too. Its menu entry lives in a config

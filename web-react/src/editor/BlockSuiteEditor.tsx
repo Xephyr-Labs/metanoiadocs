@@ -74,6 +74,7 @@ export function BlockSuiteEditor({
 
   useEffect(() => {
     let alive = true;
+    const abort = new AbortController();
     setLoading(true);
     setFailed(null);
     const host = hostRef.current;
@@ -96,6 +97,7 @@ export function BlockSuiteEditor({
       createPage: createPageRef.current ? (t) => createPageRef.current!(t) : undefined,
       onOpenDoc: onOpenDocRef.current ? (id) => onOpenDocRef.current?.(id) : undefined,
       onRemoteRewrite: () => onRemoteRewriteRef.current?.(),
+      signal: abort.signal,
     })
       .then((inst) => {
         if (!alive) { inst.destroy(); return; }
@@ -106,6 +108,7 @@ export function BlockSuiteEditor({
         onEditorRef.current?.(inst.editor);
       })
       .catch((err) => {
+        if (!alive) return; // abandoned on purpose (the cleanup below)
         console.error('[BlockSuite] mount failed', err);
         // A blank page is the one thing this must never render: it reads as an
         // empty document, and someone will type into it.
@@ -113,6 +116,7 @@ export function BlockSuiteEditor({
       });
     return () => {
       alive = false;
+      abort.abort();
       releaseGrammarly();
       onEditorRef.current?.(null);
       instRef.current?.destroy();

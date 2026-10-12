@@ -926,6 +926,17 @@ app.post('/api/docs/:id/links', requireUser, wrap(async (req, res) => {
 }));
 
 // Read a doc's title + plain text (decoded from the Yjs state; used by API clients).
+// The page's name as stored now. The editor reconciles its title block to
+// this once it has synced, instead of to the name it was mounted with — that
+// came from the sidebar list, which can be an hour old, and writing it back
+// undid a teammate's rename (or a version restore's) on every open.
+app.get('/api/docs/:id/title', requireUser, async (req, res) => {
+  if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
+  const d = await pool.query('SELECT title FROM docs WHERE id = $1 AND deleted_at IS NULL', [req.params.id]);
+  if (!d.rows[0]) return res.status(404).json({ error: 'not found' });
+  res.json({ title: d.rows[0].title ?? '' });
+});
+
 app.get('/api/docs/:id/text', requireUser, async (req, res) => {
   if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
   const d = await pool.query('SELECT title FROM docs WHERE id = $1 AND deleted_at IS NULL', [req.params.id]);
@@ -1047,6 +1058,12 @@ app.post('/api/docs/:id/content', requireUser, wrap(async (req, res) => {
   let rewrote = mode === 'replace';
   const conn = await hocuspocus.openDirectConnection(docId, { docId, user: req.user });
   try {
+    // A replace throws the whole body away, so it is undoable from History the
+    // way a restore is. Taken from the live document, before the write, so it
+    // holds the edits still waiting on the debounced save.
+    if (mode === 'replace' && conn.document?.getMap('blocks').size) {
+      await snapshotVersion(docId, Buffer.from(Y.encodeStateAsUpdate(conn.document)), 'Before replace', req.user.id);
+    }
     await conn.transact((doc) => {
       if (mode === 'append' && appendMarkdownToDoc(doc, markdown)) {
         // appended in place
@@ -2428,6 +2445,24 @@ app.get('/api/docs/:id/versions/:vid/state', requireUser, wrap(async (req, res) 
   res.type('application/octet-stream').send(Buffer.from(v.rows[0].state));
 }));
 
+/** Save `state` as a named version of the page, for undoing what comes next.
+ *  Keeps the same 50-version cap the autosave does: without it, restoring or
+ *  replacing repeatedly on a page nobody is editing would grow the history
+ *  without bound — the store hook only prunes when someone types. */
+async function snapshotVersion(docId, state, label, userId) {
+  const id = crypto.randomUUID();
+  await pool.query(
+    'INSERT INTO doc_versions (id, doc_id, state, label, created_by) VALUES ($1, $2, $3, $4, $5)',
+    [id, docId, state, label, userId]
+  );
+  await pool.query(
+    `DELETE FROM doc_versions WHERE doc_id = $1 AND id NOT IN (
+       SELECT id FROM doc_versions WHERE doc_id = $1 ORDER BY created_at DESC LIMIT 50)`,
+    [docId]
+  );
+  return id;
+}
+
 /**
  * Roll this page back to a version, in place.
  *
@@ -2443,27 +2478,19 @@ app.post('/api/docs/:id/versions/:vid/restore-in-place', requireUser, wrap(async
   const v = await pool.query('SELECT state FROM doc_versions WHERE id = $1 AND doc_id = $2', [req.params.vid, docId]);
   if (!v.rows[0]) return res.status(404).json({ error: 'version not found' });
 
-  const cur = await pool.query('SELECT state FROM doc_states WHERE doc_id = $1', [docId]);
-  if (!cur.rows[0]) return res.status(400).json({ error: 'nothing to restore over' });
-  const undoId = crypto.randomUUID();
-  await pool.query(
-    'INSERT INTO doc_versions (id, doc_id, state, label, created_by) VALUES ($1, $2, $3, $4, $5)',
-    [undoId, docId, cur.rows[0].state, 'Before restore', req.user.id]
-  );
-  // Same cap the autosave keeps. Without it, restoring repeatedly on a page
-  // nobody is editing would grow the history without bound — the store hook
-  // only prunes when someone types.
-  await pool.query(
-    `DELETE FROM doc_versions WHERE doc_id = $1 AND id NOT IN (
-       SELECT id FROM doc_versions WHERE doc_id = $1 ORDER BY created_at DESC LIMIT 50)`,
-    [docId]
-  );
-
   // `loadingDocuments` covers the sliver where someone opened the page a
   // moment ago and its state is still being fetched — restoring past that
   // document would be overwritten the instant it finished loading.
   const live = hocuspocus.documents.get(docId) || (await hocuspocus.loadingDocuments?.get(docId));
-  const target = live || (() => { const d = new Y.Doc(); Y.applyUpdate(d, new Uint8Array(cur.rows[0].state)); return d; })();
+  // The undo point is the live document when there is one: doc_states lags it
+  // by the save debounce, and the last seconds of typing would be missing from
+  // the very snapshot meant to bring them back.
+  const cur = live ? null : (await pool.query('SELECT state FROM doc_states WHERE doc_id = $1', [docId])).rows[0];
+  if (!live && !cur) return res.status(400).json({ error: 'nothing to restore over' });
+  const before = live ? Buffer.from(Y.encodeStateAsUpdate(live)) : cur.state;
+  const undoId = await snapshotVersion(docId, before, 'Before restore', req.user.id);
+
+  const target = live || (() => { const d = new Y.Doc(); Y.applyUpdate(d, new Uint8Array(cur.state)); return d; })();
   try {
     rewriteDoc(target, v.rows[0].state);
   } catch (e) {

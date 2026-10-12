@@ -46,6 +46,21 @@ describe('callout panels', () => {
     expect(store.writes).toEqual([{ emoji: '✅' }]);
   });
 
+  it('writes colour and icon in one store transaction, so one undo reverts both', () => {
+    const model = fakeCallout({}, 'ℹ️');
+    const log: string[] = [];
+    let inTxn = false;
+    const store = {
+      captureSync: () => void log.push('capture'),
+      transact: (fn: () => void) => { inTxn = true; fn(); inTxn = false; log.push('txn'); },
+      updateBlock: () => void log.push(`emoji:${inTxn}`),
+    };
+    const set = model.yBlock.set;
+    model.yBlock.set = (k, v) => { log.push(`colour:${inTxn}`); set(k, v); };
+    setPanel(model, store, 'warning');
+    expect(log).toEqual(['capture', 'colour:true', 'emoji:true', 'txn']);
+  });
+
   it('leaves an icon the reader picked alone', () => {
     const store = fakeStore();
     setPanel(fakeCallout({}, '🦆'), store, 'success');

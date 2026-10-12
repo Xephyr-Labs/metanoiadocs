@@ -25,6 +25,22 @@ const oneOf = <T extends string>(v: unknown, allowed: readonly T[], fallback: T)
 // blocks prototype pollution when this data is later merged/spread.
 const POLLUTION_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 
+// Where ECharts 6 writes option strings into the page as HTML or CSS instead
+// of drawing them on the canvas. advancedOptions is shared with every viewer of
+// the doc (public links included), so each of these is stored XSS:
+//  · inside any `tooltip` — the HTML tooltip assigns a string `formatter` (or a
+//    component tooltip's `content`) to innerHTML, `extraCssText` to
+//    style.cssText, and `appendTo` picks its host node by selector;
+//  · the `toolbox` — its data view puts `title`/`lang` strings into innerHTML;
+//  · `link`/`sublink` (titles, treemap/sunburst nodes) go to window.open or
+//    location.href on click, so a javascript: URL runs.
+// Everything else stays: an axis label's or legend's `formatter` is drawn on
+// the canvas, and is the most common thing people customise.
+const TOOLTIP_SINK_KEYS = new Set(['formatter', 'content', 'extraCssText', 'appendTo']);
+const DROPPED_KEYS = new Set(['toolbox']);
+const LINK_KEYS = new Set(['link', 'sublink']);
+const safeLink = (v: unknown) => typeof v === 'string' && /^https?:\/\//i.test(v.trim());
+
 function normalizeInline(v: unknown): InlineChartData {
   const o = (v && typeof v === 'object') ? v as Record<string, unknown> : {};
   let columns = asStringArray(o.columns).filter((c) => !POLLUTION_KEYS.has(c));
@@ -91,7 +107,7 @@ export function normalizeChartProps(raw: unknown): ChartBlockProps {
 
 /**
  * Deep-clone an untrusted value into strictly-serializable JSON: drops
- * functions, symbols, undefined; blocks prototype-pollution keys; caps depth and
+ * functions, symbols, undefined; blocks prototype-pollution and HTML-sink keys; caps depth and
  * breadth so a hostile doc can't blow up memory. Returns undefined when empty.
  */
 export function sanitizeAdvancedOptions(input: unknown, maxDepth = 12): Record<string, unknown> | undefined {
@@ -101,7 +117,7 @@ export function sanitizeAdvancedOptions(input: unknown, maxDepth = 12): Record<s
     : undefined;
 }
 
-function sanitizeJson(value: unknown, depth: number): unknown {
+function sanitizeJson(value: unknown, depth: number, inTooltip = false): unknown {
   if (depth < 0) return undefined;
   if (value === null) return null;
   const t = typeof value;
@@ -110,15 +126,17 @@ function sanitizeJson(value: unknown, depth: number): unknown {
   if (t === 'function' || t === 'symbol' || t === 'undefined' || t === 'bigint') return undefined; // no callbacks
   if (Array.isArray(value)) {
     const arr: unknown[] = [];
-    for (const item of value.slice(0, 5000)) { const s = sanitizeJson(item, depth - 1); if (s !== undefined) arr.push(s); }
+    for (const item of value.slice(0, 5000)) { const s = sanitizeJson(item, depth - 1, inTooltip); if (s !== undefined) arr.push(s); }
     return arr;
   }
   const obj: Record<string, unknown> = {};
   let count = 0;
   for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-    if (POLLUTION_KEYS.has(k)) continue;
+    if (POLLUTION_KEYS.has(k) || DROPPED_KEYS.has(k)) continue;
+    if (inTooltip && TOOLTIP_SINK_KEYS.has(k)) continue;
+    if (LINK_KEYS.has(k) && !safeLink(v)) continue;
     if (++count > 2000) break;
-    const s = sanitizeJson(v, depth - 1);
+    const s = sanitizeJson(v, depth - 1, inTooltip || k === 'tooltip');
     if (s !== undefined) obj[k] = s;
   }
   return obj;

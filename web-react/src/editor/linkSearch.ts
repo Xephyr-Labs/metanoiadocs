@@ -125,7 +125,7 @@ export function attachLinkSearch(
       const query = input.value.trim();
       matches = !query || looksLikeUrl(query)
         ? []
-        : rankPages(pages().filter((p) => p.id !== currentId), query).slice(0, MAX_RESULTS);
+        : rankPages(pages().filter((p) => p.id !== currentId && !p.private), query).slice(0, MAX_RESULTS);
       active = 0;
       paint();
     };

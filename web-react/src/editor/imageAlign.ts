@@ -42,13 +42,26 @@ const alignOf = (model: ImageModelLike): ImageAlign => {
   return v === 'left' || v === 'right' ? v : 'center';
 };
 
-function setAlign(model: ImageModelLike, align: ImageAlign) {
-  if (!model.yBlock) return;
+interface StoreLike {
+  transact?(fn: () => void): void;
+  captureSync?(): void;
+}
+
+function setAlign(model: ImageModelLike, store: StoreLike | null | undefined, align: ImageAlign) {
+  const yBlock = model.yBlock;
+  if (!yBlock) return;
   // Centre is the default, so it is stored as the absence of the prop rather
   // than as a value — an untouched image and one explicitly re-centred should
   // not differ in the document.
-  if (align === 'center') model.yBlock.delete(PROP);
-  else model.yBlock.set(PROP, align);
+  const write = () => {
+    if (align === 'center') yBlock.delete(PROP);
+    else yBlock.set(PROP, align);
+  };
+  // BlockSuite's UndoManager only records changes made inside store.transact
+  // (it tracks the doc's clientID as origin); a bare yBlock.set is never undoable.
+  store?.captureSync?.();
+  if (store?.transact) store.transact(write);
+  else write();
 }
 
 /** Alignment actions for the image toolbar. Registered by imageToolbar.ts —
@@ -66,7 +79,7 @@ export function imageAlignActions() {
       // BlockModel's public type doesn't expose yBlock, which is the only way
       // to store a prop the schema never declared. See the note at the top.
       const model = ctx.getCurrentModel() as unknown as ImageModelLike | null;
-      if (model) setAlign(model, align);
+      if (model) setAlign(model, ctx.store as unknown as StoreLike, align);
     },
   });
 

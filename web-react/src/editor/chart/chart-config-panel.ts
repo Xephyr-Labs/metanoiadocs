@@ -4,7 +4,7 @@
 // Advanced section takes sanitized JSON only. A singleton instance is reused.
 
 import { LitElement, css, html } from 'lit';
-import { customElement, state } from 'lit/decorators.js';
+import { state } from 'lit/decorators.js';
 import {
   AGGREGATIONS, CHART_TYPES, MAX_CHART_HEIGHT, MIN_CHART_HEIGHT,
   type Aggregation, type ChartBlockProps, type ChartType, type InlineChartData,
@@ -18,7 +18,6 @@ type AnyStore = {
   getModelsByFlavour?: (f: string) => any[];
 };
 
-@customElement('metanoia-chart-config')
 export class MetanoiaChartConfig extends LitElement {
   static override styles = css`
     :host { position: fixed; inset: 0; z-index: 60; display: none; }

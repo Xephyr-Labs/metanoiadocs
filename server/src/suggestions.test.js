@@ -144,3 +144,35 @@ test('accepting a removed block keeps the children the page still has', () => {
   assert.doesNotMatch(text, /Parent line/);
   assert.match(text, /Child line/);
 });
+
+test('accepting a new bullet that the draft indented an existing bullet under moves it, not copies it', () => {
+  const { base, draft, main } = fork('- first\n- second\n');
+  // Suggester adds bullet N after "first" and indents "second" under it.
+  const x = textBlock(draft, 'second');
+  draft.transact(() => {
+    const blocks = draft.getMap('blocks');
+    let noteKids;
+    for (const [, b] of blocks) {
+      const kids = b.get('sys:children');
+      if (kids instanceof Y.Array && kids.toArray().includes(x.id)) noteKids = kids;
+    }
+    noteKids.delete(noteKids.toArray().indexOf(x.id), 1);
+    const n = new Y.Map();
+    n.set('sys:id', 'bullet-n');
+    n.set('sys:flavour', 'affine:list');
+    n.set('prop:type', 'bulleted');
+    const t = new Y.Text(); t.insert(0, 'new'); n.set('prop:text', t);
+    const kids = new Y.Array(); kids.push([x.id]); n.set('sys:children', kids);
+    blocks.set('bullet-n', n);
+    noteKids.push(['bullet-n']);
+  });
+  const baseDoc = docFromState(base);
+  const added = computeChanges(baseDoc, draft, main).find((c) => c.kind === 'added');
+  assert.equal(applyChange(main, draft, baseDoc, added), true);
+
+  const parents = [...main.getMap('blocks')]
+    .filter(([, b]) => b.get('sys:children')?.toArray().includes(x.id))
+    .map(([id]) => id);
+  assert.deepEqual(parents, ['bullet-n'], 'one parent, the new bullet');
+  assert.equal(extractText(state(main)).text, 'first\nnew\nsecond');
+});
