@@ -496,6 +496,20 @@ textarea:focus-visible,
   --affine-text-highlight-foreground-red: color-mix(in srgb, var(--table-hue-red), var(--ink) var(--highlight-ink-mix));
   --affine-text-highlight-foreground-teal: color-mix(in srgb, var(--table-hue-teal), var(--ink) var(--highlight-ink-mix));
   --affine-text-highlight-foreground-yellow: color-mix(in srgb, var(--table-hue-yellow), var(--ink) var(--highlight-ink-mix));
+
+  /* Collaborators' carets and name tags. BlockSuite gives each person one of
+   * these var() names (written inline, same unshipped stylesheet), so the
+   * caret and its label painted transparent: someone else in the doc was
+   * there but invisible. Solid, with white lettering on the tag. */
+  --affine-multi-players-blue: var(--table-hue-blue);
+  --affine-multi-players-green: var(--table-hue-green);
+  --affine-multi-players-grey: var(--table-hue-grey);
+  --affine-multi-players-orange: var(--table-hue-orange);
+  --affine-multi-players-purple: var(--table-hue-purple);
+  --affine-multi-players-red: var(--table-hue-red);
+  --affine-multi-players-magenta: var(--table-hue-pink);
+  --affine-multi-players-brown: #9f6b3f;
+  --affine-pure-black-20: rgb(0 0 0 / 0.2);
 }
 
 affine-editor-container {
