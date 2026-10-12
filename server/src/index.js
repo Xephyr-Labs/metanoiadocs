@@ -59,6 +59,7 @@ import { linkFor } from './push-rules.js';
 import { registerFolderRoutes, visibleFolder } from './folders-routes.js';
 import { registerWebhookRoutes, emit, startWebhookWorker } from './webhooks.js';
 import { registerGuestCommentRoutes, shareAccess } from './guest-comments.js';
+import { commentAnchors } from './text-match.js';
 import { registerAgentRoutes, enqueueRun } from './agent-runs.js';
 import { registerAutomationRoutes, startAutomationSweeper } from './automations.js';
 import { registerFormRoutes } from './forms.js';
@@ -2553,7 +2554,7 @@ app.get('/api/docs/:id/comments', requireUser, async (req, res) => {
   const { rows } = await pool.query(
     `SELECT c.id, c.block_id, c.quote, c.body, c.author_id, c.author_name, c.parent_id, c.resolved,
             c.created_at, c.edited_at, c.guest, c.kind, c.suggestion, c.suggestion_status, c.quote_occurrence,
-            u.name AS decided_by_name
+            c.anchor_start, c.anchor_end, u.name AS decided_by_name
        FROM comments c LEFT JOIN users u ON u.id = c.decided_by
       WHERE c.doc_id = $1 ORDER BY c.created_at ASC`,
     [req.params.id]
@@ -2607,14 +2608,16 @@ app.post('/api/docs/:id/comments', requireUser, async (req, res) => {
   }
   const id = crypto.randomUUID();
   await pool.query(
-    `INSERT INTO comments (id, doc_id, block_id, quote, body, author_id, author_name, parent_id, kind, suggestion, quote_occurrence)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+    `INSERT INTO comments (id, doc_id, block_id, quote, body, author_id, author_name, parent_id, kind, suggestion, quote_occurrence,
+                           anchor_start, anchor_end)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
     [id, req.params.id, parentId ? null : (req.body?.blockId || null),
      parentId ? '' : String(req.body?.quote || '').slice(0, 500),
      body, req.user.id, req.user.name || req.user.email, parentId,
      suggestion ? 'suggestion' : 'comment', replacement,
      // Which copy of the quoted words in that block — "the" twice in a line.
-     Math.max(0, Math.min(1000, Number.parseInt(req.body?.occurrence, 10) || 0))]
+     Math.max(0, Math.min(1000, Number.parseInt(req.body?.occurrence, 10) || 0)),
+     ...commentAnchors(parentId ? null : req.body)]
   );
   // Fan out notifications for this comment (best-effort; never fails the comment).
   createCommentNotifications({
@@ -2899,7 +2902,7 @@ app.post('/api/comments/:cid/decision', requireUser, wrap(async (req, res) => {
   const accept = req.body?.decision === 'accept';
   if (!accept && req.body?.decision !== 'reject') return res.status(400).json({ error: 'accept or reject' });
   const { rows: [c] } = await pool.query(
-    `SELECT id, doc_id, block_id, quote, quote_occurrence, suggestion, suggestion_status, author_id, kind
+    `SELECT id, doc_id, block_id, quote, quote_occurrence, anchor_start, anchor_end, suggestion, suggestion_status, author_id, kind
        FROM comments WHERE id = $1 AND doc_id IS NOT NULL`,
     [req.params.cid]
   );
@@ -2925,7 +2928,8 @@ app.post('/api/comments/:cid/decision', requireUser, wrap(async (req, res) => {
       const conn = await hocuspocus.openDirectConnection(c.doc_id, { docId: c.doc_id, user: req.user });
       try {
         await conn.transact((doc) => {
-          applied = applyTextSuggestion(doc, c.block_id, c.quote, c.suggestion ?? '', c.quote_occurrence ?? 0);
+          applied = applyTextSuggestion(doc, c.block_id, c.quote, c.suggestion ?? '', c.quote_occurrence ?? 0,
+            { start: c.anchor_start, end: c.anchor_end });
         });
       } finally {
         await conn.disconnect();

@@ -38,3 +38,12 @@ export function findQuote(raw, quote, occurrence = 0) {
   const end = map[at + q.length - 1] + 1;
   return { index: start, length: end - start };
 }
+
+/**
+ * The passage's start and end as sent by the editor (encoded Yjs relative
+ * positions), or nulls. Both or neither: half a range pins nothing.
+ */
+export function commentAnchors(body) {
+  const ok = (v) => typeof v === 'string' && v.length <= 200 && /^[A-Za-z0-9+/=]+$/.test(v);
+  return ok(body?.anchorStart) && ok(body?.anchorEnd) ? [body.anchorStart, body.anchorEnd] : [null, null];
+}

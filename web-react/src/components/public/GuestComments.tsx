@@ -159,6 +159,8 @@ export function GuestComments({ token, onClose }: { token: string; onClose?: () 
           quote: parentId ? undefined : anchor?.quote ?? undefined,
           // Which copy of the quote, when it appears more than once.
           occurrence: parentId ? undefined : anchor?.occurrence ?? undefined,
+          anchorStart: parentId ? undefined : anchor?.anchorStart,
+          anchorEnd: parentId ? undefined : anchor?.anchorEnd,
         }),
       });
       remember(made.id, made.key);
