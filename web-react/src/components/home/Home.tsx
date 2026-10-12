@@ -130,7 +130,7 @@ export function Home() {
     return [...mine, ...data.recentDocs.filter((d) => !seen.has(d.id))].slice(0, 4);
   })();
 
-  const openTask = (t: MyTask) => ws.openProject(t.project_id);
+  const openTask = (t: MyTask) => ws.openProject(t.project_id, t.id);
 
   // "My tasks" merges every project, which is noise for someone who only works
   // in one of them. The choice is remembered per browser, the way the project
@@ -283,7 +283,7 @@ export function Home() {
                         key={`${row.kind}-${row.task_id ?? row.doc_id}-${i}`}
                         row={row}
                         onOpen={() => {
-                          if (row.project_id) ws.openProject(row.project_id);
+                          if (row.project_id) ws.openProject(row.project_id, row.task_id ?? undefined);
                           else if (row.doc_id) ws.select(row.doc_id);
                         }}
                       />

@@ -83,10 +83,21 @@ const blocksuiteExclude = [
   '@blocksuite/sync',
 ];
 
+// Which build this is. The app compares it with /version.json, which every
+// deploy rewrites, to notice it is running yesterday's code (see appUpdate.ts).
+const BUILD = String(Date.now());
+
 export default defineConfig({
+  define: { __BUILD__: JSON.stringify(BUILD) },
   // React lives in src/**; BlockSuite web components mount imperatively via a ref.
   plugins: [
     react(),
+    {
+      name: 'version-json',
+      generateBundle() {
+        this.emitFile({ type: 'asset', fileName: 'version.json', source: JSON.stringify({ build: BUILD }) });
+      },
+    },
     wasm(),
     vanillaExtractPlugin(),
     VitePWA({
