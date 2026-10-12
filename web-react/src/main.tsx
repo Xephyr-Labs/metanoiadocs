@@ -66,6 +66,14 @@ function Root() {
   );
 }
 
+// SPIKE: the same sign-in as the app, then the Tiptap page.
+function SpikeGate({ id }: { id: string }) {
+  const { user, loading } = useAuth();
+  if (loading) return null;
+  if (!user) return <AuthScreen />;
+  return <Suspense fallback={null}><SpikePage id={id} /></Suspense>;
+}
+
 // No StrictMode: its intentional double-invoke of effects races BlockSuite's
 // async web-component mount and can tear down the editor before it settles.
 const shareMatch = location.pathname.match(/^\/share\/(.+)$/);
@@ -82,7 +90,9 @@ createRoot(document.getElementById('root')!).render(
   ) : formMatch ? (
     <FormView token={decodeURIComponent(formMatch[1])} />
   ) : spikeMatch ? (
-    <Suspense fallback={null}><SpikePage id={decodeURIComponent(spikeMatch[1])} /></Suspense>
+    <AuthProvider>
+      <SpikeGate id={decodeURIComponent(spikeMatch[1])} />
+    </AuthProvider>
   ) : (
     <AuthProvider>
       <Root />
