@@ -1543,13 +1543,18 @@ affine-editor-container .doc-title-container {
   }
 }
 /* BlockSuite's phone toolbar (enabled in mountEditor) pins itself to bottom: 0
- * of the layout viewport. Android is told to shrink that viewport for the
- * keyboard (interactive-widget in index.html); iOS won't, so it is lifted by
- * the keyboard's height (--kb, from editor/virtualKeyboard). The page gets the
- * same room below its last line, so the end of a document can be scrolled up
- * above the toolbar instead of typed into blind. */
+ * of the layout viewport. It is hung from the bottom of what can be seen
+ * instead (--vv-bottom, from editor/virtualKeyboard): the visual viewport ends
+ * where the keyboard begins on both phones, Safari's own form bar (the up/down
+ * arrows and the tick) included. Lifting it off the layout's bottom by the
+ * keyboard's height left it behind that form bar on iOS, whose layout bottom
+ * is not where innerHeight says. translateY(-100%) puts its bottom edge, panel
+ * and all, on that line. The page gets room below its last line (--kb), so
+ * the end of a document can be scrolled up above the toolbar. */
 affine-keyboard-toolbar {
-  bottom: var(--kb, 0px) !important;
+  top: var(--vv-bottom, 100dvh) !important;
+  bottom: auto !important;
+  transform: translateY(-100%);
 }
 /* Under the bar BlockSuite keeps its insert/style panel at the keyboard's
  * height at all times — sized for an app whose layout ends at the keyboard. On

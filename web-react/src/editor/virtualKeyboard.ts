@@ -62,9 +62,11 @@ export function createVirtualKeyboardProvider(viewport: ViewportLike | null = br
     const { height, overlay } = measure(window.innerWidth, window.innerHeight, viewport.height, viewport.offsetTop);
     visible$.value = height > 0;
     height$.value = height;
-    // For CSS: iOS never shrinks the layout for the keyboard, so anything
-    // pinned to the bottom (the keyboard toolbar) has to be lifted by hand.
+    // For CSS: how much of the layout the keyboard covers (iOS never shrinks
+    // the layout for it), the room the page leaves below its last line.
     document.documentElement.style.setProperty('--kb', `${Math.round(overlay)}px`);
+    // Where the visible area ends, in the coordinates fixed elements use.
+    document.documentElement.style.setProperty('--vv-bottom', `${Math.round(viewport.offsetTop + viewport.height)}px`);
   };
 
   viewport?.addEventListener('resize', update);
