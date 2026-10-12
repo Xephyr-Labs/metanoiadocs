@@ -62,7 +62,7 @@ One image, one Postgres, one port. `docker compose up -d` and invite the team.
       <p align="center"><sub><b>Calendar</b> — the whole span, not just the due date. Drag an edge to move it; weeks grow to fit.</sub></p>
     </td>
     <td width="50%" valign="top">
-      <img src="assets/screenshots/inbox.png" alt="Inbox dialog listing an assignment and two comment mentions" />
+      <img src="assets/screenshots/inbox.png" alt="Inbox dialog listing a comment, a mention and an assignment" />
       <p align="center"><sub><b>Inbox</b> — mentions, assignments and replies, in-app, by email, and as Web Push when the tab is closed.</sub></p>
     </td>
   </tr>
