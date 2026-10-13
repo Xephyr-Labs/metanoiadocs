@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { FileText, Plus } from 'lucide-react';
+import { FileQuestion, FileText, Plus } from 'lucide-react';
 import { emitDocSaved } from '../../lib/docSignal';
 import { useAuth } from '../../store/auth';
 import { useWorkspace } from '../../store/workspace';
@@ -20,6 +20,7 @@ import { PageHeader } from './PageHeader';
 import { SlidesRail } from './SlidesRail';
 import { focusDocTitle, takeTitleFocus } from '../../lib/titleFocus';
 import { canEditRole } from '../../lib/docsApi';
+import { deadDocLink } from '../../lib/route';
 import * as prefs from '../../lib/docPrefs';
 import { useReviewState } from '../../lib/reviewMode';
 import { SuggestingBanner } from '../review/SuggestingBanner';
@@ -81,6 +82,19 @@ export function EditorArea() {
     if (!editorEl || !pageId || !takeTitleFocus(pageId)) return;
     return focusDocTitle(editorEl);
   }, [editorEl, pageId]);
+
+  if (deadDocLink(ws.pages, page?.id, ws.loading)) {
+    return (
+      <div className="flex h-full items-center justify-center bg-canvas">
+        <EmptyState
+          icon={FileQuestion}
+          title="This page isn't here"
+          hint="It may have been deleted, or it hasn't been shared with you. Ask whoever sent the link to share it."
+          action={<Button onClick={() => ws.openHome()}>Go to Home</Button>}
+        />
+      </div>
+    );
+  }
 
   if (!page) {
     return (

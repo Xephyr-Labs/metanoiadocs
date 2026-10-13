@@ -176,3 +176,16 @@ export function revealBlock(blockId: string, root: ParentNode = document): () =>
   tick();
   return () => { if (timer) clearTimeout(timer); };
 }
+
+/**
+ * The page the address names when the workspace does not have it — deleted,
+ * never shared with you, or mistyped — or null. The store falls back to the
+ * last page open, and drawing that page (and its title in the bar) under the
+ * dead link's address read as the link working.
+ */
+export function deadDocLink(pages: Record<string, unknown>, currentId: string | null | undefined, loading: boolean): string | null {
+  const routed = readRoute().docId;
+  // An empty list is a list that failed to load, not one without this page.
+  if (loading || !routed || routed === currentId || pages[routed] || !Object.keys(pages).length) return null;
+  return routed;
+}

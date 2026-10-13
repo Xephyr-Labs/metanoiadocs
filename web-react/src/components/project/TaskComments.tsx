@@ -257,7 +257,7 @@ export function TaskComments({
           />
         ) : (
           <ClampedText className="text-sm leading-relaxed text-ink">
-            {splitMentions(emojify(c.body)).map((part, i) => (i % 2 ? <span key={i} className="font-semibold text-accent">{part}</span> : part))}
+            {splitMentions(emojify(c.body)).map((part, i) => (i % 2 ? <span key={i} className="font-semibold text-accent-strong">{part}</span> : part))}
             {c.edited_at && <span className="ml-1 text-2xs text-faint">(edited)</span>}
           </ClampedText>
         )}

@@ -5,7 +5,7 @@
  *         dependency removed · backlinked · empty property · deleting
  */
 import { ArrowRight, CalendarClock, ChevronDown, ExternalLink, Link2, MoreHorizontal, Plus, Settings2, Trash2, X } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { calendarDate, fullTime, relativeTime } from '../../lib/time';
 import type { UserRow } from '../../lib/docsApi';
 import { cn } from '../../lib/cn';
@@ -131,6 +131,13 @@ function EdgeLink({ task, onOpen }: { task: TaskRow; onOpen: () => void }) {
   );
 }
 
+/** Grow the title box to its text, so a long title wraps instead of scrolling. */
+function fitTitle(el: HTMLTextAreaElement | null) {
+  if (!el) return;
+  el.style.height = 'auto';
+  el.style.height = `${el.scrollHeight}px`;
+}
+
 export function TaskPeek({
   task, mode, tasks, props, sprints, users, statusColors, builtinOverrides, onClose, onPatch, onSetProp, onDelete, onAddDep, onRemoveDep,
   onManageKinds, onManageProps, onEditOptions, onTagsChanged,
@@ -139,6 +146,21 @@ export function TaskPeek({
   const auth = useAuth();
   const kinds = useKinds();
   const [depPick, setDepPick] = useState('');
+  // Refit the title when its width changes too — a phone turned upright, the
+  // panel resized — or the extra lines are cut off below the box.
+  const titleRef = useRef<HTMLTextAreaElement | null>(null);
+  useEffect(() => {
+    const el = titleRef.current;
+    if (!el) return;
+    let width = el.clientWidth;
+    const ro = new ResizeObserver(() => {
+      if (el.clientWidth === width) return;
+      width = el.clientWidth;
+      fitTitle(el);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [task?.title]);
   const [docId, setDocId] = useState<string | null>(task?.doc_id ?? null);
   const [detail, setDetail] = useState<TaskDetail | null>(null);
   // The notes editor, once mounted: the formatting bar above it drives it.
@@ -243,10 +265,8 @@ export function TaskPeek({
 
   return (
     <aside className="fixed right-0 top-0 z-40 flex h-full w-full max-w-[560px] flex-col border-l border-line bg-canvas shadow-modal">
-      {/* A fixed 53px: the 1px rule plus a 52px box, which centres the two
-          28px buttons on whole pixels. Sized by its content the header came
-          out at 54 — the title input's line box is 29 — and that put the
-          buttons at y=12.5 and their icons on a half pixel. */}
+      {/* A fixed 53px: the 1px rule plus a 52px box, which centres the
+          28px buttons on whole pixels rather than on a half pixel. */}
       <header className="flex h-[53px] shrink-0 items-center gap-2.5 border-b border-line px-4">
         {/* The type leads the title, as it does on a card, and it is the
             control that changes it: the name sits beside the glyph here
@@ -275,18 +295,7 @@ export function TaskPeek({
             }))}
           />
         )}
-        {/* Same reason as the table's title cell: uncontrolled, so it is keyed
-            on the title to pick up a change made in the document body. */}
-        <input
-          key={task.title}
-          autoFocus={!task.title}
-          aria-label="Task title"
-          className="min-w-0 flex-1 bg-transparent text-md font-medium text-ink outline-none placeholder:text-faint"
-          defaultValue={task.title}
-          placeholder="Task title"
-          onBlur={(e) => e.target.value !== task.title && onPatch(task.id, { title: e.target.value })}
-          onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
-        />
+        <span className="flex-1" />
         <IconButton
           icon={<ExternalLink size={16} />}
           label="Open as page"
@@ -302,7 +311,28 @@ export function TaskPeek({
       </header>
 
       <div className="scrollarea min-h-0 flex-1 divide-y divide-line overflow-y-auto">
+        {/* The title is the panel's heading and wraps, rather than a one-line
+            field squeezed between the header's buttons: on a phone that field
+            was about 20 characters wide and cut the title off mid-word. Same
+            reason as the table's title cell for being uncontrolled — keyed on
+            the title, it picks up a change made in the document body. */}
         <section className="space-y-0.5 px-4 py-3">
+          <textarea
+            key={task.title}
+            ref={(el) => { titleRef.current = el; fitTitle(el); }}
+            rows={1}
+            autoFocus={!task.title}
+            aria-label="Task title"
+            className="mb-2 block w-full resize-none overflow-hidden bg-transparent text-xl font-semibold leading-snug text-ink outline-none placeholder:text-faint"
+            defaultValue={task.title}
+            placeholder="Task title"
+            onInput={(e) => fitTitle(e.currentTarget)}
+            onBlur={(e) => {
+              const v = e.target.value.replace(/\s*\n\s*/g, ' ').trim();
+              if (v !== task.title) onPatch(task.id, { title: v });
+            }}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); } }}
+          />
           {fields.map((p) => (
             <Row
               key={p.id}
@@ -351,7 +381,7 @@ export function TaskPeek({
               <SearchSelect
                 variant="bare"
                 value={task.parent_id ?? null}
-                placeholder="None"
+                placeholder="Empty"
                 empty="No group rows in this database."
                 options={parents.map((t) => ({ value: t.id, label: t.title || 'Untitled' }))}
                 onChange={(id) => onPatch(task.id, { parentId: id || null })}

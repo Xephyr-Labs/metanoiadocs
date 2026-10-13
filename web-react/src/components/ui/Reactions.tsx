@@ -72,7 +72,7 @@ export function ReactionPicker({ reactions = [], onToggle, reveal }: {
         title="Add a reaction"
         aria-expanded={open}
         className={cn(
-          'flex h-5 w-5 shrink-0 items-center justify-center rounded text-faint transition-opacity hover:bg-hover hover:text-ink focus-visible:opacity-100 [@media(hover:none)]:opacity-100',
+          'mn-hit flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-faint transition-opacity hover:bg-hover hover:text-ink focus-visible:opacity-100 [@media(hover:none)]:opacity-100',
           open ? 'bg-hover text-ink opacity-100' : cn('opacity-0', reveal),
         )}
       >

@@ -59,7 +59,7 @@ export function Board({ tasks, groups, groupOf, cardProps, users, onMove, onOpen
   // On a phone a column is most of the screen and swipes snap to the next
   // one, like pages — a 280px column left a sliver of the next as the only hint.
   return (
-    <div className="mn-board scrollarea flex h-full snap-x snap-mandatory scroll-px-4 gap-3 overflow-x-auto p-4 md:snap-none">
+    <div className="mn-board mn-scroll-cue scrollarea flex h-full snap-x snap-mandatory scroll-px-4 gap-3 overflow-x-auto p-4 md:snap-none">
       {groups.map((group) => {
         // Only the ungrouped board keeps the manual order a drag writes; any
         // other grouping has no position of its own, so the list arrives

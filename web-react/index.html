@@ -15,6 +15,15 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="Metanoia" />
     <title>MetanoiaDocs</title>
+    <!-- The theme before first paint. The store sets it too, but only once the
+         app mounts behind sign-in: the sign-in page and the first frame of
+         every load were light whatever the system or the saved choice said. -->
+    <script>
+      try {
+        var t = localStorage.getItem('mn-theme');
+        if (t === 'dark' || (!t && matchMedia('(prefers-color-scheme: dark)').matches)) document.documentElement.classList.add('dark');
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

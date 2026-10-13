@@ -46,6 +46,7 @@ import {
 } from 'lucide-react';
 import { Children, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { cn } from '../../lib/cn';
+import { MOD_LABEL } from '../../lib/hotkeys';
 import { SECTION_LIMIT, collapsedSections, railSection, setRailSection, toggleSection, type RailSection } from '../../lib/sidebarPrefs';
 import { copyLink } from '../../lib/clipboard';
 import { dbUrl } from '../../lib/route';
@@ -127,8 +128,7 @@ function NavItem({ icon, label, onClick, trailing, active, alert }: { icon: Reac
  * shelves warm, the places work lives cool) and only guarantees that no two
  * ADJACENT sections share a hue, which is all "tell them apart" needs.
  *
- * The label stays `text-muted` throughout. Colouring 11px uppercase text as
- * well reads as a warning, not as a category.
+ * The label carries the hue too, at text weight (SECTION_TEXT_TINT below).
  */
 const SECTION_TINT: Record<string, string> = {
   recent: 'text-blue-500',
@@ -861,7 +861,7 @@ export function Sidebar() {
         <IconButton
           icon={<PanelLeftClose size={16} />}
           label="Close sidebar"
-          keys={['⌘', '\\']}
+          keys={[MOD_LABEL, '\\']}
           onClick={() => ws.setSidebarCollapsed(true)}
           className="mn-hover-reveal opacity-0 transition-opacity duration-120 group-hover/head:opacity-100"
         />

@@ -33,7 +33,14 @@ type Item =
 /** Search snippets come from Postgres's ts_headline, which wraps each hit in
  *  `<b>`. Rendered as text those tags printed literally ("<b>launch</b> moves"),
  *  and the title above already marks the match, so the tags are dropped. */
-const stripMarks = (s: string) => s.replace(/<\/?b>/g, '');
+const stripMarks = (s: string) => s
+  .replace(/<\/?b>/g, '')
+  // The text is the page's markdown, so its syntax printed too ("**Impact:**").
+  // Only the marks a sentence never contains: emphasis, code ticks, heading
+  // and quote leaders, and a link's URL half.
+  .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+  .replace(/(\*\*|__|`|~~)/g, '')
+  .replace(/(^|\n)[#>]+\s/g, '$1');
 
 export function CommandPalette() {
   const ws = useWorkspace();

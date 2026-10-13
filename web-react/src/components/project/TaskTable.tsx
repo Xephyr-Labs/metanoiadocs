@@ -471,7 +471,7 @@ export function TaskTable({
           too, which is the second scrollbar people saw on a page and the
           reason the column names never stuck while the page scrolled. Flush,
           no padding: the first column lines up with the text above it. */}
-      <div className={cn('scrollarea', auto ? 'overflow-x-auto overflow-y-hidden pb-1' : 'flex-1 overflow-auto p-4')}>
+      <div className={cn('mn-scroll-cue-end scrollarea', auto ? 'overflow-x-auto overflow-y-hidden pb-1' : 'flex-1 overflow-auto p-4')}>
       <table
         className={cn('border-collapse text-sm', auto ? 'w-auto' : 'w-full')}
         // At least the text column wide, wider only when the columns need it —

@@ -20,6 +20,7 @@ import { emojify, toggleLocal } from '../../lib/emoji';
 import { splitMentions } from '../../lib/mentions';
 import { EmptyState } from '../ui/EmptyState';
 import { IconButton } from '../ui/IconButton';
+import { Tooltip } from '../ui/Tooltip';
 import { CommentBox, savedDraft, type CommentBoxHandle } from '../ui/CommentBox';
 
 type Filter = 'open' | 'suggestions' | 'resolved';
@@ -207,7 +208,7 @@ export function CommentsTab({ docId }: { docId: string }) {
       // "(edited)" trails the text rather than sitting in the header: the
       // panel is narrow, and one more chip up there wraps the author's name.
       <ClampedText className={className}>
-        {splitMentions(emojify(c.body)).map((part, i) => (i % 2 ? <span key={i} className="font-semibold text-accent">{part}</span> : part))}
+        {splitMentions(emojify(c.body)).map((part, i) => (i % 2 ? <span key={i} className="font-semibold text-accent-strong">{part}</span> : part))}
         {c.edited_at && <span className="ml-1 text-2xs text-faint">(edited)</span>}
       </ClampedText>
     ) : null;
@@ -216,17 +217,17 @@ export function CommentsTab({ docId }: { docId: string }) {
   const renderActions = (c: CommentRow, reveal: string) => {
     const mine = !!c.author_id && c.author_id === me;
     return (
-      <span className="flex shrink-0 items-center gap-1.5">
+      <span className="flex shrink-0 items-center gap-0.5">
         {mayComment && <ReactionPicker reactions={c.reactions} onToggle={(e) => void react(c.id, e)} reveal={reveal} />}
+        {/* Revealed with the reaction picker, so a thread reads as words until
+            you point at it; a 12px glyph was also the whole tap target. */}
         {mine && (
-          <button type="button" onClick={() => setEditing({ id: c.id, text: c.body })} aria-label="Edit" className="text-faint hover:text-ink">
-            <Pencil size={12} />
-          </button>
+          <IconButton size="sm" icon={<Pencil size={12} />} label="Edit" onClick={() => setEditing({ id: c.id, text: c.body })}
+            className={cn('mn-hover-reveal opacity-0 focus-visible:opacity-100', reveal)} />
         )}
         {(mine || role === 'owner') && (
-          <button type="button" onClick={() => remove(c)} aria-label="Delete" className="text-faint hover:text-danger-strong">
-            <Trash2 size={12} />
-          </button>
+          <IconButton size="sm" tone="danger" icon={<Trash2 size={12} />} label="Delete" onClick={() => remove(c)}
+            className={cn('mn-hover-reveal opacity-0 focus-visible:opacity-100', reveal)} />
         )}
       </span>
     );
@@ -375,28 +376,31 @@ export function CommentsTab({ docId }: { docId: string }) {
                 focusId === c.id && 'ring-2 ring-accent',
               )}
             >
+              {/* Name over time, and Resolve as an icon: in a 320px rail the
+                  name was what gave way to everything else on this line, so
+                  a comment's author read as "Farhan…". */}
               <div className="flex items-center gap-2">
                 <Avatar name={c.author_name} />
-                <span className="min-w-0 truncate text-sm font-medium text-ink">{c.author_name}</span>
-                {c.guest && <GuestChip />}
-                {c.kind === 'suggestion' && <SquarePen size={12} className="shrink-0 text-accent-strong" aria-label="Suggested change" />}
-                <span className="shrink-0 text-2xs text-faint">{relativeTime(c.created_at)}</span>
-                {renderActions(c, 'group-hover/card:opacity-100')}
-                <span className="ml-auto shrink-0">
-                  {c.resolved ? (
-                    mayResolve ? (
-                      <button type="button" onClick={() => run(`res:${c.id}`, () => docsApi.resolveComment(c.id, false))} className="flex items-center gap-1 text-2xs text-muted hover:text-ink">
-                        <RotateCcw size={11} /> Reopen
-                      </button>
-                    ) : (
-                      <span className="flex items-center gap-1 text-2xs text-faint"><Check size={12} /> Resolved</span>
-                    )
-                  ) : mayResolve && !pendingSuggestion(c) ? (
-                    <button type="button" onClick={() => run(`res:${c.id}`, () => docsApi.resolveComment(c.id, true))} className="flex items-center gap-1 text-2xs text-muted hover:text-ink">
-                      <Check size={12} /> Resolve
-                    </button>
-                  ) : null}
+                <span className="flex min-w-0 flex-1 flex-col">
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <span className="min-w-0 truncate text-sm font-medium leading-snug text-ink">{c.author_name}</span>
+                    {c.guest && <GuestChip />}
+                    {c.kind === 'suggestion' && <SquarePen size={12} className="shrink-0 text-accent-strong" aria-label="Suggested change" />}
+                  </span>
+                  <span className="text-2xs leading-tight text-faint">{relativeTime(c.created_at)}</span>
                 </span>
+                {renderActions(c, 'group-hover/card:opacity-100')}
+                {c.resolved ? (
+                  mayResolve ? (
+                    <IconButton size="sm" icon={<RotateCcw size={12} />} label="Reopen" onClick={() => run(`res:${c.id}`, () => docsApi.resolveComment(c.id, false))} />
+                  ) : (
+                    <Tooltip label="Resolved">
+                      <span className="flex h-6 w-6 shrink-0 items-center justify-center text-faint" role="img" aria-label="Resolved"><Check size={12} /></span>
+                    </Tooltip>
+                  )
+                ) : mayResolve && !pendingSuggestion(c) ? (
+                  <IconButton size="sm" icon={<Check size={14} />} label="Resolve" onClick={() => run(`res:${c.id}`, () => docsApi.resolveComment(c.id, true))} />
+                ) : null}
               </div>
               {c.kind === 'suggestion' ? renderSuggestion(c) : c.quote && (
                 <p className="mt-1.5 border-l-2 border-comment-mark pl-2 text-2xs italic text-muted">{c.quote}</p>
@@ -446,7 +450,7 @@ export function CommentsTab({ docId }: { docId: string }) {
                   <button
                     type="button"
                     onClick={() => { setReplyTo(c.id); setReplyText(savedDraft(`reply:${c.id}`)); }}
-                    className="mt-2 text-2xs font-medium text-muted hover:text-ink"
+                    className="mn-hit -ml-1.5 mt-1 flex h-6 items-center rounded-md px-1.5 text-2xs font-medium text-muted transition-colors duration-120 hover:bg-hover hover:text-ink"
                   >
                     Reply
                   </button>

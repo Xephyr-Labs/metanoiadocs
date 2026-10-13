@@ -4,6 +4,15 @@
 // here renders in the editor and syncs over Hocuspocus like any other.
 import * as Y from 'yjs';
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+
+// Every name the editor's code block recognises (shiki's id, display name and
+// aliases) → the id it stores. The editor rewrites any other value on first
+// open ("js" → "javascript", unknown → null), and that rewrite saved the page
+// as an edit by whoever merely opened it. Regenerate after a BlockSuite/shiki
+// upgrade, from web-react:
+//   node --input-type=module -e "import{bundledLanguagesInfo as L}from'shiki';const m={};for(const l of L)for(const k of[l.id,l.name,...(l.aliases||[])])if(k&&!(k in m))m[k]=l.id;console.log(JSON.stringify(m))" > ../server/src/code-languages.json
+const CODE_LANGS = JSON.parse(fs.readFileSync(new URL('./code-languages.json', import.meta.url), 'utf8'));
 
 const blockId = () => crypto.randomBytes(8).toString('base64url').slice(0, 10);
 
@@ -387,8 +396,11 @@ function makeBlock(blocks, desc, resolveLink, pending) {
     b.set('prop:lockedBySelf', false);
   } else if (desc.flavour === 'affine:code') {
     b.set('prop:text', plainYText(desc.text));
-    b.set('prop:language', desc.language || 'plain');
+    // Own keys only: a fence named `constructor` or `__proto__` would otherwise
+    // read Object.prototype and hand Yjs a function.
+    b.set('prop:language', Object.hasOwn(CODE_LANGS, desc.language) ? CODE_LANGS[desc.language] : null);
     b.set('prop:wrap', false);
+    b.set('prop:caption', '');
   } else if (desc.flavour === 'affine:list') {
     const { text, size } = sizedText(desc);
     b.set('prop:type', desc.type);
@@ -513,6 +525,7 @@ export function buildDocState(title, markdown, resolveLink) {
   blocks.set(pageId, page);
 
   applyMarks(pending);
+  numberLists(blocks);
   return Y.encodeStateAsUpdate(doc);
 }
 
@@ -522,6 +535,35 @@ export function buildDocState(title, markdown, resolveLink) {
  */
 function applyMarks(pending) {
   for (const { text, index, length, attrs } of pending) text.format(index, length, attrs);
+}
+
+/**
+ * Give every list item the `prop:order` the editor would. It fills a missing
+ * one itself on first open (numbered: one past the numbered sibling above,
+ * else 1; anything else: null), and that fill saved the page as an edit by
+ * whoever merely opened it. Only missing or wrong-typed values are touched, so
+ * an existing doc keeps the numbers it has.
+ */
+function numberLists(blocks) {
+  for (const [, parent] of blocks) {
+    const kids = parent instanceof Y.Map && parent.get('sys:children');
+    if (!(kids instanceof Y.Array)) continue;
+    let prev = null;
+    for (const id of kids.toArray()) {
+      const b = blocks.get(id);
+      if (b instanceof Y.Map && b.get('sys:flavour') === 'affine:list') {
+        const numbered = b.get('prop:type') === 'numbered';
+        const order = b.get('prop:order');
+        if (numbered && !Number.isInteger(order)) {
+          const above = prev?.get('sys:flavour') === 'affine:list' && prev.get('prop:type') === 'numbered' ? prev.get('prop:order') : 0;
+          b.set('prop:order', (Number.isInteger(above) ? above : 1) + 1);
+        } else if (!numbered && (order !== null || !b.has('prop:order'))) {
+          b.set('prop:order', null);
+        }
+      }
+      prev = b instanceof Y.Map ? b : null;
+    }
+  }
 }
 
 /** Decode a doc_states buffer to plain text (title + block text, in tree order). */
@@ -874,6 +916,7 @@ export function appendMarkdownToDoc(doc, markdown) {
   const children = note.get('sys:children');
   children.push(makeBlocks(blocks, descs, null, pending));
   applyMarks(pending);
+  numberLists(blocks);
   return true;
 }
 
@@ -965,6 +1008,7 @@ export function normalizeDocState(existing, opts = {}) {
     childArr.push(makeBlocks(blocks, descs, null, pending));
   });
   applyMarks(pending);
+  numberLists(blocks);
 
   return Y.encodeStateAsUpdate(doc);
 }

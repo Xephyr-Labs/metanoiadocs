@@ -20,6 +20,7 @@ import { KindsProvider } from '../project/kinds';
 import { Pager, usePaged } from '../ui/Pager';
 import { SegmentedControl } from '../ui/SegmentedControl';
 import { groupOf, groupsFor } from '../../lib/grouping';
+import { defaultCardProps } from '../../lib/builtinProps';
 import { TASK_SCOPES, dropLegacyOpenChip, inScope, scopeCounts, type TaskScope } from '../../lib/taskScope';
 import { ProjectIcon } from '../ui/ProjectIcon';
 
@@ -207,6 +208,7 @@ export function TasksView() {
   // pushed the one column with anything in it off the screen. Open and Overdue
   // keep the Done column: it is empty, but dragging a card onto it is how a
   // task gets finished from here.
+  const cardProps = useMemo(() => defaultCardProps('board', 'tasks', kinds), [kinds]);
   const boardGroups = useMemo(
     () => (statusField ? groupsFor(statusField) : [])
       .filter((g) => scope !== 'done' || g.value === 'done'),
@@ -303,6 +305,10 @@ export function TasksView() {
             tasks={visible}
             groups={boardGroups}
             groupOf={(t) => (statusField ? groupOf(t, statusField) : '')}
+            // No view settings to read here, so the cards take the default
+            // set — without it they were a title and nothing else: no due
+            // date, no assignee, an overdue task indistinguishable from any.
+            cardProps={cardProps}
             users={users}
             onOpen={(t) => ws.openProject((t as AnyTaskRow).project_id, t.id)}
             // No `onAdd`: a column here spans every project, so there is no

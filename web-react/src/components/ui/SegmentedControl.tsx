@@ -1,6 +1,6 @@
 import * as Toggle from '@radix-ui/react-toggle-group';
 import { motion } from 'framer-motion';
-import type { ReactNode } from 'react';
+import { useId, type ReactNode } from 'react';
 import { cn } from '../../lib/cn';
 
 export interface Segment {
@@ -18,6 +18,9 @@ interface Props {
 
 /** Compact segmented control with a sliding pill (Page / Edgeless). */
 export function SegmentedControl({ segments, value, onChange, ...aria }: Props) {
+  // One pill per control: a shared layoutId made the Tasks page's two controls
+  // (shape and scope) hand one pill back and forth across the header.
+  const pill = useId();
   return (
     <Toggle.Root
       type="single"
@@ -39,7 +42,7 @@ export function SegmentedControl({ segments, value, onChange, ...aria }: Props) 
           >
             {active && (
               <motion.span
-                layoutId="segmented-pill"
+                layoutId={pill}
                 className="absolute inset-0 rounded bg-canvas shadow-subtle"
                 transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
               />

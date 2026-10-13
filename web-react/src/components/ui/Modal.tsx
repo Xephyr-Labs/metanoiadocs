@@ -76,9 +76,14 @@ export function Modal({
               aria-describedby={undefined}
               onKeyDown={onKeyDown}
               onOpenAutoFocus={(e) => {
-                if (!focusPanel) return;
+                const root = e.currentTarget as HTMLElement | null;
+                // Radix focuses the first control. When that is the header's
+                // Close button its focus tooltip opens too, and the first Escape
+                // only closed the tooltip: every dialog took two to dismiss.
+                const first = root?.querySelector<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+                if (!focusPanel && !first?.hasAttribute('data-modal-close')) return;
                 e.preventDefault();
-                (e.currentTarget as HTMLElement | null)?.querySelector<HTMLElement>('[data-modal-panel]')?.focus({ preventScroll: true });
+                root?.querySelector<HTMLElement>('[data-modal-panel]')?.focus({ preventScroll: true });
               }}
             >
               <div
@@ -102,7 +107,7 @@ export function Modal({
                   dragElastic={{ top: 0, bottom: 0.6 }}
                   onDragEnd={(_, info) => { if (info.offset.y > 80 || info.velocity.y > 500) onOpenChange(false); }}
                   data-modal-panel
-                  tabIndex={focusPanel ? -1 : undefined}
+                  tabIndex={-1}
                   style={{ maxWidth: phone ? undefined : `min(92vw, ${width}px)` }}
                   className={cn(
                     'pointer-events-auto flex w-full flex-col overflow-hidden border border-line bg-canvas shadow-modal outline-none',
@@ -132,6 +137,7 @@ export function Modal({
                       <IconButton
                         icon={<X size={16} />}
                         label="Close"
+                        data-modal-close
                         onClick={() => onOpenChange(false)}
                       />
                     </div>
