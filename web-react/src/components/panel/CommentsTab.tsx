@@ -17,6 +17,7 @@ import { Avatar } from '../ui/Avatar';
 import { ReactionPicker, Reactions } from '../ui/Reactions';
 import { ClampedText } from '../ui/ClampedText';
 import { emojify, toggleLocal } from '../../lib/emoji';
+import { splitMentions } from '../../lib/mentions';
 import { EmptyState } from '../ui/EmptyState';
 import { IconButton } from '../ui/IconButton';
 import { CommentBox, savedDraft, type CommentBoxHandle } from '../ui/CommentBox';
@@ -206,7 +207,7 @@ export function CommentsTab({ docId }: { docId: string }) {
       // "(edited)" trails the text rather than sitting in the header: the
       // panel is narrow, and one more chip up there wraps the author's name.
       <ClampedText className={className}>
-        {emojify(c.body)}
+        {splitMentions(emojify(c.body)).map((part, i) => (i % 2 ? <span key={i} className="font-semibold text-accent">{part}</span> : part))}
         {c.edited_at && <span className="ml-1 text-2xs text-faint">(edited)</span>}
       </ClampedText>
     ) : null;

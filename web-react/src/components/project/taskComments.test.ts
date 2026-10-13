@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyMention, mentionQuery, threadComments } from './TaskComments';
+import { splitMentions } from '../../lib/mentions';
 
 // The menu appearing when nobody asked for it is the failure mode of every
 // @-picker: it steals Enter, and Enter is how a comment is sent.
@@ -61,5 +62,14 @@ describe('threadComments', () => {
   it('lets a reply whose parent is gone stand on its own', () => {
     const out = threadComments([c('x', 'missing')]);
     expect(out.map((t) => t.root.id)).toEqual(['x']);
+  });
+});
+
+describe('splitMentions', () => {
+  it('puts each handle at an odd index, leaving emails and full stops out', () => {
+    expect(splitMentions('@ada can you check with @bo.k. Mail ada@example.com')).toEqual([
+      '', '@ada', ' can you check with ', '@bo.k', '. Mail ada@example.com',
+    ]);
+    expect(splitMentions('no handles here')).toEqual(['no handles here']);
   });
 });
