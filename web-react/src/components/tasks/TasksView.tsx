@@ -17,6 +17,7 @@ import { Gantt } from '../project/Gantt';
 import { TagFilter } from '../project/TagFilter';
 import { KindIcon } from '../project/TaskBadges';
 import { KindsProvider } from '../project/kinds';
+import { Pager, usePaged } from '../ui/Pager';
 import { SegmentedControl } from '../ui/SegmentedControl';
 import { groupOf, groupsFor } from '../../lib/grouping';
 import { TASK_SCOPES, dropLegacyOpenChip, inScope, scopeCounts, type TaskScope } from '../../lib/taskScope';
@@ -109,6 +110,7 @@ export function TasksView() {
   const [shape, setShape] = useState<Shape>(readShape);
   const [scope, setScope] = useState<TaskScope>(readScope);
   const seeded = useRef(readFilters() !== null);
+  const scroller = useRef<HTMLDivElement>(null);
 
   const load = () => {
     tasksApi.allTasks()
@@ -192,6 +194,10 @@ export function TasksView() {
   const filtered = data ? applyFilters(data.tasks, pruneUnresolvable(filters, fields), fields) : [];
   const counts = scopeCounts(filtered, now);
   const visible = filtered.filter((t) => inScope(t, scope, now));
+  // The list only: one long list scrolled for ever, and past its end on a
+  // trackpad or phone into the browser's own back gesture. The board and the
+  // timeline lay tasks out in columns and dates, where a page cut means nothing.
+  const paged = usePaged(visible, `${JSON.stringify(filters)}|${scope}`);
   // The board's columns are the status field the filter bar already describes,
   // so the two never disagree about what the statuses are or what they are
   // called. Status is built-in, which is why a board over several projects can
@@ -267,7 +273,7 @@ export function TasksView() {
         </div>
       </header>
 
-      <div className={cn('min-h-0 flex-1', shape === 'list' ? 'scrollarea overflow-y-auto px-4' : 'flex flex-col overflow-hidden p-3')}>
+      <div ref={scroller} className={cn('min-h-0 flex-1 overscroll-contain', shape === 'list' ? 'scrollarea overflow-y-auto px-4' : 'flex flex-col overflow-hidden p-3')}>
         <div className={cn(shape === 'list' ? 'mx-auto w-full max-w-[1100px]' : 'flex min-h-0 flex-1 flex-col')}>
         {error && <p className="py-3 text-sm text-danger-strong">{error}</p>}
         {!data ? (
@@ -310,8 +316,9 @@ export function TasksView() {
             <Gantt tasks={visible} users={users} onOpen={(t) => ws.openProject((t as AnyTaskRow).project_id, t.id)} />
           </div>
         ) : (
+          <>
           <ul className="py-1.5">
-            {visible.map((t) => {
+            {paged.shown.map((t) => {
               const overdue = inScope(t, 'overdue', now);
               return (
                 <li key={t.id}>
@@ -344,6 +351,8 @@ export function TasksView() {
               );
             })}
           </ul>
+          <Pager paged={paged} onPage={() => scroller.current?.scrollTo({ top: 0 })} className="mb-3 flex items-center justify-end gap-1 text-2xs tabular-nums text-faint" />
+          </>
         )}
         </div>
       </div>
