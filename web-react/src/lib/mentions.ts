@@ -20,6 +20,16 @@ export function mentionQuery(text: string): string | null {
   return /^[a-z0-9._-]*$/i.test(rest) ? rest.toLowerCase() : null;
 }
 
+/**
+ * A comment body cut at its handles: odd indices are the "@handle"s, even ones
+ * the text between, so a renderer can colour the handles. Only a handle that
+ * starts the text or follows a space, so an email address stays plain text,
+ * and a trailing full stop is the sentence's, not the handle's.
+ */
+export function splitMentions(text: string): string[] {
+  return text.split(/(?<=^|\s)(@[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?)/gi);
+}
+
 /** Replace the handle being typed with the one that was picked. */
 export function applyMention(text: string, username: string): string {
   return `${text.slice(0, text.lastIndexOf('@'))}@${username} `;

@@ -103,8 +103,9 @@ export const liveLinkMenu = () => live;
  * That is deliberate: it is the exact shape the server already scans for in
  * comment bodies, so the same handle means the same person whether it is typed
  * in a comment or in the page, and no new inline node, schema version or
- * renderer has to exist for it. The handle is bolded and the trailing space is
- * not, so the cursor does not carry bold into whatever is typed next.
+ * renderer has to exist for it. The handle is bolded and coloured like a link
+ * (--accent; BlockSuite writes the var() name inline as the text colour) and
+ * the trailing space is not, so the cursor carries neither into what comes next.
  */
 function insertMention(
   inlineEditor: Parameters<typeof insertLinkedNode>[0]['inlineEditor'],
@@ -127,7 +128,7 @@ function insertMention(
   if (!editor || !range) return;
   const index = range.index - (before - (editor.yText?.length ?? 0));
   const handle = `@${username}`;
-  editor.insertText({ index, length: 0 }, handle, { bold: true });
+  editor.insertText({ index, length: 0 }, handle, { bold: true, color: 'var(--accent)' });
   editor.insertText({ index: index + handle.length, length: 0 }, ' ');
   editor.setInlineRange({ index: index + handle.length + 1, length: 0 });
   return index + handle.length + 1;

@@ -18,6 +18,7 @@ import { CommentBox, savedDraft, type CommentBoxHandle } from '../ui/CommentBox'
 import { ReactionPicker, Reactions } from '../ui/Reactions';
 import { ClampedText } from '../ui/ClampedText';
 import { emojify, toggleLocal } from '../../lib/emoji';
+import { splitMentions } from '../../lib/mentions';
 
 // Kept importable from here for the existing test.
 export { applyMention, mentionQuery } from '../../lib/mentions';
@@ -256,7 +257,7 @@ export function TaskComments({
           />
         ) : (
           <ClampedText className="text-sm leading-relaxed text-ink">
-            {emojify(c.body)}
+            {splitMentions(emojify(c.body)).map((part, i) => (i % 2 ? <span key={i} className="font-semibold text-accent">{part}</span> : part))}
             {c.edited_at && <span className="ml-1 text-2xs text-faint">(edited)</span>}
           </ClampedText>
         )}
