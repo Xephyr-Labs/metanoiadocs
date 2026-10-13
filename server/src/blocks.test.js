@@ -464,3 +464,12 @@ test('a built doc already carries what the editor would fill in on first open', 
       : b.get('sys:flavour') === 'affine:code' ? [[b.get('prop:language'), b.get('prop:caption')]] : []);
   assert.deepEqual(got, [['numbered', 1], ['numbered', 2], ['bulleted', null], ['numbered', 1], ['javascript', ''], [null, '']]);
 });
+
+test('a code fence named after an Object builtin is just an unknown language', () => {
+  for (const lang of ['constructor', '__proto__', 'toString']) {
+    const doc = new Y.Doc();
+    Y.applyUpdate(doc, buildDocState('t', '```' + lang + '\nx\n```'));
+    const code = [...doc.getMap('blocks').values()].find((b) => b.get('sys:flavour') === 'affine:code');
+    assert.equal(code.get('prop:language'), null, lang);
+  }
+});

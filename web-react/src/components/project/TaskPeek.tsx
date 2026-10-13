@@ -5,7 +5,7 @@
  *         dependency removed · backlinked · empty property · deleting
  */
 import { ArrowRight, CalendarClock, ChevronDown, ExternalLink, Link2, MoreHorizontal, Plus, Settings2, Trash2, X } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { calendarDate, fullTime, relativeTime } from '../../lib/time';
 import type { UserRow } from '../../lib/docsApi';
 import { cn } from '../../lib/cn';
@@ -146,6 +146,21 @@ export function TaskPeek({
   const auth = useAuth();
   const kinds = useKinds();
   const [depPick, setDepPick] = useState('');
+  // Refit the title when its width changes too — a phone turned upright, the
+  // panel resized — or the extra lines are cut off below the box.
+  const titleRef = useRef<HTMLTextAreaElement | null>(null);
+  useEffect(() => {
+    const el = titleRef.current;
+    if (!el) return;
+    let width = el.clientWidth;
+    const ro = new ResizeObserver(() => {
+      if (el.clientWidth === width) return;
+      width = el.clientWidth;
+      fitTitle(el);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [task?.title]);
   const [docId, setDocId] = useState<string | null>(task?.doc_id ?? null);
   const [detail, setDetail] = useState<TaskDetail | null>(null);
   // The notes editor, once mounted: the formatting bar above it drives it.
@@ -304,7 +319,7 @@ export function TaskPeek({
         <section className="space-y-0.5 px-4 py-3">
           <textarea
             key={task.title}
-            ref={fitTitle}
+            ref={(el) => { titleRef.current = el; fitTitle(el); }}
             rows={1}
             autoFocus={!task.title}
             aria-label="Task title"

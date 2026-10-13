@@ -58,7 +58,7 @@ function RailRow({ version, selected, onSelect }: { version: VersionRow; selecte
       <span className="flex min-w-0 items-center gap-1.5">
         {avatar ? (
           <span
-            className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-3xs font-semibold text-white"
+            className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[7px] font-semibold leading-none text-white"
             style={{ background: avatar.color }}
           >
             {avatar.initials}

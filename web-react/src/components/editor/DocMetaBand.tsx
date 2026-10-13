@@ -76,7 +76,7 @@ export function DocMetaBand({
       {avatar && who && (
         <span className="flex items-center gap-1.5">
           <span
-            className="flex h-[18px] w-[18px] items-center justify-center rounded-full text-3xs font-semibold text-white"
+            className="flex h-[18px] w-[18px] items-center justify-center rounded-full text-[8px] font-semibold leading-none text-white"
             style={{ background: avatar.color }}
           >
             {avatar.initials}

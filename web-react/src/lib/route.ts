@@ -185,5 +185,7 @@ export function revealBlock(blockId: string, root: ParentNode = document): () =>
  */
 export function deadDocLink(pages: Record<string, unknown>, currentId: string | null | undefined, loading: boolean): string | null {
   const routed = readRoute().docId;
-  return !loading && routed && routed !== currentId && !pages[routed] ? routed : null;
+  // An empty list is a list that failed to load, not one without this page.
+  if (loading || !routed || routed === currentId || pages[routed] || !Object.keys(pages).length) return null;
+  return routed;
 }

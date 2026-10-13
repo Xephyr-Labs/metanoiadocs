@@ -72,7 +72,7 @@ function PresenceStack() {
         <span
           key={p.name}
           title={p.name}
-          className="flex h-[22px] w-[22px] items-center justify-center rounded-full text-3xs font-semibold text-white ring-2 ring-canvas"
+          className="flex h-[22px] w-[22px] items-center justify-center rounded-full text-[9px] font-semibold leading-none text-white ring-2 ring-canvas"
           style={{ background: p.color }}
         >
           {avatarFor(p.name).initials}

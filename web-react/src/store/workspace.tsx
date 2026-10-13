@@ -259,6 +259,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [folders, setFolders] = useState<Record<string, Folder>>({});
   const [currentId, setCurrentId] = useState<PageId | null>(null);
   const [loading, setLoading] = useState(true);
+  // Bumped on back/forward. Who is showing what can hang on the address itself
+  // (deadDocLink), and going back from a dead link to the page still open
+  // underneath changes no other state, so nothing re-rendered off the
+  // "isn't here" screen.
+  const [routeTick, setRouteTick] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const pagesRef = useRef(pages);
   pagesRef.current = pages;
@@ -340,12 +345,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setPages((prev) => keepExpanded(prev, next));
     setFolders(nextFolders);
     setCurrentId((cur) => {
-      if (cur && next[cur]) return cur;
       // A /d/<id> address is a deliberate destination and outranks whatever was
       // open last — it is how a shared link, a block link and the back button
-      // all arrive.
+      // all arrive. Ahead of `cur` too: a link to a page this list did not have
+      // yet (made or shared since it loaded) arrives before the list does.
       const routed = readRoute().docId;
       if (routed && next[routed]) return routed;
+      if (cur && next[cur]) return cur;
       const last = localStorage.getItem('mn-last-doc');
       if (last && next[last]) return last;
       return rows[0]?.id ?? null;
@@ -364,10 +370,20 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   // path where the URL changes without select() having been called.
   useEffect(() => {
     const onPop = () => {
+      setRouteTick((t) => t + 1);
       const { docId, folderId, projectId, viewId, taskId } = readRoute();
       if (docId) {
         setCurrentId((cur) => (pagesRef.current[docId] ? docId : cur));
         setView('doc');
+        // Not in the list loaded at sign-in: maybe new since. Ask again before
+        // the page says it isn't there; applyRows opens it if it is.
+        if (!pagesRef.current[docId]) {
+          setLoading(true);
+          Promise.all([docsApi.list(), docsApi.folders().catch(() => [])])
+            .then(([rows, folderRows]) => applyRows(rows, folderRows))
+            .catch(() => {})
+            .finally(() => setLoading(false));
+        }
       } else if (folderId) {
         setActiveFolderId(folderId);
         setView('folder');
@@ -385,7 +401,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
-  }, []);
+  }, [applyRows]);
 
   const refresh = useCallback(async () => {
     const [rows, folderRows] = await Promise.all([docsApi.list(), docsApi.folders().catch(() => [])]);
@@ -1163,7 +1179,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       settingsOpen, trashOpen, inboxOpen, shortcutsOpen, captureOpen, mode, fullWidth, theme,
       refresh, select, toggleExpand, toggleFavorite, toggleLove, toggleFolderFavorite, setVisibility, rename, applyTitleFromEditor,
       createPage, createDesign, movePage, createChildPage, reorderPage, linkPage, reorderFolder, moveFolder, createFolder, renameFolder, setFolderColor, setIcon, toggleFolder, deleteFolder, createFromTemplate, docTemplates, createFromPage, setTemplate, importFiles, deletePage, restorePage,
-      refreshTags, addTagToPage, removeTagFromPage, deleteTag, toggleTheme,
+      refreshTags, addTagToPage, removeTagFromPage, deleteTag, toggleTheme, routeTick,
     ],
   );
 

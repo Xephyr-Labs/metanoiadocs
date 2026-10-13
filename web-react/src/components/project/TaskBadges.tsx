@@ -74,7 +74,7 @@ export function AssigneeStack({ people, max = 3 }: { people: TaskRow['assignees'
           <span
             key={person.id}
             className={cn(
-              'flex h-5 w-5 items-center justify-center rounded-full text-3xs font-semibold text-white ring-1 ring-canvas',
+              'flex h-5 w-5 items-center justify-center rounded-full text-[9px] font-semibold leading-none text-white ring-1 ring-canvas',
               i > 0 && '-ml-1.5',
             )}
             style={{ background: av.color }}

@@ -204,7 +204,7 @@ export function ActivityLine({ row, onOpen }: { row: ActivityRow; onOpen: () => 
       className="flex w-full items-start gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors duration-120 hover:bg-hover coarse:min-h-11 coarse:py-2.5"
     >
       <span
-        className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-3xs font-semibold text-white"
+        className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[9px] font-semibold leading-none text-white"
         style={{ background: av.color }}
       >
         {av.initials}

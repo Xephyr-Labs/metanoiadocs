@@ -395,7 +395,7 @@ export function CommentsTab({ docId }: { docId: string }) {
                     <IconButton size="sm" icon={<RotateCcw size={12} />} label="Reopen" onClick={() => run(`res:${c.id}`, () => docsApi.resolveComment(c.id, false))} />
                   ) : (
                     <Tooltip label="Resolved">
-                      <span className="flex h-6 w-6 shrink-0 items-center justify-center text-faint" aria-label="Resolved"><Check size={12} /></span>
+                      <span className="flex h-6 w-6 shrink-0 items-center justify-center text-faint" role="img" aria-label="Resolved"><Check size={12} /></span>
                     </Tooltip>
                   )
                 ) : mayResolve && !pendingSuggestion(c) ? (

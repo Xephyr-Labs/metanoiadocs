@@ -396,7 +396,9 @@ function makeBlock(blocks, desc, resolveLink, pending) {
     b.set('prop:lockedBySelf', false);
   } else if (desc.flavour === 'affine:code') {
     b.set('prop:text', plainYText(desc.text));
-    b.set('prop:language', CODE_LANGS[desc.language] ?? null);
+    // Own keys only: a fence named `constructor` or `__proto__` would otherwise
+    // read Object.prototype and hand Yjs a function.
+    b.set('prop:language', Object.hasOwn(CODE_LANGS, desc.language) ? CODE_LANGS[desc.language] : null);
     b.set('prop:wrap', false);
     b.set('prop:caption', '');
   } else if (desc.flavour === 'affine:list') {
