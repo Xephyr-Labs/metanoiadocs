@@ -1,11 +1,21 @@
 {
   "name": "metanoiadocs-runner",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Give your MetanoiaDocs agent's queued work to Claude Code, Codex, or any command that reads a prompt on stdin.",
   "license": "MIT",
   "type": "module",
-  "bin": { "metanoiadocs-runner": "index.js" },
-  "files": ["index.js", "prompt.js", "README.md"],
-  "engines": { "node": ">=20" },
-  "scripts": { "test": "node --test" }
+  "bin": {
+    "metanoiadocs-runner": "index.js"
+  },
+  "files": [
+    "index.js",
+    "prompt.js",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test"
+  }
 }
