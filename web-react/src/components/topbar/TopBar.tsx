@@ -41,6 +41,8 @@ import { usePresence } from '../../editor/presence';
 import { relativeTime } from '../../lib/time';
 import { useWorkspace } from '../../store/workspace';
 import { cn } from '../../lib/cn';
+import { MOD_LABEL } from '../../lib/hotkeys';
+import { deadDocLink } from '../../lib/route';
 import { useOpenCommentCount } from '../../editor/comments';
 import { downloadDocx, downloadMarkdown, pickImportFiles, printDoc } from '../../lib/docFiles';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
@@ -115,7 +117,10 @@ function Crumb({
     </>
   );
   return (
-    <span className={cn('flex items-center', keep ? 'shrink-0' : 'min-w-0')}>
+    // Ancestors give up their width four times as fast as the current page,
+    // so a long path squeezes "Marketing" to its icon before it cuts the title
+    // of the page you are on to "Laun…".
+    <span className={cn('flex items-center', keep ? 'shrink-0' : current ? 'min-w-[3rem]' : 'min-w-0 shrink-[4]')}>
       <span aria-hidden className="mx-0.5 shrink-0 select-none text-faint">/</span>
       {onClick && !current ? (
         <button
@@ -159,7 +164,7 @@ export function TopBar() {
   const openComments = useOpenCommentCount();
   // Home and project views keep currentPage around for "continue where you left
   // off", but the doc breadcrumb and doc actions must not follow them there.
-  const page = ws.view === 'doc' ? ws.currentPage : null;
+  const page = ws.view === 'doc' && !deadDocLink(ws.pages, ws.currentPage?.id, ws.loading) ? ws.currentPage : null;
   const project = ws.view === 'project' ? ws.projects.find((p) => p.id === ws.activeProjectId) : null;
   const folder = ws.view === 'folder' && ws.activeFolderId ? ws.folders[ws.activeFolderId] : null;
   const pagePath = page ? ancestry(ws.pages, page.id) : [];
@@ -209,7 +214,7 @@ export function TopBar() {
         <IconButton
           icon={<PanelLeft size={16} />}
           label="Open sidebar"
-          keys={['⌘', '\\']}
+          keys={[MOD_LABEL, '\\']}
           onClick={() => {
             // On mobile the sidebar is a drawer (mobileDrawerOpen); toggling
             // sidebarCollapsed there would strand the button after a page open.
@@ -293,7 +298,7 @@ export function TopBar() {
       >
         <Search size={14} className="shrink-0 text-faint" />
         <span className={cn('flex-1 text-left', ws.rightPanel ? 'hidden' : 'hidden sm:inline')}>Search</span>
-        <kbd className={cn('shrink-0 font-sans text-3xs tracking-wide text-faint', ws.rightPanel ? 'hidden' : 'hidden sm:inline')}>⌘K</kbd>
+        <kbd className={cn('shrink-0 font-sans text-3xs tracking-wide text-faint', ws.rightPanel ? 'hidden' : 'hidden sm:inline')}>{MOD_LABEL === '⌘' ? '⌘K' : 'Ctrl K'}</kbd>
       </button>
 
       {/* Non-doc views keep a small global cluster: Ask AI + theme. Without it
@@ -310,7 +315,7 @@ export function TopBar() {
             className="hidden sm:inline-flex"
             icon={ws.theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
             label={ws.theme === 'dark' ? 'Light mode' : 'Dark mode'}
-            keys={['⌘', 'J']}
+            keys={[MOD_LABEL, 'J']}
             onClick={ws.toggleTheme}
           />
         </div>
@@ -335,7 +340,9 @@ export function TopBar() {
                 { icon: Lock, label: 'Private · only you', onSelect: () => ws.setVisibility(page.id, 'private') },
               ]}
               trigger={
-                <button className="flex h-7 items-center gap-1.5 rounded-md px-2 text-sm font-medium text-muted transition-colors hover:bg-hover">
+                // Off the bar on a phone, where it pushed the page title down
+                // to its first letter; the ⋯ menu carries it there.
+                <button className="hidden h-7 items-center gap-1.5 rounded-md px-2 text-sm font-medium text-muted transition-colors hover:bg-hover sm:flex">
                   {page.visibility === 'private' ? <Lock size={14} /> : <Globe size={14} />}
                   <span className="hidden lg:inline">{page.visibility === 'private' ? 'Private' : 'Team'}</span>
                   <ChevronDown size={14} className="hidden text-faint sm:block" />
@@ -343,7 +350,7 @@ export function TopBar() {
               }
             />
           ) : (
-            <span className="flex h-7 items-center gap-1.5 px-2 text-sm text-faint" title="Visibility (owner controls this)">
+            <span className="hidden h-7 items-center gap-1.5 px-2 text-sm text-faint sm:flex" title="Visibility (owner controls this)">
               {page.visibility === 'private' ? <Lock size={14} /> : <Globe size={14} />}
               <span className="hidden sm:inline">{page.visibility === 'private' ? 'Private' : 'Team'}</span>
             </span>
@@ -384,7 +391,7 @@ export function TopBar() {
             className="hidden sm:inline-flex"
             icon={ws.theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
             label={ws.theme === 'dark' ? 'Light mode' : 'Dark mode'}
-            keys={['⌘', 'J']}
+            keys={[MOD_LABEL, 'J']}
             onClick={ws.toggleTheme}
           />
           <IconButton
@@ -404,6 +411,9 @@ export function TopBar() {
               // On phones the toolbar icons collapse in here so the bar isn't crammed.
               ...(isMobile ? [
                 { icon: Share2, label: 'Share', onSelect: () => ws.setShareOpen(true) },
+                ...(page.role === 'owner' ? [page.visibility === 'private'
+                  ? { icon: Globe, label: 'Make visible to the team', onSelect: () => ws.setVisibility(page.id, 'team') }
+                  : { icon: Lock, label: 'Make private', onSelect: () => ws.setVisibility(page.id, 'private') }] : []),
                 { icon: Star, label: page.favorite ? 'Remove from Favorites' : 'Add to Favorites', onSelect: () => ws.toggleFavorite(page.id) },
                 { icon: ws.theme === 'dark' ? Sun : Moon, label: ws.theme === 'dark' ? 'Light mode' : 'Dark mode', onSelect: ws.toggleTheme },
                 { icon: PanelRight, label: 'Outline & details', onSelect: () => ws.setRightPanel(ws.rightPanel ? null : 'outline') },

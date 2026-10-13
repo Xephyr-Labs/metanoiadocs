@@ -207,7 +207,7 @@ export function CommentsTab({ docId }: { docId: string }) {
       // "(edited)" trails the text rather than sitting in the header: the
       // panel is narrow, and one more chip up there wraps the author's name.
       <ClampedText className={className}>
-        {splitMentions(emojify(c.body)).map((part, i) => (i % 2 ? <span key={i} className="font-semibold text-accent">{part}</span> : part))}
+        {splitMentions(emojify(c.body)).map((part, i) => (i % 2 ? <span key={i} className="font-semibold text-accent-strong">{part}</span> : part))}
         {c.edited_at && <span className="ml-1 text-2xs text-faint">(edited)</span>}
       </ClampedText>
     ) : null;
@@ -216,17 +216,17 @@ export function CommentsTab({ docId }: { docId: string }) {
   const renderActions = (c: CommentRow, reveal: string) => {
     const mine = !!c.author_id && c.author_id === me;
     return (
-      <span className="flex shrink-0 items-center gap-1.5">
+      <span className="flex shrink-0 items-center gap-0.5">
         {mayComment && <ReactionPicker reactions={c.reactions} onToggle={(e) => void react(c.id, e)} reveal={reveal} />}
+        {/* Revealed with the reaction picker, so a thread reads as words until
+            you point at it; a 12px glyph was also the whole tap target. */}
         {mine && (
-          <button type="button" onClick={() => setEditing({ id: c.id, text: c.body })} aria-label="Edit" className="text-faint hover:text-ink">
-            <Pencil size={12} />
-          </button>
+          <IconButton size="sm" icon={<Pencil size={12} />} label="Edit" onClick={() => setEditing({ id: c.id, text: c.body })}
+            className={cn('mn-hover-reveal opacity-0 focus-visible:opacity-100', reveal)} />
         )}
         {(mine || role === 'owner') && (
-          <button type="button" onClick={() => remove(c)} aria-label="Delete" className="text-faint hover:text-danger-strong">
-            <Trash2 size={12} />
-          </button>
+          <IconButton size="sm" tone="danger" icon={<Trash2 size={12} />} label="Delete" onClick={() => remove(c)}
+            className={cn('mn-hover-reveal opacity-0 focus-visible:opacity-100', reveal)} />
         )}
       </span>
     );
@@ -385,14 +385,14 @@ export function CommentsTab({ docId }: { docId: string }) {
                 <span className="ml-auto shrink-0">
                   {c.resolved ? (
                     mayResolve ? (
-                      <button type="button" onClick={() => run(`res:${c.id}`, () => docsApi.resolveComment(c.id, false))} className="flex items-center gap-1 text-2xs text-muted hover:text-ink">
+                      <button type="button" onClick={() => run(`res:${c.id}`, () => docsApi.resolveComment(c.id, false))} className="mn-hit flex h-6 items-center gap-1 rounded-md px-1.5 text-2xs text-muted transition-colors duration-120 hover:bg-hover hover:text-ink">
                         <RotateCcw size={11} /> Reopen
                       </button>
                     ) : (
                       <span className="flex items-center gap-1 text-2xs text-faint"><Check size={12} /> Resolved</span>
                     )
                   ) : mayResolve && !pendingSuggestion(c) ? (
-                    <button type="button" onClick={() => run(`res:${c.id}`, () => docsApi.resolveComment(c.id, true))} className="flex items-center gap-1 text-2xs text-muted hover:text-ink">
+                    <button type="button" onClick={() => run(`res:${c.id}`, () => docsApi.resolveComment(c.id, true))} className="mn-hit flex h-6 items-center gap-1 rounded-md px-1.5 text-2xs text-muted transition-colors duration-120 hover:bg-hover hover:text-ink">
                       <Check size={12} /> Resolve
                     </button>
                   ) : null}
@@ -446,7 +446,7 @@ export function CommentsTab({ docId }: { docId: string }) {
                   <button
                     type="button"
                     onClick={() => { setReplyTo(c.id); setReplyText(savedDraft(`reply:${c.id}`)); }}
-                    className="mt-2 text-2xs font-medium text-muted hover:text-ink"
+                    className="mn-hit -ml-1.5 mt-1 flex h-6 items-center rounded-md px-1.5 text-2xs font-medium text-muted transition-colors duration-120 hover:bg-hover hover:text-ink"
                   >
                     Reply
                   </button>

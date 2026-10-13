@@ -215,7 +215,11 @@ export function PropertyValue({ prop, users, value, onChange, onEditOptions, dan
         <input
           type="number"
           aria-label={prop.label}
-          className={cn(box, 'tabular-nums')}
+          className={cn(box, 'tabular-nums placeholder:text-faint')}
+          // The panel's other empty fields say "Empty"; a bare number box read
+          // as a missing row. Not in the grid, where a column of placeholders
+          // is louder than the data.
+          placeholder={dense ? undefined : 'Empty'}
           value={value == null ? '' : String(value)}
           onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))}
         />

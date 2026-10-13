@@ -88,6 +88,15 @@ export default function App() {
   return (
     <TooltipProvider delayDuration={700} skipDelayDuration={300}>
       <div className="flex h-dvh w-full overflow-hidden bg-canvas text-ink">
+        {/* The sidebar is some thirty Tab stops; a keyboard has to get past
+            them to reach the page on every load. */}
+        <a
+          href="#main"
+          onClick={(e) => { e.preventDefault(); document.getElementById('main')?.focus(); }}
+          className="sr-only z-[60] rounded-md bg-canvas text-sm font-medium text-ink shadow-pop ring-2 ring-accent focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:px-3 focus:py-2"
+        >
+          Skip to content
+        </a>
         {/* inline sidebar (desktop) */}
         <AnimatePresence initial={false}>
           {showInlineSidebar && (
@@ -106,7 +115,7 @@ export default function App() {
         {/* main column */}
         <div className="flex min-w-0 flex-1 flex-col">
           <TopBar />
-          <main className="min-h-0 flex-1">
+          <main id="main" tabIndex={-1} className="min-h-0 flex-1 outline-none">
             {ws.view === 'home' ? <Home />
               : ws.view === 'docs' ? <AllDocsView />
               : ws.view === 'tasks' ? <TasksView />

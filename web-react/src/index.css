@@ -433,7 +433,8 @@ textarea:focus-visible,
   --affine-icon-secondary: var(--faint);
   --affine-icon-hover-color: var(--ink);
   --affine-placeholder-color: var(--faint);
-  --affine-link-color: var(--accent);
+  /* Link lettering, so the text-weight blue: --accent is 3.9:1 on white. */
+  --affine-link-color: var(--accent-strong);
   --affine-quote-color: var(--muted);
   /* Lettering: BlockSuite paints error text with it. */
   --affine-error-color: var(--danger-strong);

@@ -1,4 +1,4 @@
-import { Plus } from 'lucide-react';
+import { Plus, X } from 'lucide-react';
 import { useState } from 'react';
 import { useWorkspace } from '../../store/workspace';
 import type { Intelligence } from '../../lib/docsApi';
@@ -21,17 +21,29 @@ export function TagSuggestions({ pageId, suggested }: { pageId: string; suggeste
   // row under them, which put a permanent second strip of chrome above every
   // page title to offer something nobody asked for. The dashed outline already
   // reads as "not applied yet"; the "Suggested:" label was doing no work.
-  const shown = suggested.filter((s) => !dismissed.has(s.name) && !appliedNames.has(s.name)).slice(0, 3);
+  // Only tags the workspace already has. The server also offers keyphrases as
+  // new tags, and those read as word salad ("paths timeline open questions")
+  // in the most prominent spot on the page, right under the title.
+  const shown = suggested
+    .filter((s) => s.exists && !dismissed.has(s.name) && !appliedNames.has(s.name))
+    .slice(0, 3);
   if (!shown.length) return null;
   return (
     <>
       {shown.map((s) => (
         <span key={s.name} className="group flex items-center gap-0.5 rounded-full border border-dashed border-line px-1.5 py-0.5 text-xs text-muted">
-          <button className="flex items-center gap-0.5 hover:text-accent-strong"
+          <button type="button" className="mn-hit flex items-center gap-0.5 hover:text-accent-strong"
             onClick={() => { ws.addTagToPage(pageId, s.tagId ? { tagId: s.tagId } : { name: s.name }); dismiss(s.name); }}>
             <Plus size={12} /> {s.name}
           </button>
-          <button className="opacity-0 group-hover:opacity-60 hover:!opacity-100" onClick={() => dismiss(s.name)}>×</button>
+          <button
+            type="button"
+            aria-label={`Don't suggest ${s.name}`}
+            className="mn-hit opacity-0 focus-visible:opacity-100 group-hover:opacity-60 hover:!opacity-100 [@media(hover:none)]:opacity-60"
+            onClick={() => dismiss(s.name)}
+          >
+            <X size={12} />
+          </button>
         </span>
       ))}
     </>
