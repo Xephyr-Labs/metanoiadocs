@@ -1593,10 +1593,11 @@ affine-keyboard-tool-panel:not(:has(*)) {
 /* The slash menu keeps itself on screen by measuring its host element, which
  * is inline and zero-wide while the 280px menu lives in its shadow root — so
  * the clamp never fires, and a "/" typed past mid-line on a phone opened the
- * menu half off the right edge. Give the host the menu's width to measure. */
+ * menu half off the right edge. Give the host the menu's width to measure
+ * (editor/slashMenuStyle.ts sets the menu's). */
 affine-slash-menu {
   display: block;
-  width: 280px;
+  width: min(320px, calc(100vw - 16px));
   height: 0;
 }
 @media (max-width: 767px) {
@@ -1704,9 +1705,41 @@ affine-list[data-mn-size='small'] > .affine-block-component > .affine-list-block
 .mn-page-preview-body pre { background: var(--surface-2); border-radius: 8px; padding: 12px 16px; overflow-x: auto; font-size: 14px; }
 .mn-page-preview-body code { background: var(--surface-2); border-radius: 4px; padding: 0 4px; font-size: 0.9em; }
 .mn-page-preview-body pre code { background: none; padding: 0; }
-.mn-page-preview-body a { color: var(--accent); }
+.mn-page-preview-body a { color: var(--accent-strong); }
 .mn-page-preview-body hr { border: 0; border-top: 1px solid var(--line); margin: 16px 0; }
 .mn-page-preview-body table { border-collapse: collapse; width: 100%; display: block; overflow-x: auto; }
 .mn-page-preview-body th, .mn-page-preview-body td { border: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: top; }
 .mn-page-preview-body th { background: var(--surface-2); font-weight: 600; }
 .mn-page-preview-body img { max-width: 100%; }
+
+/* Something to scroll to sideways says so: the content fades out at the edge
+ * that has more behind it, and stops fading once that edge is reached. On a
+ * phone there is no scrollbar until a finger is already moving, so a board
+ * that ends exactly at a column edge, a timeline or a wide table looked like
+ * all there was. Driven by the box's own scroll position, so nothing has to
+ * listen to scrolling; a box with nothing to scroll has no timeline and draws
+ * no fade. (A doc table scrolls in the unnamed box BlockSuite wraps it in.)
+ * `-end` is for boxes with a frozen first column, which a fade on the
+ * left would wash out. Fingers only: a mouse has a scrollbar that says it. */
+@property --mn-cue-start { syntax: '<length>'; inherits: false; initial-value: 0px; }
+@property --mn-cue-end { syntax: '<length>'; inherits: false; initial-value: 0px; }
+@keyframes mn-scroll-cue {
+  0% { --mn-cue-start: 0px; --mn-cue-end: 28px; }
+  8% { --mn-cue-start: 28px; }
+  92% { --mn-cue-end: 28px; }
+  100% { --mn-cue-start: 28px; --mn-cue-end: 0px; }
+}
+@supports (animation-timeline: scroll()) {
+  @media (pointer: coarse) {
+    .mn-scroll-cue,
+    .mn-scroll-cue-end,
+    affine-editor-container affine-table > .affine-block-component > div:first-child {
+      animation: mn-scroll-cue linear both;
+      animation-timeline: scroll(self inline);
+      mask-image: linear-gradient(to right, transparent, #000 var(--mn-cue-start), #000 calc(100% - var(--mn-cue-end)), transparent);
+    }
+    .mn-scroll-cue-end {
+      mask-image: linear-gradient(to right, #000 calc(100% - var(--mn-cue-end)), transparent);
+    }
+  }
+}

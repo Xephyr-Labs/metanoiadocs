@@ -3,6 +3,7 @@ import { Bot, Info, ListTree, MessageSquareText, Sparkles, X } from 'lucide-reac
 import { useEffect, useRef, useState } from 'react';
 import { onCommentRequest } from '../../editor/comments';
 import { CommentsTab } from './CommentsTab';
+import { deadDocLink } from '../../lib/route';
 import { AIChat } from './AIChat';
 import { IntelligenceRail } from '../intelligence/IntelligenceRail';
 import { useIntelligence } from '../../hooks/useIntelligence';
@@ -75,7 +76,8 @@ export function RightPanel() {
 function PanelInner() {
   const scrolledTab = useRef<string | null>(null);
   const ws = useWorkspace();
-  const docId = ws.currentId;
+  // A dead link leaves the last page current underneath: not its comments.
+  const docId = deadDocLink(ws.pages, ws.currentId, ws.loading) ? null : ws.currentId;
   return (
     <div className={cn('flex h-full w-full flex-col', ws.rightPanel === 'ai' ? 'md:w-[400px]' : 'md:w-[320px]')}>
       <div className="flex h-[45px] shrink-0 items-center gap-0.5 border-b border-line px-2">

@@ -34,6 +34,7 @@ import { attachEmojiShortcodes } from './emojiShortcodes';
 import { attachRefClicks, collectPageLinks, pageLinkExtensions, type LinkTarget } from './pageLinks';
 import { attachLinkSearch } from './linkSearch';
 import { attachLinkedDocMenu } from './linkedDocMenu';
+import { styleSlashMenu } from './slashMenuStyle';
 import { missingDocMetas } from './docMetas';
 import { blockLinkExtensions } from './blockLinks';
 import { socialEmbedExtensions } from './socialEmbeds';
@@ -71,6 +72,8 @@ function installEffects() {
   itEffects();
   // Typing cost that grew with the page's length (fastRangeQuery.ts).
   installFastRangeQuery();
+  // The "/" menu in the "@" menu's measurements (slashMenuStyle.ts).
+  styleSlashMenu();
   // Nothing to add for the floating table of contents: the view manager builds
   // OutlineViewExtension during mount and its effect() defines those elements.
   // Registering them here as well threw NotSupportedError on the second define

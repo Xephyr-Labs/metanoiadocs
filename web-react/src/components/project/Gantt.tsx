@@ -10,6 +10,7 @@ import { Button } from '../ui/Button';
 import { EmptyState } from '../ui/EmptyState';
 import { SegmentedControl } from '../ui/SegmentedControl';
 import { isOverdue, KindIcon, shortDate } from './TaskChip';
+import { useMediaQuery } from '../../hooks/useMediaQuery';
 
 const ROW_H = 32;
 const NAME_W = 280;
@@ -47,6 +48,10 @@ export function Gantt({ tasks, cardProps, users, onOpen }: {
   const { dayWidth, step, pad } = ZOOM[zoom];
   const today = todayISO();
   const scroller = useRef<HTMLDivElement>(null);
+  // A 280px name column left a phone ~100px of chart. Narrower there, and the
+  // chips that would not fit beside a title in it are left out.
+  const phone = useMediaQuery('(max-width: 767px)');
+  const nameW = phone ? 148 : NAME_W;
   // See splitKindProp: the type leads the title rather than trailing it.
   const { showKind, rest: chipProps } = useMemo(() => splitKindProp(cardProps), [cardProps]);
 
@@ -65,9 +70,9 @@ export function Gantt({ tasks, cardProps, users, onOpen }: {
   const centreToday = useCallback(() => {
     const el = scroller.current;
     // The name column is sticky inside the scroller, so it covers the first
-    // NAME_W of whatever is scrolled under it.
-    if (el) el.scrollLeft = Math.max(0, todayX - (el.clientWidth - NAME_W) / 2);
-  }, [todayX]);
+    // nameW of whatever is scrolled under it.
+    if (el) el.scrollLeft = Math.max(0, todayX - (el.clientWidth - nameW) / 2);
+  }, [todayX, nameW]);
 
   // Open on today rather than on the far edge of the padding — the slack is
   // there to be scrolled into, and a chart that opens on empty months looks
@@ -94,8 +99,8 @@ export function Gantt({ tasks, cardProps, users, onOpen }: {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b border-line px-4 py-2">
-        <span className="text-2xs text-faint">{rows.length} scheduled · {tasks.length - rows.length} undated</span>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-2">
+        <span className="whitespace-nowrap text-2xs text-faint">{rows.length} scheduled · {tasks.length - rows.length} undated</span>
         <div className="flex items-center gap-2">
           <Button size="sm" variant="ghost" onClick={centreToday}>Today</Button>
           <SegmentedControl
@@ -112,11 +117,14 @@ export function Gantt({ tasks, cardProps, users, onOpen }: {
         </div>
       </div>
 
-      <div ref={scroller} className="scrollarea flex-1 overflow-auto">
+      <div ref={scroller} className="mn-scroll-cue-end scrollarea flex-1 overflow-auto">
         <div className="flex min-w-max">
           {/* task names — sticky so they survive a horizontal scroll */}
-          <div className="sticky left-0 z-10 shrink-0 border-r border-line bg-canvas" style={{ width: NAME_W }}>
-            <div className="h-8 border-b border-line" />
+          {/* Above the date header (z-10), and its top cell pinned too: the
+              header is sticky on the other axis, and painting later it drew
+              the dates through the corner ("ct 2") once scrolled. */}
+          <div className="sticky left-0 z-20 shrink-0 border-r border-line bg-canvas" style={{ width: nameW }}>
+            <div className="sticky top-0 z-10 h-8 border-b border-line bg-canvas" />
             {rows.map((t) => (
               <button
                 key={t.id}
@@ -135,7 +143,7 @@ export function Gantt({ tasks, cardProps, users, onOpen }: {
                     never sliced in half at the column edge. They are capped at
                     half the row and wrap into a one-chip-high box, which drops
                     whole chips that do not fit instead of cutting one. */}
-                <PropChips task={t} props={chipProps} users={users} className="h-5 max-w-[50%] shrink-0 overflow-hidden" />
+                {!phone && <PropChips task={t} props={chipProps} users={users} className="h-5 max-w-[50%] shrink-0 overflow-hidden" />}
               </button>
             ))}
           </div>
