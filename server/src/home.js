@@ -85,6 +85,9 @@ export function registerHomeRoutes(app, { requireUser, wrap }) {
            FROM docs d ${VISIBLE_JOIN}
            LEFT JOIN users u ON u.id = d.updated_by
           WHERE d.deleted_at IS NULL AND ${VISIBLE}
+            -- A task's page lives behind its row (see tasks.js); opening the row
+            -- creates it, which is not the same as working on a document.
+            AND d.kind IS DISTINCT FROM 'task'
           ORDER BY d.updated_at DESC LIMIT 12`,
         [uid]
       ),
@@ -112,7 +115,7 @@ export function registerHomeRoutes(app, { requireUser, wrap }) {
                AND t.due_at BETWEEN $2::date AND $2::date + 7
                AND t.deleted_at IS NULL AND p.archived_at IS NULL AND p.mode <> 'data') AS my_week,
            (SELECT count(*) FROM docs d ${VISIBLE_JOIN}
-             WHERE d.deleted_at IS NULL AND ${VISIBLE}
+             WHERE d.deleted_at IS NULL AND ${VISIBLE} AND d.kind IS DISTINCT FROM 'task'
                AND d.updated_at > now() - interval '7 days') AS docs_week`,
         [uid, today]
       ),

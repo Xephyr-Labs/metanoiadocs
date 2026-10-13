@@ -78,7 +78,7 @@ test('markdown survives a round trip through the block state', () => {
     '',
     '> quoted line',
     '',
-    '```js',
+    '```javascript',
     'const a = 1;',
     '```',
     '',
@@ -143,7 +143,7 @@ test('inline marks survive import and come back out as markdown', () => {
 });
 
 test('code blocks and snake_case are left alone', () => {
-  const md = ['```js', 'const a = b ** 2; // **not bold**', '```', '', 'degree_type and __really bold__'].join('\n');
+  const md = ['```javascript', 'const a = b ** 2; // **not bold**', '```', '', 'degree_type and __really bold__'].join('\n');
   assert.equal(docToMarkdown(buildDocState('T', md)).markdown, md.replace('__really bold__', '**really bold**'));
 });
 
@@ -452,4 +452,15 @@ test('stateWithValidTableKeys mends a copied state, and leaves a sound one untou
   Y.applyUpdate(back, new Uint8Array(fixed));
   assert.ok(validOrderKey(back.getMap('blocks').get('t').get('prop:rows.r0.order')));
   assert.equal(stateWithValidTableKeys(fixed), fixed);
+});
+
+// The editor fills any of these it finds missing or unrecognised the moment a
+// page is opened, and that fill saved as an edit by whoever merely looked.
+test('a built doc already carries what the editor would fill in on first open', () => {
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, buildDocState('t', '1. a\n2. b\n\n- x\n\n1. c\n\n```js\nq\n```\n\n```\nz\n```'));
+  const got = [...doc.getMap('blocks').values()].flatMap((b) =>
+    b.get('sys:flavour') === 'affine:list' ? [[b.get('prop:type'), b.get('prop:order')]]
+      : b.get('sys:flavour') === 'affine:code' ? [[b.get('prop:language'), b.get('prop:caption')]] : []);
+  assert.deepEqual(got, [['numbered', 1], ['numbered', 2], ['bulleted', null], ['numbered', 1], ['javascript', ''], [null, '']]);
 });

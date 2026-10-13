@@ -642,7 +642,7 @@ app.get('/api/docs/mine', requireUser, async (req, res) => {
   const { rows } = await pool.query(
     `SELECT d.id, d.title, d.icon, d.updated_at, count(*) OVER () AS total
        FROM docs d
-      WHERE d.created_by = $1 AND d.deleted_at IS NULL
+      WHERE d.created_by = $1 AND d.deleted_at IS NULL AND d.kind IS DISTINCT FROM 'task'
       ORDER BY d.updated_at DESC
       LIMIT $2 OFFSET $3`,
     [req.user.id, limit, offset]
