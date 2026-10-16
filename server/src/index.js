@@ -60,6 +60,7 @@ import { registerPushRoutes, sendPush } from './push.js';
 import { linkFor } from './push-rules.js';
 import { registerFolderRoutes, visibleFolder } from './folders-routes.js';
 import { registerWebhookRoutes, emit, startWebhookWorker } from './webhooks.js';
+import { registerDriveRoutes, startDriveSync } from './drive.js';
 import { registerGuestCommentRoutes, shareAccess } from './guest-comments.js';
 import { commentAnchors } from './text-match.js';
 import { registerAgentRoutes, enqueueRun } from './agent-runs.js';
@@ -3086,6 +3087,7 @@ registerHomeRoutes(app, { requireUser, wrap });
 registerPushRoutes(app, { requireUser, wrap });
 registerFolderRoutes(app, { requireUser, wrap });
 registerWebhookRoutes(app, { requireUser, requireAdmin, wrap });
+registerDriveRoutes(app, { requireUser, requireAdmin, wrap });
 registerFormRoutes(app, { requireUser, wrap, baseUrl: BASE_URL });
 // Marking or unmarking a template goes by the page's own grant: the template
 // rule must not let someone who was given view access un-template the page.
@@ -3324,5 +3326,6 @@ server.listen(PORT, '0.0.0.0', () => {
   startTrashSweeper();
   startIntegrityScan(pool, { canSee: async (docId, userId) => !!(await grantOn(docId, userId)) });
   startReminders();
-startAutomationSweeper();
+  startAutomationSweeper();
+  startDriveSync();
 });

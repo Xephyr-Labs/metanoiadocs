@@ -8,7 +8,7 @@
  *       so it is never empty.
  */
 import {
-  ArrowRight, Clock, Database, FilePlus2, Files, History, Home, Inbox, ListTodo,
+  ArrowRight, Clock, Database, FilePlus2, Files, HardDrive, History, Home, Inbox, ListTodo,
   Keyboard, Loader2, Moon, PanelRight, PenLine, Search, Settings, Share2, Sparkles, Sun, Trash2, Upload,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -97,6 +97,7 @@ export function CommandPalette() {
         icon: Files,
         run: ws.openAllDocs,
       },
+      { kind: 'command', id: 'drive', title: 'Drive — files in the shared Google drive', icon: HardDrive, run: ws.openDrive },
       { kind: 'command', id: 'share', title: 'Share current page', icon: Share2, run: () => ws.setShareOpen(true) },
       ...(ws.currentId
         ? [{ kind: 'command' as const, id: 'history', title: 'Version history', icon: History, run: () => ws.openHistory(ws.currentId!) }]

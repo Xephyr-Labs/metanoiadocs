@@ -22,6 +22,7 @@ export const WEBHOOK_EVENTS = [
   'doc.deleted',
   'comment.created',
   'run.finished',
+  'drive.file.changed',
 ];
 
 const TIMEOUT_MS = 10_000;

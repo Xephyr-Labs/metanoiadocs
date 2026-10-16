@@ -1,6 +1,7 @@
 import {
   Bot,
   Copy,
+  HardDrive,
   Info,
   KeyRound,
   Moon,
@@ -36,7 +37,7 @@ import {
 } from '../../lib/push';
 import { useAuth } from '../../store/auth';
 import { sendInvite } from '../../lib/api';
-import { docsApi, type UserRow } from '../../lib/docsApi';
+import { docsApi, type DriveRoot, type DriveStatus, type UserRow } from '../../lib/docsApi';
 import { setSmallText, smallText } from '../../lib/docPrefs';
 import { avatarFor } from '../../lib/avatar';
 import { relativeTime } from '../../lib/time';
@@ -49,6 +50,7 @@ import { Menu } from '../ui/Menu';
 import { Modal } from '../ui/Modal';
 import { SegmentedControl } from '../ui/SegmentedControl';
 import { Switch } from '../ui/Switch';
+import { SearchSelect } from '../ui/SearchSelect';
 import { Webhooks } from './Webhooks';
 import { copyText } from '../../lib/clipboard';
 import { toast } from '../../lib/toast';
@@ -62,7 +64,7 @@ function Avatar({ name, size = 32 }: { name: string; size?: number }) {
   );
 }
 
-type SectionId = 'account' | 'preferences' | 'tokens' | 'members' | 'ai' | 'webhooks' | 'about';
+type SectionId = 'account' | 'preferences' | 'tokens' | 'members' | 'ai' | 'drive' | 'webhooks' | 'about';
 
 /** A section only an admin may open at all. Everything else is shown to
  *  everyone — the AI panel, for instance, is readable by all and editable by
@@ -85,6 +87,7 @@ const NAV: { group: string; items: { id: SectionId; label: string; icon: typeof 
     items: [
       { id: 'members', label: 'Members', icon: Users },
       { id: 'ai', label: 'AI', icon: Sparkles },
+      { id: 'drive', label: 'Google Drive', icon: HardDrive },
       { id: 'webhooks', label: 'Webhooks', icon: Webhook },
       { id: 'about', label: 'About', icon: Info },
     ],
@@ -859,6 +862,178 @@ function AiSettings() {
   );
 }
 
+/**
+ * Google Drive: one shared drive for the whole workspace, connected by an
+ * admin through a service account (see server/src/drive.js for why).
+ *
+ * Three steps, each shown only once the one before is done: paste the key,
+ * add the account to the shared drive, pick the drive. The key is write-only,
+ * like the AI key: the server reports the account's email, never the key.
+ */
+function DriveSettings() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
+  const [status, setStatus] = useState<DriveStatus | null>(null);
+  const [key, setKey] = useState('');
+  const [replacing, setReplacing] = useState(false);
+  const [drives, setDrives] = useState<DriveRoot[] | null>(null);
+  const [pick, setPick] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const load = () => docsApi.driveStatus().then(setStatus).catch((e) => setMsg({ ok: false, text: e.message }));
+  useEffect(() => { load(); }, []);
+  // The first listing of a drive runs in the background; follow it until it lands.
+  useEffect(() => {
+    if (!status?.connected || status.lastSyncAt) return;
+    const t = setInterval(load, 3000);
+    return () => clearInterval(t);
+  }, [status?.connected, status?.lastSyncAt]);
+
+  const run = async (fn: () => Promise<unknown>, done?: string) => {
+    setBusy(true);
+    setMsg(null);
+    try {
+      await fn();
+      if (done) setMsg({ ok: true, text: done });
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof Error ? e.message : 'Something went wrong.' });
+    }
+    setBusy(false);
+  };
+
+  const saveKey = () => run(async () => {
+    setStatus(await docsApi.saveDriveKey(key));
+    setKey('');
+    setReplacing(false);
+    setDrives(null);
+  }, 'Key saved. Now add the account to your shared drive.');
+
+  const findDrives = () => run(async () => {
+    const list = await docsApi.driveRoots();
+    setDrives(list);
+    setPick(list[0]?.id ?? '');
+  });
+
+  const connect = () => run(async () => {
+    const root = drives?.find((d) => d.id === pick);
+    if (root) setStatus(await docsApi.connectDrive(root));
+    setDrives(null);
+  }, 'Connected. Listing the drive’s files…');
+
+  const syncNow = () => run(async () => {
+    await docsApi.syncDrive();
+    setTimeout(load, 3000);
+  }, 'Checking for changes.');
+
+  const disconnect = () => run(async () => setStatus(await docsApi.disconnectDrive()), 'Disconnected.');
+
+  const showKeyForm = isAdmin && (!status?.keySet || replacing);
+
+  return (
+    <div>
+      <SectionTitle>Google Drive</SectionTitle>
+      <p className="mb-5 text-sm text-muted">
+        Connect one shared drive, or one shared folder. Everyone in the workspace can browse its files, attach them to tasks, and agents can read them. Read-only: nothing here changes Drive.
+      </p>
+
+      {!isAdmin && (
+        <p className="mb-4 flex items-start gap-2 rounded-lg border border-line bg-surface px-3 py-2.5 text-xs leading-snug text-muted">
+          <Shield size={14} className="mt-px shrink-0 text-faint" />
+          Only workspace admins can connect a drive.
+        </p>
+      )}
+
+      <div className="divide-y divide-line border-t border-line">
+        {status?.connected && (
+          <>
+            <Row title={status.rootKind === 'folder' ? 'Shared folder' : 'Shared drive'} desc={status.lastError ? `Last check failed: ${status.lastError}` : `${status.fileCount} files · ${status.lastSyncAt ? `checked ${relativeTime(status.lastSyncAt)}` : 'listing files…'}`} control={<span className="text-sm font-medium text-ink">{status.driveName}</span>} />
+            {isAdmin && (
+              <Row
+                title="Changes"
+                desc="Checked every five minutes."
+                control={
+                  <div className="flex gap-2">
+                    <Button size="sm" onClick={syncNow} disabled={busy}>Check now</Button>
+                    <Button size="sm" onClick={disconnect} disabled={busy}>Disconnect</Button>
+                  </div>
+                }
+              />
+            )}
+          </>
+        )}
+
+        {status?.keySet && (
+          <Row
+            title="Service account"
+            desc={status.connected ? 'The account the workspace reads Drive as.' : 'Add this email to a shared drive as a member, or share a folder with it (Viewer is enough), then find it below.'}
+            control={
+              <div className="flex items-center gap-2">
+                <code className="max-w-[200px] truncate rounded bg-surface px-1.5 py-0.5 text-xs text-ink">{status.serviceAccount}</code>
+                <IconButton icon={<Copy size={14} />} label="Copy email" onClick={() => copyText(status.serviceAccount).then(() => toast('Copied'))} />
+                {isAdmin && !replacing && <Button size="sm" onClick={() => setReplacing(true)}>Replace key</Button>}
+              </div>
+            }
+          />
+        )}
+
+        {showKeyForm && (
+          <div className="py-3.5">
+            <p className="text-sm font-medium text-ink">Service-account key</p>
+            <p className="mb-2 mt-0.5 text-xs leading-snug text-muted">
+              In Google Cloud: IAM → Service accounts → Keys → Add key → JSON, with the Drive API enabled. Paste the whole file. It stays on the server.
+            </p>
+            <textarea
+              value={key}
+              onChange={(e) => setKey(e.target.value)}
+              rows={5}
+              spellCheck={false}
+              autoComplete="off"
+              placeholder='{ "type": "service_account", … }'
+              className={cn(field, 'h-auto w-full py-2 font-mono text-xs')}
+            />
+            <div className="mt-2 flex gap-2">
+              <Button size="sm" variant="primary" onClick={saveKey} disabled={busy || !key.trim()}>Save key</Button>
+              {replacing && <Button size="sm" onClick={() => { setReplacing(false); setKey(''); }}>Cancel</Button>}
+            </div>
+          </div>
+        )}
+
+        {isAdmin && status?.keySet && !status.connected && !replacing && (
+          <div className="py-3.5">
+            <p className="text-sm font-medium text-ink">Drive or folder</p>
+            {drives === null ? (
+              <Button size="sm" className="mt-2" onClick={findDrives} disabled={busy}>Find what it can see</Button>
+            ) : drives.length === 0 ? (
+              <p className="mt-1 text-xs leading-snug text-muted">
+                Nothing is shared with the account yet. Add <span className="font-medium text-ink">{status.serviceAccount}</span> to a shared drive or share a folder with it, then{' '}
+                <button type="button" className="underline" onClick={findDrives}>look again</button>.
+              </p>
+            ) : (
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <SearchSelect
+                  value={pick}
+                  label="Drive or folder"
+                  options={drives.map((d) => ({ value: d.id, label: d.name, hint: d.kind === 'folder' ? 'Folder' : 'Shared drive' }))}
+                  onChange={setPick}
+                  className="min-[600px]:w-64"
+                />
+                <Button size="sm" variant="primary" onClick={connect} disabled={busy || !pick}>Connect</Button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {msg && (
+        <p className={cn('mt-4 flex items-center gap-1.5 text-xs', msg.ok ? 'text-accent-strong' : 'text-danger-strong')}>
+          {msg.ok ? <Check size={14} /> : <AlertCircle size={14} />} {msg.text}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function About() {
   const rows = [
     ['Plan', 'Free · unlimited members, forever'],
@@ -1015,6 +1190,7 @@ const BODIES: Record<SectionId, () => JSX.Element> = {
   tokens: Tokens,
   members: Members,
   ai: AiSettings,
+  drive: DriveSettings,
   webhooks: Webhooks,
   about: About,
 };

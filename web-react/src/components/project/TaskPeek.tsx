@@ -29,6 +29,7 @@ import { useKinds } from './kinds';
 import { KindIcon } from './TaskChip';
 import { PropertyCell } from './props/PropertyCell';
 import { TaskAgents } from './TaskAgents';
+import { TaskDriveFiles } from './TaskDriveFiles';
 import { TaskComments } from './TaskComments';
 
 interface Props {
@@ -530,6 +531,8 @@ export function TaskPeek({
             and the page under it is one thing the row happens to have. A data
             database's records are not work and have nobody to discuss them
             with, so they get the same silence they get from the agent rail. */}
+        {mode !== 'data' && <TaskDriveFiles key={`drive-${task.id}`} taskId={task.id} />}
+
         {mode !== 'data' && <TaskComments key={task.id} taskId={task.id} users={users} />}
 
         {!!detail?.backlinks.length && (

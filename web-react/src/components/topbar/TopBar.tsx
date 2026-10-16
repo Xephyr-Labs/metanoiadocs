@@ -196,7 +196,7 @@ export function TopBar() {
           up one level — a sub-page to its parent, a filed page to its folder,
           any other page or folder to Docs, a board to Tasks. Up rather than history.back(), which on a page opened
           from a link would leave the app. */}
-      {isMobile && ws.view !== 'home' && ws.view !== 'docs' && ws.view !== 'tasks' && (
+      {isMobile && ws.view !== 'home' && ws.view !== 'docs' && ws.view !== 'tasks' && ws.view !== 'drive' && (
         <IconButton
           icon={<ChevronLeft size={22} />}
           label="Back"
@@ -256,6 +256,8 @@ export function TopBar() {
           <Crumb current>Tasks</Crumb>
         ) : ws.view === 'docs' ? (
           <Crumb current>All documents</Crumb>
+        ) : ws.view === 'drive' ? (
+          <Crumb current>Drive</Crumb>
         ) : ws.view === 'home' ? (
           <Crumb current>Home</Crumb>
         ) : null}

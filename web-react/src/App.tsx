@@ -8,6 +8,7 @@ import { TabBar } from './components/mobile/TabBar';
 const focusOnMount = (el: HTMLElement | null) => el?.focus({ preventScroll: true });
 import { CommandPalette } from './components/palette/CommandPalette';
 import { AllDocsView } from './components/docs/AllDocsView';
+import { DriveView } from './components/drive/DriveView';
 import { EditorArea } from './components/editor/EditorArea';
 import { FolderView } from './components/folder/FolderView';
 import { HistoryView } from './components/history/HistoryView';
@@ -118,6 +119,7 @@ export default function App() {
           <main id="main" tabIndex={-1} className="min-h-0 flex-1 outline-none">
             {ws.view === 'home' ? <Home />
               : ws.view === 'docs' ? <AllDocsView />
+              : ws.view === 'drive' ? <DriveView />
               : ws.view === 'tasks' ? <TasksView />
               : ws.view === 'project' ? <ProjectView />
               : ws.view === 'folder' ? <FolderView />

@@ -549,6 +549,54 @@ export const docsApi = {
     req('/settings/ai'),
   saveAiConfig: (body: { baseUrl?: string; model?: string; enabled?: boolean; apiKey?: string }) =>
     req('/settings/ai', { method: 'PUT', body: JSON.stringify(body) }),
+  driveStatus: (): Promise<DriveStatus> => req('/settings/drive'),
+  saveDriveKey: (key: string): Promise<DriveStatus> =>
+    req('/settings/drive/key', { method: 'PUT', body: JSON.stringify({ key }) }),
+  driveRoots: (): Promise<DriveRoot[]> => req('/drive/roots'),
+  connectDrive: (root: DriveRoot): Promise<DriveStatus> =>
+    req('/drive/connect', { method: 'POST', body: JSON.stringify({ driveId: root.id, kind: root.kind }) }),
+  syncDrive: () => req('/drive/sync', { method: 'POST' }),
+  disconnectDrive: (): Promise<DriveStatus> => req('/settings/drive', { method: 'DELETE' }),
+  driveFiles: (p: { q?: string; folder?: string; limit?: number; offset?: number } = {}): Promise<DriveFile[]> => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(p)) if (v !== undefined && v !== '') qs.set(k, String(v));
+    return req(`/drive/files?${qs}`);
+  },
+  taskDriveFiles: (taskId: string): Promise<DriveFile[]> => req(`/tasks/${encodeURIComponent(taskId)}/drive-files`),
+  attachDriveFile: (taskId: string, fileId: string): Promise<DriveFile> =>
+    req(`/tasks/${encodeURIComponent(taskId)}/drive-files`, { method: 'POST', body: JSON.stringify({ fileId }) }),
+  detachDriveFile: (taskId: string, fileId: string) =>
+    req(`/tasks/${encodeURIComponent(taskId)}/drive-files/${encodeURIComponent(fileId)}`, { method: 'DELETE' }),
+};
+
+export type DriveStatus = {
+  keySet: boolean;
+  serviceAccount: string;
+  connected: boolean;
+  driveId: string | null;
+  driveName: string | null;
+  rootKind: 'drive' | 'folder' | null;
+  lastSyncAt: string | null;
+  lastError: string | null;
+  fileCount: number;
+};
+
+/** Something the service account can be connected to. */
+export type DriveRoot = { id: string; name: string; kind: 'drive' | 'folder' };
+
+export type DriveFile = {
+  id: string;
+  name: string;
+  mimeType: string;
+  isFolder: boolean;
+  parentId: string | null;
+  url: string | null;
+  iconLink: string | null;
+  size: number | null;
+  modifiedAt: string | null;
+  modifiedBy: string | null;
+  /** A task link whose file is no longer in the drive. */
+  missing?: boolean;
 };
 
 /**

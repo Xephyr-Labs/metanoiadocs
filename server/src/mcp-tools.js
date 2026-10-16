@@ -1166,6 +1166,83 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
     },
   );
 
+  server.registerTool(
+    'list_drive_files',
+    {
+      title: 'List Drive files',
+      description:
+        "Files in the workspace's connected Google shared drive, newest change first, folders before files. Filter by name, by folder, or by `since` to see what changed recently. Each file has its Drive link and who last changed it.",
+      inputSchema: {
+        query: z.string().optional().describe('Part of the file name'),
+        folderId: z.string().optional().describe('Only files directly inside this folder (a folder id from an earlier result)'),
+        since: z.string().optional().describe('Only files changed at or after this date or timestamp, e.g. 2026-10-14'),
+        limit: z.number().int().min(1).max(500).optional().describe('Default 50'),
+      },
+    },
+    async ({ query, folderId, since, limit }) => {
+      try {
+        const qs = new URLSearchParams();
+        if (query) qs.set('q', query);
+        if (folderId) qs.set('folder', folderId);
+        if (since) qs.set('since', since);
+        if (limit) qs.set('limit', String(limit));
+        return ok(await api(`/drive/files?${qs}`));
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    'read_drive_file',
+    {
+      title: 'Read a Drive file',
+      description:
+        'The text of a file in the connected shared drive: Google Docs and Slides as plain text, Sheets as CSV, PDFs and text files as they read. Also lists the tasks the file is attached to. Images and other binary files have no text; their link is returned instead.',
+      inputSchema: { fileId: z.string().describe('File id from list_drive_files') },
+    },
+    async ({ fileId }) => {
+      try {
+        const meta = await api(`/drive/files/${encodeURIComponent(fileId)}`);
+        try {
+          const { text, truncated } = await api(`/drive/files/${encodeURIComponent(fileId)}/text`);
+          return ok({ ...meta, truncated, text });
+        } catch (e) {
+          return ok({ ...meta, text: null, note: e.message });
+        }
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    'attach_drive_file',
+    {
+      title: 'Attach a Drive file to a task',
+      description:
+        'Link a file from the connected shared drive to a task, so it shows on the task and the file shows its tasks. Set `remove: true` to unlink it. Leave the file in Drive; this only links it.',
+      inputSchema: {
+        taskId: z.string().describe('Task id'),
+        fileId: z.string().describe('File id from list_drive_files'),
+        remove: z.boolean().optional(),
+      },
+    },
+    async ({ taskId, fileId, remove }) => {
+      try {
+        const path = `/tasks/${encodeURIComponent(taskId)}/drive-files`;
+        if (remove) {
+          await api(`${path}/${encodeURIComponent(fileId)}`, { method: 'DELETE' });
+          return ok('Unlinked.');
+        }
+        const f = await api(path, { method: 'POST', body: { fileId } });
+        return ok({ attached: f.name, url: f.url });
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
   return server;
 }
 
@@ -1202,4 +1279,7 @@ export const MCP_TOOL_NAMES = [
   'add_task_dependency',
   'remove_task_dependency',
   'workspace_overview',
+  'list_drive_files',
+  'read_drive_file',
+  'attach_drive_file',
 ];

@@ -1050,6 +1050,34 @@ export async function initSchema() {
       FOR EACH ROW
       WHEN (NEW.due_at IS DISTINCT FROM OLD.due_at)
       EXECUTE FUNCTION record_task_due_change();
+
+    -- The connected Google shared drive, mirrored as metadata only (see
+    -- drive.js). The bytes stay in Drive; this is what makes the files
+    -- searchable here and visible to agents without a Google call per question.
+    CREATE TABLE IF NOT EXISTS drive_files (
+      id            TEXT PRIMARY KEY,
+      name          TEXT NOT NULL,
+      mime_type     TEXT NOT NULL,
+      parent_id     TEXT,
+      web_view_link TEXT,
+      icon_link     TEXT,
+      size          BIGINT,
+      modified_at   TIMESTAMPTZ,
+      modified_by   TEXT,
+      synced_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS drive_files_parent_idx ON drive_files(parent_id);
+    CREATE INDEX IF NOT EXISTS drive_files_modified_idx ON drive_files(modified_at DESC);
+    -- No foreign key to drive_files on purpose: a resync, or reconnecting the
+    -- same drive, rebuilds that table, and the links a team made must survive it.
+    CREATE TABLE IF NOT EXISTS task_drive_files (
+      task_id    TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      file_id    TEXT NOT NULL,
+      added_by   TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (task_id, file_id)
+    );
+    CREATE INDEX IF NOT EXISTS task_drive_files_file_idx ON task_drive_files(file_id);
   `);
 
   await normalizeLegacyFolderImport();

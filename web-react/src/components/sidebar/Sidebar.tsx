@@ -25,6 +25,7 @@ import {
   ChevronRight,
   ExternalLink,
   Files,
+  HardDrive,
   Folder,
   Home,
   Link2,
@@ -890,6 +891,7 @@ export function Sidebar() {
         {/* The tree below only draws a page once it has been filed somewhere,
             so the ones easiest to lose are the ones it never shows. */}
         <NavItem icon={<Files size={16} />} label="All documents" active={ws.view === 'docs'} onClick={ws.openAllDocs} />
+        <NavItem icon={<HardDrive size={16} />} label="Drive" active={ws.view === 'drive'} onClick={ws.openDrive} />
       </div>
 
       {/* scroll region */}
