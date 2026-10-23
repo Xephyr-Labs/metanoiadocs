@@ -40,7 +40,7 @@ const emptyRow =
 /**
  * One joined space in the sidebar: its header (drag to reorder, `+` to make
  * something in it, `⋯` to edit or leave it) over the same Pinned, Projects,
- * Designs and Folders blocks the sidebar has always drawn, cut to this space.
+ * Folders and Designs blocks the sidebar has always drawn, cut to this space.
  *
  * The database naming input lives here, one per space: `namingParent` is which
  * row shows it — undefined = none, null = a new top-level database in this
@@ -62,6 +62,9 @@ export function SpaceSection({ space, order, shows, collapsed, onToggle }: {
   const [namingParent, setNamingParent] = useState<string | null | undefined>(undefined);
   const [namingMode, setNamingMode] = useState<ProjectMode>('tasks');
   const key = `space:${space.id}`;
+  // '' is the stand-in section shown when no spaces loaded: nothing to send
+  // as a space, so the server picks the default, and no menu or drag.
+  const sid = space.id || undefined;
 
   const drop = useRowDrop({
     accept: { [SPACE_MIME]: 'halves' },
@@ -93,7 +96,7 @@ export function SpaceSection({ space, order, shows, collapsed, onToggle }: {
     if (!open) toggle();
   };
   const createProject = async (name: string) => {
-    const p = await tasksApi.createProject({ name, parentId: namingParent ?? null, mode: namingMode, spaceId: space.id });
+    const p = await tasksApi.createProject({ name, parentId: namingParent ?? null, mode: namingMode, spaceId: sid });
     await ws.refreshProjects();
     setNamingParent(undefined);
     ws.openProject(p.id);
@@ -161,11 +164,11 @@ export function SpaceSection({ space, order, shows, collapsed, onToggle }: {
         collapsed={open ? new Set() : new Set([key])}
         onToggle={toggle}
         count={count}
-        headProps={{ ...dragSource(SPACE_MIME, space.id), ...drop.props, className: 'group/space' }}
+        headProps={sid ? { ...dragSource(SPACE_MIME, space.id), ...drop.props, className: 'group/space' } : { className: 'group/space' }}
         dropZone={drop.zone}
         action={
           <span className="flex items-center gap-0.5 opacity-0 transition-opacity duration-120 focus-within:opacity-100 group-hover/space:opacity-100">
-            <Menu
+            {sid && <Menu
               align="end"
               trigger={<button type="button" className={rowAction} aria-label={`Actions for ${space.name}`}><MoreHorizontal size={14} /></button>}
               items={[
@@ -175,13 +178,13 @@ export function SpaceSection({ space, order, shows, collapsed, onToggle }: {
                   ? [{ icon: Trash2, label: 'Delete space', danger: true, onSelect: () => { deleteSpace(); } }]
                   : []),
               ]}
-            />
+            />}
             <Menu
               align="end"
               trigger={<button type="button" className={rowAction} aria-label={`New in ${space.name}`}><Plus size={14} /></button>}
               items={[
-                { icon: FilePlus, label: 'Page', onSelect: () => { ws.createPage(null, space.id); } },
-                { icon: FolderPlus, label: 'Folder', onSelect: () => { ws.createFolder(null, space.id); } },
+                { icon: FilePlus, label: 'Page', onSelect: () => { ws.createPage(null, sid); } },
+                { icon: FolderPlus, label: 'Folder', onSelect: () => { ws.createFolder(null, sid); } },
                 { icon: KanbanSquare, label: 'Database', onSelect: () => startNaming(null, 'tasks') },
               ]}
             />
@@ -242,36 +245,12 @@ export function SpaceSection({ space, order, shows, collapsed, onToggle }: {
             </div>
           )}
 
-          {/* Designs are documents that open on the canvas, so they also show
-              up in folders and search — this is the shortcut to them. */}
-          {shows('designs') && tree && (
-            <div className="mb-3">
-              <SectionLabel
-                sectionKey="designs"
-                action={
-                  <button type="button" onClick={() => { ws.createDesign(space.id); }} className={rowAction} aria-label={`New design in ${space.name}`}>
-                    <Plus size={14} />
-                  </button>
-                }
-              >
-                Designs
-              </SectionLabel>
-              {tree.designIds.length ? (
-                <div className="space-y-px">{tree.designIds.map((id) => <DocRow key={id} id={id} />)}</div>
-              ) : (
-                <button onClick={() => { ws.createDesign(space.id); }} className={emptyRow}>
-                  <Plus size={14} /> New design
-                </button>
-              )}
-            </div>
-          )}
-
           {shows('docs') && tree && (
-            <div>
+            <div className="mb-3">
               <SectionLabel
                 sectionKey="folders"
                 action={
-                  <button type="button" onClick={() => ws.createFolder(null, space.id)} className={rowAction} aria-label={`New folder in ${space.name}`}>
+                  <button type="button" onClick={() => ws.createFolder(null, sid)} className={rowAction} aria-label={`New folder in ${space.name}`}>
                     <Plus size={14} />
                   </button>
                 }
@@ -281,15 +260,39 @@ export function SpaceSection({ space, order, shows, collapsed, onToggle }: {
               {tree.folderRootIds.length || tree.unfiledIds.length ? (
                 <FolderTree roots={tree.folderRootIds} unfiled={tree.unfiledIds} />
               ) : (
-                <button onClick={() => ws.createFolder(null, space.id)} className={emptyRow}>
+                <button onClick={() => ws.createFolder(null, sid)} className={emptyRow}>
                   <Plus size={14} /> New folder
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Designs are documents that open on the canvas, so they also show
+              up in folders and search — this is the shortcut to them. */}
+          {shows('designs') && tree && (
+            <div>
+              <SectionLabel
+                sectionKey="designs"
+                action={
+                  <button type="button" onClick={() => { ws.createDesign(sid); }} className={rowAction} aria-label={`New design in ${space.name}`}>
+                    <Plus size={14} />
+                  </button>
+                }
+              >
+                Designs
+              </SectionLabel>
+              {tree.designIds.length ? (
+                <div className="space-y-px">{tree.designIds.map((id) => <DocRow key={id} id={id} />)}</div>
+              ) : (
+                <button onClick={() => { ws.createDesign(sid); }} className={emptyRow}>
+                  <Plus size={14} /> New design
                 </button>
               )}
             </div>
           )}
         </div>
       </CollapsibleSection>
-      <SpaceDialog open={editing} onOpenChange={setEditing} space={space} />
+      {sid && <SpaceDialog open={editing} onOpenChange={setEditing} space={space} />}
     </section>
   );
 }

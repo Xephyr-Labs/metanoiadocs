@@ -75,6 +75,7 @@ import { DOC_MIME, dragSource } from './rowDrag';
 import { useDocMenu } from '../../hooks/useDocMenu';
 import { ProjectIcon } from '../ui/ProjectIcon';
 import { SpaceSection } from './SpaceSection';
+import type { SpaceRow } from '../../lib/spacesApi';
 import { BrowseSpaces } from '../spaces/BrowseSpaces';
 
 /**
@@ -703,6 +704,12 @@ function Rail({
   );
 }
 
+/** Stand-in when no spaces loaded: the store files everything under ''. */
+const NO_SPACE: SpaceRow = {
+  id: '', name: 'Workspace', icon: '🗂️', description: '', is_default: true,
+  created_by: null, member_count: 0, joined: true, position: 0,
+};
+
 export function Sidebar() {
   const ws = useWorkspace();
   const auth = useAuth();
@@ -745,7 +752,9 @@ export function Sidebar() {
   // A template shows when its page sits in a space you joined. Pages with no
   // space belong to the default one, as everywhere else in the sidebar.
   const defaultSpace = ws.spaces.find((sp) => sp.is_default)?.id;
-  const docTemplates = ws.docTemplates.filter((t) => joinedIds.includes(t.spaceId ?? defaultSpace ?? ''));
+  const docTemplates = ws.spaces.length
+    ? ws.docTemplates.filter((t) => joinedIds.includes(t.spaceId ?? defaultSpace ?? ''))
+    : ws.docTemplates;
 
   const onResizeStart = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -869,12 +878,6 @@ export function Sidebar() {
           </section>
         )}
 
-        {/* One section per space you joined, in your order. Each holds that
-            space's pins, databases, designs and folders. */}
-        {joined.map((sp) => (
-          <SpaceSection key={sp.id} space={sp} order={joinedIds} shows={shows} collapsed={collapsed} onToggle={toggle} />
-        ))}
-
         {shows('docs') && ws.privateRootIds.length > 0 && (
           <section className="mb-5">
             <CollapsibleSection collapsed={collapsed} onToggle={toggle} sectionKey="private" label="Private" count={ws.privateRootIds.length}>
@@ -899,6 +902,15 @@ export function Sidebar() {
               <PageTree roots={ws.libraryRootIds} />
             </CollapsibleSection>
           </section>
+        )}
+
+        {/* One section per space you joined, in your order. Each holds that
+            space's pins, databases, folders and designs. With no spaces at
+            all (they failed to load) one unscoped section holds everything. */}
+        {ws.spaces.length ? joined.map((sp) => (
+          <SpaceSection key={sp.id} space={sp} order={joinedIds} shows={shows} collapsed={collapsed} onToggle={toggle} />
+        )) : (
+          <SpaceSection space={NO_SPACE} order={[]} shows={shows} collapsed={collapsed} onToggle={toggle} />
         )}
 
         {shows('tags') && ws.allTags.length > 0 && (

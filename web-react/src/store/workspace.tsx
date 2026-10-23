@@ -480,7 +480,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const refreshSpaces = useCallback(async () => {
-    setSpaces(await spacesApi.list().catch(() => []));
+    // A failed re-read keeps what we had: an empty list would empty the
+    // whole sidebar tree. Only a failed first load leaves it empty, and the
+    // sidebar then falls back to one unscoped section.
+    const rows = await spacesApi.list().catch(() => null);
+    if (rows) setSpaces(rows);
   }, []);
 
   const openHome = useCallback(() => {
@@ -1228,6 +1232,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   // The same lists as above, cut per joined space. A page or folder whose
   // space is unknown lands in the default one, so nothing goes missing.
   const spaceTrees = useMemo(() => {
+    // No spaces at all (first load failed, or an old server): one unscoped
+    // tree under '' holding everything, so no document ever disappears.
+    if (!spaces.length) {
+      return new Map<string, SpaceTree>([['', { pinnedIds, pinnedFolderIds, folderRootIds, unfiledIds, designIds }]]);
+    }
     const pg = groupBySpace(Object.values(pages).sort(byOrder), spaces);
     const fd = groupBySpace(
       Object.values(folders).sort((a, b) => a.position - b.position || a.name.localeCompare(b.name)),
@@ -1245,7 +1254,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       });
     }
     return out;
-  }, [pages, folders, spaces]);
+  }, [pages, folders, spaces, pinnedIds, pinnedFolderIds, folderRootIds, unfiledIds, designIds]);
 
   const value = useMemo<WorkspaceState>(
     () => ({

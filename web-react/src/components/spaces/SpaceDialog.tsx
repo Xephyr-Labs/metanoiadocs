@@ -39,6 +39,8 @@ export function SpaceDialog({ open, onOpenChange, space }: {
     docsApi.users().then(setUsers).catch(() => setUsers([]));
   }, [open, space]);
 
+  const canManage = !space || space.created_by === auth.user?.id || auth.user?.role === 'admin';
+
   const save = async () => {
     if (saving) return;
     if (!name.trim()) {
@@ -48,7 +50,9 @@ export function SpaceDialog({ open, onOpenChange, space }: {
     setSaving(true);
     try {
       if (space) {
-        await spacesApi.patch(space.id, { name, icon, description });
+        // PATCH is the creator's or an admin's; any member may still add people.
+        const changed = name !== space.name || icon !== space.icon || description !== space.description;
+        if (canManage && changed) await spacesApi.patch(space.id, { name, icon, description });
         if (people.length) await spacesApi.addMembers(space.id, people);
         await ws.refreshSpaces();
       } else {
@@ -74,12 +78,13 @@ export function SpaceDialog({ open, onOpenChange, space }: {
         <div className="flex gap-2">
           <label className="w-16 shrink-0">
             <span className="mb-1 block text-2xs font-medium text-muted">Icon</span>
-            <input value={icon} maxLength={16} onChange={(e) => setIcon(e.target.value)} className={`${field} text-center`} />
+            <input value={icon} maxLength={16} readOnly={!canManage} onChange={(e) => setIcon(e.target.value)} className={`${field} text-center`} />
           </label>
           <label className="min-w-0 flex-1">
             <span className="mb-1 block text-2xs font-medium text-muted">Name</span>
             <input
-              autoFocus
+              autoFocus={canManage}
+              readOnly={!canManage}
               value={name}
               maxLength={80}
               aria-invalid={error ? true : undefined}
@@ -92,6 +97,7 @@ export function SpaceDialog({ open, onOpenChange, space }: {
           <span className="mb-1 block text-2xs font-medium text-muted">Description</span>
           <textarea
             value={description}
+            readOnly={!canManage}
             maxLength={500}
             rows={2}
             onChange={(e) => setDescription(e.target.value)}
