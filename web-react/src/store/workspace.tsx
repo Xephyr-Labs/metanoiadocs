@@ -12,6 +12,7 @@ import { docsApi, type DocPropRow, type DocRow, type FolderRow } from '../lib/do
 import * as prefs from '../lib/docPrefs';
 import { tasksApi, type ProjectRow } from '../lib/tasksApi';
 import { spacesApi, type MoveType, type SpaceRow } from '../lib/spacesApi';
+import { groupBySpace } from '../lib/spaceTree';
 import { setPendingSeed } from '../editor/pendingSeed';
 import { toast } from '../lib/toast';
 import { MAX_IMPORT_BYTES } from '../lib/docFiles';
@@ -28,6 +29,15 @@ export type RightTab = 'intel' | 'comments' | 'outline' | 'details' | 'ai';
 
 /** Which surface fills the main column. Cheaper than a router for five screens. */
 export type View = 'home' | 'doc' | 'project' | 'folder' | 'tasks' | 'docs';
+
+/** What one space's section in the sidebar draws. */
+export interface SpaceTree {
+  pinnedIds: PageId[];
+  pinnedFolderIds: string[];
+  folderRootIds: string[];
+  unfiledIds: PageId[];
+  designIds: PageId[];
+}
 
 interface WorkspaceState {
   view: View;
@@ -66,6 +76,8 @@ interface WorkspaceState {
   createSpace: (input: { name: string; icon?: string; description?: string; memberIds?: string[] }) => Promise<SpaceRow | null>;
   /** `ids` is every space in its new order. */
   reorderSpaces: (ids: string[]) => Promise<void>;
+  /** The sidebar's lists, one set per joined space, in `spaces` order. */
+  spaceTrees: Map<string, SpaceTree>;
 
   pages: Record<PageId, Page>;
   folders: Record<string, Folder>;
@@ -1213,6 +1225,28 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     [pages],
   );
 
+  // The same lists as above, cut per joined space. A page or folder whose
+  // space is unknown lands in the default one, so nothing goes missing.
+  const spaceTrees = useMemo(() => {
+    const pg = groupBySpace(Object.values(pages).sort(byOrder), spaces);
+    const fd = groupBySpace(
+      Object.values(folders).sort((a, b) => a.position - b.position || a.name.localeCompare(b.name)),
+      spaces,
+    );
+    const out = new Map<string, SpaceTree>();
+    for (const [id, ps] of pg) {
+      const fs = fd.get(id) ?? [];
+      out.set(id, {
+        pinnedIds: ps.filter((p) => p.pinned).map((p) => p.id),
+        pinnedFolderIds: fs.filter((f) => f.pinned).map((f) => f.id),
+        folderRootIds: fs.filter((f) => !f.parentId).map((f) => f.id),
+        unfiledIds: ps.filter((p) => !p.folderId && !p.parentId && p.kind !== 'design' && p.kind !== 'task').map((p) => p.id),
+        designIds: ps.filter((p) => p.kind === 'design').map((p) => p.id),
+      });
+    }
+    return out;
+  }, [pages, folders, spaces]);
+
   const value = useMemo<WorkspaceState>(
     () => ({
       pages, folders, folderRootIds, unfiledIds, rootIds, workspaceRootIds, privateRootIds, sharedRootIds, libraryRootIds, favoriteIds, favoriteFolderIds, designIds, recentIds: liveRecentIds,
@@ -1221,7 +1255,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       pinnedIds, pinnedFolderIds, togglePin, toggleFolderPin,
       currentId, currentPage, loading, error, workspaceId,
       historyDocId, openHistory, closeHistory,
-      view, activeProjectId, activeFolderId, openHome, openTasks, openAllDocs, openProject, createTaskIn, pendingTaskId, clearPendingTask, pendingViewId: activeViewId, clearPendingView, openFolder, projects, refreshProjects, spaces, refreshSpaces, moveToSpace, joinSpace, leaveSpace, createSpace, reorderSpaces,
+      view, activeProjectId, activeFolderId, openHome, openTasks, openAllDocs, openProject, createTaskIn, pendingTaskId, clearPendingTask, pendingViewId: activeViewId, clearPendingView, openFolder, projects, refreshProjects, spaces, refreshSpaces, moveToSpace, joinSpace, leaveSpace, createSpace, reorderSpaces, spaceTrees,
       sidebarCollapsed, panelCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
       settingsOpen, trashOpen, inboxOpen, shortcutsOpen, captureOpen, mode, fullWidth, theme,
       refresh, select, toggleExpand, toggleFavorite, toggleLove, toggleFolderFavorite, setVisibility, rename, applyTitleFromEditor,
@@ -1237,7 +1271,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       pinnedIds, pinnedFolderIds, togglePin, toggleFolderPin,
       currentId, currentPage, loading, error, workspaceId,
       historyDocId, openHistory, closeHistory,
-      view, activeProjectId, activeFolderId, openHome, openTasks, openAllDocs, openProject, createTaskIn, pendingTaskId, clearPendingTask, activeViewId, clearPendingView, openFolder, projects, refreshProjects, spaces, refreshSpaces, moveToSpace, joinSpace, leaveSpace, createSpace, reorderSpaces,
+      view, activeProjectId, activeFolderId, openHome, openTasks, openAllDocs, openProject, createTaskIn, pendingTaskId, clearPendingTask, activeViewId, clearPendingView, openFolder, projects, refreshProjects, spaces, refreshSpaces, moveToSpace, joinSpace, leaveSpace, createSpace, reorderSpaces, spaceTrees,
       sidebarCollapsed, panelCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
       settingsOpen, trashOpen, inboxOpen, shortcutsOpen, captureOpen, mode, fullWidth, theme,
       refresh, select, toggleExpand, toggleFavorite, toggleLove, toggleFolderFavorite, setVisibility, rename, applyTitleFromEditor,

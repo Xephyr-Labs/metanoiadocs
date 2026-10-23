@@ -1,4 +1,4 @@
-import { ChevronRight, FilePlus, FileText, Folder, FolderOpen, Link2, MoreHorizontal, Pin, Plus, Star, Trash2, Upload } from 'lucide-react';
+import { ChevronRight, FilePlus, FileText, Folder, FolderOpen, Link2, Lock, MoreHorizontal, Pin, Plus, Star, Trash2, Upload } from 'lucide-react';
 import { useState } from 'react';
 import { DOC_MIME, FOLDER_MIME, dragSource, useRowDrop } from './rowDrag';
 import { cn } from '../../lib/cn';
@@ -114,6 +114,8 @@ function DocumentRow({ id, depth }: { id: PageId; depth: number }) {
       >
         {page.title}
       </span>
+      {/* A space is open to everyone in it, so a page only you can see says so. */}
+      {page.visibility === 'private' && <Lock size={12} role="img" aria-label="Private" className="mr-1 shrink-0 text-faint" />}
       <span className={cn('flex shrink-0 items-center gap-0.5 transition-opacity', hover ? 'opacity-100' : 'opacity-0')}>
         <Menu
           trigger={<button type="button" onClick={(e) => e.stopPropagation()} className={rowAction} aria-label="Document actions"><MoreHorizontal size={16} /></button>}

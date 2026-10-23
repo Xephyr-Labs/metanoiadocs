@@ -5,6 +5,8 @@ import { dropZone, type DropZone } from '../../lib/reorder';
  *  kind field, so a row can accept pages without ever accepting folders. */
 export const DOC_MIME = 'application/x-metanoia-document';
 export const FOLDER_MIME = 'application/x-metanoia-folder';
+/** A space's header, dragged to reorder the sidebar's spaces. */
+export const SPACE_MIME = 'application/x-metanoia-space';
 
 /**
  * How a row splits under the pointer:

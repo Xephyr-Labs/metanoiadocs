@@ -30,6 +30,7 @@ import {
   Link2,
   Inbox,
   KanbanSquare,
+  LayoutGrid,
   LayoutList,
   LayoutTemplate,
   LogOut,
@@ -44,7 +45,8 @@ import {
   Trash2,
   Upload,
 } from 'lucide-react';
-import { Children, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { Children, useRef, useState, type HTMLAttributes, type KeyboardEvent, type ReactNode } from 'react';
+import type { DropZone } from '../../lib/reorder';
 import { cn } from '../../lib/cn';
 import { MOD_LABEL } from '../../lib/hotkeys';
 import { SECTION_LIMIT, collapsedSections, railSection, setRailSection, toggleSection, type RailSection } from '../../lib/sidebarPrefs';
@@ -52,12 +54,11 @@ import { copyLink } from '../../lib/clipboard';
 import { dbUrl } from '../../lib/route';
 import { pickImportFiles } from '../../lib/docFiles';
 import { avatarFor } from '../../lib/avatar';
-import { nestByParent } from '../../lib/pageTree';
 import { swatch } from '../../lib/tagColors';
 import { toast } from '../../lib/toast';
 import { LogoMark } from '../brand/Logo';
 import { PageIcon } from '../ui/PageIcon';
-import { tasksApi, type ProjectMode, type ProjectRow } from '../../lib/tasksApi';
+import type { ProjectMode, ProjectRow } from '../../lib/tasksApi';
 import type { Tag } from '../../lib/types';
 import { workspaces } from '../../data/mock';
 import { templates } from '../../data/templates';
@@ -70,10 +71,11 @@ import { RowInput } from '../ui/RowInput';
 import { Tooltip } from '../ui/Tooltip';
 import { rowAction } from '../ui/styles';
 import { PageTree } from './PageTree';
-import { FolderTree } from './FolderTree';
 import { DOC_MIME, dragSource } from './rowDrag';
 import { useDocMenu } from '../../hooks/useDocMenu';
 import { ProjectIcon } from '../ui/ProjectIcon';
+import { SpaceSection } from './SpaceSection';
+import { BrowseSpaces } from '../spaces/BrowseSpaces';
 
 /**
  * Only `alert` spends the accent. "You are here" is a neutral fill — where you
@@ -171,7 +173,7 @@ const SECTION_TEXT_TINT: Record<string, string> = {
 const tintOf = (key: string) => SECTION_TINT[key] ?? 'text-faint';
 const textTintOf = (key: string) => SECTION_TEXT_TINT[key] ?? 'text-muted';
 
-function SectionLabel({ sectionKey, children, action }: { sectionKey: string; children: ReactNode; action?: ReactNode }) {
+export function SectionLabel({ sectionKey, children, action }: { sectionKey: string; children: ReactNode; action?: ReactNode }) {
   return (
     <div className="mt-3 coarse:mt-1 flex h-6 coarse:h-11 items-center gap-2 px-2 first:mt-0">
       {/* The slot a folding section puts its chevron in. Here it carries the
@@ -202,20 +204,27 @@ function SectionLabel({ sectionKey, children, action }: { sectionKey: string; ch
  * it and still offers its "+" — a fold that hides the count turns "collapse"
  * into "forget", and you stop folding things.
  */
-function CollapsibleSection({ sectionKey, label, collapsed, onToggle, count, action, children }: {
+export function CollapsibleSection({ sectionKey, label, collapsed, onToggle, count, action, headProps, dropZone, children }: {
   sectionKey: string;
   label: string;
   collapsed: Set<string>;
   onToggle: (key: string) => void;
   count?: number;
   action?: ReactNode;
+  /** Extra props for the header row — a space's header drags and takes drops. */
+  headProps?: HTMLAttributes<HTMLDivElement>;
+  /** Draws the reorder line while something is dragged over the header. */
+  dropZone?: DropZone | null;
   children: ReactNode;
 }) {
   const open = !collapsed.has(sectionKey);
 
   return (
     <>
-      <div className="mt-3 coarse:mt-1 flex h-6 coarse:h-11 items-center gap-1 pr-2 first:mt-0">
+      <div {...headProps} className={cn('relative mt-3 coarse:mt-1 flex h-6 coarse:h-11 items-center gap-1 pr-2 first:mt-0', headProps?.className)}>
+        {(dropZone === 'before' || dropZone === 'after') && (
+          <span className={cn('pointer-events-none absolute left-1 right-1 h-0.5 rounded-full bg-accent', dropZone === 'before' ? 'top-0' : 'bottom-0')} />
+        )}
         <button
           type="button"
           aria-expanded={open}
@@ -252,7 +261,7 @@ function CollapsibleSection({ sectionKey, label, collapsed, onToggle, count, act
  * scrollbars answering the same gesture, and neither one tells you how much you
  * have not seen. A count does.
  */
-function Capped({ limit = SECTION_LIMIT, children }: { limit?: number; children: ReactNode }) {
+export function Capped({ limit = SECTION_LIMIT, children }: { limit?: number; children: ReactNode }) {
   const [all, setAll] = useState(false);
   const items = Children.toArray(children);
   if (items.length <= limit) return <>{items}</>;
@@ -275,16 +284,16 @@ function Capped({ limit = SECTION_LIMIT, children }: { limit?: number; children:
  * A database in the tree. Kept as a recursive component (not a flat map) so
  * a database can nest under another; the naming input for "new sub-database
  * under this row" lives one level down, alongside its siblings, and its
- * placement is driven by `namingParent` — see `Sidebar`'s comment.
+ * placement is driven by `namingParent` — see `SpaceSection`'s comment.
  *
- * Which id belongs under which parent is decided once, up in `Sidebar`, by
+ * Which id belongs under which parent is decided once, up in `SpaceSection`, by
  * `nestByParent` — the same helper the page and folder trees use. That's what
  * keeps a project whose parent got archived (or a parent_id that loops back
  * on itself) visible at the top level instead of vanishing or hanging the
  * recursion; re-filtering `ws.projects` by `parent_id` at each level here
  * would lose both guarantees.
  */
-function ProjectRows({
+export function ProjectRows({
   parentId,
   depth,
   roots,
@@ -416,7 +425,7 @@ function ProjectRows({
  *  a folder like a tree row, and carrying the same menu the tree does — these
  *  are the pages reached most often, and they used to be the ones you could do
  *  least with. */
-function DocRow({ id }: { id: string }) {
+export function DocRow({ id }: { id: string }) {
   const ws = useWorkspace();
   const p = ws.pages[id];
   const menu = useDocMenu(id);
@@ -495,7 +504,7 @@ function TagRow({ tag }: { tag: Tag }) {
   );
 }
 
-function FavoriteFolderRow({ id }: { id: string }) {
+export function FavoriteFolderRow({ id }: { id: string }) {
   const ws = useWorkspace();
   const f = ws.folders[id];
   if (!f) return null;
@@ -730,70 +739,13 @@ export function Sidebar() {
   };
   const toggle = (key: string) => setCollapsed(toggleSection(key));
 
-  // The name is typed in the tree itself. `namingParent` is which row shows
-  // that input: undefined = none, null = new top-level database, a string =
-  // new sub-database of that project id. One value keeps a single input on
-  // screen whether it was opened from the section header or a row's +.
-  // Errors surface inside the input, so nothing is caught here.
-  const [namingParent, setNamingParent] = useState<string | null | undefined>(undefined);
-  // Which kind of database the open naming input will make. A data database
-  // holds records — no status, no assignee, no dates — so the choice is made
-  // when it is created rather than discovered later.
-  const [namingMode, setNamingMode] = useState<ProjectMode>('tasks');
-  const startNaming = (parentId: string | null, mode: ProjectMode) => {
-    setNamingMode(mode);
-    setNamingParent(parentId);
-  };
-  const createProject = async (name: string) => {
-    const p = await tasksApi.createProject({ name, parentId: namingParent ?? null, mode: namingMode });
-    await ws.refreshProjects();
-    setNamingParent(undefined);
-    ws.openProject(p.id);
-  };
-
-  /** Switching mode hides fields, it never drops them: the task columns keep
-   *  their values underneath, so this is reversible from the same menu. */
-  const setProjectMode = async (project: ProjectRow, mode: ProjectMode) => {
-    try {
-      await tasksApi.patchProject(project.id, { mode });
-    } catch {
-      toast(`Could not change ${project.name}.`);
-      return;
-    }
-    await ws.refreshProjects();
-    toast(mode === 'data'
-      ? `${project.name} is a data database. Its task fields are hidden, not deleted.`
-      : `${project.name} is a task database again.`);
-  };
-
-  /** Archiving hides a database and its rows without destroying either, so the
-   *  toast offers the way back rather than a confirmation before the fact. */
-  const archiveProject = async (project: ProjectRow) => {
-    try {
-      await tasksApi.archiveProject(project.id);
-    } catch {
-      toast(`Could not archive ${project.name}.`);
-      return;
-    }
-    if (ws.activeProjectId === project.id) ws.openHome();
-    await ws.refreshProjects();
-    toast(`Archived ${project.name}.`, {
-      label: 'Undo',
-      onSelect: () => {
-        tasksApi
-          .patchProject(project.id, { archived: false })
-          .then(() => ws.refreshProjects())
-          .catch(() => toast(`Could not restore ${project.name}.`));
-      },
-    });
-  };
-
-  // Computed once for the whole tree: a project whose parent was archived (or
-  // whose parent_id loops) comes back as a root here instead of disappearing.
-  const projectTree = useMemo(
-    () => nestByParent(ws.projects.map((p) => ({ id: p.id, parentId: p.parent_id }))),
-    [ws.projects],
-  );
+  const [browseOpen, setBrowseOpen] = useState(false);
+  const joined = ws.spaces.filter((sp) => sp.joined);
+  const joinedIds = joined.map((sp) => sp.id);
+  // A template shows when its page sits in a space you joined. Pages with no
+  // space belong to the default one, as everywhere else in the sidebar.
+  const defaultSpace = ws.spaces.find((sp) => sp.is_default)?.id;
+  const docTemplates = ws.docTemplates.filter((t) => joinedIds.includes(t.spaceId ?? defaultSpace ?? ''));
 
   const onResizeStart = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -904,20 +856,6 @@ export function Sidebar() {
           </section>
         )}
 
-        {/* Above Favorites on purpose: the team's shelf outranks your own. */}
-        {shows('docs') && (ws.pinnedFolderIds.length > 0 || ws.pinnedIds.length > 0) && (
-          <section className="mb-5">
-            <CollapsibleSection collapsed={collapsed} onToggle={toggle} sectionKey="pinned" label="Pinned" count={ws.pinnedFolderIds.length + ws.pinnedIds.length}>
-            <div className="space-y-px">
-              <Capped>
-                {[...ws.pinnedFolderIds.map((id) => <FavoriteFolderRow key={`f${id}`} id={id} />),
-                  ...ws.pinnedIds.map((id) => <DocRow key={id} id={id} />)]}
-              </Capped>
-            </div>
-            </CollapsibleSection>
-          </section>
-        )}
-
         {shows('docs') && (ws.favoriteFolderIds.length > 0 || ws.favoriteIds.length > 0) && (
           <section className="mb-5">
             <CollapsibleSection collapsed={collapsed} onToggle={toggle} sectionKey="favorites" label="Favorites" count={ws.favoriteFolderIds.length + ws.favoriteIds.length}>
@@ -931,96 +869,11 @@ export function Sidebar() {
           </section>
         )}
 
-        {shows('projects') && (
-        <section className="mb-5">
-          <SectionLabel
-            sectionKey="projects"
-            action={
-              <Menu
-                align="end"
-                trigger={
-                  <button type="button" className={rowAction} aria-label="New database">
-                    <Plus size={14} />
-                  </button>
-                }
-                items={[
-                  { icon: KanbanSquare, label: 'New database', onSelect: () => startNaming(null, 'tasks') },
-                  { icon: Table2, label: 'New data database', onSelect: () => startNaming(null, 'data') },
-                ]}
-              />
-            }
-          >
-            Projects
-          </SectionLabel>
-          {ws.projects.length || namingParent !== undefined ? (
-            <div className="space-y-px">
-              <ProjectRows
-                parentId={null}
-                depth={0}
-                roots={projectTree.roots}
-                childrenOf={projectTree.childrenOf}
-                namingParent={namingParent}
-                onNewUnder={startNaming}
-                onArchive={archiveProject}
-                onSetMode={setProjectMode}
-                onCommitName={createProject}
-                onCancelName={() => setNamingParent(undefined)}
-              />
-            </div>
-          ) : (
-            <button onClick={() => startNaming(null, 'tasks')} className="mt-0.5 flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-faint hover:bg-hover hover:text-muted coarse:min-h-11">
-              <Plus size={14} /> New project
-            </button>
-          )}
-        </section>
-        )}
-
-        {/* Designs are documents that open on the canvas, so they also show up
-            in folders and search — this section is the shortcut to them, not
-            their only home. */}
-        {shows('designs') && (
-        <section className="mb-5">
-          <SectionLabel
-            sectionKey="designs"
-            action={
-              <button type="button" onClick={() => { ws.createDesign(); }} className={rowAction} aria-label="New design">
-                <Plus size={14} />
-              </button>
-            }
-          >
-            Designs
-          </SectionLabel>
-          {ws.designIds.length ? (
-            <div className="space-y-px">{ws.designIds.map((id) => <DocRow key={id} id={id} />)}</div>
-          ) : (
-            <button onClick={() => { ws.createDesign(); }} className="mt-0.5 flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-faint hover:bg-hover hover:text-muted coarse:min-h-11">
-              <Plus size={14} /> New design
-            </button>
-          )}
-        </section>
-        )}
-
-        {shows('docs') && (
-        <section className="mb-5">
-            <SectionLabel
-            sectionKey="folders"
-            action={
-              <button type="button" onClick={() => ws.createFolder(null)} className={rowAction} aria-label="New folder">
-                <Plus size={14} />
-              </button>
-            }
-          >
-            Folders
-          </SectionLabel>
-          {ws.folderRootIds.length || ws.unfiledIds.length ? (
-            <FolderTree roots={ws.folderRootIds} unfiled={ws.unfiledIds} />
-          ) : (
-            <button onClick={() => ws.createFolder(null)} className="mt-0.5 flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-faint hover:bg-hover hover:text-muted coarse:min-h-11">
-              <Plus size={14} /> New folder
-            </button>
-          )}
-        </section>
-        )}
+        {/* One section per space you joined, in your order. Each holds that
+            space's pins, databases, designs and folders. */}
+        {joined.map((sp) => (
+          <SpaceSection key={sp.id} space={sp} order={joinedIds} shows={shows} collapsed={collapsed} onToggle={toggle} />
+        ))}
 
         {shows('docs') && ws.privateRootIds.length > 0 && (
           <section className="mb-5">
@@ -1062,12 +915,12 @@ export function Sidebar() {
 
         {shows('templates') && (
         <section className="mb-1 mt-2">
-          <CollapsibleSection collapsed={collapsed} onToggle={toggle} sectionKey="templates" label="Templates" count={templates.length + ws.docTemplates.length}>
+          <CollapsibleSection collapsed={collapsed} onToggle={toggle} sectionKey="templates" label="Templates" count={templates.length + docTemplates.length}>
           <div className="space-y-px">
             {/* The workspace's own first: a page somebody here wrote and marked
                 beats a starter nobody chose, and the built-ins below never
                 change, so a stable order is the one that puts yours on top. */}
-            {ws.docTemplates.map((t) => (
+            {docTemplates.map((t) => (
               <button
                 key={t.id}
                 type="button"
@@ -1101,8 +954,10 @@ export function Sidebar() {
       {/* footer */}
       <div className="border-t border-line px-2 py-2">
         <div className="mb-1.5">
+          <NavItem icon={<LayoutGrid size={16} />} label="Spaces" onClick={() => setBrowseOpen(true)} />
           <NavItem icon={<Trash2 size={16} />} label="Trash" onClick={() => ws.setTrashOpen(true)} />
         </div>
+        <BrowseSpaces open={browseOpen} onOpenChange={setBrowseOpen} />
         <div className="flex items-center gap-2 rounded-md px-1.5 py-1">
           <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-3xs font-semibold text-white" style={{ background: av.color }}>{av.initials}</span>
           <div className="min-w-0 flex-1">
