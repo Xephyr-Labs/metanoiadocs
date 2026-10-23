@@ -22,6 +22,8 @@ import { EmptyState } from '../ui/EmptyState';
 import { IconButton } from '../ui/IconButton';
 import { Tooltip } from '../ui/Tooltip';
 import { CommentBox, savedDraft, type CommentBoxHandle } from '../ui/CommentBox';
+import { CommentFiles, VoiceNoteButton } from '../ui/VoiceNoteButton';
+import type { StoredFile } from '../../lib/uploads';
 
 type Filter = 'open' | 'suggestions' | 'resolved';
 
@@ -50,6 +52,9 @@ export function CommentsTab({ docId }: { docId: string }) {
   const [editing, setEditing] = useState<{ id: string; text: string } | null>(null);
   const [replyTo, setReplyTo] = useState<string | null>(null);
   const [replyText, setReplyText] = useState('');
+  // A recorded voice note waiting to go out with the next comment or reply.
+  const [note, setNote] = useState<StoredFile | null>(null);
+  const [replyNote, setReplyNote] = useState<StoredFile | null>(null);
   const draftKey = `doc:${docId}`;
   const [draft, setDraft] = useState(() => savedDraft(draftKey));
   const [replacement, setReplacement] = useState('');
@@ -139,22 +144,25 @@ export function CommentsTab({ docId }: { docId: string }) {
       }, 'Could not post the suggestion');
       return;
     }
-    if (!body) return;
+    if (!body && !note) return;
     await run('add', async () => {
+      const attachments = note ? [note] : [];
       await docsApi.addComment(docId, body, anchor
-        ? { blockId: anchor.blockId, quote: anchor.quote, occurrence: anchor.occurrence, anchorStart: anchor.anchorStart, anchorEnd: anchor.anchorEnd }
-        : undefined);
+        ? { blockId: anchor.blockId, quote: anchor.quote, occurrence: anchor.occurrence, anchorStart: anchor.anchorStart, anchorEnd: anchor.anchorEnd, attachments }
+        : { attachments });
       setDraft('');
+      setNote(null);
       clearPendingAnchor();
     }, 'Could not post the comment');
   };
 
   const sendReply = async (parentId: string) => {
     const body = replyText.trim();
-    if (!body || busy) return;
+    if ((!body && !replyNote) || busy) return;
     await run(`reply:${parentId}`, async () => {
-      await docsApi.addComment(docId, body, { parentId });
+      await docsApi.addComment(docId, body, { parentId, attachments: replyNote ? [replyNote] : [] });
       setReplyText('');
+      setReplyNote(null);
       setReplyTo(null);
     }, 'Could not post the reply');
   };
@@ -212,6 +220,14 @@ export function CommentsTab({ docId }: { docId: string }) {
         {c.edited_at && <span className="ml-1 text-2xs text-faint">(edited)</span>}
       </ClampedText>
     ) : null;
+
+  /** The words, then any voice note under them. */
+  const renderContent = (c: CommentRow, className: string) => (
+    <>
+      {renderBody(c, className)}
+      {editing?.id !== c.id && <CommentFiles files={c.attachments} />}
+    </>
+  );
 
   /** Edit (your own words only) and delete (yours, or anything on a page you own). */
   const renderActions = (c: CommentRow, reveal: string) => {
@@ -408,7 +424,7 @@ export function CommentsTab({ docId }: { docId: string }) {
               {detachedNow && (
                 <p className="mt-1 text-2xs text-faint">The text this was about has since changed.</p>
               )}
-              {renderBody(c, 'mt-1.5 text-sm leading-relaxed text-ink')}
+              {renderContent(c, 'mt-1.5 text-sm leading-relaxed text-ink')}
               <Reactions reactions={c.reactions} onToggle={mayComment ? (e) => void react(c.id, e) : undefined} />
 
               {thread.map((r) => (
@@ -421,7 +437,7 @@ export function CommentsTab({ docId }: { docId: string }) {
                       <span className="shrink-0 font-normal text-faint">· {relativeTime(r.created_at)}</span>
                       {renderActions(r, 'group-hover/reply:opacity-100')}
                     </p>
-                    {renderBody(r, 'text-sm text-ink')}
+                    {renderContent(r, 'text-sm text-ink')}
                     <Reactions reactions={r.reactions} onToggle={mayComment ? (e) => void react(r.id, e) : undefined} />
                   </div>
                 </div>
@@ -429,6 +445,8 @@ export function CommentsTab({ docId }: { docId: string }) {
 
               {mayComment && !c.resolved && (
                 replyTo === c.id ? (
+                  <>
+                  {replyNote && <CommentFiles files={[replyNote]} onRemove={() => setReplyNote(null)} />}
                   <div className="mt-2.5 flex items-end gap-1.5 rounded-md bg-canvas ring-1 ring-inset ring-line focus-within:ring-2 focus-within:ring-accent">
                     <CommentBox
                       draftKey={`reply:${c.id}`}
@@ -439,6 +457,7 @@ export function CommentsTab({ docId }: { docId: string }) {
                       placeholder="Reply…"
                       className="px-2.5 py-1.5"
                     />
+                    <VoiceNoteButton onRecorded={setReplyNote} onError={toast} disabled={!!busy} />
                     <IconButton
                       icon={busy === `reply:${c.id}` ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
                       label="Send reply"
@@ -446,6 +465,7 @@ export function CommentsTab({ docId }: { docId: string }) {
                       className="mb-0.5 mr-0.5"
                     />
                   </div>
+                  </>
                 ) : (
                   <button
                     type="button"
@@ -502,6 +522,7 @@ export function CommentsTab({ docId }: { docId: string }) {
               </div>
             </div>
           )}
+          {note && !suggesting && <div className="mb-2"><CommentFiles files={[note]} onRemove={() => setNote(null)} /></div>}
           <div className="flex items-end gap-2 rounded-md ring-1 ring-inset ring-line focus-within:ring-2 focus-within:ring-accent">
             <CommentBox
               ref={inputRef}
@@ -513,6 +534,7 @@ export function CommentsTab({ docId }: { docId: string }) {
               placeholder={suggesting ? 'Why? (optional)' : anchor ? 'Comment on selection…' : 'Add a comment…  @ to mention'}
               className="px-3 py-2"
             />
+            {!suggesting && <VoiceNoteButton onRecorded={setNote} onError={toast} disabled={!!busy} />}
             <IconButton
               icon={busy === 'add' ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
               label={suggesting ? 'Suggest' : 'Send'}

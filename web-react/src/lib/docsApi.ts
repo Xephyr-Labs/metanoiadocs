@@ -1,6 +1,7 @@
 // Typed client for the MetanoiaDocs server. Same-origin (vite proxies /api),
 // so the session cookie authenticates every call.
 import type { Reaction } from './emoji';
+import type { StoredFile } from './uploads';
 
 async function req(path: string, opts: RequestInit = {}): Promise<any> {
   const res = await fetch(`/api${path}`, {
@@ -158,6 +159,8 @@ export interface CommentRow {
   decided_by_name?: string | null;
   /** Emoji reactions, in picker order. */
   reactions?: Reaction[];
+  /** Files posted with it — a voice note. */
+  attachments?: StoredFile[];
 }
 
 /** What someone may do on a page, weakest first. */
@@ -473,6 +476,7 @@ export const docsApi = {
   addComment: (id: string, body: string, opts?: {
     parentId?: string; blockId?: string | null; quote?: string; occurrence?: number;
     anchorStart?: string; anchorEnd?: string; kind?: 'suggestion'; suggestion?: string;
+    attachments?: StoredFile[];
   }) =>
     req(`/docs/${id}/comments`, { method: 'POST', body: JSON.stringify({ body, ...opts }) }),
   resolveComment: (cid: string, resolved: boolean) =>

@@ -15,6 +15,8 @@ import { useAuth } from '../../store/auth';
 import { ActorMark } from '../ui/ActorMark';
 import { IconButton } from '../ui/IconButton';
 import { CommentBox, savedDraft, type CommentBoxHandle } from '../ui/CommentBox';
+import { CommentFiles, VoiceNoteButton } from '../ui/VoiceNoteButton';
+import type { StoredFile } from '../../lib/uploads';
 import { ReactionPicker, Reactions } from '../ui/Reactions';
 import { ClampedText } from '../ui/ClampedText';
 import { emojify, toggleLocal } from '../../lib/emoji';
@@ -93,6 +95,9 @@ export function TaskComments({
   // a reply's author is the one told, even though it files under the thread.
   const [replyTo, setReplyTo] = useState<{ thread: string; to: string } | null>(null);
   const [replyText, setReplyText] = useState('');
+  // A recorded voice note waiting to go out with the next comment or reply.
+  const [note, setNote] = useState<StoredFile | null>(null);
+  const [replyNote, setReplyNote] = useState<StoredFile | null>(null);
   const inputRef = useRef<CommentBoxHandle>(null);
   // Escape clears the draft, but the blur it causes still runs with the old
   // state — this tells that late save to stand down.
@@ -122,16 +127,17 @@ export function TaskComments({
 
   const send = async () => {
     const body = draft.trim();
-    if (!body || busy) return;
+    if ((!body && !note) || busy) return;
     setBusy(true);
     setError(null);
     try {
-      const row = await tasksApi.addComment(taskId, { body });
+      const row = await tasksApi.addComment(taskId, { body, attachments: note ? [note] : [] });
       // Appended rather than re-fetched: the row the server hands back is the
       // row it stored, and a round trip here is a visible pause on the one
       // action in this panel that has to feel immediate.
       setRows((r) => [...(r ?? []), row]);
       setDraft('');
+      setNote(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not post that comment.');
     } finally {
@@ -141,13 +147,14 @@ export function TaskComments({
 
   const sendReply = async () => {
     const body = replyText.trim();
-    if (!body || busy || !replyTo) return;
+    if ((!body && !replyNote) || busy || !replyTo) return;
     setBusy(true);
     setError(null);
     try {
-      const row = await tasksApi.addComment(taskId, { body, parentId: replyTo.to });
+      const row = await tasksApi.addComment(taskId, { body, parentId: replyTo.to, attachments: replyNote ? [replyNote] : [] });
       setRows((r) => [...(r ?? []), row]);
       setReplyText('');
+      setReplyNote(null);
       setReplyTo(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not post that reply.');
@@ -261,6 +268,7 @@ export function TaskComments({
             {c.edited_at && <span className="ml-1 text-2xs text-faint">(edited)</span>}
           </ClampedText>
         )}
+        {editing?.id !== c.id && <CommentFiles files={c.attachments} />}
         <div className="mt-1.5 flex flex-wrap items-center gap-2">
           <Reactions reactions={c.reactions} onToggle={(e) => void react(c.id, e)} className="mt-0" />
           <ReactionPicker reactions={c.reactions} onToggle={(e) => void react(c.id, e)} reveal="group-hover/comment:opacity-100" />
@@ -300,6 +308,9 @@ export function TaskComments({
                       {renderComment(r, root.id, 18)}
                     </li>
                   ))}
+                  {replyTo?.thread === root.id && replyNote && (
+                    <li><CommentFiles files={[replyNote]} onRemove={() => setReplyNote(null)} /></li>
+                  )}
                   {replyTo?.thread === root.id && (
                     <li className="flex items-end gap-1.5 rounded-md ring-1 ring-inset ring-line focus-within:ring-2 focus-within:ring-accent">
                       <CommentBox
@@ -311,6 +322,7 @@ export function TaskComments({
                         placeholder="Reply…"
                         className="px-2.5 py-1.5"
                       />
+                      <VoiceNoteButton onRecorded={setReplyNote} onError={setError} disabled={busy} />
                       <IconButton
                         icon={busy ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
                         label="Send reply"
@@ -327,6 +339,7 @@ export function TaskComments({
       )}
 
       <div className="relative mt-2.5">
+        {note && <div className="mb-2"><CommentFiles files={[note]} onRemove={() => setNote(null)} /></div>}
         <div className="flex items-end gap-2 rounded-md ring-1 ring-inset ring-line focus-within:ring-2 focus-within:ring-accent">
           <CommentBox
             ref={inputRef}
@@ -338,6 +351,7 @@ export function TaskComments({
             placeholder="Add a comment…  @ to mention"
             className="px-2.5 py-1.5"
           />
+          <VoiceNoteButton onRecorded={setNote} onError={setError} disabled={busy} />
           <IconButton
             icon={busy ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
             label="Post comment"
