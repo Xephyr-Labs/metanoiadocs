@@ -21,6 +21,8 @@ export interface MoveSet {
 export interface MovePreview extends MoveSet {
   /** `docs` counts only pages you can see; true when more move with them. */
   hidden: boolean;
+  /** The move would carry a database's own page and is refused; absent from older servers. */
+  owned?: boolean;
 }
 
 export interface SpaceMember {

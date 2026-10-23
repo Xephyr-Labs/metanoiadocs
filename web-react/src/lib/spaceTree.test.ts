@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { groupBySpace, inSpaceFilter, moveSummary, spaceOf, splitByJoined } from './spaceTree';
+import { groupBySpace, inSpaceFilter, moveSummary, pageSiblings, spaceOf, splitByJoined } from './spaceTree';
 import type { SpaceRow } from './spacesApi';
 
 const spaces = [
@@ -56,5 +56,25 @@ describe('splitByJoined', () => {
     const [mine, other] = splitByJoined([{ id: 1, inJoinedSpace: false }, { id: 2 }, { id: 3, inJoinedSpace: true }]);
     expect(mine.map((r) => r.id)).toEqual([2, 3]);
     expect(other.map((r) => r.id)).toEqual([1]);
+  });
+  it('keeps the task a pasted key names first, even from an unjoined space', () => {
+    const [mine, other] = splitByJoined([{ id: 'MD-14', named: true, inJoinedSpace: false }, { id: 2 }, { id: 3, inJoinedSpace: false }]);
+    expect(mine.map((r) => r.id)).toEqual(['MD-14', 2]);
+    expect(other.map((r) => r.id)).toEqual([3]);
+  });
+});
+
+describe('pageSiblings', () => {
+  const folders = { F: { documentIds: ['a', 'b'] } };
+  const trees = new Map([['g', { unfiledIds: ['u1', 'u2'] }], ['m', { unfiledIds: ['m1'] }]]);
+  it('is what the sidebar draws for the target\'s container, never its sub-pages', () => {
+    expect(pageSiblings({ folderId: 'F', parentId: null, spaceId: 'g' }, folders, trees, spaces)).toEqual(['a', 'b']);
+    expect(pageSiblings({ folderId: null, parentId: null, spaceId: 'm' }, folders, trees, spaces)).toEqual(['m1']);
+    expect(pageSiblings({ folderId: null, parentId: null, spaceId: null }, folders, trees, spaces)).toEqual(['u1', 'u2']);
+  });
+  it('has no list for a sub-page or an unknown container', () => {
+    expect(pageSiblings({ folderId: 'F', parentId: 'a', spaceId: 'g' }, folders, trees, spaces)).toBeNull();
+    expect(pageSiblings({ folderId: 'gone', parentId: null, spaceId: 'g' }, folders, trees, spaces)).toBeNull();
+    expect(pageSiblings({ folderId: null, parentId: null, spaceId: 'o' }, folders, trees, spaces)).toBeNull();
   });
 });

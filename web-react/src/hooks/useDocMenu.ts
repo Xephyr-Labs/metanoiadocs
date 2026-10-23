@@ -43,7 +43,8 @@ export function useDocMenu(
   // action here addresses the document by id, so they all still work; the
   // favourite and pin toggles simply read as "add", which is the safe way round.
   const page = ws.pages[id] ?? null;
-  const moveSpace = useMoveToSpace('doc', id, page?.spaceId);
+  // A task page moves with its database, never alone.
+  const moveSpace = useMoveToSpace('doc', page?.kind === 'task' ? null : id, page?.spaceId);
   const fav = ws.favoriteIds.includes(id);
 
   const rename = onRename ?? (() => { requestTitleFocus(id); ws.select(id); });

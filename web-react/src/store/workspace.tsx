@@ -12,7 +12,7 @@ import { docsApi, type DocPropRow, type DocRow, type FolderRow } from '../lib/do
 import * as prefs from '../lib/docPrefs';
 import { tasksApi, type ProjectRow } from '../lib/tasksApi';
 import { spacesApi, type MoveType, type SpaceRow } from '../lib/spacesApi';
-import { groupBySpace } from '../lib/spaceTree';
+import { groupBySpace, pageSiblings } from '../lib/spaceTree';
 import { setPendingSeed } from '../editor/pendingSeed';
 import { toast } from '../lib/toast';
 import { MAX_IMPORT_BYTES } from '../lib/docFiles';
@@ -311,6 +311,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [activeViewId, setActiveViewId] = useState<string | null>(null);
   const [projects, setProjects] = useState<ProjectRow[]>([]);
   const [spaces, setSpaces] = useState<SpaceRow[]>([]);
+  const spacesRef = useRef(spaces);
+  spacesRef.current = spaces;
+  // Filled in below, once the per-space lists are derived; reorderPage reads it.
+  const spaceTreesRef = useRef(new Map<string, SpaceTree>());
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   // Lives here rather than in the Sidebar because the app shell animates the
   // column's width, so the shell has to know which width it is animating to.
@@ -826,8 +830,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     if (!dragged || !target || dragId === targetId) return;
 
     const folderId = target.folderId;
-    const siblings = Object.values(all).filter((p) => p.folderId === folderId).sort(byOrder).map((p) => p.id);
-    const ids = placeAt(siblings, dragId, targetId, place);
+    // Only what the sidebar draws in that container: sending sub-pages too had
+    // the server un-nest them. A drop beside a sub-page has no list and does nothing.
+    const siblings = pageSiblings(target, foldersRef.current, spaceTreesRef.current, spacesRef.current);
+    const ids = siblings && placeAt(siblings, dragId, targetId, place);
     if (!ids) return;
 
     // Paint the new order immediately — the round trip is long enough that the
@@ -840,7 +846,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       return next;
     });
     // The server's refusal ("Move the database instead") is worth reading.
-    await docsApi.reorder(folderId, ids).catch((e) => toast(e instanceof Error ? e.message : 'Could not save the new order.'));
+    await docsApi.reorder(folderId, ids, dragId).catch((e) => toast(e instanceof Error ? e.message : 'Could not save the new order.'));
     await refresh();
   }, [refresh]);
 
@@ -1274,6 +1280,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     }
     return out;
   }, [pages, folders, spaces, pinnedIds, pinnedFolderIds, folderRootIds, unfiledIds, designIds]);
+  spaceTreesRef.current = spaceTrees;
 
   const value = useMemo<WorkspaceState>(
     () => ({

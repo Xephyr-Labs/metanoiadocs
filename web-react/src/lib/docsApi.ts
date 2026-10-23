@@ -246,6 +246,8 @@ export interface SearchRow {
   space_id?: string | null;
   /** False when the hit lives in a space you have not joined. */
   inJoinedSpace?: boolean;
+  /** Tasks only — the task the query's key names (it stays first). */
+  named?: boolean;
 }
 
 export interface TrashRow {
@@ -404,8 +406,8 @@ export const docsApi = {
   /** Pages this one @-references — the sidebar hangs them under it. */
   links: (id: string): Promise<BacklinkRow[]> => req(`/docs/${id}/links`),
   /** `ids` is the container's whole list in its new order, not just the moved one. */
-  reorder: (folderId: string | null, ids: string[]) =>
-    req('/docs/reorder', { method: 'POST', body: JSON.stringify({ folderId, ids }) }),
+  reorder: (folderId: string | null, ids: string[], dragId?: string) =>
+    req('/docs/reorder', { method: 'POST', body: JSON.stringify({ folderId, ids, dragId }) }),
   restore: (id: string) => req(`/docs/${id}/restore`, { method: 'POST' }),
   /** Destroy a trashed page. Owner or admin only; there is no undo. */
   destroy: (id: string) => req(`/docs/${id}/permanent`, { method: 'DELETE' }),

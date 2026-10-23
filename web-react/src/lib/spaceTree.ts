@@ -45,7 +45,28 @@ export function moveSummary(p: MovePreview): string {
   return `Moves ${listed}${parts.length > 1 ? ',' : ''} and some pages you can't see`;
 }
 
-/** Search hits in your spaces, then the rest, each in the server's order. */
-export function splitByJoined<T extends { inJoinedSpace?: boolean }>(rows: T[]): [T[], T[]] {
-  return [rows.filter((r) => r.inJoinedSpace !== false), rows.filter((r) => r.inJoinedSpace === false)];
+/**
+ * Search hits in your spaces, then the rest, each in the server's order. The
+ * task a pasted key names stays with the first group whatever its space.
+ */
+export function splitByJoined<T extends { inJoinedSpace?: boolean; named?: boolean }>(rows: T[]): [T[], T[]] {
+  const mine = (r: T) => r.named || r.inJoinedSpace !== false;
+  return [rows.filter(mine), rows.filter((r) => !mine(r))];
+}
+
+/**
+ * The rows a drop beside `target` reorders: exactly what the sidebar draws in
+ * its container (the folder's pages, or its space's unfiled ones), so a
+ * sub-page never rides along and gets un-nested. Null when the target is a
+ * sub-page or its container is not drawn.
+ */
+export function pageSiblings(
+  target: { folderId: string | null; parentId: string | null; spaceId?: string | null },
+  folders: Record<string, { documentIds: string[] }>,
+  trees: Map<string, { unfiledIds: string[] }>,
+  spaces: SpaceRow[],
+): string[] | null {
+  if (target.parentId) return null;
+  if (target.folderId) return folders[target.folderId]?.documentIds ?? null;
+  return trees.get(spaceOf(target.spaceId, spaces))?.unfiledIds ?? null;
 }

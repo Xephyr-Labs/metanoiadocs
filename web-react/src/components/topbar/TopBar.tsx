@@ -186,7 +186,8 @@ export function TopBar() {
   const isMobile = useMediaQuery('(max-width: 767px)');
   const compact = useMediaQuery('(max-width: 1023px)');
   const moveTo = useMoveToFolder(page?.id);
-  const moveSpace = useMoveToSpace('doc', page?.id, page?.spaceId);
+  // A task page moves with its database, never alone.
+  const moveSpace = useMoveToSpace('doc', page?.kind === 'task' ? null : page?.id, page?.spaceId);
   // Read on every render rather than mirrored into state: the settings dialog
   // writes the same preference, and a mirror would leave this menu ticking the
   // opposite of what the document is actually doing until the bar remounted.

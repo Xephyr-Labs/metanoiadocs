@@ -20,7 +20,13 @@ export const EmojiIcon = (emoji: string) =>
 export async function confirmSpaceMove(type: MoveType, id: string, space: SpaceRow): Promise<boolean> {
   let summary: string;
   try {
-    summary = moveSummary(await spacesApi.movePreview(type, id, space.id));
+    const preview = await spacesApi.movePreview(type, id, space.id);
+    // The server would refuse it; say why now rather than after a confirm.
+    if (preview.owned) {
+      toast('Move the database instead');
+      return false;
+    }
+    summary = moveSummary(preview);
   } catch (e) {
     toast(e instanceof Error ? e.message : 'Could not move that.');
     return false;

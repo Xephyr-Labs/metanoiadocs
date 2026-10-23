@@ -755,9 +755,9 @@ export function Sidebar() {
   const joinedIds = joined.map((sp) => sp.id);
   // A template shows when its page sits in a space you joined, or when it is
   // marked for every space. Pages with no space belong to the default one.
-  // With a space's page open, a page made from a template lands in that space;
-  // anywhere else the server picks (the default space).
-  const templateSpace = ws.view === 'space' ? ws.activeSpaceId ?? undefined : undefined;
+  // A page made from a template lands in the space you are in: the open space
+  // page, else the open page's space. Anywhere else the server picks (the default).
+  const templateSpace = (ws.view === 'space' ? ws.activeSpaceId : ws.view === 'doc' ? ws.currentPage?.spaceId : null) ?? undefined;
   const docTemplates = ws.docTemplates.filter((t) => t.templateEverywhere || inSpaceFilter(t.spaceId, 'joined', ws.spaces));
 
   const onResizeStart = (e: React.MouseEvent) => {
