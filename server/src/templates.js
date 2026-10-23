@@ -107,7 +107,7 @@ export function registerTemplateRoutes(app, { requireUser, wrap, grantOn, templa
   /** Every page template this person can open. */
   app.get('/api/templates', requireUser, wrap(async (req, res) => {
     const { rows } = await pool.query(
-      `SELECT d.id, d.title, d.icon, d.kind, d.updated_at,
+      `SELECT d.id, d.title, d.icon, d.kind, d.updated_at, d.space_id, d.template_everywhere,
               u.name AS created_by_name
          FROM docs d
          LEFT JOIN users u ON u.id = d.created_by

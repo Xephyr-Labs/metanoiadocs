@@ -73,6 +73,7 @@ import { registerCsvRoutes } from './csv-import.js';
 import { TRASH_RETENTION_DAYS, startTrashSweeper } from './retention.js';
 import { startReminders } from './reminders.js';
 import { dayIn, isZone, zoneOf } from './timezone.js';
+import { byJoinedFirst } from './spaces.js';
 import OpenAI from 'openai';
 
 process.on('unhandledRejection', (e) => console.error('[proc] unhandledRejection', e?.message || e));
@@ -658,7 +659,7 @@ app.get('/api/docs/mine', requireUser, async (req, res) => {
 
 app.get('/api/docs', requireUser, async (req, res) => {
   const { rows } = await pool.query(
-    `SELECT d.id, d.title, d.icon, d.folder_id, d.parent_id, d.position, d.updated_at,
+    `SELECT d.id, d.title, d.icon, d.folder_id, d.parent_id, d.position, d.updated_at, d.space_id,
             CASE WHEN d.is_template AND coalesce(a.role, d.team_role, 'editor') NOT IN ('editor', 'owner')
                  THEN 'editor' ELSE coalesce(a.role, d.team_role, 'editor') END AS role, d.team_role, d.visibility, d.kind, d.props, d.is_template,
             ub.name AS updated_by_name,
@@ -2153,7 +2154,7 @@ app.get('/api/search', requireUser, wrap(async (req, res) => {
          FROM (SELECT * FROM fts UNION ALL SELECT * FROM fuzzy) u
         ORDER BY id, pri, rank DESC
      )
-     SELECT id, title,
+     SELECT id, title, (SELECT space_id FROM docs WHERE id = merged.id) AS space_id,
             ts_headline('english', search_text, plainto_tsquery('english', $2),
                         'MaxWords=18, MinWords=6, ShortWord=2') AS snippet
        FROM merged
@@ -2161,7 +2162,12 @@ app.get('/api/search', requireUser, wrap(async (req, res) => {
       LIMIT 20`,
     [req.user.id, q, expansionOr],
   );
-  const docs = rows.map((r) => ({ kind: 'doc', id: r.id, title: r.title, snippet: r.snippet }));
+  // Spaces only reorder results (joined first) and flag them; nothing is dropped.
+  const joined = new Set((await pool.query('SELECT space_id FROM space_members WHERE user_id = $1', [req.user.id]))
+    .rows.map((r) => r.space_id));
+  const docs = byJoinedFirst(rows, joined).map((r) => ({
+    kind: 'doc', id: r.id, title: r.title, snippet: r.snippet, space_id: r.space_id, inJoinedSpace: joined.has(r.space_id),
+  }));
 
   // Tasks are searched in their own statement rather than folded into the CTE
   // above. They have no search_text, no tsvector and no per-doc grant, so every
@@ -2177,7 +2183,7 @@ app.get('/api/search', requireUser, wrap(async (req, res) => {
   const named = parseKeyQuery(q);
   const { rows: taskRows } = await pool.query(
     `SELECT t.id, t.title, t.num, t.status, t.due_at, t.kind,
-            t.project_id, p.name AS project_name, p.icon AS project_icon,
+            t.project_id, p.name AS project_name, p.icon AS project_icon, p.space_id,
             (lower(p.key) = lower($3::text) AND t.num = $4::int) AS named
        FROM tasks t
        JOIN projects p ON p.id = t.project_id
@@ -2193,7 +2199,8 @@ app.get('/api/search', requireUser, wrap(async (req, res) => {
     // rather than for everything.
     [`%${q.replace(/([%_\\])/g, '\\$1')}%`, q, named?.key ?? null, named?.num ?? null],
   );
-  const tasks = taskRows.map((r) => ({
+  // The task a key names stays on top whatever its space.
+  const tasks = [...taskRows.filter((r) => r.named), ...byJoinedFirst(taskRows.filter((r) => !r.named), joined)].map((r) => ({
     kind: 'task',
     id: r.id,
     title: r.title,
@@ -2204,6 +2211,8 @@ app.get('/api/search', requireUser, wrap(async (req, res) => {
     dueAt: r.due_at,
     // The palette draws the type icon from this, like every other task row.
     taskKind: r.kind,
+    space_id: r.space_id,
+    inJoinedSpace: joined.has(r.space_id),
   }));
 
   // A query that names a task answers with that task first; anything else is a

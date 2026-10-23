@@ -23,7 +23,7 @@ async function folderParents() {
 export function registerFolderRoutes(app, { requireUser, wrap }) {
   app.get('/api/folders', requireUser, wrap(async (req, res) => {
     const { rows } = await pool.query(
-      `SELECT f.id, f.name, f.parent_id, f.position, f.color, f.created_by, f.created_at,
+      `SELECT f.id, f.name, f.parent_id, f.position, f.color, f.space_id, f.created_by, f.created_at,
               (SELECT count(*)::int FROM docs d
                 WHERE d.folder_id = f.id AND d.deleted_at IS NULL) AS document_count,
               (SELECT count(*)::int FROM folders child

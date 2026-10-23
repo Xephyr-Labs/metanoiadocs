@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveSpace, collectMove, isProjectOwnedPage, carriesProjectPage, byJoinedFirst, spaceInput } from './spaces.js';
+import { resolveSpace, collectMove, isProjectOwnedPage, carriesProjectPage, byJoinedFirst, taskInScope, spaceInput } from './spaces.js';
 
 test('a sub-item takes its parent space before anything else', () => {
   assert.equal(resolveSpace({ parentSpace: 'p', folderSpace: 'f', requested: 'r', fallback: 'g' }), 'p');
@@ -68,4 +68,12 @@ test('a space needs a name', () => {
   assert.equal(spaceInput({ name: 'x'.repeat(200) }).name.length, 80);
   assert.deepEqual(spaceInput({ name: 'A', icon: ' 🚀 ', description: ' hi ' }), { name: 'A', icon: '🚀', description: 'hi' });
   assert.deepEqual(spaceInput({ name: 'A' }), { name: 'A', icon: '🗂️', description: '' });
+});
+
+test('a task shows when its space is joined, or it is mine', () => {
+  const joined = new Set(['j']);
+  assert.equal(taskInScope({ spaceId: 'o', assigned: true, createdByMe: false }, joined), true);
+  assert.equal(taskInScope({ spaceId: 'o', assigned: false, createdByMe: true }, joined), true);
+  assert.equal(taskInScope({ spaceId: 'j', assigned: false, createdByMe: false }, joined), true);
+  assert.equal(taskInScope({ spaceId: 'o', assigned: false, createdByMe: false }, joined), false);
 });

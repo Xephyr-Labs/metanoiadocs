@@ -89,6 +89,15 @@ export function byJoinedFirst(rows, joined) {
   return [...rows.filter((r) => joined.has(r.space_id)), ...rows.filter((r) => !joined.has(r.space_id))];
 }
 
+/**
+ * Whether /api/tasks lists a task: its space is joined, or it is assigned to or
+ * created by the caller (a task given to me in an unjoined space must still show).
+ * The SQL WHERE in tasks.js mirrors this.
+ */
+export function taskInScope({ spaceId, assigned, createdByMe }, joined) {
+  return assigned || createdByMe || joined.has(spaceId);
+}
+
 /** Cleans a create-space body. Icon and description fall back to the DB defaults. */
 export function spaceInput(raw) {
   const name = String(raw?.name ?? '').trim().slice(0, 80).trim();
