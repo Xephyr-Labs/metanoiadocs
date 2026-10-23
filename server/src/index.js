@@ -38,6 +38,7 @@ import { runDataMigrations } from './data-migrations.js';
 import { runIntegrityScan, startIntegrityScan } from './integrity.js';
 import * as Y from 'yjs';
 import { mentionHandles } from './mentions.js';
+import { baseMime } from './media.js';
 import { docCommentRecipients } from './comment-recipients.js';
 import { buildDocState, appendMarkdownToDoc, appendPageReference, extractText, extractBlocks, docToMarkdown, fixTableOrderKeys, stateWithValidTableKeys } from './blocks.js';
 import { rewriteDoc } from './restore.js';
@@ -2322,7 +2323,7 @@ app.get('/api/docs/:id/intelligence', requireUser, wrap(async (req, res) => {
 // share. Raw bytes in/out; session-gated. 25MB cap keeps a stray upload from
 // blowing up a Postgres row.
 app.put('/api/blob/:key', requireUser, express.raw({ type: '*/*', limit: '25mb' }), async (req, res) => {
-  const mime = req.headers['content-type'] || 'application/octet-stream';
+  const mime = baseMime(req.headers['content-type']);
   await pool.query(
     `INSERT INTO blobs (key, mime, data) VALUES ($1, $2, $3)
      ON CONFLICT (key) DO NOTHING`,
