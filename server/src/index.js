@@ -717,6 +717,11 @@ app.post('/api/docs/reorder', requireUser, wrap(async (req, res) => {
   if (folderId && !(await visibleFolder(folderId, req.user.id))) {
     return res.status(403).json({ error: 'folder not accessible' });
   }
+  // The page that was dragged. A page whose parent is in the same list is a
+  // sub-page that came along (older clients send every page in the container),
+  // so it stays nested and moves with its parent; only the dragged page, or one
+  // whose parent is elsewhere, comes up to the top level.
+  const dragId = typeof req.body?.dragId === 'string' ? req.body.dragId : null;
   // A drop into a folder in another space moves each such page's tree there
   // first; a drop at the top level keeps every page in its space.
   const target = await spaceOf(pool, 'folder', folderId);
@@ -725,9 +730,10 @@ app.post('/api/docs/reorder', requireUser, wrap(async (req, res) => {
       const { rows: crossing } = await client.query(
         `SELECT d.id FROM docs d
           WHERE d.id = ANY($1) AND d.deleted_at IS NULL AND d.space_id IS DISTINCT FROM $3
+            AND (d.id = $4 OR d.parent_id IS NULL OR NOT (d.parent_id = ANY($1)))
             AND (d.visibility = 'team'
                  OR EXISTS (SELECT 1 FROM doc_access a WHERE a.doc_id = d.id AND a.user_id = $2))`,
-        [ids, req.user.id, target],
+        [ids, req.user.id, target, dragId],
       );
       for (const { id } of crossing) {
         if ((await reparentInto(client, { type: 'doc', id }, target, { dryRun: true })) === 'owned') return { owned: true };
@@ -738,14 +744,15 @@ app.post('/api/docs/reorder', requireUser, wrap(async (req, res) => {
     // cannot see is silently skipped rather than reordered on your say-so.
     return client.query(
       `UPDATE docs d
-          SET position = o.pos, folder_id = $3, parent_id = NULL
+          SET position = o.pos, folder_id = $3,
+              parent_id = CASE WHEN d.id = $4 OR NOT (d.parent_id = ANY($1)) THEN NULL ELSE d.parent_id END
          FROM (SELECT id, ordinality - 1 AS pos
                  FROM unnest($1::text[]) WITH ORDINALITY AS t(id, ordinality)) o
         WHERE d.id = o.id
           AND d.deleted_at IS NULL
           AND (d.visibility = 'team'
                OR EXISTS (SELECT 1 FROM doc_access a WHERE a.doc_id = d.id AND a.user_id = $2))`,
-      [ids, req.user.id, folderId],
+      [ids, req.user.id, folderId, dragId],
     );
   });
   if (owned) return res.status(409).json({ error: OWNED_PAGE });
@@ -2217,6 +2224,9 @@ app.get('/api/search', requireUser, wrap(async (req, res) => {
     taskKind: r.kind,
     space_id: r.space_id,
     inJoinedSpace: joined.has(r.space_id),
+    // The task the query's key names: the palette keeps it first even when its
+    // space is not joined, since pasting a key means "open that task".
+    named: !!r.named,
   }));
 
   // A query that names a task answers with that task first; anything else is a

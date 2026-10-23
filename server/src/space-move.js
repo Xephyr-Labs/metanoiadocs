@@ -25,13 +25,11 @@ export async function moveToSpace(client, root, spaceId) {
   if (m.clearFolderDocIds.length) {
     await client.query('UPDATE docs SET folder_id = NULL WHERE id = ANY($1)', [m.clearFolderDocIds]);
   }
-  // A root left under a parent in another space would drag that parent's space with it.
-  const t = TABLE[root.type];
-  await client.query(
-    `UPDATE ${t} c SET parent_id = NULL
-      WHERE c.id = $1 AND EXISTS (SELECT 1 FROM ${t} p WHERE p.id = c.parent_id AND p.space_id IS DISTINCT FROM $2)`,
-    [root.id, spaceId]
-  );
+  // An item left under a parent that stays behind would drag that parent's
+  // space with it: the root, and e.g. a database's task pages under some page.
+  for (const [table, ids] of [['docs', m.detach.docs], ['folders', m.detach.folders], ['projects', m.detach.projects]]) {
+    if (ids.length) await client.query(`UPDATE ${table} SET parent_id = NULL WHERE id = ANY($1)`, [ids]);
+  }
   return { docs: m.docIds.length, folders: m.folderIds.length, projects: m.projectIds.length };
 }
 
@@ -101,6 +99,9 @@ export function registerSpaceMoveRoutes(app, { requireUser, wrap, editGrant }) {
       const graph = await loadSpaceGraph(client);
       if (!graph[TABLE[type]].some((r) => r.id === id)) return res.status(404).json({ error: 'not found' });
       if (type === 'doc' && !(await editGrant(id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
+      // Already there: nothing moves. Running the move anyway would still clear
+      // folder links and detach the root.
+      if ((await spaceOf(client, type, id)) === spaceId) return res.json({ docs: 0, folders: 0, projects: 0 });
       if (carriesProjectPage(graph, { type, id })) return res.status(409).json({ error: OWNED_PAGE });
       await client.query('BEGIN');
       try {
@@ -142,6 +143,8 @@ export function registerSpaceMoveRoutes(app, { requireUser, wrap, editGrant }) {
       folders: m.folderIds.length,
       projects: m.projectIds.length,
       hidden: rows[0].total > rows[0].visible,
+      // The move would be refused ("Move the database instead"), so the client can say so up front.
+      owned: carriesProjectPage(graph, { type, id }),
     });
   }));
 }

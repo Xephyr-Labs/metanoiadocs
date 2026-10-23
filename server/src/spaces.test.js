@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveSpace, collectMove, isProjectOwnedPage, carriesProjectPage, byJoinedFirst, taskInScope, spaceInput } from './spaces.js';
+import { resolveSpace, collectMove, isProjectOwnedPage, carriesProjectPage, byJoinedFirst, taskInScope, spaceInput, tasksInAllSpaces } from './spaces.js';
 
 test('a sub-item takes its parent space before anything else', () => {
   assert.equal(resolveSpace({ parentSpace: 'p', folderSpace: 'f', requested: 'r', fallback: 'g' }), 'p');
@@ -28,7 +28,8 @@ test('a folder takes sub-folders and top-level pages, not a sub-page whose paren
   const m = collectMove(g, { type: 'folder', id: 'F' });
   assert.deepEqual(m.folderIds.sort(), ['F', 'F2']);
   assert.deepEqual(m.docIds.sort(), ['a', 'a1', 'b']);
-  assert.deepEqual(m.clearFolderDocIds, ['a1']); // a1's folder G is not moving
+  // a1's folder G is not moving; x stays behind (its parent z does) but was filed in F, which is.
+  assert.deepEqual(m.clearFolderDocIds.sort(), ['a1', 'x']);
 });
 test('a project takes sub-projects, its source page and task pages, not an ordinary linked page', () => {
   const m = collectMove(g, { type: 'project', id: 'P' });
@@ -76,4 +77,31 @@ test('a task shows when its space is joined, or it is mine', () => {
   assert.equal(taskInScope({ spaceId: 'o', assigned: false, createdByMe: true }, joined), true);
   assert.equal(taskInScope({ spaceId: 'j', assigned: false, createdByMe: false }, joined), true);
   assert.equal(taskInScope({ spaceId: 'o', assigned: false, createdByMe: false }, joined), false);
+});
+
+test('a move detaches every moved item whose parent stays behind, and nothing nested inside the set', () => {
+  const h = {
+    docs: [
+      { id: 'host', parent_id: null, folder_id: null, kind: 'doc' },
+      { id: 'src', parent_id: 'host', folder_id: null, kind: 'doc' }, { id: 'srcKid', parent_id: 'src', folder_id: null, kind: 'doc' },
+      { id: 't1', parent_id: 'host', folder_id: null, kind: 'task' },
+      { id: 'a', parent_id: 'host', folder_id: null, kind: 'doc' }, { id: 'a1', parent_id: 'a', folder_id: null, kind: 'doc' },
+    ],
+    folders: [{ id: 'Top', parent_id: null }, { id: 'F', parent_id: 'Top' }, { id: 'F1', parent_id: 'F' }],
+    projects: [{ id: 'Up', parent_id: null, doc_id: null }, { id: 'P', parent_id: 'Up', doc_id: 'src' }, { id: 'P2', parent_id: 'P', doc_id: null }],
+    tasks: [{ project_id: 'P2', doc_id: 't1' }],
+  };
+  const p = collectMove(h, { type: 'project', id: 'P' });
+  assert.deepEqual(p.detach.docs.sort(), ['src', 't1']); // both hung under host, which stays
+  assert.deepEqual(p.detach.projects, ['P']);
+  assert.deepEqual(collectMove(h, { type: 'doc', id: 'a' }).detach.docs, ['a']); // the root, as before
+  const f = collectMove(h, { type: 'folder', id: 'F' });
+  assert.deepEqual(f.detach.folders, ['F']);
+  assert.deepEqual(f.detach.docs, []);
+});
+test('agents and ?spaces=all see every space\'s tasks; people see theirs', () => {
+  assert.equal(tasksInAllSpaces({ kind: 'agent' }, {}), true);
+  assert.equal(tasksInAllSpaces({ kind: 'person' }, { spaces: 'all' }), true);
+  assert.equal(tasksInAllSpaces({ kind: 'person' }, {}), false);
+  assert.equal(tasksInAllSpaces({}, { spaces: 'joined' }), false);
 });

@@ -15,6 +15,7 @@ import { KEY_PREFIX, KEY_RE, deriveKey, uniqueKey, withKey } from './task-key.js
 import { isRepeatRule, nextOccurrence } from './repeat.js';
 import { checkParent } from './task-parent.js';
 import { spaceOf, spaceForNew, reparentInto } from './space-move.js';
+import { tasksInAllSpaces } from './spaces.js';
 
 export const STATUSES = ['todo', 'doing', 'review', 'done'];
 
@@ -366,7 +367,8 @@ const TASK_SELECT = `
 // Every live task in the workspace, for the cross-project Tasks view. Narrowing
 // happens in the client against the same filter engine a board uses, so this
 // hands back the rows plus the names they are filtered by.
-// $1 is the caller and $2 whether to skip the space filter (?spaces=all). The
+// $1 is the caller and $2 whether to skip the space filter (?spaces=all, or an
+// agent: see tasksInAllSpaces). The
 // filter mirrors taskInScope in spaces.js: joined space, assigned to me, or
 // made by me. A task given to me in a space I never joined must still show.
 const ALL_TASKS_SQL = `
@@ -584,7 +586,7 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
   // knew one project's would silently drop the rest.
   app.get('/api/tasks', requireUser, wrap(async (req, res) => {
     const [tasks, kinds] = await Promise.all([
-      pool.query(ALL_TASKS_SQL, [req.user.id, req.query.spaces === 'all']),
+      pool.query(ALL_TASKS_SQL, [req.user.id, tasksInAllSpaces(req.user, req.query)]),
       pool.query(
         `SELECT key, min(label) AS label, min(position) AS position
            FROM task_kinds GROUP BY key ORDER BY position, key`

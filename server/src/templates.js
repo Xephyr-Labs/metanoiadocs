@@ -138,7 +138,9 @@ export function registerTemplateRoutes(app, { requireUser, wrap, grantOn, templa
     // marking one was possible, and the sidebar then quietly hid it, which is
     // two answers to one question.
     const { rows } = await pool.query(
-      `UPDATE docs SET is_template = $2, template_everywhere = COALESCE($3, template_everywhere)
+      // Unmarking also drops "every space", so marking it again starts local.
+      `UPDATE docs SET is_template = $2,
+                       template_everywhere = CASE WHEN $2 THEN COALESCE($3, template_everywhere) ELSE false END
         WHERE id = $1 AND deleted_at IS NULL AND (kind <> 'task' OR $2 = false)
        RETURNING id, is_template, kind, template_everywhere`,
       [req.params.id, on, everywhere]
@@ -178,9 +180,10 @@ export function registerTemplateRoutes(app, { requireUser, wrap, grantOn, templa
     const title = String(req.body?.title || src[0].title || 'Untitled').slice(0, 200);
     const id = crypto.randomUUID();
     // A copy filed in a folder lives in the folder's space; otherwise the space
-    // it was made from, else the template's own.
+    // it was made from, else the default (not the template's own: a template
+    // offered everywhere would otherwise fill its home space with copies).
     const spaceId = await spaceForNew(pool, {
-      folderSpace: await spaceOf(pool, 'folder', folderId), requested: req.body?.spaceId, fallback: src[0].space_id,
+      folderSpace: await spaceOf(pool, 'folder', folderId), requested: req.body?.spaceId,
     });
 
     const client = await pool.connect();

@@ -37,9 +37,12 @@ function childMap(rows) {
 }
 
 /**
- * Everything that moves with `root`, as ids. `clearFolderDocIds` are moved pages
- * filed in a folder that stays behind; their folder_id must be cleared, since a
- * folder lives in one space.
+ * Everything that moves with `root`, as ids. `clearFolderDocIds` are pages whose
+ * folder ends up in another space: moved pages filed in a folder that stays
+ * behind, and pages left behind (their parent stays) filed in a folder that
+ * moves. Their folder_id must be cleared, since a folder lives in one space.
+ * `detach` lists, per table, the moved items whose parent stays behind — the
+ * root, and e.g. a database's task pages hung under a page that is not moving.
  */
 export function collectMove(graph, root) {
   const docs = new Map(graph.docs.map((d) => [d.id, d]));
@@ -63,11 +66,13 @@ export function collectMove(graph, root) {
     }
   }
   const docIds = withDescendants(docSeeds, docKids);
-  const clearFolderDocIds = [...docIds].filter((id) => {
-    const f = docs.get(id)?.folder_id;
-    return has(f) && !folderIds.has(f);
-  });
-  return { docIds: [...docIds], folderIds: [...folderIds], projectIds: [...projectIds], clearFolderDocIds };
+  const clearFolderDocIds = graph.docs.filter((d) => has(d.folder_id) && docIds.has(d.id) !== folderIds.has(d.folder_id))
+    .map((d) => d.id);
+  const orphans = (rows, ids) => rows.filter((r) => ids.has(r.id) && has(r.parent_id) && !ids.has(r.parent_id)).map((r) => r.id);
+  return {
+    docIds: [...docIds], folderIds: [...folderIds], projectIds: [...projectIds], clearFolderDocIds,
+    detach: { docs: orphans(graph.docs, docIds), folders: orphans(graph.folders, folderIds), projects: orphans(graph.projects, projectIds) },
+  };
 }
 
 /** A task page or a project's source page moves with its project, never alone. */
@@ -96,6 +101,15 @@ export function byJoinedFirst(rows, joined) {
  */
 export function taskInScope({ spaceId, assigned, createdByMe }, joined) {
   return assigned || createdByMe || joined.has(spaceId);
+}
+
+/**
+ * Whether GET /api/tasks skips the space filter: ?spaces=all, or an agent asking.
+ * Agents see every space, and Andy's MCP copy (another repo) still calls /tasks
+ * without the flag.
+ */
+export function tasksInAllSpaces(user, query) {
+  return query?.spaces === 'all' || user?.kind === 'agent';
 }
 
 /** Cleans a create-space body. Icon and description fall back to the DB defaults. */
