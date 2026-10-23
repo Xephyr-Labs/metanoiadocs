@@ -103,9 +103,11 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
     },
     async ({ query, spaceId }) => {
       try {
-        const rows = await api(`/search?q=${encodeURIComponent(query)}`);
+        const rows = await api(
+          `/search?q=${encodeURIComponent(query)}${spaceId ? `&spaceId=${encodeURIComponent(spaceId)}` : ''}`,
+        );
         return ok(
-          rows.filter((r) => !spaceId || r.space_id === spaceId).map((r) => ({
+          rows.map((r) => ({
             id: r.id,
             title: r.title,
             snippet: (r.snippet || '').replace(/<\/?b>/g, ''),

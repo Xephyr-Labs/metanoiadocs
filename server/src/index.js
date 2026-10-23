@@ -2108,6 +2108,8 @@ app.get('/api/docs/:id/backlinks', requireUser, wrap(async (req, res) => {
 app.get('/api/search', requireUser, wrap(async (req, res) => {
   const q = String(req.query.q || '').trim();
   if (!q) return res.json([]);
+  // Optional scope for agents: applied in SQL so it narrows before the LIMIT.
+  const spaceId = req.query.spaceId ? String(req.query.spaceId) : null;
 
   // Co-occurrence query expansion: pull the strongest terms that co-occur with
   // the query's own terms across the corpus, OR them in to widen recall (must
@@ -2131,6 +2133,7 @@ app.get('/api/search', requireUser, wrap(async (req, res) => {
          FROM docs d
          LEFT JOIN doc_access a ON a.doc_id=d.id AND a.user_id=$1
         WHERE d.deleted_at IS NULL AND (a.user_id IS NOT NULL OR d.visibility='team')
+          AND ($4::text IS NULL OR d.space_id::text = $4::text)
      ),
      fts AS (
        SELECT id, title, search_text, 1 AS pri,
@@ -2160,7 +2163,7 @@ app.get('/api/search', requireUser, wrap(async (req, res) => {
        FROM merged
       ORDER BY pri, rank DESC
       LIMIT 20`,
-    [req.user.id, q, expansionOr],
+    [req.user.id, q, expansionOr, spaceId],
   );
   // Spaces only reorder results (joined first) and flag them; nothing is dropped.
   const joined = new Set((await pool.query('SELECT space_id FROM space_members WHERE user_id = $1', [req.user.id]))
@@ -2189,6 +2192,7 @@ app.get('/api/search', requireUser, wrap(async (req, res) => {
        JOIN projects p ON p.id = t.project_id
       WHERE t.deleted_at IS NULL
         AND p.archived_at IS NULL
+        AND ($5::text IS NULL OR p.space_id::text = $5::text)
         AND ((lower(p.key) = lower($3::text) AND t.num = $4::int)
              OR t.title ILIKE $1
              OR t.title % $2)
@@ -2197,7 +2201,7 @@ app.get('/api/search', requireUser, wrap(async (req, res) => {
     // The literal `%` and `_` a person may have typed are escaped: an ILIKE
     // pattern is not a search box, and "100%" should look for that string
     // rather than for everything.
-    [`%${q.replace(/([%_\\])/g, '\\$1')}%`, q, named?.key ?? null, named?.num ?? null],
+    [`%${q.replace(/([%_\\])/g, '\\$1')}%`, q, named?.key ?? null, named?.num ?? null, spaceId],
   );
   // The task a key names stays on top whatever its space.
   const tasks = [...taskRows.filter((r) => r.named), ...byJoinedFirst(taskRows.filter((r) => !r.named), joined)].map((r) => ({

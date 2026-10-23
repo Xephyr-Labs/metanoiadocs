@@ -49,8 +49,8 @@ server.registerTool(
   },
   async ({ query, spaceId }) => {
     try {
-      const rows = await api(`/search?q=${encodeURIComponent(query)}`);
-      return ok(rows.filter((r) => !spaceId || r.space_id === spaceId).map((r) => ({ id: r.id, title: r.title, snippet: (r.snippet || '').replace(/<\/?b>/g, '') })));
+      const rows = await api(`/search?q=${encodeURIComponent(query)}${spaceId ? `&spaceId=${encodeURIComponent(spaceId)}` : ''}`);
+      return ok(rows.map((r) => ({ id: r.id, title: r.title, snippet: (r.snippet || '').replace(/<\/?b>/g, '') })));
     } catch (e) { return fail(e); }
   },
 );
