@@ -191,8 +191,8 @@ await step('5', async () => {
   await mb.page.waitForTimeout(400);
   const dlg = mb.nextDialog(true);
   await mb.page.getByRole('menu').last().getByText('Marketing', { exact: true }).click();
-  const msg = await dlg;
-  check('5 preview says "and some pages you can\'t see"', msg.includes('Moves 2 pages and some pages you can\'t see'), JSON.stringify(msg));
+  const msg = await Promise.race([dlg, wait(5000).then(() => null)]);
+  check('5 preview says "and some pages you can\'t see"', !!msg && msg.includes('Moves 2 pages and some pages you can\'t see'), JSON.stringify(msg));
   await mb.page.waitForTimeout(1500);
   const ids = [roadmap.id, q3.id, secret.id];
   check('5 all three pages moved to Marketing', ids.every((id) => spaceOf('docs', id) === M), ids.map((id) => spaceOf('docs', id)).join(' '));
@@ -243,7 +243,9 @@ await step('7', async () => {
   const t1 = await maya.post('/api/tasks', { projectId: ops.id, title: 'Ops task with page' });
   const t1Page = (await maya.post(`/api/tasks/${t1.id}/page`)).docId;
   const linked = await maya.post('/api/docs', { title: 'Ops runbook', content: 'x' });
-  await maya.post('/api/tasks', { projectId: ops.id, title: 'Ops task with a linked page', docId: linked.id });
+  const t2 = await maya.post('/api/tasks', { projectId: ops.id, title: 'Ops task with a linked page', docId: linked.id });
+  check('7 the second task really links the ordinary page', sql(`SELECT doc_id FROM tasks WHERE id = '${t2.id}'`) === linked.id
+    && sql(`SELECT coalesce(kind, '-') FROM docs WHERE id = '${linked.id}'`) !== 'task');
   const r = await maya.raw('POST', `/api/projects/${ops.id}/space`, { spaceId: M });
   check('7 moving the database succeeds', r.status === 200, `${r.status} ${JSON.stringify(r.json)}`);
   check('7 the database is in Marketing', spaceOf('projects', ops.id) === M);
@@ -266,7 +268,14 @@ await step('8', async () => {
 
 // ── 9. assigned to me in a space I never joined (RF1) ───────────────────────
 await step('9', async () => {
-  await maya.post('/api/tasks', { projectId: board.id, title: 'Cara reviews the launch', assigneeIds: [users.cara] });
+  const assigned = await maya.post('/api/tasks', { projectId: board.id, title: 'Cara reviews the launch', assigneeIds: [users.cara] });
+  // Inbox: the web app reads GET /api/inbox; an assignment is a kind='assigned' row naming the task.
+  let inbox = [];
+  for (let i = 0; i < 10 && !inbox.some((n) => n.kind === 'assigned' && n.task_id === assigned.id); i++) {
+    inbox = await cara.get('/api/inbox'); await wait(500);
+  }
+  check('9 Cara\'s Inbox has the assignment of the Marketing task', inbox.some((n) => n.kind === 'assigned' && n.task_id === assigned.id),
+    JSON.stringify(inbox.map((n) => [n.kind, n.task_title])));
   const cb = await open(cara);
   await cb.side.getByRole('button', { name: /^Tasks/ }).first().click();
   await cb.page.waitForTimeout(2000);
