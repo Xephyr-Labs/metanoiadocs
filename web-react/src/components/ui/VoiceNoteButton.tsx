@@ -17,11 +17,11 @@ import { IconButton } from './IconButton';
 export function CommentFiles({ files, onRemove }: { files?: StoredFile[]; onRemove?: (f: StoredFile) => void }) {
   if (!files?.length) return null;
   return (
-    <div className="mt-1.5 space-y-1">
+    <div className="mt-1.5 w-full space-y-1">
       {files.map((f) => (
-        <div key={f.key} className="flex items-center gap-1">
+        <div key={f.key} className="flex w-full items-center gap-1">
           {isAudioFile(f)
-            ? <audio src={fileUrl(f)} controls preload="metadata" className="h-8 min-w-0 flex-1" aria-label={f.name} />
+            ? <audio src={fileUrl(f)} controls preload="metadata" className="h-8 w-full min-w-0 flex-1" aria-label={f.name} />
             : <a href={fileUrl(f)} target="_blank" rel="noreferrer noopener" className="min-w-0 flex-1 truncate text-2xs text-accent-strong hover:underline">{f.name}</a>}
           {onRemove && <IconButton size="sm" tone="danger" icon={<X size={12} />} label="Remove voice note" onClick={() => onRemove(f)} />}
         </div>
