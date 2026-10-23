@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveSpace, collectMove, isProjectOwnedPage, byJoinedFirst, spaceInput } from './spaces.js';
+import { resolveSpace, collectMove, isProjectOwnedPage, carriesProjectPage, byJoinedFirst, spaceInput } from './spaces.js';
 
 test('a sub-item takes its parent space before anything else', () => {
   assert.equal(resolveSpace({ parentSpace: 'p', folderSpace: 'f', requested: 'r', fallback: 'g' }), 'p');
@@ -39,6 +39,24 @@ test('task pages and source pages belong to their project', () => {
   assert.equal(isProjectOwnedPage(g, 't1'), true);
   assert.equal(isProjectOwnedPage(g, 'src'), true);
   assert.equal(isProjectOwnedPage(g, 'linked'), false);
+});
+test('a doc or folder move that would carry a database page is refused; a project carries its own', () => {
+  const h = {
+    docs: [
+      { id: 'srcPage', parent_id: null, folder_id: 'FS', kind: 'doc' },
+      { id: 'plain', parent_id: null, folder_id: 'FP', kind: 'doc' },
+      { id: 'host', parent_id: null, folder_id: null, kind: 'doc' },
+      { id: 'tp', parent_id: 'host', folder_id: null, kind: 'task' },
+    ],
+    folders: [{ id: 'FS', parent_id: null }, { id: 'FP', parent_id: null }],
+    projects: [{ id: 'P', parent_id: null, doc_id: 'srcPage' }],
+    tasks: [{ project_id: 'P', doc_id: 'tp' }],
+  };
+  assert.equal(carriesProjectPage(h, { type: 'folder', id: 'FS' }), true); // holds a source page
+  assert.equal(carriesProjectPage(h, { type: 'doc', id: 'host' }), true); // sub-page is a task page
+  assert.equal(carriesProjectPage(h, { type: 'folder', id: 'FP' }), false);
+  assert.equal(carriesProjectPage(h, { type: 'doc', id: 'plain' }), false);
+  assert.equal(carriesProjectPage(h, { type: 'project', id: 'P' }), false);
 });
 test('joined spaces first, order kept within each group', () => {
   const rows = [{ id: 1, space_id: 'o' }, { id: 2, space_id: 'j' }, { id: 3, space_id: 'o' }, { id: 4, space_id: 'j' }];

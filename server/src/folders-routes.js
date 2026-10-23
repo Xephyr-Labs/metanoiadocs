@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { pool } from './db.js';
 import { wouldFolderCycle, safeFolderOrder } from './folders.js';
-import { inTransaction, spaceOf, spaceForNew, reparentInto } from './space-move.js';
+import { inTransaction, spaceOf, spaceForNew, reparentInto, OWNED_PAGE } from './space-move.js';
 
 /** Folders are workspace-wide structure: every member sees and edits every
  *  folder (matching the team-editable doc model). Only doc *contents* carry
@@ -72,10 +72,13 @@ export function registerFolderRoutes(app, { requireUser, wrap }) {
     if (!safe.length) return res.status(400).json({ error: 'move would create a cycle' });
     // Into a folder in another space: each such folder's tree moves there first.
     const target = await spaceOf(pool, 'folder', parentId);
-    const { rowCount } = await inTransaction(async (client) => {
+    const { rowCount, owned } = await inTransaction(async (client) => {
       if (target) {
         const { rows: crossing } = await client.query(
           'SELECT id FROM folders WHERE id = ANY($1) AND deleted_at IS NULL AND space_id IS DISTINCT FROM $2', [safe, target]);
+        for (const { id } of crossing) {
+          if ((await reparentInto(client, { type: 'folder', id }, target, { dryRun: true })) === 'owned') return { owned: true };
+        }
         for (const { id } of crossing) await reparentInto(client, { type: 'folder', id }, target);
       }
       return client.query(
@@ -87,6 +90,7 @@ export function registerFolderRoutes(app, { requireUser, wrap }) {
         [safe, parentId],
       );
     });
+    if (owned) return res.status(409).json({ error: OWNED_PAGE });
     res.json({ ok: true, moved: rowCount });
   }));
 
@@ -113,6 +117,9 @@ export function registerFolderRoutes(app, { requireUser, wrap }) {
       }
       // Under a folder in another space: this folder's tree moves there.
       target = await spaceOf(pool, 'folder', parentId);
+      if ((await reparentInto(pool, { type: 'folder', id: req.params.id }, target, { dryRun: true })) === 'owned') {
+        return res.status(409).json({ error: OWNED_PAGE });
+      }
       values.push(parentId);
       sets.push(`parent_id = $${values.length}`);
     }

@@ -75,6 +75,15 @@ export function isProjectOwnedPage(graph, docId) {
   return graph.docs.some((d) => d.id === docId && d.kind === 'task') || graph.projects.some((p) => p.doc_id === docId);
 }
 
+/**
+ * True when moving `root` would carry a database's own page (a task page or a
+ * source page) away from its database. A project root carries its own pages.
+ */
+export function carriesProjectPage(graph, root) {
+  if (root.type === 'project') return false;
+  return collectMove(graph, root).docIds.some((id) => isProjectOwnedPage(graph, id));
+}
+
 /** Rows in spaces the person has joined first; order kept within each group. */
 export function byJoinedFirst(rows, joined) {
   return [...rows.filter((r) => joined.has(r.space_id)), ...rows.filter((r) => !joined.has(r.space_id))];

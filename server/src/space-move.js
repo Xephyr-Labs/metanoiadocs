@@ -1,5 +1,5 @@
 import { pool, defaultSpaceId } from './db.js';
-import { collectMove, isProjectOwnedPage, resolveSpace } from './spaces.js';
+import { collectMove, carriesProjectPage, resolveSpace } from './spaces.js';
 
 const TABLE = { doc: 'docs', folder: 'folders', project: 'projects' };
 
@@ -73,14 +73,15 @@ export async function spaceForNew(client, { parentSpace, folderSpace, requested,
 /**
  * Readies `root` for a reparent into `targetSpace`: 'same' when nothing has to
  * move (or there is no target: a move to the top level keeps its space),
- * 'owned' when it is a database's own page, which only moves with its database,
+ * 'owned' when the move would carry a database's own page (the root or one
+ * below it), which only moves with its database,
  * else it moves the tree and answers 'move'. Call it BEFORE the reparent UPDATE:
  * the move detaches the root and may clear its folder, and the UPDATE then sets
  * the new parent or folder over that.
  */
 export async function reparentInto(client, root, targetSpace, { dryRun = false } = {}) {
   if (!targetSpace || (await spaceOf(client, root.type, root.id)) === targetSpace) return 'same';
-  if (root.type === 'doc' && isProjectOwnedPage(await loadSpaceGraph(client), root.id)) return 'owned';
+  if (carriesProjectPage(await loadSpaceGraph(client), root)) return 'owned';
   if (!dryRun) await moveToSpace(client, root, targetSpace);
   return 'move';
 }
@@ -99,10 +100,8 @@ export function registerSpaceMoveRoutes(app, { requireUser, wrap, editGrant }) {
       // Early checks only; the move itself reloads the graph inside the transaction.
       const graph = await loadSpaceGraph(client);
       if (!graph[TABLE[type]].some((r) => r.id === id)) return res.status(404).json({ error: 'not found' });
-      if (type === 'doc') {
-        if (!(await editGrant(id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
-        if (isProjectOwnedPage(graph, id)) return res.status(409).json({ error: OWNED_PAGE });
-      }
+      if (type === 'doc' && !(await editGrant(id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
+      if (carriesProjectPage(graph, { type, id })) return res.status(409).json({ error: OWNED_PAGE });
       await client.query('BEGIN');
       try {
         const moved = await moveToSpace(client, { type, id }, spaceId);
