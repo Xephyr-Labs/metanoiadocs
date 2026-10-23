@@ -98,6 +98,16 @@ export function registerSpaceRoutes(app, { requireUser, wrap }) {
     res.json({ ok: true });
   }));
 
+  // Same columns as GET /api/users, which every signed-in user can already read.
+  app.get('/api/spaces/:id/members', requireUser, wrap(async (req, res) => {
+    const { rows } = await pool.query(
+      `SELECT u.id, u.name, u.email, u.username, u.kind FROM space_members m JOIN users u ON u.id = m.user_id
+        WHERE m.space_id = $1 ORDER BY u.name`,
+      [req.params.id]
+    );
+    res.json(rows);
+  }));
+
   app.post('/api/spaces/:id/members', requireUser, wrap(async (req, res) => {
     if (!(await getSpace(req.params.id))) return res.status(404).json({ error: 'space not found' });
     const me = await pool.query('SELECT 1 FROM space_members WHERE space_id = $1 AND user_id = $2', [req.params.id, req.user.id]);

@@ -21,6 +21,8 @@ import { Pager, usePaged } from '../ui/Pager';
 import { SegmentedControl } from '../ui/SegmentedControl';
 import { groupOf, groupsFor } from '../../lib/grouping';
 import { defaultCardProps } from '../../lib/builtinProps';
+import { SpaceChip } from '../spaces/SpaceChip';
+import { inSpaceFilter, type SpaceFilter } from '../../lib/spaceTree';
 import { TASK_SCOPES, dropLegacyOpenChip, inScope, scopeCounts, type TaskScope } from '../../lib/taskScope';
 import { ProjectIcon } from '../ui/ProjectIcon';
 
@@ -113,12 +115,16 @@ export function TasksView() {
   const seeded = useRef(readFilters() !== null);
   const scroller = useRef<HTMLDivElement>(null);
 
+  // 'joined' is the server's own default (your spaces, plus anything assigned
+  // to or made by you), so it is not filtered again here. Any other choice
+  // asks for every space and narrows on the client.
+  const [spaces, setSpaces] = useState<SpaceFilter>('joined');
   const load = () => {
-    tasksApi.allTasks()
+    tasksApi.allTasks(spaces !== 'joined')
       .then((d) => { setData(d); setError(null); })
       .catch((e) => setError(e instanceof Error ? e.message : 'Could not load tasks.'));
   };
-  useEffect(load, []);
+  useEffect(load, [spaces]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Types are per project and /api/tasks sends keys and labels only, so the
   // colours and the "holds children" flag come from each project's own list.
@@ -192,13 +198,14 @@ export function TasksView() {
   const now = todayISO();
   // The chips decide whose and which; the scope decides open, overdue or done.
   // Counts are taken after the chips, so each segment says what clicking it shows.
-  const filtered = data ? applyFilters(data.tasks, pruneUnresolvable(filters, fields), fields) : [];
+  const inSpace = data && spaces !== 'joined' ? data.tasks.filter((t) => inSpaceFilter(t.space_id, spaces, ws.spaces)) : data?.tasks ?? [];
+  const filtered = data ? applyFilters(inSpace, pruneUnresolvable(filters, fields), fields) : [];
   const counts = scopeCounts(filtered, now);
   const visible = filtered.filter((t) => inScope(t, scope, now));
   // The list only: one long list scrolled for ever, and past its end on a
   // trackpad or phone into the browser's own back gesture. The board and the
   // timeline lay tasks out in columns and dates, where a page cut means nothing.
-  const paged = usePaged(visible, `${JSON.stringify(filters)}|${scope}`);
+  const paged = usePaged(visible, `${JSON.stringify(filters)}|${scope}|${spaces}`);
   // The board's columns are the status field the filter bar already describes,
   // so the two never disagree about what the statuses are or what they are
   // called. Status is built-in, which is why a board over several projects can
@@ -238,6 +245,7 @@ export function TasksView() {
               than that — the value end of every filter was cut off the screen,
               unreadable and unreachable. */}
           <div className="order-3 flex min-w-0 basis-full items-center gap-2 sm:order-2 sm:basis-0 sm:flex-1">
+            <SpaceChip value={spaces} onChange={setSpaces} />
             <TagFilter tags={ws.allTags} filters={filters} onChange={save} />
             <FilterBar fields={fields} filters={filters} onChange={save} />
           </div>

@@ -12,6 +12,8 @@ describe('APP_PATHS', () => {
     expect(answers('/d/abc-123')).toBe(true);
     expect(answers('/d/abc-123#block-7')).toBe(true);
     expect(answers('/f/folder-9')).toBe(true);
+    expect(answers('/s/space-3')).toBe(true);
+    expect(parseRoute('/s/space-3').spaceId).toBe('space-3');
     expect(answers('/db/project-4')).toBe(true);
     expect(answers('/db/project-4/view-2')).toBe(true);
   });

@@ -3,6 +3,7 @@ import { ChevronRight, MoreHorizontal, Plus } from 'lucide-react';
 import { useState } from 'react';
 import { cn } from '../../lib/cn';
 import { useDocMenu } from '../../hooks/useDocMenu';
+import { okToCross } from '../../hooks/useMoveToSpace';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { requestTitleFocus } from '../../lib/titleFocus';
 import type { PageId } from '../../lib/types';
@@ -24,8 +25,11 @@ function Row({ id, depth }: { id: PageId; depth: number }) {
   // below its neighbour, the middle nests it under them.
   const drop = useRowDrop({
     accept: { [DOC_MIME]: 'thirds' },
-    onDrop: (_mime, draggedId, zone) => {
+    onDrop: async (_mime, draggedId, zone) => {
       if (draggedId === id) return;
+      // Only nesting crosses spaces here: this tree mixes them (Private, Shared),
+      // and a drop beside a top-level page keeps the dragged page's space.
+      if (zone === 'inside' && !(await okToCross(ws.spaces, 'doc', draggedId, ws.pages[draggedId]?.spaceId, page?.spaceId))) return;
       if (zone === 'inside') ws.linkPage(id, draggedId);
       else ws.reorderPage(draggedId, id, zone);
     },

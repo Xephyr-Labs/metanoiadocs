@@ -1,4 +1,4 @@
-import { FilePlus, FolderPlus, KanbanSquare, LogOut, MoreHorizontal, Pencil, Plus, Table2, Trash2 } from 'lucide-react';
+import { FilePlus, FolderPlus, Info, KanbanSquare, LogOut, MoreHorizontal, Pencil, Plus, Table2, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { nestByParent } from '../../lib/pageTree';
 import { placeAt } from '../../lib/reorder';
@@ -12,7 +12,10 @@ import { Menu } from '../ui/Menu';
 import { rowAction } from '../ui/styles';
 import { SpaceDialog } from '../spaces/SpaceDialog';
 import { FolderTree } from './FolderTree';
-import { SPACE_MIME, dragSource, useRowDrop } from './rowDrag';
+import { DOC_MIME, FOLDER_MIME, SPACE_MIME, dragSource, useRowDrop } from './rowDrag';
+import { confirmSpaceMove } from '../../hooks/useMoveToSpace';
+import { spaceOf } from '../../lib/spaceTree';
+import { cn } from '../../lib/cn';
 import { Capped, CollapsibleSection, DocRow, FavoriteFolderRow, ProjectRows, SectionLabel } from './Sidebar';
 
 const openKey = (id: string) => `mn-space-open:${id}`;
@@ -66,11 +69,21 @@ export function SpaceSection({ space, order, shows, collapsed, onToggle }: {
   // as a space, so the server picks the default, and no menu or drag.
   const sid = space.id || undefined;
 
+  // A header takes another header (reorder) or a page or folder row, which
+  // moves that item's whole tree into this space, after asking.
   const drop = useRowDrop({
-    accept: { [SPACE_MIME]: 'halves' },
-    onDrop: (_mime, draggedId, zone) => {
-      const next = placeAt(order, draggedId, space.id, zone === 'before' ? 'before' : 'after');
-      if (next) ws.reorderSpaces(next);
+    accept: { [SPACE_MIME]: 'halves', [DOC_MIME]: 'whole', [FOLDER_MIME]: 'whole' },
+    enabled: !!sid,
+    onDrop: async (mime, draggedId, zone) => {
+      if (mime === SPACE_MIME) {
+        const next = placeAt(order, draggedId, space.id, zone === 'before' ? 'before' : 'after');
+        if (next) ws.reorderSpaces(next);
+        return;
+      }
+      const type = mime === DOC_MIME ? 'doc' : 'folder';
+      const from = type === 'doc' ? ws.pages[draggedId]?.spaceId : ws.folders[draggedId]?.spaceId;
+      if (spaceOf(from, ws.spaces) === space.id) return;
+      if (await confirmSpaceMove(type, draggedId, space)) await ws.moveToSpace(type, draggedId, space.id);
     },
   });
 
@@ -164,7 +177,9 @@ export function SpaceSection({ space, order, shows, collapsed, onToggle }: {
         collapsed={open ? new Set() : new Set([key])}
         onToggle={toggle}
         count={count}
-        headProps={sid ? { ...dragSource(SPACE_MIME, space.id), ...drop.props, className: 'group/space' } : { className: 'group/space' }}
+        headProps={sid
+          ? { ...dragSource(SPACE_MIME, space.id), ...drop.props, className: cn('group/space rounded-md', drop.zone === 'inside' && 'bg-accent-soft') }
+          : { className: 'group/space' }}
         dropZone={drop.zone}
         action={
           <span className="flex items-center gap-0.5 opacity-0 transition-opacity duration-120 focus-within:opacity-100 group-hover/space:opacity-100">
@@ -172,6 +187,7 @@ export function SpaceSection({ space, order, shows, collapsed, onToggle }: {
               align="end"
               trigger={<button type="button" className={rowAction} aria-label={`Actions for ${space.name}`}><MoreHorizontal size={14} /></button>}
               items={[
+                { icon: Info, label: 'Open space page', onSelect: () => ws.openSpace(space.id) },
                 { icon: Pencil, label: 'Edit space', onSelect: () => setEditing(true) },
                 { icon: LogOut, label: 'Leave space', separatorBefore: true, onSelect: () => { ws.leaveSpace(space.id); } },
                 ...(canManage && !space.is_default

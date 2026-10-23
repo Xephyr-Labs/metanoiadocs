@@ -661,7 +661,7 @@ app.get('/api/docs', requireUser, async (req, res) => {
   const { rows } = await pool.query(
     `SELECT d.id, d.title, d.icon, d.folder_id, d.parent_id, d.position, d.updated_at, d.space_id,
             CASE WHEN d.is_template AND coalesce(a.role, d.team_role, 'editor') NOT IN ('editor', 'owner')
-                 THEN 'editor' ELSE coalesce(a.role, d.team_role, 'editor') END AS role, d.team_role, d.visibility, d.kind, d.props, d.is_template,
+                 THEN 'editor' ELSE coalesce(a.role, d.team_role, 'editor') END AS role, d.team_role, d.visibility, d.kind, d.props, d.is_template, d.template_everywhere,
             ub.name AS updated_by_name,
             coalesce(ub.kind, 'person') AS updated_by_kind,
             d.updated_via, d.created_at, cb.name AS created_by_name,

@@ -19,6 +19,7 @@ import { splitKey } from '../../lib/taskKey';
 import { STATUS_COLOR } from '../../lib/builtinProps';
 import { swatch } from '../../lib/tagColors';
 import { useWorkspace } from '../../store/workspace';
+import { splitByJoined } from '../../lib/spaceTree';
 import { DocIcon } from '../ui/DocIcon';
 import { Modal } from '../ui/Modal';
 import { ProjectIcon } from '../ui/ProjectIcon';
@@ -133,30 +134,34 @@ export function CommandPalette() {
       .map((p) => ({ kind: 'database' as const, id: p.id, title: p.name, icon: p.icon }));
   }, [ws.projects, query]);
 
-  const searchItems: Item[] = query
-    ? results.map((r) => (r.kind === 'task'
-      ? {
-        kind: 'task' as const,
-        id: r.id,
-        title: r.title,
-        sub: stripMarks(r.snippet || ''),
-        projectId: r.projectId ?? '',
-        status: r.status ?? 'todo',
-        taskKind: r.taskKind,
-      }
-      : {
-        kind: 'page' as const,
-        id: r.id,
-        title: r.title,
-        sub: stripMarks(r.snippet || '').replace(/\s+/g, ' ').trim().slice(0, 60),
-      }))
-    : allPages.slice(0, 5);
+  const toItem = (r: SearchRow): Item => (r.kind === 'task'
+    ? {
+      kind: 'task' as const,
+      id: r.id,
+      title: r.title,
+      sub: stripMarks(r.snippet || ''),
+      projectId: r.projectId ?? '',
+      status: r.status ?? 'todo',
+      taskKind: r.taskKind,
+    }
+    : {
+      kind: 'page' as const,
+      id: r.id,
+      title: r.title,
+      sub: stripMarks(r.snippet || '').replace(/\s+/g, ' ').trim().slice(0, 60),
+    });
+  // The server already orders hits from your spaces first; the heading says
+  // where the rest come from.
+  const [mine, other] = splitByJoined(results);
+  const searchItems: Item[] = query ? mine.map(toItem) : allPages.slice(0, 5);
+  const otherItems: Item[] = query ? other.map(toItem) : [];
 
   const cmdItems = commands.filter((c) => !query || c.title.toLowerCase().includes(query));
 
   const groups = [
     { label: 'Recent', items: recentItems },
     { label: query ? 'Search results' : 'Jump to', items: searchItems },
+    { label: 'Other spaces', items: otherItems },
     { label: 'Databases', items: dbItems },
     { label: 'Actions', items: cmdItems },
   ].filter((g) => g.items.length > 0);

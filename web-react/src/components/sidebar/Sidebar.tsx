@@ -73,9 +73,11 @@ import { rowAction } from '../ui/styles';
 import { PageTree } from './PageTree';
 import { DOC_MIME, dragSource } from './rowDrag';
 import { useDocMenu } from '../../hooks/useDocMenu';
+import { moveToSpaceItem } from '../../hooks/useMoveToSpace';
 import { ProjectIcon } from '../ui/ProjectIcon';
 import { SpaceSection } from './SpaceSection';
 import type { SpaceRow } from '../../lib/spacesApi';
+import { inSpaceFilter } from '../../lib/spaceTree';
 import { BrowseSpaces } from '../spaces/BrowseSpaces';
 
 /**
@@ -326,6 +328,7 @@ export function ProjectRows({
     <>
       {kids.map((p) => {
         const open = Number(p.total) - Number(p.done);
+        const moveSpace = moveToSpaceItem(ws, 'project', p.id, p.space_id);
         return (
           <div key={p.id}>
             <div className="group flex items-center">
@@ -383,6 +386,7 @@ export function ProjectRows({
                     separatorBefore: true,
                     onSelect: () => onSetMode(p, p.mode === 'data' ? 'tasks' : 'data'),
                   },
+                  ...(moveSpace ? [{ ...moveSpace, separatorBefore: true }] : []),
                   {
                     icon: Archive,
                     label: 'Archive database',
@@ -749,12 +753,12 @@ export function Sidebar() {
   const [browseOpen, setBrowseOpen] = useState(false);
   const joined = ws.spaces.filter((sp) => sp.joined);
   const joinedIds = joined.map((sp) => sp.id);
-  // A template shows when its page sits in a space you joined. Pages with no
-  // space belong to the default one, as everywhere else in the sidebar.
-  const defaultSpace = ws.spaces.find((sp) => sp.is_default)?.id;
-  const docTemplates = ws.spaces.length
-    ? ws.docTemplates.filter((t) => joinedIds.includes(t.spaceId ?? defaultSpace ?? ''))
-    : ws.docTemplates;
+  // A template shows when its page sits in a space you joined, or when it is
+  // marked for every space. Pages with no space belong to the default one.
+  // With a space's page open, a page made from a template lands in that space;
+  // anywhere else the server picks (the default space).
+  const templateSpace = ws.view === 'space' ? ws.activeSpaceId ?? undefined : undefined;
+  const docTemplates = ws.docTemplates.filter((t) => t.templateEverywhere || inSpaceFilter(t.spaceId, 'joined', ws.spaces));
 
   const onResizeStart = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -937,7 +941,7 @@ export function Sidebar() {
                 key={t.id}
                 type="button"
                 title={`New page from ${t.title}`}
-                onClick={() => ws.createFromPage(t.id)}
+                onClick={() => ws.createFromPage(t.id, templateSpace)}
                 className="flex h-7 coarse:h-11 w-full items-center gap-2 rounded-md px-2 text-sm leading-5 text-ink transition-colors duration-120 hover:bg-hover"
               >
                 <span className="flex h-5 w-5 shrink-0 items-center justify-center text-md leading-none">{t.icon}</span>
@@ -949,7 +953,7 @@ export function Sidebar() {
               <button
                 key={t.id}
                 type="button"
-                onClick={() => ws.createFromTemplate(t)}
+                onClick={() => ws.createFromTemplate(t, templateSpace)}
                 className="flex h-7 coarse:h-11 w-full items-center gap-2 rounded-md px-2 text-sm leading-5 text-ink transition-colors duration-120 hover:bg-hover"
               >
                 <span className="flex h-5 w-5 shrink-0 items-center justify-center text-md leading-none">{t.icon}</span>

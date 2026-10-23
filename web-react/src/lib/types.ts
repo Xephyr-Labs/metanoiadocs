@@ -44,6 +44,8 @@ export interface Page {
    *  that happens to be marked — it stays in the sidebar, in search and in All
    *  documents, and is edited like any other. */
   isTemplate: boolean;
+  /** Offered as a template in every space, not only its own. */
+  templateEverywhere: boolean;
   /** Page property values, keyed by DocPropRow.id. Sparse: only what is set. */
   props: Record<string, unknown>;
   /** The space it lives in; null until the server sends one. */

@@ -70,6 +70,8 @@ export interface DocRow {
   /** Marked as a starting point for new pages. Templates stay in every list
    *  they were already in — the mark is the only difference. */
   is_template?: boolean;
+  /** A template offered in every space's picker, not just its own. */
+  template_everywhere?: boolean;
   space_id: string | null;
 }
 

@@ -12,15 +12,23 @@ export interface SpaceRow {
   position: number;
 }
 
-/** What a move would carry along: the item plus its whole tree. */
+/** How much a move carries along: the item plus its whole tree, as counts. */
 export interface MoveSet {
-  docs: string[];
-  folders: string[];
-  projects: string[];
+  docs: number;
+  folders: number;
+  projects: number;
 }
 export interface MovePreview extends MoveSet {
-  /** Rows in the tree you cannot see; they move too. */
-  hidden: number;
+  /** `docs` counts only pages you can see; true when more move with them. */
+  hidden: boolean;
+}
+
+export interface SpaceMember {
+  id: string;
+  name: string;
+  username: string | null;
+  email: string | null;
+  kind: string | null;
 }
 export type MoveType = 'doc' | 'folder' | 'project';
 
@@ -61,6 +69,7 @@ export const spacesApi = {
   join: (id: string) => post(`/spaces/${id}/join`),
   leave: (id: string) => post(`/spaces/${id}/leave`),
   addMembers: (id: string, userIds: string[]) => post(`/spaces/${id}/members`, { userIds }),
+  members: (id: string): Promise<SpaceMember[]> => req(`/spaces/${id}/members`),
   /** `ids` is every space in its new order. */
   reorder: (ids: string[]) => req('/spaces/order', { method: 'PUT', body: JSON.stringify({ ids }) }),
   /** Dry run of a move: what travels with it, and how much of it you cannot see. */

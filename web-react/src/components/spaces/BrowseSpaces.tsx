@@ -34,13 +34,13 @@ export function BrowseSpaces({ open, onOpenChange }: { open: boolean; onOpenChan
             {ws.spaces.map((s) => (
               <li key={s.id} className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-hover">
                 <span className="flex h-8 w-8 shrink-0 items-center justify-center text-lg leading-none" aria-hidden>{s.icon}</span>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-ink">{s.name}</p>
+                <button type="button" onClick={() => { ws.openSpace(s.id); onOpenChange(false); }} className="min-w-0 flex-1 text-left">
+                  <p className="truncate text-sm font-medium text-ink hover:underline">{s.name}</p>
                   <p className="truncate text-2xs text-faint">
                     {s.member_count} member{s.member_count === 1 ? '' : 's'}
                     {s.description ? ` · ${s.description}` : ''}
                   </p>
-                </div>
+                </button>
                 {s.joined ? (
                   <span className="shrink-0 px-2.5 text-sm text-muted">Joined</span>
                 ) : (

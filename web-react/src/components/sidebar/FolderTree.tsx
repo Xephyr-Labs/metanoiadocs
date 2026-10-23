@@ -2,6 +2,7 @@ import { ChevronRight, FilePlus, FileText, Folder, FolderOpen, Link2, Lock, More
 import { useState } from 'react';
 import { DOC_MIME, FOLDER_MIME, dragSource, useRowDrop } from './rowDrag';
 import { cn } from '../../lib/cn';
+import { spaceOf } from '../../lib/spaceTree';
 import { folderUrl } from '../../lib/route';
 import { copyLink } from '../../lib/clipboard';
 import { pickImportFiles } from '../../lib/docFiles';
@@ -13,6 +14,7 @@ import { Menu } from '../ui/Menu';
 import { RowInput } from '../ui/RowInput';
 import { requestTitleFocus } from '../../lib/titleFocus';
 import { useDocMenu } from '../../hooks/useDocMenu';
+import { okToCross, useMoveToSpace } from '../../hooks/useMoveToSpace';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { rowAction } from '../ui/styles';
 import { ShowMoreRow, useShowMore } from './showMore';
@@ -39,8 +41,15 @@ function DocumentRow({ id, depth }: { id: PageId; depth: number }) {
   const hover = useMediaQuery('(hover: none)') || hovered;
   const drop = useRowDrop({
     accept: { [DOC_MIME]: 'thirds' },
-    onDrop: (_mime, draggedId, zone) => {
-      if (draggedId === id) return;
+    onDrop: async (_mime, draggedId, zone) => {
+      if (draggedId === id || !page) return;
+      // Into another space: confirm, and for a drop beside an unfiled page
+      // (which the server treats as "top level, same space") move it first.
+      const from = ws.pages[draggedId]?.spaceId;
+      if (!(await okToCross(ws.spaces, 'doc', draggedId, from, page.spaceId))) return;
+      if (zone !== 'inside' && !page.folderId && spaceOf(from, ws.spaces) !== spaceOf(page.spaceId, ws.spaces)) {
+        if (!(await ws.moveToSpace('doc', draggedId, spaceOf(page.spaceId, ws.spaces)))) return;
+      }
       if (zone === 'inside') ws.linkPage(id, draggedId);
       else ws.reorderPage(draggedId, id, zone);
     },
@@ -146,14 +155,26 @@ function FolderRow({ id, depth }: { id: string; depth: number }) {
   // thirds so it can be both a neighbour to reorder against and a container.
   const drop = useRowDrop({
     accept: { [DOC_MIME]: 'whole', [FOLDER_MIME]: 'thirds' },
-    onDrop: (mime, draggedId, zone) => {
+    onDrop: async (mime, draggedId, zone) => {
+      const target = ws.folders[id];
+      if (!target) return;
       const openIt = () => { if (!ws.folders[id]?.expanded) ws.toggleFolder(id); };
-      if (mime === DOC_MIME) { ws.movePage(draggedId, id); openIt(); return; }
+      if (mime === DOC_MIME) {
+        if (!(await okToCross(ws.spaces, 'doc', draggedId, ws.pages[draggedId]?.spaceId, target.spaceId))) return;
+        ws.movePage(draggedId, id); openIt(); return;
+      }
       if (draggedId === id) return;
+      const from = ws.folders[draggedId]?.spaceId;
+      if (!(await okToCross(ws.spaces, 'folder', draggedId, from, target.spaceId))) return;
+      // Beside a top-level folder the server keeps the space; move it first.
+      if (zone !== 'inside' && !target.parentId && spaceOf(from, ws.spaces) !== spaceOf(target.spaceId, ws.spaces)) {
+        if (!(await ws.moveToSpace('folder', draggedId, spaceOf(target.spaceId, ws.spaces)))) return;
+      }
       if (zone === 'inside') { ws.moveFolder(draggedId, id); openIt(); }
       else ws.reorderFolder(draggedId, id, zone);
     },
   });
+  const moveSpace = useMoveToSpace('folder', id, folder?.spaceId);
   const docs = useShowMore(folder?.documentIds ?? [], ws.currentId);
   if (!folder) return null;
   const hasChildren = folder.children.length > 0 || folder.documentIds.length > 0;
@@ -242,6 +263,7 @@ function FolderRow({ id, depth }: { id: string; depth: number }) {
               { icon: Link2, label: 'Copy link', onSelect: () => { copyLink(folderUrl(id)); } },
               { icon: Upload, label: 'Import…', onSelect: () => { pickImportFiles().then((f) => { if (f.length) ws.importFiles(f, id); }); } },
               { icon: FileText, label: 'Rename', onSelect: () => setRenaming(true) },
+              ...(moveSpace ? [moveSpace] : []),
               // Nine swatches inline made this menu taller than the sidebar.
               // The trigger wears the folder's current colour, so the row still
               // says which one is set without being opened.

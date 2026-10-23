@@ -43,6 +43,7 @@ import { useWorkspace } from '../../store/workspace';
 import { cn } from '../../lib/cn';
 import { MOD_LABEL } from '../../lib/hotkeys';
 import { deadDocLink } from '../../lib/route';
+import { spaceOf } from '../../lib/spaceTree';
 import { useOpenCommentCount } from '../../editor/comments';
 import { downloadDocx, downloadMarkdown, pickImportFiles, printDoc } from '../../lib/docFiles';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
@@ -52,6 +53,7 @@ import { PageIcon } from '../ui/PageIcon';
 import { IconButton } from '../ui/IconButton';
 import { Menu } from '../ui/Menu';
 import { useMoveToFolder } from '../../hooks/useMoveToFolder';
+import { useMoveToSpace } from '../../hooks/useMoveToSpace';
 import { copyLink } from '../../lib/clipboard';
 import { useReducer } from 'react';
 import * as prefs from '../../lib/docPrefs';
@@ -173,9 +175,18 @@ export function TopBar() {
   // folder had no way back to it but the sidebar.
   const rootFolderId = pagePath.find((p) => p.folderId)?.folderId;
   const pageFolders = rootFolderId ? folderChain(ws.folders, rootFolderId) : [];
+  // Pages, folders, databases and the space page itself start their path at
+  // the space; Home, Tasks and All documents are workspace-wide and keep the
+  // workspace as their root.
+  const spaceId = page ? page.spaceId : folder ? folder.spaceId : project ? project.space_id
+    : ws.view === 'space' ? ws.activeSpaceId : undefined;
+  const space = spaceId !== undefined && ws.spaces.length
+    ? ws.spaces.find((s) => s.id === (ws.view === 'space' ? spaceId : spaceOf(spaceId, ws.spaces)))
+    : undefined;
   const isMobile = useMediaQuery('(max-width: 767px)');
   const compact = useMediaQuery('(max-width: 1023px)');
   const moveTo = useMoveToFolder(page?.id);
+  const moveSpace = useMoveToSpace('doc', page?.id, page?.spaceId);
   // Read on every render rather than mirrored into state: the settings dialog
   // writes the same preference, and a mirror would leave this menu ticking the
   // opposite of what the document is actually doing until the bar remounted.
@@ -224,8 +235,32 @@ export function TopBar() {
       )}
 
       <nav aria-label="Breadcrumb" className="mn-crumbs flex min-w-0 flex-1 items-center overflow-hidden text-xs">
-        {/* The workspace is the root of every path, and the way home. */}
-        <Crumb onClick={ws.openHome} keep>Metanoia</Crumb>
+        {/* The space is the root of a path inside one; elsewhere the
+            workspace is, and the way home. */}
+        {space ? (
+          <>
+            <Crumb
+              keep
+              icon={<span aria-hidden className="text-sm leading-none">{space.icon}</span>}
+              current={ws.view === 'space'}
+              onClick={() => ws.openSpace(space.id)}
+            >
+              {space.name}
+            </Crumb>
+            {!space.joined && (
+              <button
+                type="button"
+                onClick={() => { void ws.joinSpace(space.id); }}
+                aria-label={`Join ${space.name}`}
+                className="ml-0.5 shrink-0 rounded-md border border-line px-1.5 py-0.5 text-2xs font-medium text-muted transition-colors duration-120 hover:border-line-strong hover:text-ink"
+              >
+                Join
+              </button>
+            )}
+          </>
+        ) : (
+          <Crumb onClick={ws.openHome} keep>Metanoia</Crumb>
+        )}
         {page && pageFolders.map((f) => (
           <Crumb key={f.id} icon={<Folder size={14} className="text-faint" />} onClick={() => ws.openFolder(f.id)}>
             {f.name}
@@ -462,7 +497,7 @@ export function TopBar() {
                 // page renders — a canvas can be filed beside documents too.
                 // It opens the files group; Export closes it.
                 separatorBefore: true,
-                onSelect: () => { pickImportFiles().then((f) => { if (f.length) ws.importFiles(f, page.folderId); }); },
+                onSelect: () => { pickImportFiles().then((f) => { if (f.length) ws.importFiles(f, page.folderId, page.spaceId ?? undefined); }); },
               },
               // One row instead of three: the formats belong together and this
               // menu already carries everything else a page can do.
@@ -479,6 +514,7 @@ export function TopBar() {
                 ],
               }]),
               ...(moveTo ? [{ ...moveTo, separatorBefore: true }] : []),
+              ...(moveSpace ? [{ ...moveSpace, separatorBefore: !moveTo }] : []),
               { icon: Trash2, label: 'Move to Trash', danger: true, separatorBefore: true, onSelect: () => ws.deletePage(page.id) },
             ]}
             trigger={<span><IconButton icon={<MoreHorizontal size={16} />} label="More" /></span>}
