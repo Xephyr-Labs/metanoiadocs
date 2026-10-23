@@ -2343,9 +2343,20 @@ app.get('/api/blob/:key', async (req, res) => {
   // read it back, or a programmatic client cannot check what it just uploaded.
   const user = await userForRequest(req);
   if (!user) {
+    // A share link reads what its own page uses — a file in the page, in its
+    // properties, or on one of its comments — not every blob in the workspace.
+    // ponytail: scans the page's Yjs state for the key on each guest fetch; an
+    // index of page→blob keys if public pages ever get large or hot.
     const share = String(req.query.share || '');
     const ok = share && (await pool.query(
-      'SELECT 1 FROM docs WHERE share_token = $1', [share])).rowCount;
+      `SELECT 1 FROM docs d
+        WHERE d.share_token = $1 AND d.deleted_at IS NULL
+          AND (position(convert_to($2, 'UTF8') IN coalesce((SELECT state FROM doc_states WHERE doc_id = d.id), ''::bytea)) > 0
+               OR position($2 IN d.props::text) > 0
+               OR EXISTS (SELECT 1 FROM comments c
+                           WHERE c.doc_id = d.id AND c.task_id IS NULL
+                             AND c.attachments @> jsonb_build_array(jsonb_build_object('key', $2::text))))`,
+      [share, req.params.key])).rowCount;
     if (!ok) return res.status(401).json({ error: 'unauthorized' });
   }
   const { rows } = await pool.query('SELECT mime, data FROM blobs WHERE key = $1', [req.params.key]);
@@ -3052,8 +3063,9 @@ const NOTIFY_VERBS = {
 // handle typed into an edit is a message nobody asked to receive.
 app.patch('/api/comments/:cid', requireUser, async (req, res) => {
   const body = String(req.body?.body || '').trim().slice(0, 4000);
-  if (!body) return res.status(400).json({ error: 'empty comment' });
-  const c = await pool.query('SELECT doc_id, task_id, author_id FROM comments WHERE id = $1', [req.params.cid]);
+  const c = await pool.query('SELECT doc_id, task_id, author_id, attachments FROM comments WHERE id = $1', [req.params.cid]);
+  // The words may go when a voice note stays: it is still a comment.
+  if (!body && !c.rows[0]?.attachments?.length) return res.status(400).json({ error: 'empty comment' });
   // Authorship on its own, checked here rather than through commentOwner:
   // that helper answers "may delete this", and on a page it says yes to the
   // owner too. Access still has to hold — an author dropped from a page does

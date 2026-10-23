@@ -164,10 +164,11 @@ export function TaskComments({
   };
 
   const openReply = (thread: string, to: string) => {
+    // A note recorded for another thread does not follow the reply box here;
+    // answering a different message in the same thread keeps it.
+    if (thread !== replyTo?.thread) setReplyNote(null);
     setReplyTo({ thread, to });
     setReplyText(savedDraft(`task-reply:${thread}`));
-    // A note recorded for another thread does not follow the reply box here.
-    setReplyNote(null);
   };
 
   const saveEdit = async () => {
@@ -177,7 +178,8 @@ export function TaskComments({
     const { id } = editing;
     setEditing(null);
     const before = rows;
-    if (!body) return;
+    // Empty words are fine while a voice note stays; the server agrees.
+    if (!body && !rows?.find((c) => c.id === id)?.attachments?.length) return;
     setRows((r) => (r ?? []).map((c) => (c.id === id ? { ...c, body } : c)));
     try {
       const saved = await tasksApi.editComment(id, { body });

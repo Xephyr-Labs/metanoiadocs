@@ -60,6 +60,23 @@ export function VoiceNoteButton({
   const [elapsed, setElapsed] = useState(0);
   const rec = useRef<Recording | null>(null);
   const alive = useRef(true);
+  const micRef = useRef<HTMLButtonElement>(null);
+  const stopRef = useRef<HTMLButtonElement>(null);
+  /** Set once Record is pressed, so mounting never pulls focus to the mic. */
+  const engaged = useRef(false);
+
+  // The mic and the recording controls replace each other, so whichever is
+  // showing takes the focus — otherwise a keyboard user pressing Record lands
+  // on <body> with Stop a long tab away. Only when focus was lost, though:
+  // someone typing in the comment box meanwhile keeps their caret.
+  useEffect(() => {
+    if (!engaged.current) return;
+    if (state === 'idle') engaged.current = false;
+    const lost = !document.activeElement || document.activeElement === document.body;
+    if (!lost) return;
+    if (state === 'recording') stopRef.current?.focus();
+    else if (state === 'idle') micRef.current?.focus();
+  }, [state]);
 
   useEffect(() => {
     alive.current = true;
@@ -85,6 +102,7 @@ export function VoiceNoteButton({
   };
 
   const start = async () => {
+    engaged.current = true;
     setState('starting');
     setElapsed(0);
     try {
@@ -101,6 +119,7 @@ export function VoiceNoteButton({
   const stop = async () => {
     const r = rec.current;
     if (!r) return;
+    rec.current = null; // a second click finds nothing to stop
     await store(await r.stop());
   };
 
@@ -112,10 +131,12 @@ export function VoiceNoteButton({
 
   if (state === 'recording') {
     return (
-      <div className="mb-0.5 flex shrink-0 items-center gap-1" role="status" aria-label="Recording a voice note">
+      // A group, not a status region: a live region would read the timer out
+      // every second over the person speaking.
+      <div className="mb-0.5 flex shrink-0 items-center gap-1" role="group" aria-label="Recording a voice note">
         <span className="h-2 w-2 animate-pulse rounded-full bg-danger" aria-hidden />
-        <span className="w-9 text-2xs tabular-nums text-muted">{formatElapsed(elapsed)}</span>
-        <IconButton size="sm" icon={<Square size={12} />} label="Stop and attach" onClick={() => void stop()} />
+        <span className="w-9 text-2xs tabular-nums text-muted" aria-hidden>{formatElapsed(elapsed)}</span>
+        <IconButton ref={stopRef} size="sm" icon={<Square size={12} />} label="Stop and attach" onClick={() => void stop()} />
         <IconButton size="sm" tone="danger" icon={<X size={13} />} label="Discard recording" onClick={cancel} />
       </div>
     );
@@ -123,6 +144,7 @@ export function VoiceNoteButton({
   const busy = state !== 'idle';
   return (
     <IconButton
+      ref={micRef}
       icon={busy ? <Loader2 size={15} className="animate-spin" /> : <Mic size={15} />}
       label="Record a voice note"
       onClick={() => void start()}

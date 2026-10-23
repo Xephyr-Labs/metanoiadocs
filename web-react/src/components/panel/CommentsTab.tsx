@@ -173,7 +173,8 @@ export function CommentsTab({ docId }: { docId: string }) {
     const body = editing.text.trim();
     const { id } = editing;
     setEditing(null);
-    if (!body) return;
+    // Empty words are fine while a voice note stays; the server agrees.
+    if (!body && !comments?.find((c) => c.id === id)?.attachments?.length) return;
     setComments((r) => (r ?? []).map((c) => (c.id === id ? { ...c, body } : c)));
     await docsApi.editComment(id, body).catch(() => toast('Could not save that edit'));
     await load();

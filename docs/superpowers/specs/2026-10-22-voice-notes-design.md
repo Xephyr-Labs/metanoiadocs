@@ -68,6 +68,10 @@ Macro's licence is AGPL, so we take ideas only and no code. I checked each idea 
 | Recorded and transcribed calls | Mattermost notetaker covers calls. Transcription isn't wanted | Skip |
 | Email, CRM, chat, desktop app | Mattermost and others cover these | Skip. Out of product scope |
 
+## Done alongside
+
+- A share link's token used to unlock every blob in the workspace. `GET /api/blob/:key?share=` now serves only files its own page uses: in the page itself, in its properties, or on its comments.
+
 ## Follow-ups (not in this work)
 
 - `PUT /api/blob/:key` doesn't check that the key matches the sha256 of the bytes. Any signed-in user could plant bytes under a key they predict. Small fix, but it's its own change.

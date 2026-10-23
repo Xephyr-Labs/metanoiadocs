@@ -39,8 +39,13 @@ function button(label: string, onClick: () => void): HTMLButtonElement {
 function recordInto(std: Std, model: Model): void {
   if (active) return;
   const host = (std as unknown as { host?: Element }).host ?? null;
+  // Where the caret was, to hand it back when the pill goes.
+  const before = document.activeElement as HTMLElement | null;
   const pill = document.createElement('div');
-  pill.setAttribute('role', 'status');
+  // A group, not a status region: a live region would read the timer out
+  // every second over the person speaking.
+  pill.setAttribute('role', 'group');
+  pill.setAttribute('aria-label', 'Recording a voice note');
   pill.style.cssText =
     'position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:1000;display:flex;align-items:center;gap:8px;' +
     'padding:8px 10px 8px 14px;border-radius:10px;background:var(--canvas);color:var(--ink);font-size:13px;' +
@@ -50,24 +55,39 @@ function recordInto(std: Std, model: Model): void {
   const label = document.createElement('span');
   label.style.cssText = 'min-width:44px;font-variant-numeric:tabular-nums;color:var(--muted)';
   label.textContent = 'Starting…';
+  label.setAttribute('aria-hidden', 'true');
   pill.append(dot, label);
   document.body.append(pill);
 
   let rec: Recording | null = null;
   let closed = false;
+  // A second Stop click, or the ten-minute limit landing on a click, must not
+  // insert the note twice.
+  let saving = false;
+  // Free the slot — but only if it is still ours: a failed pill lingers to
+  // be read while a fresh /voice may already have taken it.
+  const release = () => {
+    if (active?.cancel === cancel) active = null;
+    document.removeEventListener('keydown', onKey, true);
+  };
   const close = () => {
     if (closed) return;
     closed = true;
-    active = null;
-    document.removeEventListener('keydown', onKey, true);
+    release();
+    if (pill.contains(document.activeElement)) before?.focus?.({ preventScroll: true });
     pill.remove();
   };
   const fail = (message: string) => {
     rec = null;
+    // The next /voice may start now; only the message stays a few seconds.
+    release();
+    if (pill.contains(document.activeElement)) before?.focus?.({ preventScroll: true });
     dot.remove();
     pill.querySelectorAll('button').forEach((b) => b.remove());
     label.textContent = message;
     label.style.color = 'var(--danger-strong)';
+    label.removeAttribute('aria-hidden');
+    label.setAttribute('role', 'alert');
     setTimeout(close, 4000);
   };
   const cancel = () => {
@@ -86,7 +106,8 @@ function recordInto(std: Std, model: Model): void {
   };
   const finish = async (file: File) => {
     rec = null;
-    if (closed) return;
+    if (closed || saving) return;
+    saving = true;
     pill.querySelectorAll('button').forEach((b) => b.remove());
     label.textContent = 'Saving…';
     try {
@@ -109,10 +130,10 @@ function recordInto(std: Std, model: Model): void {
     if (closed) { r.cancel(); return; }
     rec = r;
     label.textContent = formatElapsed(0);
-    pill.append(
-      button('Stop', () => { const r2 = rec; if (r2) void r2.stop().then(finish); }),
-      button('Discard', cancel),
-    );
+    const stop = button('Stop', () => { const r2 = rec; if (r2) void r2.stop().then(finish); });
+    pill.append(stop, button('Discard', cancel));
+    // Keyboard people can reach Stop at once; Esc in the page still discards.
+    stop.focus({ preventScroll: true });
   }).catch((e) => fail(micErrorMessage(e)));
 }
 
