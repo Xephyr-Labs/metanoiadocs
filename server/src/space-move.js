@@ -15,8 +15,8 @@ export async function loadSpaceGraph(client) {
 }
 
 /** Moves `root` ({type,id}) and everything with it into `spaceId`. Runs in the caller's transaction. */
-export async function moveToSpace(client, root, spaceId, graph) {
-  const m = collectMove(graph || (await loadSpaceGraph(client)), root);
+export async function moveToSpace(client, root, spaceId) {
+  const m = collectMove(await loadSpaceGraph(client), root);
   const set = (table, ids) =>
     ids.length ? client.query(`UPDATE ${table} SET space_id = $1 WHERE id = ANY($2)`, [spaceId, ids]) : null;
   await set('docs', m.docIds);
@@ -26,14 +26,12 @@ export async function moveToSpace(client, root, spaceId, graph) {
     await client.query('UPDATE docs SET folder_id = NULL WHERE id = ANY($1)', [m.clearFolderDocIds]);
   }
   // A root left under a parent in another space would drag that parent's space with it.
-  if (root.type === 'doc' || root.type === 'folder') {
-    const t = TABLE[root.type];
-    await client.query(
-      `UPDATE ${t} c SET parent_id = NULL
-        WHERE c.id = $1 AND EXISTS (SELECT 1 FROM ${t} p WHERE p.id = c.parent_id AND p.space_id IS DISTINCT FROM $2)`,
-      [root.id, spaceId]
-    );
-  }
+  const t = TABLE[root.type];
+  await client.query(
+    `UPDATE ${t} c SET parent_id = NULL
+      WHERE c.id = $1 AND EXISTS (SELECT 1 FROM ${t} p WHERE p.id = c.parent_id AND p.space_id IS DISTINCT FROM $2)`,
+    [root.id, spaceId]
+  );
   return { docs: m.docIds.length, folders: m.folderIds.length, projects: m.projectIds.length };
 }
 
@@ -46,6 +44,7 @@ export function registerSpaceMoveRoutes(app, { requireUser, wrap, editGrant }) {
       if (typeof spaceId !== 'string' || !(await client.query('SELECT 1 FROM spaces WHERE id = $1', [spaceId])).rowCount) {
         return res.status(404).json({ error: 'space not found' });
       }
+      // Early checks only; the move itself reloads the graph inside the transaction.
       const graph = await loadSpaceGraph(client);
       if (!graph[TABLE[type]].some((r) => r.id === id)) return res.status(404).json({ error: 'not found' });
       if (type === 'doc') {
@@ -54,7 +53,7 @@ export function registerSpaceMoveRoutes(app, { requireUser, wrap, editGrant }) {
       }
       await client.query('BEGIN');
       try {
-        const moved = await moveToSpace(client, { type, id }, spaceId, graph);
+        const moved = await moveToSpace(client, { type, id }, spaceId);
         await client.query('COMMIT');
         res.json(moved);
       } catch (e) {
