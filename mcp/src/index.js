@@ -45,12 +45,28 @@ server.registerTool(
   {
     title: 'Search docs',
     description: 'Full-text search across the docs you can access. Returns id, title, and a snippet for each match.',
-    inputSchema: { query: z.string().describe('Search terms') },
+    inputSchema: { query: z.string().describe('Search terms'), spaceId: z.string().optional().describe('Only items in this space (id from list_spaces).'), },
   },
-  async ({ query }) => {
+  async ({ query, spaceId }) => {
     try {
       const rows = await api(`/search?q=${encodeURIComponent(query)}`);
-      return ok(rows.map((r) => ({ id: r.id, title: r.title, snippet: (r.snippet || '').replace(/<\/?b>/g, '') })));
+      return ok(rows.filter((r) => !spaceId || r.space_id === spaceId).map((r) => ({ id: r.id, title: r.title, snippet: (r.snippet || '').replace(/<\/?b>/g, '') })));
+    } catch (e) { return fail(e); }
+  },
+);
+
+server.registerTool(
+  'list_spaces',
+  {
+    title: 'List spaces',
+    description:
+      'The spaces (top-level areas of the workspace), with whether you have joined each. Pass a space id as spaceId to list_docs, search_docs, list_boards, create_doc or create_board.',
+    inputSchema: {},
+  },
+  async () => {
+    try {
+      const rows = await api('/spaces');
+      return ok(rows.map((r) => ({ id: r.id, name: r.name, icon: r.icon, description: r.description, joined: r.joined })));
     } catch (e) { return fail(e); }
   },
 );
@@ -60,12 +76,12 @@ server.registerTool(
   {
     title: 'List docs',
     description: 'List the docs you can access (id, title, visibility, favorite, last updated).',
-    inputSchema: {},
+    inputSchema: { spaceId: z.string().optional().describe('Only items in this space (id from list_spaces).'), },
   },
-  async () => {
+  async ({ spaceId }) => {
     try {
       const rows = await api('/docs');
-      return ok(rows.map((r) => ({ id: r.id, title: r.title, visibility: r.visibility, favorite: r.favorite, updated_at: r.updated_at })));
+      return ok(rows.filter((r) => !spaceId || r.space_id === spaceId).map((r) => ({ id: r.id, space_id: r.space_id, title: r.title, visibility: r.visibility, favorite: r.favorite, updated_at: r.updated_at })));
     } catch (e) { return fail(e); }
   },
 );
@@ -92,11 +108,12 @@ server.registerTool(
       title: z.string().describe('Document title'),
       content: z.string().optional().describe('Markdown body (optional)'),
       visibility: z.enum(['team', 'private']).optional().describe('team (default) = whole workspace; private = only you'),
+      spaceId: z.string().optional().describe('Space to create it in; defaults to General.'),
     },
   },
-  async ({ title, content, visibility }) => {
+  async ({ title, content, visibility, spaceId }) => {
     try {
-      const doc = await api('/docs', { method: 'POST', body: { title, content, visibility } });
+      const doc = await api('/docs', { method: 'POST', body: { title, content, visibility, spaceId } });
       return ok({ id: doc.id, title: doc.title, visibility: doc.visibility });
     } catch (e) { return fail(e); }
   },
@@ -452,15 +469,16 @@ server.registerTool(
     title: 'List task boards',
     description:
       'The task boards, with how many tasks each holds, how many are done and how many are overdue. Archived boards are left out. Every task tool accepts a board by name, so this is mostly for "what boards are there".',
-    inputSchema: {},
+    inputSchema: { spaceId: z.string().optional().describe('Only items in this space (id from list_spaces).'), },
   },
-  async () => {
+  async ({ spaceId }) => {
     try {
       // The route already leaves archived boards out.
       const rows = await api('/projects');
       return ok(
-        rows.map((p) => ({
+        rows.filter((p) => !spaceId || p.space_id === spaceId).map((p) => ({
           id: p.id,
+          space_id: p.space_id,
           name: p.name,
           mode: p.mode,
           tasks: p.total,
@@ -485,11 +503,12 @@ server.registerTool(
       name: z.string(),
       icon: z.string().optional().describe('A single emoji; defaults to 📋'),
       mode: z.enum(['tasks', 'data']).optional(),
+      spaceId: z.string().optional().describe('Space to create it in; defaults to General.'),
     },
   },
-  async ({ name, icon, mode }) => {
+  async ({ name, icon, mode, spaceId }) => {
     try {
-      const p = await api('/projects', { method: 'POST', body: { name, icon, mode } });
+      const p = await api('/projects', { method: 'POST', body: { name, icon, mode, spaceId } });
       return ok({ id: p.id, name: p.name, mode: p.mode, url: `${PUBLIC}/db/${p.id}` });
     } catch (e) {
       return fail(e);
