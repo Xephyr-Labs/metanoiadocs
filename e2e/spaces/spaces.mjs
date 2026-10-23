@@ -332,7 +332,7 @@ await step('13', async () => {
   check('13 an admin marks it everywhere', ok.status === 200 && ok.json.everywhere === true);
   check('13 marked everywhere, it is offered in General too', await offered(cara));
   const use = await cara.post(`/api/templates/${tpl.id}/use`, {});
-  check('13 a template used with no spaceId lands in the template\'s own space', spaceOf('docs', use.id) === M);
+  check('13 a template used with no spaceId lands in the default space', spaceOf('docs', use.id) === G);
   const useG = await cara.post(`/api/templates/${tpl.id}/use`, { spaceId: G });
   check('13 ...and with spaceId in that space', spaceOf('docs', useG.id) === G);
 });
@@ -392,6 +392,24 @@ await step('reorder', async () => {
   check('reorder Beta now sits above Alpha', sql(`SELECT string_agg(title, ',' ORDER BY position) FROM docs WHERE folder_id = '${f.id}' AND parent_id IS NULL`).startsWith('Beta,Alpha'));
   check('reorder inside a folder keeps the sub-page nested', sql(`SELECT coalesce(parent_id, '-') FROM docs WHERE id = '${kid.id}'`) === alpha.id,
     `parent_id=${sql(`SELECT coalesce(parent_id, '-') FROM docs WHERE id = '${kid.id}'`)}; client sent ${sent.ids?.length} ids, sub-page among them: ${sent.ids?.includes(kid.id)}`);
+});
+
+// ── extra: the same at the top level, and for an old client that sends every page ──
+await step('reorder-top', async () => {
+  const gamma = await maya.post('/api/docs', { title: 'Gamma top', content: 'x' });
+  const kid = await maya.post(`/api/docs/${gamma.id}/children`, { title: 'Gamma child' });
+  const delta = await maya.post('/api/docs', { title: 'Delta top', content: 'x' });
+  await mb.page.reload(); await mb.page.waitForTimeout(2500);
+  const reorder = mb.page.waitForRequest((rq) => rq.url().endsWith('/api/docs/reorder'));
+  await mb.side.getByRole('treeitem', { name: /^Delta top/ }).first().dragTo(mb.side.getByRole('treeitem', { name: /^Gamma top/ }).first(), { targetPosition: { x: 40, y: 2 } });
+  const sent = JSON.parse((await reorder).postData() || '{}');
+  await mb.page.waitForTimeout(1500);
+  const parent = () => sql(`SELECT coalesce(parent_id, '-') FROM docs WHERE id = '${kid.id}'`);
+  check('reorder-top Delta now sits above Gamma', Number(sql(`SELECT position FROM docs WHERE id = '${delta.id}'`)) < Number(sql(`SELECT position FROM docs WHERE id = '${gamma.id}'`)));
+  check('reorder-top at the top level keeps the sub-page nested', parent() === gamma.id, `parent_id=${parent()}; sub-page sent: ${sent.ids?.includes(kid.id)}`);
+  check('reorder-top the client sends only its space\'s top-level pages', !sent.ids?.includes(kid.id) && sent.dragId === delta.id);
+  await maya.post('/api/docs/reorder', { folderId: null, ids: [delta.id, gamma.id, kid.id] });
+  check('reorder-top an old client sending sub-pages too leaves them nested', parent() === gamma.id, `parent_id=${parent()}`);
 });
 
 check('no page errors in Maya\'s browser', !!mb && !mb.errors.length, mb?.errors.join(' | '));
