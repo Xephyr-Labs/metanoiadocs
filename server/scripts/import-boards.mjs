@@ -117,7 +117,9 @@ async function main() {
       if (prior) await client.query('DELETE FROM projects WHERE id = $1', [prior]);
       const projectId = crypto.randomUUID();
       await client.query(
-        `INSERT INTO projects (id, name, icon, doc_id, created_by) VALUES ($1, $2, $3, $4, $5)`,
+        // The board's database lives in its page's space.
+        `INSERT INTO projects (id, name, icon, doc_id, created_by, space_id)
+         VALUES ($1, $2, $3, $4, $5, (SELECT space_id FROM docs WHERE id = $4))`,
         [projectId, board.title || doc.title, doc.icon || '📋', doc.id, actor]
       );
 

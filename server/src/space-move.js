@@ -1,5 +1,5 @@
-import { pool } from './db.js';
-import { collectMove, isProjectOwnedPage } from './spaces.js';
+import { pool, defaultSpaceId } from './db.js';
+import { collectMove, isProjectOwnedPage, resolveSpace } from './spaces.js';
 
 const TABLE = { doc: 'docs', folder: 'folders', project: 'projects' };
 
@@ -35,6 +35,58 @@ export async function moveToSpace(client, root, spaceId) {
   return { docs: m.docIds.length, folders: m.folderIds.length, projects: m.projectIds.length };
 }
 
+/** Runs `fn(client)` in one transaction on its own pool client. */
+export async function inTransaction(fn) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const out = await fn(client);
+    await client.query('COMMIT');
+    return out;
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+/** The space_id of a doc, folder or project row; null for no id or no row. */
+export async function spaceOf(client, type, id) {
+  if (!id) return null;
+  const { rows } = await client.query(`SELECT space_id FROM ${TABLE[type]} WHERE id = $1`, [id]);
+  return rows[0]?.space_id ?? null;
+}
+
+/**
+ * The space a new item lands in. `requested` (the client's spaceId) counts only
+ * when it names a real space; with none, `fallback`, then the default space —
+ * so an old client that sends no spaceId still creates in General.
+ */
+export async function spaceForNew(client, { parentSpace, folderSpace, requested, fallback }) {
+  const real = typeof requested === 'string' && requested !== ''
+    && (await client.query('SELECT 1 FROM spaces WHERE id = $1', [requested])).rowCount > 0;
+  return resolveSpace({ parentSpace, folderSpace, requested: real ? requested : null, fallback })
+    ?? defaultSpaceId(client);
+}
+
+/**
+ * Readies `root` for a reparent into `targetSpace`: 'same' when nothing has to
+ * move (or there is no target: a move to the top level keeps its space),
+ * 'owned' when it is a database's own page, which only moves with its database,
+ * else it moves the tree and answers 'move'. Call it BEFORE the reparent UPDATE:
+ * the move detaches the root and may clear its folder, and the UPDATE then sets
+ * the new parent or folder over that.
+ */
+export async function reparentInto(client, root, targetSpace, { dryRun = false } = {}) {
+  if (!targetSpace || (await spaceOf(client, root.type, root.id)) === targetSpace) return 'same';
+  if (root.type === 'doc' && isProjectOwnedPage(await loadSpaceGraph(client), root.id)) return 'owned';
+  if (!dryRun) await moveToSpace(client, root, targetSpace);
+  return 'move';
+}
+
+export const OWNED_PAGE = 'Move the database instead';
+
 export function registerSpaceMoveRoutes(app, { requireUser, wrap, editGrant }) {
   async function move(req, res, type) {
     const { id } = req.params;
@@ -49,7 +101,7 @@ export function registerSpaceMoveRoutes(app, { requireUser, wrap, editGrant }) {
       if (!graph[TABLE[type]].some((r) => r.id === id)) return res.status(404).json({ error: 'not found' });
       if (type === 'doc') {
         if (!(await editGrant(id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
-        if (isProjectOwnedPage(graph, id)) return res.status(409).json({ error: 'Move the database instead' });
+        if (isProjectOwnedPage(graph, id)) return res.status(409).json({ error: OWNED_PAGE });
       }
       await client.query('BEGIN');
       try {

@@ -7,7 +7,7 @@
 // Users, sessions and API tokens are deliberately NOT touched: everyone keeps
 // their login. Content authorship rotates over whoever already exists.
 import crypto from 'node:crypto';
-import { pool } from '../src/db.js';
+import { pool, defaultSpaceId } from '../src/db.js';
 import { buildDocState, collectMarkdownLinks } from '../src/blocks.js';
 
 if (!process.argv.includes('--yes')) {
@@ -1044,6 +1044,11 @@ try {
     }
   }
 
+  // Seeded rows go to General, like everything the spaces backfill found.
+  const general = await defaultSpaceId(client);
+  for (const table of ['docs', 'folders', 'projects']) {
+    await client.query(`UPDATE ${table} SET space_id = $1 WHERE space_id IS NULL`, [general]);
+  }
   await client.query('COMMIT');
   console.log(
     `seeded ${FOLDERS.length} folders, ${DOCS.length} docs, ${TAGS.length} tags, ` +

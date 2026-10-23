@@ -14,6 +14,7 @@ import { emit } from './webhooks.js';
 import { KEY_PREFIX, KEY_RE, deriveKey, uniqueKey, withKey } from './task-key.js';
 import { isRepeatRule, nextOccurrence } from './repeat.js';
 import { checkParent } from './task-parent.js';
+import { spaceOf, spaceForNew, reparentInto } from './space-move.js';
 
 export const STATUSES = ['todo', 'doing', 'review', 'done'];
 
@@ -399,9 +400,16 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
   app.post('/api/projects', requireUser, wrap(async (req, res) => {
     const id = crypto.randomUUID();
     const name = String(req.body?.name || 'Untitled project').slice(0, 200);
+    // A sub-database lives in its parent's space, a database drawn on a page in
+    // that page's space (the page moves with it later, so they must agree).
+    const spaceId = await spaceForNew(pool, {
+      parentSpace: await spaceOf(pool, 'project', req.body?.parentId),
+      folderSpace: await spaceOf(pool, 'doc', req.body?.docId),
+      requested: req.body?.spaceId,
+    });
     const insert = (key) => pool.query(
-      `INSERT INTO projects (id, name, icon, color, doc_id, parent_id, mode, key, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+      `INSERT INTO projects (id, name, icon, color, doc_id, parent_id, mode, key, created_by, space_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
       [
         id,
         name,
@@ -412,6 +420,7 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
         isMode(req.body?.mode) ? req.body.mode : 'tasks',
         key,
         req.user.id,
+        spaceId,
       ]
     );
     // Two projects created in the same breath can reduce to the same key, and
@@ -461,6 +470,8 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
         await client.query('ROLLBACK');
         return res.status(400).json({ error: 'that would put a database inside itself' });
       }
+      // Under a database in another space: this one's tree moves there first.
+      await reparentInto(client, { type: 'project', id: req.params.id }, await spaceOf(client, 'project', parentId));
       const { rows } = await client.query(
         `UPDATE projects SET parent_id = $1, position = $2 WHERE id = $3 RETURNING *`,
         [parentId, Number(req.body?.position) || 0, req.params.id]
