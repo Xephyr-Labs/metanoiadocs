@@ -79,3 +79,12 @@ export function isProjectOwnedPage(graph, docId) {
 export function byJoinedFirst(rows, joined) {
   return [...rows.filter((r) => joined.has(r.space_id)), ...rows.filter((r) => !joined.has(r.space_id))];
 }
+
+/** Cleans a create-space body. Icon and description fall back to the DB defaults. */
+export function spaceInput(raw) {
+  const name = String(raw?.name ?? '').trim().slice(0, 80).trim();
+  if (!name) return { error: 'Give the space a name.' };
+  const icon = String(raw?.icon ?? '').trim().slice(0, 16) || '🗂️';
+  const description = String(raw?.description ?? '').trim().slice(0, 500);
+  return { name, icon, description };
+}

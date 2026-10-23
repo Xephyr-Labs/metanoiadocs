@@ -60,6 +60,7 @@ import { registerPushRoutes, sendPush } from './push.js';
 import { linkFor } from './push-rules.js';
 import { registerFolderRoutes, visibleFolder } from './folders-routes.js';
 import { registerSpaceMoveRoutes } from './space-move.js';
+import { registerSpaceRoutes } from './spaces-routes.js';
 import { registerWebhookRoutes, emit, startWebhookWorker } from './webhooks.js';
 import { registerGuestCommentRoutes, shareAccess } from './guest-comments.js';
 import { commentAnchors } from './text-match.js';
@@ -3087,6 +3088,7 @@ registerHomeRoutes(app, { requireUser, wrap });
 registerPushRoutes(app, { requireUser, wrap });
 registerFolderRoutes(app, { requireUser, wrap });
 registerSpaceMoveRoutes(app, { requireUser, wrap, editGrant });
+registerSpaceRoutes(app, { requireUser, wrap });
 registerWebhookRoutes(app, { requireUser, requireAdmin, wrap });
 registerFormRoutes(app, { requireUser, wrap, baseUrl: BASE_URL });
 // Marking or unmarking a template goes by the page's own grant: the template

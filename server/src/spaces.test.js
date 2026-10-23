@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveSpace, collectMove, isProjectOwnedPage, byJoinedFirst } from './spaces.js';
+import { resolveSpace, collectMove, isProjectOwnedPage, byJoinedFirst, spaceInput } from './spaces.js';
 
 test('a sub-item takes its parent space before anything else', () => {
   assert.equal(resolveSpace({ parentSpace: 'p', folderSpace: 'f', requested: 'r', fallback: 'g' }), 'p');
@@ -43,4 +43,11 @@ test('task pages and source pages belong to their project', () => {
 test('joined spaces first, order kept within each group', () => {
   const rows = [{ id: 1, space_id: 'o' }, { id: 2, space_id: 'j' }, { id: 3, space_id: 'o' }, { id: 4, space_id: 'j' }];
   assert.deepEqual(byJoinedFirst(rows, new Set(['j'])).map((r) => r.id), [2, 4, 1, 3]);
+});
+test('a space needs a name', () => {
+  assert.deepEqual(spaceInput({ name: '  ' }), { error: 'Give the space a name.' });
+  assert.equal(spaceInput({ name: ' Marketing ' }).name, 'Marketing');
+  assert.equal(spaceInput({ name: 'x'.repeat(200) }).name.length, 80);
+  assert.deepEqual(spaceInput({ name: 'A', icon: ' 🚀 ', description: ' hi ' }), { name: 'A', icon: '🚀', description: 'hi' });
+  assert.deepEqual(spaceInput({ name: 'A' }), { name: 'A', icon: '🗂️', description: '' });
 });
