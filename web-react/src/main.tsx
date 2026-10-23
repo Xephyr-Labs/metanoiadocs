@@ -8,6 +8,7 @@ import { AuthProvider, useAuth } from './store/auth';
 import { WorkspaceProvider } from './store/workspace';
 import './index.css';
 import { installFilePickerFallback } from './editor/filePicker';
+import { installAudioDurationFix } from './lib/recorder';
 import { applyDocFont, applySmallText } from './lib/docPrefs';
 import { installAppUpdates } from './lib/appUpdate';
 import { canonicalizeLegacyAddress } from './lib/route';
@@ -17,6 +18,8 @@ import { canonicalizeLegacyAddress } from './lib/route';
 // it. Without this, "Image", "Attachment" and "PDF" are menu items that do
 // nothing at all when clicked.
 installFilePickerFallback();
+// Recorded voice notes play with a working scrubber (see lib/recorder.ts).
+installAudioDurationFix();
 
 // A deploy replaces every content-hashed chunk, so a tab left open across one
 // asks for files that no longer exist and the lazily-loaded editor never
