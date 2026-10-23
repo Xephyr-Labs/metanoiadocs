@@ -792,7 +792,7 @@ export async function mountEditor(
       try { detachSelectAll(); } catch { /* noop */ }
       try { detachFileDrop?.(); } catch { /* noop */ }
       try { detachCalloutPanels(); } catch { /* noop */ }
-      try { cancelVoiceNote(); } catch { /* noop */ }
+      try { cancelVoiceNote(editor as unknown as Element); } catch { /* noop */ }
       try { detachTextSize(); } catch { /* noop */ }
       try { detachMermaid(); } catch { /* noop */ }
       try { detachMarkdownPaste?.(); } catch { /* noop */ }

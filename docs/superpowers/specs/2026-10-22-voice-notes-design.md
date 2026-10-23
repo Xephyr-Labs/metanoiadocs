@@ -47,7 +47,7 @@ Every voice note plays back with the browser's own audio player.
 - New column: `comments.attachments JSONB NOT NULL DEFAULT '[]'`.
 - Both POST routes take `attachments` and validate it with `coerceFiles`. Both GET routes return it.
 - A comment has to carry text or a file. Otherwise the route returns `400 empty comment`, as today.
-- When the body is empty, notifications, email and webhooks use the text `🎤 Voice note`, so an inbox row is never blank.
+- When the body is empty, notifications and email use the text `🎤 Voice note`, so an inbox row is never blank. Webhooks get the real empty `body` plus `attachments`.
 - Guest comment routes stay as they are. Guests can't record.
 
 **Page**: `web-react/src/editor/voiceNote.ts`

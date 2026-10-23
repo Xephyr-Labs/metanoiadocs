@@ -14,15 +14,21 @@ import { IconButton } from './IconButton';
  * Anything that is not a sound is a link, so a file posted some other way
  * still opens.
  */
-export function CommentFiles({ files, onRemove }: { files?: StoredFile[]; onRemove?: (f: StoredFile) => void }) {
+export function CommentFiles({ files, onRemove, share }: {
+  files?: StoredFile[];
+  onRemove?: (f: StoredFile) => void;
+  /** A public link's token: how a guest, who has no session, may fetch the file. */
+  share?: string;
+}) {
   if (!files?.length) return null;
+  const url = (f: StoredFile) => (share ? `${fileUrl(f)}&share=${encodeURIComponent(share)}` : fileUrl(f));
   return (
     <div className="mt-1.5 w-full space-y-1">
       {files.map((f) => (
         <div key={f.key} className="flex w-full items-center gap-1">
           {isAudioFile(f)
-            ? <audio src={fileUrl(f)} controls preload="metadata" className="h-8 w-full min-w-0 flex-1" aria-label={f.name} />
-            : <a href={fileUrl(f)} target="_blank" rel="noreferrer noopener" className="min-w-0 flex-1 truncate text-2xs text-accent-strong hover:underline">{f.name}</a>}
+            ? <audio src={url(f)} controls preload="metadata" className="h-8 w-full min-w-0 flex-1" aria-label={f.name} />
+            : <a href={url(f)} target="_blank" rel="noreferrer noopener" className="min-w-0 flex-1 truncate text-2xs text-accent-strong hover:underline">{f.name}</a>}
           {onRemove && <IconButton size="sm" tone="danger" icon={<X size={12} />} label="Remove voice note" onClick={() => onRemove(f)} />}
         </div>
       ))}

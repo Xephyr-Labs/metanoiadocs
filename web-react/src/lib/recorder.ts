@@ -57,7 +57,15 @@ export async function startRecording(opts: { onTick?: (ms: number) => void; onAu
   const mime = typeof MediaRecorder === 'undefined' ? '' : pickMime((t) => MediaRecorder.isTypeSupported(t));
   if (!mime || !navigator.mediaDevices?.getUserMedia) throw new DOMException('no recorder', 'NotSupportedError');
   const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  const recorder = new MediaRecorder(stream, { mimeType: mime, audioBitsPerSecond: BITRATE });
+  let recorder: MediaRecorder;
+  try {
+    recorder = new MediaRecorder(stream, { mimeType: mime, audioBitsPerSecond: BITRATE });
+  } catch (e) {
+    // The mic is already open; leaving it so would keep the browser's
+    // recording light on with nothing recording.
+    stream.getTracks().forEach((t) => t.stop());
+    throw e;
+  }
   const chunks: Blob[] = [];
   recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
   const started = Date.now();
@@ -83,7 +91,12 @@ export async function startRecording(opts: { onTick?: (ms: number) => void; onAu
     return done;
   }
 
-  recorder.start(1000);
+  try {
+    recorder.start(1000);
+  } catch (e) {
+    release();
+    throw e;
+  }
   return {
     stop,
     cancel: () => {

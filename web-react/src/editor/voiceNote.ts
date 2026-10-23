@@ -17,12 +17,14 @@ import { formatElapsed, micErrorMessage, startRecording, type Recording } from '
 type Std = Parameters<typeof addSiblingAttachmentBlocks>[0];
 type Model = Parameters<typeof addSiblingAttachmentBlocks>[2];
 
-/** The one recording in progress, if any — two at once would fight for the mic. */
-let active: { cancel: () => void } | null = null;
+/** The one recording in progress, if any — two at once would fight for the mic.
+ *  `host` is the editor it was started in, so only that editor's teardown ends it:
+ *  a task peek or history preview mounts an editor of its own beside the page's. */
+let active: { cancel: () => void; host: Element | null } | null = null;
 
-/** Throw away a recording in progress; the editor calls this as it unmounts. */
-export function cancelVoiceNote(): void {
-  active?.cancel();
+/** Throw away a recording started in this editor; called as it unmounts. */
+export function cancelVoiceNote(root: Element): void {
+  if (active && (!active.host || root.contains(active.host))) active.cancel();
 }
 
 function button(label: string, onClick: () => void): HTMLButtonElement {
@@ -36,6 +38,7 @@ function button(label: string, onClick: () => void): HTMLButtonElement {
 
 function recordInto(std: Std, model: Model): void {
   if (active) return;
+  const host = (std as unknown as { host?: Element }).host ?? null;
   const pill = document.createElement('div');
   pill.setAttribute('role', 'status');
   pill.style.cssText =
@@ -73,7 +76,10 @@ function recordInto(std: Std, model: Model): void {
     close();
   };
   const onKey = (e: KeyboardEvent) => {
-    if (e.key !== 'Escape') return;
+    // Only an Esc aimed at this page or the pill: one meant for a dialog, a
+    // menu or a comment box must reach it and leave the recording alone.
+    const target = e.target as Node | null;
+    if (e.key !== 'Escape' || !target || !(pill.contains(target) || host?.contains(target))) return;
     e.preventDefault();
     e.stopPropagation();
     cancel();
@@ -94,7 +100,7 @@ function recordInto(std: Std, model: Model): void {
     }
   };
 
-  active = { cancel };
+  active = { cancel, host };
   document.addEventListener('keydown', onKey, true);
   startRecording({
     onTick: (ms) => { label.textContent = formatElapsed(ms); },

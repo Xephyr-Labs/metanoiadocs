@@ -166,6 +166,8 @@ export function TaskComments({
   const openReply = (thread: string, to: string) => {
     setReplyTo({ thread, to });
     setReplyText(savedDraft(`task-reply:${thread}`));
+    // A note recorded for another thread does not follow the reply box here.
+    setReplyNote(null);
   };
 
   const saveEdit = async () => {

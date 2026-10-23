@@ -469,7 +469,7 @@ export function CommentsTab({ docId }: { docId: string }) {
                 ) : (
                   <button
                     type="button"
-                    onClick={() => { setReplyTo(c.id); setReplyText(savedDraft(`reply:${c.id}`)); }}
+                    onClick={() => { setReplyTo(c.id); setReplyText(savedDraft(`reply:${c.id}`)); setReplyNote(null); }}
                     className="mn-hit -ml-1.5 mt-1 flex h-6 items-center rounded-md px-1.5 text-2xs font-medium text-muted transition-colors duration-120 hover:bg-hover hover:text-ink"
                   >
                     Reply
