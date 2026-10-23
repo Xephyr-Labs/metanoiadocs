@@ -11,6 +11,7 @@ import {
 import { docsApi, type DocPropRow, type DocRow, type FolderRow } from '../lib/docsApi';
 import * as prefs from '../lib/docPrefs';
 import { tasksApi, type ProjectRow } from '../lib/tasksApi';
+import { spacesApi, type MoveType, type SpaceRow } from '../lib/spacesApi';
 import { setPendingSeed } from '../editor/pendingSeed';
 import { toast } from '../lib/toast';
 import { MAX_IMPORT_BYTES } from '../lib/docFiles';
@@ -53,6 +54,18 @@ interface WorkspaceState {
   openFolder: (id: string) => void;
   projects: ProjectRow[];
   refreshProjects: () => Promise<void>;
+  /** Every space, joined or not, in sidebar order. */
+  spaces: SpaceRow[];
+  refreshSpaces: () => Promise<void>;
+  /** Moves the item and its whole tree, then reloads pages, folders and projects.
+   *  Resolves false (with a toast) when the server refuses. */
+  moveToSpace: (type: MoveType, id: string, spaceId: string) => Promise<boolean>;
+  joinSpace: (id: string) => Promise<void>;
+  leaveSpace: (id: string) => Promise<void>;
+  /** Null (with a toast) when the server refuses. */
+  createSpace: (input: { name: string; icon?: string; description?: string; memberIds?: string[] }) => Promise<SpaceRow | null>;
+  /** `ids` is every space in its new order. */
+  reorderSpaces: (ids: string[]) => Promise<void>;
 
   pages: Record<PageId, Page>;
   folders: Record<string, Folder>;
@@ -127,9 +140,9 @@ interface WorkspaceState {
   setVisibility: (id: PageId, visibility: 'team' | 'private') => void;
   rename: (id: PageId, title: string) => void;
   applyTitleFromEditor: (id: PageId, title: string) => void;
-  createPage: (folderId: string | null) => Promise<PageId | null>;
+  createPage: (folderId: string | null, spaceId?: string) => Promise<PageId | null>;
   /** A design is a page that opens on the canvas. Same everything else. */
-  createDesign: () => Promise<PageId | null>;
+  createDesign: (spaceId?: string) => Promise<PageId | null>;
   designIds: PageId[];
   movePage: (id: PageId, folderId: string | null) => Promise<void>;
   createChildPage: (parentId: PageId) => Promise<PageId | null>;
@@ -137,7 +150,7 @@ interface WorkspaceState {
   linkPage: (parentId: PageId, childId: PageId) => Promise<void>;
   reorderFolder: (dragId: string, targetId: string, place: 'before' | 'after') => Promise<void>;
   moveFolder: (id: string, parentId: string | null) => Promise<void>;
-  createFolder: (parentId: string | null) => Promise<string | null>;
+  createFolder: (parentId: string | null, spaceId?: string) => Promise<string | null>;
   renameFolder: (id: string, name: string) => Promise<void>;
   setFolderColor: (id: string, color: string) => void;
   setIcon: (id: PageId, icon: string) => void;
@@ -209,6 +222,7 @@ function buildPages(rows: DocRow[]): Record<PageId, Page> {
       linkCount: r.link_count ?? 0,
       tags: r.tags ?? [],
       props: r.props ?? {},
+      spaceId: r.space_id ?? null,
       children: [],
   };
   }
@@ -239,6 +253,7 @@ function buildFolders(rows: FolderRow[], expanded: Set<string>, pages: Record<Pa
       expanded: expanded.has(row.id),
       favorite: !!row.favorite,
       pinned: !!row.pinned,
+      spaceId: row.space_id ?? null,
     };
   }
   // Same comparator as unfiledIds below, so a page keeps its place when it is
@@ -279,6 +294,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [pendingTaskId, setPendingTaskId] = useState<string | null>(null);
   const [activeViewId, setActiveViewId] = useState<string | null>(null);
   const [projects, setProjects] = useState<ProjectRow[]>([]);
+  const [spaces, setSpaces] = useState<SpaceRow[]>([]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   // Lives here rather than in the Sidebar because the app shell animates the
   // column's width, so the shell has to know which width it is animating to.
@@ -437,6 +453,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         refreshTags();
         refreshUnread();
         refreshProjects();
+        refreshSpaces();
         refreshDocProps();
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Failed to load documents.');
@@ -448,6 +465,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const refreshProjects = useCallback(async () => {
     setProjects(await tasksApi.projects().catch(() => []));
+  }, []);
+
+  const refreshSpaces = useCallback(async () => {
+    setSpaces(await spacesApi.list().catch(() => []));
   }, []);
 
   const openHome = useCallback(() => {
@@ -656,9 +677,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setPages((p) => (p[id] && p[id].title !== clean ? { ...p, [id]: { ...p[id], title: clean } } : p));
   }, []);
 
-  const createPage = useCallback(async (folderId: string | null): Promise<PageId | null> => {
+  const createPage = useCallback(async (folderId: string | null, spaceId?: string): Promise<PageId | null> => {
     try {
-      const row = await docsApi.create({ title: 'Untitled', folderId });
+      const row = await docsApi.create({ title: 'Untitled', folderId, spaceId });
       await refresh();
       if (folderId) {
         folderExpandedRef.current.add(folderId);
@@ -672,9 +693,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     }
   }, [refresh, select]);
 
-  const createDesign = useCallback(async (): Promise<PageId | null> => {
+  const createDesign = useCallback(async (spaceId?: string): Promise<PageId | null> => {
     try {
-      const row = await docsApi.create({ title: 'Untitled design', icon: '🎨', kind: 'design' });
+      const row = await docsApi.create({ title: 'Untitled design', icon: '🎨', kind: 'design', spaceId });
       await refresh();
       select(row.id);
       return row.id;
@@ -684,9 +705,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     }
   }, [refresh, select]);
 
-  const createFolder = useCallback(async (parentId: string | null): Promise<string | null> => {
+  const createFolder = useCallback(async (parentId: string | null, spaceId?: string): Promise<string | null> => {
     try {
-      const row = await docsApi.createFolder({ name: 'New folder', parentId });
+      const row = await docsApi.createFolder({ name: 'New folder', parentId, spaceId });
       folderExpandedRef.current.add(row.id);
       if (parentId) folderExpandedRef.current.add(parentId);
       await refresh();
@@ -696,6 +717,48 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       return null;
     }
   }, [refresh]);
+
+  const moveToSpace = useCallback(async (type: MoveType, id: string, spaceId: string): Promise<boolean> => {
+    try {
+      await spacesApi.moveToSpace(type, id, spaceId);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Could not move that.');
+      return false;
+    } finally {
+      // Run either way: the sidebar must match the server, moved or not.
+      await Promise.all([refresh(), refreshProjects()]).catch(() => {});
+    }
+    return true;
+  }, [refresh, refreshProjects]);
+
+  const joinSpace = useCallback(async (id: string) => {
+    await spacesApi.join(id).catch((e) => toast(e instanceof Error ? e.message : 'Could not join that space.'));
+    await refreshSpaces();
+  }, [refreshSpaces]);
+
+  const leaveSpace = useCallback(async (id: string) => {
+    await spacesApi.leave(id).catch((e) => toast(e instanceof Error ? e.message : 'Could not leave that space.'));
+    await refreshSpaces();
+  }, [refreshSpaces]);
+
+  const createSpace = useCallback(async (input: { name: string; icon?: string; description?: string; memberIds?: string[] }) => {
+    try {
+      const row = await spacesApi.create(input);
+      await refreshSpaces();
+      return row;
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Could not create that space.');
+      return null;
+    }
+  }, [refreshSpaces]);
+
+  const reorderSpaces = useCallback(async (ids: string[]) => {
+    // Optimistic, like reorderFolder: the list is re-read either way, which
+    // puts the old order back if the save failed.
+    setSpaces((prev) => ids.map((id) => prev.find((s) => s.id === id)).filter((s): s is SpaceRow => !!s));
+    await spacesApi.reorder(ids).catch(() => toast('Could not save the new order.'));
+    await refreshSpaces();
+  }, [refreshSpaces]);
 
   const movePage = useCallback(async (id: PageId, folderId: string | null) => {
     await docsApi.patch(id, { folderId }).catch(() => toast('Could not move that page.'));
@@ -1158,7 +1221,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       pinnedIds, pinnedFolderIds, togglePin, toggleFolderPin,
       currentId, currentPage, loading, error, workspaceId,
       historyDocId, openHistory, closeHistory,
-      view, activeProjectId, activeFolderId, openHome, openTasks, openAllDocs, openProject, createTaskIn, pendingTaskId, clearPendingTask, pendingViewId: activeViewId, clearPendingView, openFolder, projects, refreshProjects,
+      view, activeProjectId, activeFolderId, openHome, openTasks, openAllDocs, openProject, createTaskIn, pendingTaskId, clearPendingTask, pendingViewId: activeViewId, clearPendingView, openFolder, projects, refreshProjects, spaces, refreshSpaces, moveToSpace, joinSpace, leaveSpace, createSpace, reorderSpaces,
       sidebarCollapsed, panelCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
       settingsOpen, trashOpen, inboxOpen, shortcutsOpen, captureOpen, mode, fullWidth, theme,
       refresh, select, toggleExpand, toggleFavorite, toggleLove, toggleFolderFavorite, setVisibility, rename, applyTitleFromEditor,
@@ -1174,7 +1237,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       pinnedIds, pinnedFolderIds, togglePin, toggleFolderPin,
       currentId, currentPage, loading, error, workspaceId,
       historyDocId, openHistory, closeHistory,
-      view, activeProjectId, activeFolderId, openHome, openTasks, openAllDocs, openProject, createTaskIn, pendingTaskId, clearPendingTask, activeViewId, clearPendingView, openFolder, projects, refreshProjects,
+      view, activeProjectId, activeFolderId, openHome, openTasks, openAllDocs, openProject, createTaskIn, pendingTaskId, clearPendingTask, activeViewId, clearPendingView, openFolder, projects, refreshProjects, spaces, refreshSpaces, moveToSpace, joinSpace, leaveSpace, createSpace, reorderSpaces,
       sidebarCollapsed, panelCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
       settingsOpen, trashOpen, inboxOpen, shortcutsOpen, captureOpen, mode, fullWidth, theme,
       refresh, select, toggleExpand, toggleFavorite, toggleLove, toggleFolderFavorite, setVisibility, rename, applyTitleFromEditor,

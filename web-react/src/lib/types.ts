@@ -46,6 +46,8 @@ export interface Page {
   isTemplate: boolean;
   /** Page property values, keyed by DocPropRow.id. Sparse: only what is set. */
   props: Record<string, unknown>;
+  /** The space it lives in; null until the server sends one. */
+  spaceId: string | null;
   children: PageId[];
   expanded?: boolean;
 }
@@ -62,6 +64,7 @@ export interface Folder {
   favorite: boolean;
   /** Pinned for the whole workspace, as opposed to `favorite`, which is yours. */
   pinned: boolean;
+  spaceId: string | null;
 }
 
 /** `slides` is the edgeless canvas with deck chrome — same doc, same blocks. */

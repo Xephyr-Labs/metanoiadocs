@@ -70,6 +70,7 @@ export interface DocRow {
   /** Marked as a starting point for new pages. Templates stay in every list
    *  they were already in — the mark is the only difference. */
   is_template?: boolean;
+  space_id: string | null;
 }
 
 /** A page offered as a starting point, as the picker lists it. */
@@ -108,6 +109,7 @@ export interface FolderRow {
   folder_count: number;
   favorite: boolean;
   pinned: boolean;
+  space_id: string | null;
 }
 
 export function normalizeFolderRows(value: unknown): FolderRow[] {
@@ -239,6 +241,9 @@ export interface SearchRow {
   /** Tasks only — the task's type key. Absent from a server that does not
    *  send it yet, in which case the hit shows its status dot instead. */
   taskKind?: string;
+  space_id?: string | null;
+  /** False when the hit lives in a space you have not joined. */
+  inJoinedSpace?: boolean;
 }
 
 export interface TrashRow {
@@ -342,7 +347,7 @@ export const docsApi = {
   myDocs: (offset: number, limit = 8): Promise<{ total: number; rows: MyDocRow[] }> =>
     req(`/docs/mine?offset=${offset}&limit=${limit}`),
   folders: async (): Promise<FolderRow[]> => normalizeFolderRows(await req('/folders')),
-  createFolder: (body: { name: string; parentId?: string | null }): Promise<FolderRow> =>
+  createFolder: (body: { name: string; parentId?: string | null; spaceId?: string }): Promise<FolderRow> =>
     req('/folders', { method: 'POST', body: JSON.stringify(body) }),
   patchFolder: (id: string, body: { name?: string; color?: string; parentId?: string | null }) =>
     req(`/folders/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
@@ -357,9 +362,10 @@ export const docsApi = {
    * destination ride on the query string. Everything format-specific happens
    * server-side (server/src/import.js); .docx and .pdf cannot be read here.
    */
-  import: (file: File, folderId: string | null): Promise<DocRow & { warnings?: string[] }> => {
+  import: (file: File, folderId: string | null, spaceId?: string): Promise<DocRow & { warnings?: string[] }> => {
     const q = new URLSearchParams({ name: file.name });
     if (folderId) q.set('folderId', folderId);
+    if (spaceId) q.set('spaceId', spaceId);
     return req(`/docs/import?${q}`, {
       method: 'POST',
       body: file,
@@ -369,7 +375,7 @@ export const docsApi = {
     });
   },
   /** `content` is markdown, built into real blocks server-side (used by import). */
-  create: (body: { title?: string; icon?: string; folderId?: string | null; content?: string; kind?: 'doc' | 'design' }): Promise<DocRow> =>
+  create: (body: { title?: string; icon?: string; folderId?: string | null; content?: string; kind?: 'doc' | 'design'; spaceId?: string }): Promise<DocRow> =>
     req('/docs', { method: 'POST', body: JSON.stringify(body) }),
   /** Every page offered as a starting point. */
   templates: (): Promise<TemplateRow[]> => req('/templates'),
@@ -377,7 +383,7 @@ export const docsApi = {
   markTemplate: (id: string, isTemplate: boolean): Promise<{ id: string; isTemplate: boolean }> =>
     req(`/docs/${id}/template`, { method: 'POST', body: JSON.stringify({ isTemplate }) }),
   /** A new page with this template's body, copied block for block. */
-  useTemplate: (id: string, body: { title?: string; folderId?: string | null }): Promise<DocRow> =>
+  useTemplate: (id: string, body: { title?: string; folderId?: string | null; spaceId?: string }): Promise<DocRow> =>
     req(`/templates/${id}/use`, { method: 'POST', body: JSON.stringify(body) }),
   /** Create a page nested under `parentId` — the parent gains a reference to it. */
   createChild: (parentId: string, title?: string): Promise<DocRow> =>
