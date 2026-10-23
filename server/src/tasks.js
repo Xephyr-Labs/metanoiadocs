@@ -366,7 +366,6 @@ const TASK_SELECT = `
 // Every live task in the workspace, for the cross-project Tasks view. Narrowing
 // happens in the client against the same filter engine a board uses, so this
 // hands back the rows plus the names they are filtered by.
-//
 // $1 is the caller and $2 whether to skip the space filter (?spaces=all). The
 // filter mirrors taskInScope in spaces.js: joined space, assigned to me, or
 // made by me. A task given to me in a space I never joined must still show.

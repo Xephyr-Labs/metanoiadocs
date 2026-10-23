@@ -550,7 +550,7 @@ server.registerTool(
       // handler for GET /api/tasks is registered ahead of them and answers
       // first — so the filtering happens here. That route also caps at 1000
       // rows, which is the real ceiling on this approach.
-      const { tasks } = await api('/tasks');
+      const { tasks } = await api('/tasks?spaces=all');
       let rows = tasks;
 
       if (assignee) {
