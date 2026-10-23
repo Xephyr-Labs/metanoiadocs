@@ -19,8 +19,8 @@ import { sendPush } from './push.js';
 import { linkFor } from './push-rules.js';
 import { emit } from './webhooks.js';
 import { withReactions } from './reactions.js';
+import { commentInput } from './comment-input.js';
 
-const MAX_BODY = 4000;
 
 /**
  * Everyone who should hear about a comment on this task, and why.
@@ -144,7 +144,7 @@ async function notify({ commentId, task, body, actor, parentId, replyToId }) {
 // under that reply's thread, and the reply's author is the one told. A parent
 // that is not a comment on this task returns null rather than being stored
 // somewhere no panel would show it.
-export async function insertTaskComment({ task, body, user, parentId: asked }) {
+export async function insertTaskComment({ task, body, attachments = [], user, parentId: asked }) {
   let parentId = null;
   let replyToId = null;
   if (asked) {
@@ -158,13 +158,13 @@ export async function insertTaskComment({ task, body, user, parentId: asked }) {
   }
   const id = crypto.randomUUID();
   await pool.query(
-    `INSERT INTO comments (id, task_id, body, author_id, author_name, parent_id)
-     VALUES ($1, $2, $3, $4, $5, $6)`,
-    [id, task.id, body, user.id, user.name || user.email, parentId]
+    `INSERT INTO comments (id, task_id, body, author_id, author_name, parent_id, attachments)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [id, task.id, body, user.id, user.name || user.email, parentId, JSON.stringify(attachments)]
   );
-  notify({ commentId: id, task, body, actor: user, parentId, replyToId })
+  notify({ commentId: id, task, body: body || '🎤 Voice note', actor: user, parentId, replyToId })
     .catch((e) => console.error('[notify] task comment fanout failed:', e.message));
-  emit('comment.created', { id, task_id: task.id, body, author_id: user.id });
+  emit('comment.created', { id, task_id: task.id, body, attachments, author_id: user.id });
   return { id, parentId };
 }
 
@@ -172,7 +172,7 @@ export function registerTaskCommentRoutes(app, { requireUser, wrap }) {
   app.get('/api/tasks/:id/comments', requireUser, wrap(async (req, res) => {
     const { rows } = await pool.query(
       `SELECT c.id, c.body, c.author_id, c.author_name, c.parent_id, c.resolved,
-              c.created_at, c.edited_at, u.kind AS author_kind
+              c.created_at, c.edited_at, c.attachments, u.kind AS author_kind
          FROM comments c
          LEFT JOIN users u ON u.id = c.author_id
         WHERE c.task_id = $1
@@ -183,20 +183,22 @@ export function registerTaskCommentRoutes(app, { requireUser, wrap }) {
   }));
 
   app.post('/api/tasks/:id/comments', requireUser, wrap(async (req, res) => {
-    const body = String(req.body?.body || '').trim().slice(0, MAX_BODY);
-    if (!body) return res.status(400).json({ error: 'empty comment' });
+    const input = commentInput(req.body);
+    if (input.error) return res.status(400).json({ error: input.error });
+    const { body, attachments } = input;
     const { rows: task } = await pool.query(
       'SELECT id, title, doc_id, project_id, created_by FROM tasks WHERE id = $1 AND deleted_at IS NULL',
       [req.params.id]
     );
     if (!task[0]) return res.status(404).json({ error: 'not found' });
 
-    const saved = await insertTaskComment({ task: task[0], body, user: req.user, parentId: req.body?.parentId });
+    const saved = await insertTaskComment({ task: task[0], body, attachments, user: req.user, parentId: req.body?.parentId });
     if (!saved) return res.status(400).json({ error: 'That comment is not on this task.' });
     const { id, parentId } = saved;
     res.json({
       id,
       body,
+      attachments,
       author_id: req.user.id,
       author_name: req.user.name || req.user.email,
       parent_id: parentId,

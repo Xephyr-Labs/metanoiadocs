@@ -553,6 +553,9 @@ export async function initSchema() {
     -- the same words. Null on rows from before they were recorded.
     ALTER TABLE comments ADD COLUMN IF NOT EXISTS anchor_start TEXT;
     ALTER TABLE comments ADD COLUMN IF NOT EXISTS anchor_end TEXT;
+    -- Files posted with a comment (a voice note), the same {key,name,mime,size}
+    -- references tasks.attachments keeps; the bytes are in blobs.
+    ALTER TABLE comments ADD COLUMN IF NOT EXISTS attachments JSONB NOT NULL DEFAULT '[]';
 
     -- Emoji reactions on comments (see reactions.js): one per person per emoji.
     CREATE TABLE IF NOT EXISTS comment_reactions (

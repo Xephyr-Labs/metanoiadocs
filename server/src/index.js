@@ -39,6 +39,7 @@ import { runIntegrityScan, startIntegrityScan } from './integrity.js';
 import * as Y from 'yjs';
 import { mentionHandles } from './mentions.js';
 import { baseMime } from './media.js';
+import { commentInput } from './comment-input.js';
 import { docCommentRecipients } from './comment-recipients.js';
 import { buildDocState, appendMarkdownToDoc, appendPageReference, extractText, extractBlocks, docToMarkdown, fixTableOrderKeys, stateWithValidTableKeys } from './blocks.js';
 import { rewriteDoc } from './restore.js';
@@ -2607,7 +2608,7 @@ app.get('/api/docs/:id/comments', requireUser, async (req, res) => {
   const { rows } = await pool.query(
     `SELECT c.id, c.block_id, c.quote, c.body, c.author_id, c.author_name, c.parent_id, c.resolved,
             c.created_at, c.edited_at, c.guest, c.kind, c.suggestion, c.suggestion_status, c.quote_occurrence,
-            c.anchor_start, c.anchor_end, u.name AS decided_by_name
+            c.anchor_start, c.anchor_end, c.attachments, u.name AS decided_by_name
        FROM comments c LEFT JOIN users u ON u.id = c.decided_by
       WHERE c.doc_id = $1 ORDER BY c.created_at ASC`,
     [req.params.id]
@@ -2620,9 +2621,14 @@ app.post('/api/docs/:id/comments', requireUser, async (req, res) => {
   if (!canComment(role)) return res.status(403).json({ error: 'forbidden' });
   const suggestion = req.body?.kind === 'suggestion';
   // A suggestion proposes new text for a passage; the note beside it is optional.
-  const body = String(req.body?.body || '').trim().slice(0, 4000);
+  // A comment is text, a file (a voice note), or both; a suggestion is never a file.
+  const input = suggestion
+    ? { body: String(req.body?.body || '').trim().slice(0, 4000), attachments: [] }
+    : commentInput(req.body);
+  if (input.error) return res.status(400).json({ error: input.error });
+  const { body, attachments } = input;
+  const notifyText = input.notifyText ?? body;
   const replacement = suggestion ? String(req.body?.suggestion ?? '').slice(0, 4000) : null;
-  if (!body && !suggestion) return res.status(400).json({ error: 'empty comment' });
   if (suggestion) {
     if (!canSuggest(role)) return res.status(403).json({ error: 'You can comment on this page, but not suggest changes.' });
     if (!req.body?.blockId || !String(req.body?.quote || '').trim()) {
@@ -2639,7 +2645,7 @@ app.post('/api/docs/:id/comments', requireUser, async (req, res) => {
       [req.body.parentId, req.params.id]
     );
     if (parent) {
-      const { id } = await insertTaskComment({ task: parent, body, user: req.user, parentId: req.body.parentId });
+      const { id } = await insertTaskComment({ task: parent, body, attachments, user: req.user, parentId: req.body.parentId });
       return res.json({ id });
     }
   }
@@ -2662,22 +2668,23 @@ app.post('/api/docs/:id/comments', requireUser, async (req, res) => {
   const id = crypto.randomUUID();
   await pool.query(
     `INSERT INTO comments (id, doc_id, block_id, quote, body, author_id, author_name, parent_id, kind, suggestion, quote_occurrence,
-                           anchor_start, anchor_end)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+                           anchor_start, anchor_end, attachments)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
     [id, req.params.id, parentId ? null : (req.body?.blockId || null),
      parentId ? '' : String(req.body?.quote || '').slice(0, 500),
      body, req.user.id, req.user.name || req.user.email, parentId,
      suggestion ? 'suggestion' : 'comment', replacement,
      // Which copy of the quoted words in that block — "the" twice in a line.
      Math.max(0, Math.min(1000, Number.parseInt(req.body?.occurrence, 10) || 0)),
-     ...commentAnchors(parentId ? null : req.body)]
+     ...commentAnchors(parentId ? null : req.body),
+     JSON.stringify(attachments)]
   );
   // Fan out notifications for this comment (best-effort; never fails the comment).
   createCommentNotifications({
-    commentId: id, docId: req.params.id, body: suggestion ? suggestionSnippet(req.body.quote, replacement, body) : body,
+    commentId: id, docId: req.params.id, body: suggestion ? suggestionSnippet(req.body.quote, replacement, body) : notifyText,
     actor: req.user, parentId, replyToId, kind: suggestion ? 'suggestion' : null,
   }).catch((e) => console.error('[notify] fanout failed', e.message));
-  emit('comment.created', { id, doc_id: req.params.id, body, author_id: req.user.id });
+  emit('comment.created', { id, doc_id: req.params.id, body, attachments, author_id: req.user.id });
   commentsChanged(req.params.id);
   res.json({ id });
 });
