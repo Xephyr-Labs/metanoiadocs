@@ -31,7 +31,7 @@ Every voice note plays back with the browser's own audio player.
 ## Design
 
 **Recording**: `web-react/src/lib/recorder.ts`
-- Container type, in order of preference: `audio/webm`, then `audio/mp4` (Safari). The first one `MediaRecorder.isTypeSupported` accepts wins.
+- Container type, in order of preference: AAC in MP4 (`audio/mp4;codecs=mp4a.40.2`, which every browser plays back, older Safari and iOS included), then `audio/webm` (Firefox, and Chromium builds without the AAC encoder), then any `audio/mp4`. The first one `MediaRecorder.isTypeSupported` accepts wins; the stored type is always bare.
 - `audioBitsPerSecond: 32000`. Speech at that rate is about 240 KB a minute.
 - Recording stops by itself at **10 minutes**, about 2.4 MB.
 - Stopping or cancelling releases every microphone track, so the browser's recording indicator goes off.
@@ -71,6 +71,12 @@ Macro's licence is AGPL, so we take ideas only and no code. I checked each idea 
 ## Done alongside
 
 - A share link's token used to unlock every blob in the workspace. `GET /api/blob/:key?share=` now serves only files its own page uses: in the page itself, in its properties, or on its comments.
+
+- Send waits for a note: pressing it while a note is recording or uploading says `Finish the voice note first.` instead of posting the words alone.
+- Removed notes leave storage. A pending note that is replaced, removed or abandoned is taken back (`DELETE /api/blob/:key/unused`, uploader only), and deleting a comment deletes its notes. Either way only audio goes, and only once no page, version, draft, property, task or other comment uses the same bytes (`server/src/blob-cleanup.js`).
+- Agents and the home feed read a voice-only comment as `🎤 Voice note`; MCP `read_comments` and `read_task_comments` also list its files with a fetchable URL.
+- Guests can't record: a share link always opens the editor read-only. In Suggesting mode a `/voice` note goes into the suggester's draft, like any other suggested block.
+- Browser checks live in `e2e/voice-notes/` (`run.sh` builds a throwaway stack on :8098 with a fake microphone).
 
 ## Follow-ups (not in this work)
 

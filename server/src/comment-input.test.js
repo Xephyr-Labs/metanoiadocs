@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { commentInput } from './comment-input.js';
+import { commentInput, commentText } from './comment-input.js';
 
 const note = { key: 'a'.repeat(64), name: 'Voice note 2026-10-22 14.03.webm', mime: 'audio/webm', size: 1200 };
 
@@ -25,4 +25,11 @@ test('a malformed file refuses the whole comment', () => {
 
 test('body capped at 4000', () => {
   assert.equal(commentInput({ body: 'x'.repeat(5000) }).body.length, 4000);
+});
+
+test('a comment reads as its words, or as a voice note when it has none', () => {
+  assert.equal(commentText('hi', [note]), 'hi');
+  assert.equal(commentText('', [note]), '🎤 Voice note');
+  assert.equal(commentText('', []), '');
+  assert.equal(commentText('', undefined), '');
 });

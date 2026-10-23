@@ -19,7 +19,7 @@ import { sendPush } from './push.js';
 import { linkFor } from './push-rules.js';
 import { emit } from './webhooks.js';
 import { withReactions } from './reactions.js';
-import { commentInput } from './comment-input.js';
+import { commentInput, commentText } from './comment-input.js';
 
 
 /**
@@ -162,7 +162,7 @@ export async function insertTaskComment({ task, body, attachments = [], user, pa
      VALUES ($1, $2, $3, $4, $5, $6, $7)`,
     [id, task.id, body, user.id, user.name || user.email, parentId, JSON.stringify(attachments)]
   );
-  notify({ commentId: id, task, body: body || '🎤 Voice note', actor: user, parentId, replyToId })
+  notify({ commentId: id, task, body: commentText(body, attachments), actor: user, parentId, replyToId })
     .catch((e) => console.error('[notify] task comment fanout failed:', e.message));
   emit('comment.created', { id, task_id: task.id, body, attachments, author_id: user.id });
   return { id, parentId };

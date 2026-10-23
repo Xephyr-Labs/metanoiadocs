@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { micErrorMessage, pickMime, startRecording, voiceNoteName } from './recorder';
 
 describe('pickMime', () => {
-  it('prefers webm, falls back to mp4, else none', () => {
-    expect(pickMime(() => true)).toBe('audio/webm');
+  it('prefers AAC in mp4, which every browser plays, then webm, then any mp4', () => {
+    expect(pickMime(() => true)).toBe('audio/mp4;codecs=mp4a.40.2');
+    expect(pickMime((t) => t === 'audio/webm' || t === 'audio/mp4')).toBe('audio/webm');
     expect(pickMime((t) => t === 'audio/mp4')).toBe('audio/mp4');
     expect(pickMime(() => false)).toBe('');
   });

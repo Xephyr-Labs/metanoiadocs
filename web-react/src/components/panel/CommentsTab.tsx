@@ -22,8 +22,7 @@ import { EmptyState } from '../ui/EmptyState';
 import { IconButton } from '../ui/IconButton';
 import { Tooltip } from '../ui/Tooltip';
 import { CommentBox, savedDraft, type CommentBoxHandle } from '../ui/CommentBox';
-import { CommentFiles, VoiceNoteButton } from '../ui/VoiceNoteButton';
-import type { StoredFile } from '../../lib/uploads';
+import { CommentFiles, usePendingNote, VOICE_BUSY, VoiceNoteButton } from '../ui/VoiceNoteButton';
 
 type Filter = 'open' | 'suggestions' | 'resolved';
 
@@ -53,8 +52,10 @@ export function CommentsTab({ docId }: { docId: string }) {
   const [replyTo, setReplyTo] = useState<string | null>(null);
   const [replyText, setReplyText] = useState('');
   // A recorded voice note waiting to go out with the next comment or reply.
-  const [note, setNote] = useState<StoredFile | null>(null);
-  const [replyNote, setReplyNote] = useState<StoredFile | null>(null);
+  const voice = usePendingNote();
+  const replyVoice = usePendingNote();
+  const note = voice.note;
+  const replyNote = replyVoice.note;
   const draftKey = `doc:${docId}`;
   const [draft, setDraft] = useState(() => savedDraft(draftKey));
   const [replacement, setReplacement] = useState('');
@@ -131,6 +132,7 @@ export function CommentsTab({ docId }: { docId: string }) {
   const add = async () => {
     const body = draft.trim();
     if (busy) return;
+    if (voice.busy) { toast(VOICE_BUSY); return; }
     if (suggesting && anchor) {
       if (replacement === (anchor.raw ?? anchor.quote)) { toast('Change the text to suggest something different'); return; }
       await run('add', async () => {
@@ -151,18 +153,19 @@ export function CommentsTab({ docId }: { docId: string }) {
         ? { blockId: anchor.blockId, quote: anchor.quote, occurrence: anchor.occurrence, anchorStart: anchor.anchorStart, anchorEnd: anchor.anchorEnd, attachments }
         : { attachments });
       setDraft('');
-      setNote(null);
+      voice.sent();
       clearPendingAnchor();
     }, 'Could not post the comment');
   };
 
   const sendReply = async (parentId: string) => {
     const body = replyText.trim();
+    if (replyVoice.busy) { toast(VOICE_BUSY); return; }
     if ((!body && !replyNote) || busy) return;
     await run(`reply:${parentId}`, async () => {
       await docsApi.addComment(docId, body, { parentId, attachments: replyNote ? [replyNote] : [] });
       setReplyText('');
-      setReplyNote(null);
+      replyVoice.sent();
       setReplyTo(null);
     }, 'Could not post the reply');
   };
@@ -447,7 +450,7 @@ export function CommentsTab({ docId }: { docId: string }) {
               {mayComment && !c.resolved && (
                 replyTo === c.id ? (
                   <>
-                  {replyNote && <CommentFiles files={[replyNote]} onRemove={() => setReplyNote(null)} />}
+                  {replyNote && <CommentFiles files={[replyNote]} onRemove={replyVoice.discard} />}
                   <div className="mt-2.5 flex items-end gap-1.5 rounded-md bg-canvas ring-1 ring-inset ring-line focus-within:ring-2 focus-within:ring-accent">
                     <CommentBox
                       draftKey={`reply:${c.id}`}
@@ -458,7 +461,7 @@ export function CommentsTab({ docId }: { docId: string }) {
                       placeholder="Reply…"
                       className="px-2.5 py-1.5"
                     />
-                    <VoiceNoteButton onRecorded={setReplyNote} onError={toast} disabled={!!busy} />
+                    <VoiceNoteButton onRecorded={replyVoice.set} onBusyChange={replyVoice.setBusy} onError={toast} disabled={!!busy} />
                     <IconButton
                       icon={busy === `reply:${c.id}` ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
                       label="Send reply"
@@ -470,7 +473,7 @@ export function CommentsTab({ docId }: { docId: string }) {
                 ) : (
                   <button
                     type="button"
-                    onClick={() => { setReplyTo(c.id); setReplyText(savedDraft(`reply:${c.id}`)); setReplyNote(null); }}
+                    onClick={() => { setReplyTo(c.id); setReplyText(savedDraft(`reply:${c.id}`)); replyVoice.discard(); }}
                     className="mn-hit -ml-1.5 mt-1 flex h-6 items-center rounded-md px-1.5 text-2xs font-medium text-muted transition-colors duration-120 hover:bg-hover hover:text-ink"
                   >
                     Reply
@@ -523,7 +526,7 @@ export function CommentsTab({ docId }: { docId: string }) {
               </div>
             </div>
           )}
-          {note && !suggesting && <div className="mb-2"><CommentFiles files={[note]} onRemove={() => setNote(null)} /></div>}
+          {note && !suggesting && <div className="mb-2"><CommentFiles files={[note]} onRemove={voice.discard} /></div>}
           <div className="flex items-end gap-2 rounded-md ring-1 ring-inset ring-line focus-within:ring-2 focus-within:ring-accent">
             <CommentBox
               ref={inputRef}
@@ -535,7 +538,7 @@ export function CommentsTab({ docId }: { docId: string }) {
               placeholder={suggesting ? 'Why? (optional)' : anchor ? 'Comment on selection…' : 'Add a comment…  @ to mention'}
               className="px-3 py-2"
             />
-            {!suggesting && <VoiceNoteButton onRecorded={setNote} onError={toast} disabled={!!busy} />}
+            {!suggesting && <VoiceNoteButton onRecorded={voice.set} onBusyChange={voice.setBusy} onError={toast} disabled={!!busy} />}
             <IconButton
               icon={busy === 'add' ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
               label={suggesting ? 'Suggest' : 'Send'}

@@ -8,10 +8,16 @@ import { coerceFiles } from './props.js';
 
 const MAX_BODY = 4000;
 
+/** What a comment says wherever only text fits — an inbox row, an email, an
+ *  agent's read of the thread: its words, or that it is a voice note. */
+export function commentText(body, attachments) {
+  return body || (attachments?.length ? '🎤 Voice note' : '');
+}
+
 export function commentInput(raw) {
   const body = String(raw?.body || '').trim().slice(0, MAX_BODY);
   const attachments = coerceFiles(raw?.attachments);
   if (!attachments) return { error: 'bad attachments' };
   if (!body && !attachments.length) return { error: 'empty comment' };
-  return { body, attachments, notifyText: body || '🎤 Voice note' };
+  return { body, attachments, notifyText: commentText(body, attachments) };
 }

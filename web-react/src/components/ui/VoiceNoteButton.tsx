@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Loader2, Mic, Square, X } from 'lucide-react';
 import { formatElapsed, micErrorMessage, startRecording, type Recording } from '../../lib/recorder';
-import { fileUrl, isAudioFile, uploadFile, type StoredFile } from '../../lib/uploads';
+import { discardUpload, fileUrl, isAudioFile, uploadFile, type StoredFile } from '../../lib/uploads';
 import { IconButton } from './IconButton';
 
 /**
@@ -47,13 +47,43 @@ export function CommentFiles({ files, onRemove, share }: {
  *
  * Errors go to `onError` so they appear where the panel already shows its own.
  */
+/**
+ * The note a composer is holding until Send, and whether one is still being
+ * recorded or uploaded. A note that is replaced, removed, or left behind when
+ * the composer goes away was never sent, so its file is taken back.
+ */
+export function usePendingNote() {
+  const [note, setNote] = useState<StoredFile | null>(null);
+  const [busy, setBusy] = useState(false);
+  const latest = useRef<StoredFile | null>(null);
+  useEffect(() => () => { if (latest.current) discardUpload(latest.current); }, []);
+  const hold = (next: StoredFile | null) => { latest.current = next; setNote(next); };
+  return {
+    note,
+    busy,
+    setBusy,
+    /** A new recording; the one it replaces is thrown away. */
+    set: (f: StoredFile) => { if (latest.current && latest.current.key !== f.key) discardUpload(latest.current); hold(f); },
+    /** Removed before sending: its file goes too. */
+    discard: () => { if (latest.current) discardUpload(latest.current); hold(null); },
+    /** Sent: the comment owns it now. */
+    sent: () => hold(null),
+  };
+}
+
+/** What Send says while a note is still on its way. */
+export const VOICE_BUSY = 'Finish the voice note first.';
+
 export function VoiceNoteButton({
   onRecorded,
   onError,
+  onBusyChange,
   disabled,
 }: {
   onRecorded: (file: StoredFile) => void;
   onError: (message: string) => void;
+  /** True while recording or uploading — Send waits for the note. */
+  onBusyChange?: (busy: boolean) => void;
   disabled?: boolean;
 }) {
   const [state, setState] = useState<'idle' | 'starting' | 'recording' | 'uploading'>('idle');
@@ -69,6 +99,8 @@ export function VoiceNoteButton({
   // showing takes the focus — otherwise a keyboard user pressing Record lands
   // on <body> with Stop a long tab away. Only when focus was lost, though:
   // someone typing in the comment box meanwhile keeps their caret.
+  useEffect(() => { onBusyChange?.(state !== 'idle'); }, [state, onBusyChange]);
+
   useEffect(() => {
     if (!engaged.current) return;
     if (state === 'idle') engaged.current = false;

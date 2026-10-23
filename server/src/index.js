@@ -40,6 +40,7 @@ import * as Y from 'yjs';
 import { mentionHandles } from './mentions.js';
 import { baseMime } from './media.js';
 import { commentInput } from './comment-input.js';
+import { deleteUnusedAudio } from './blob-cleanup.js';
 import { docCommentRecipients } from './comment-recipients.js';
 import { buildDocState, appendMarkdownToDoc, appendPageReference, extractText, extractBlocks, docToMarkdown, fixTableOrderKeys, stateWithValidTableKeys } from './blocks.js';
 import { rewriteDoc } from './restore.js';
@@ -2326,9 +2327,9 @@ app.get('/api/docs/:id/intelligence', requireUser, wrap(async (req, res) => {
 app.put('/api/blob/:key', requireUser, express.raw({ type: '*/*', limit: '25mb' }), async (req, res) => {
   const mime = baseMime(req.headers['content-type']);
   await pool.query(
-    `INSERT INTO blobs (key, mime, data) VALUES ($1, $2, $3)
+    `INSERT INTO blobs (key, mime, data, created_by) VALUES ($1, $2, $3, $4)
      ON CONFLICT (key) DO NOTHING`,
-    [req.params.key, mime, req.body]
+    [req.params.key, mime, req.body, req.user.id]
   );
   res.json({ ok: true, key: req.params.key });
 });
@@ -2407,6 +2408,13 @@ app.get('/api/blob/:key', async (req, res) => {
   res.setHeader('Content-Range', `bytes ${start}-${last}/${size}`);
   res.setHeader('Content-Length', last - start + 1);
   res.end(data.subarray(start, last + 1));
+});
+
+// Take back your own upload that nothing uses — a voice note recorded and then
+// removed before sending. Audio only; anything in use stays (blob-cleanup.js).
+app.delete('/api/blob/:key/unused', requireUser, async (req, res) => {
+  const deleted = await deleteUnusedAudio([req.params.key], { uploader: req.user.id });
+  res.json({ deleted: deleted > 0 });
 });
 
 app.get('/api/blob', requireUser, async (_req, res) => {
@@ -3085,7 +3093,11 @@ app.delete('/api/comments/:cid', requireUser, async (req, res) => {
   if (!c.rows[0]) return res.json({ ok: true });
   if ((await commentOwner(c.rows[0], req.user.id)) !== 'author')
     return res.status(403).json({ error: 'forbidden' });
-  await pool.query('DELETE FROM comments WHERE id = $1 OR parent_id = $1', [req.params.cid]);
+  const { rows: gone } = await pool.query(
+    'DELETE FROM comments WHERE id = $1 OR parent_id = $1 RETURNING attachments', [req.params.cid]);
+  // Their voice notes go too, unless something else still uses the same bytes.
+  deleteUnusedAudio(gone.flatMap((r) => (r.attachments || []).map((f) => f.key)))
+    .catch((e) => console.error('[blob] cleanup after comment delete failed:', e.message));
   if (c.rows[0].doc_id) commentsChanged(c.rows[0].doc_id);
   res.json({ ok: true });
 });

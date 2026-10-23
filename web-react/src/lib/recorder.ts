@@ -4,8 +4,10 @@
  * One recorder for every place a note can be made — a comment, a reply, a
  * page — so they agree on format, length and what a refused microphone says.
  *
- * webm first because Chrome, Firefox and Android record it; Safari records
- * only mp4. The type is kept bare ("audio/webm", not "audio/webm;codecs=opus"):
+ * AAC in mp4 first, because every browser plays it back — older Safari and
+ * iOS cannot play webm — and Chrome and Safari can record it. Firefox, and a
+ * Chromium without the AAC encoder, record webm instead; any mp4 is the last
+ * resort. The stored type is kept bare ("audio/webm", not "audio/webm;codecs=opus"):
  * the blob endpoint plays a fixed list of exact types and downloads the rest.
  * 32 kbps is plenty for speech — about 240 KB a minute — and ten minutes is
  * the cap, so one note stays a couple of megabytes in a Postgres row.
@@ -14,7 +16,10 @@
 export const MAX_VOICE_MS = 10 * 60 * 1000;
 const BITRATE = 32000;
 
-export function pickMime(isSupported: (type: string) => boolean): 'audio/webm' | 'audio/mp4' | '' {
+const AAC = 'audio/mp4;codecs=mp4a.40.2';
+
+export function pickMime(isSupported: (type: string) => boolean): typeof AAC | 'audio/webm' | 'audio/mp4' | '' {
+  if (isSupported(AAC)) return AAC;
   if (isSupported('audio/webm')) return 'audio/webm';
   if (isSupported('audio/mp4')) return 'audio/mp4';
   return '';
@@ -83,7 +88,8 @@ export async function startRecording(opts: { onTick?: (ms: number) => void; onAu
     done ??= new Promise<File>((resolve) => {
       recorder.onstop = () => {
         release();
-        resolve(new File(chunks, voiceNoteName(new Date(started), mime), { type: mime }));
+        const type = mime.split(';')[0];
+        resolve(new File(chunks, voiceNoteName(new Date(started), type), { type }));
       };
       if (recorder.state === 'inactive') recorder.onstop?.(new Event('stop'));
       else recorder.stop();
