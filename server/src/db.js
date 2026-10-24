@@ -275,6 +275,18 @@ export async function initSchema() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
 
+    -- Voice-note transcripts, one per audio blob (transcribe.js). status is
+    -- pending | done | empty (no speech) | failed.
+    CREATE TABLE IF NOT EXISTS transcripts (
+      blob_key   TEXT PRIMARY KEY REFERENCES blobs(key) ON DELETE CASCADE,
+      status     TEXT NOT NULL DEFAULT 'pending',
+      text       TEXT,
+      language   TEXT,
+      error      TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+
     -- Workspace-global tags (AFFiNE-style coloured labels). Single workspace,
     -- so no workspace_id column. Name is unique case-insensitively.
     CREATE TABLE IF NOT EXISTS tags (

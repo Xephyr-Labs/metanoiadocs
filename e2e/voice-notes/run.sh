@@ -11,7 +11,7 @@ $STACK down -v --remove-orphans
 $STACK up -d --build
 until curl -sf -o /dev/null http://localhost:8098/health; do sleep 2; done
 status=0
-for check in basics people-and-tasks review-1 review-2 cleanup-and-send; do
+for check in basics people-and-tasks review-1 review-2 cleanup-and-send transcripts; do
   echo "== $check"
   (cd e2e && node "voice-notes/$check.mjs") || status=1
 done

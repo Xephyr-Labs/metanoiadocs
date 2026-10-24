@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { SETTING_KEY as TRANSCRIPTION_KEY, checkDeepgramKey, cleanTranscriptionSettings, shouldAutoTranscribe, transcribeBlob, transcriptFor, transcriptionSettings } from './transcribe.js';
 import { WebSocketServer } from 'ws';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -1777,6 +1778,27 @@ app.put('/api/settings/ai', requireUser, requireAdmin, async (req, res) => {
   res.json({ ok: true });
 });
 
+// ── voice transcription (Deepgram) ─────────────────────────────────────────
+// Everyone may see whether it is on; only an admin changes it. The key never
+// leaves the server — GET says only whether one is set.
+app.get('/api/settings/transcription', requireUser, wrap(async (_req, res) => {
+  const cfg = await transcriptionSettings();
+  res.json({ provider: 'deepgram', enabled: cfg.enabled, language: cfg.language, keySet: !!cfg.apiKey });
+}));
+
+app.put('/api/settings/transcription', requireUser, requireAdmin, wrap(async (req, res) => {
+  const next = cleanTranscriptionSettings(req.body || {}, await getSetting(TRANSCRIPTION_KEY));
+  if (next.enabled && !next.apiKey) return res.status(400).json({ error: 'Add a Deepgram API key to turn transcription on.' });
+  // A new key is checked before it is kept: a typo would otherwise surface as
+  // every voice note quietly failing.
+  const fresh = typeof req.body?.apiKey === 'string' && req.body.apiKey.trim();
+  if (fresh && !(await checkDeepgramKey(next.apiKey).catch(() => false))) {
+    return res.status(400).json({ error: 'Deepgram did not accept that key.' });
+  }
+  await setSetting(TRANSCRIPTION_KEY, next);
+  res.json({ provider: 'deepgram', enabled: next.enabled, language: next.language, keySet: !!next.apiKey });
+}));
+
 app.post('/api/ai', requireUser, async (req, res) => {
   const cfg = (await getSetting('ai')) || {};
   if (!cfg.enabled || !cfg.baseUrl || !cfg.apiKey || !cfg.model) {
@@ -2402,13 +2424,24 @@ app.get('/api/docs/:id/intelligence', requireUser, wrap(async (req, res) => {
 // blowing up a Postgres row.
 app.put('/api/blob/:key', requireUser, express.raw({ type: '*/*', limit: '25mb' }), async (req, res) => {
   const mime = baseMime(req.headers['content-type']);
-  await pool.query(
+  const { rowCount } = await pool.query(
     `INSERT INTO blobs (key, mime, data, created_by) VALUES ($1, $2, $3, $4)
      ON CONFLICT (key) DO NOTHING`,
     [req.params.key, mime, req.body, req.user.id]
   );
   res.json({ ok: true, key: req.params.key });
+  // A voice note — from a comment or a page block, both upload here — is
+  // transcribed now, in the background, so its transcript is ready when asked.
+  if (rowCount && shouldAutoTranscribe(await transcriptionSettings().catch(() => null), mime, req.body?.length ?? 0)) {
+    void transcribeBlob(req.params.key);
+  }
 });
+
+// The transcript of an audio blob: { status: off|none|pending|done|empty|failed,
+// text?, language? }. Signed-in only; guests on a public link get none.
+app.get('/api/blob/:key/transcript', requireUser, wrap(async (req, res) => {
+  res.json(await transcriptFor(req.params.key, { retry: req.query.retry === '1' }));
+}));
 
 // Readable by a signed-in user OR anyone holding a valid public share token
 // (so images in a shared doc load for the public viewer). Keys are opaque

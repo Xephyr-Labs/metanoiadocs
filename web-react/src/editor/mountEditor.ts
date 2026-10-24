@@ -49,6 +49,7 @@ import { imageToolbarExtensions } from './imageToolbar';
 import { pageViewportExtension } from './pageViewport';
 import { attachCalloutPanels, calloutExtensions } from './callout';
 import { cancelVoiceNote, voiceNoteExtensions } from './voiceNote';
+import { voiceTranscriptExtensions } from './voiceTranscript';
 import { attachTextSize } from './textSize';
 import { chartEffects, chartViewExtensions } from './chart';
 import { MetanoiaChartBlockSchema, MetanoiaChartBlockSchemaExtension } from './chart/chart-model';
@@ -543,6 +544,7 @@ export async function mountEditor(
     // them too; the toolbar they are set from never opens for them.
     ...calloutExtensions(),
     ...voiceNoteExtensions(),
+    ...voiceTranscriptExtensions(),
     noLinkedDocConvertCanvasExtension(),
     // Phones: bold/italic/link… on the bar over the keyboard, not behind "Aa".
     keyboardToolbarExtension(),

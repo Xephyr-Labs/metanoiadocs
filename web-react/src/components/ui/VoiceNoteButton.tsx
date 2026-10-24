@@ -7,6 +7,7 @@ import { Loader2, Mic, Square, X } from 'lucide-react';
 import { formatElapsed, micErrorMessage, startRecording, type Recording } from '../../lib/recorder';
 import { discardUpload, fileUrl, isAudioFile, uploadFile, type StoredFile } from '../../lib/uploads';
 import { IconButton } from './IconButton';
+import { Transcript, useTranscriptionEnabled } from './Transcript';
 
 /**
  * The files on a comment, as players. Not <Attachments>: its compact row has
@@ -20,16 +21,22 @@ export function CommentFiles({ files, onRemove, share }: {
   /** A public link's token: how a guest, who has no session, may fetch the file. */
   share?: string;
 }) {
+  // A sent note (not the composer's pending one, not a guest's view) can show
+  // its transcript, when the workspace transcribes.
+  const transcribes = useTranscriptionEnabled() && !onRemove && !share;
   if (!files?.length) return null;
   const url = (f: StoredFile) => (share ? `${fileUrl(f)}&share=${encodeURIComponent(share)}` : fileUrl(f));
   return (
     <div className="mt-1.5 w-full space-y-1">
       {files.map((f) => (
-        <div key={f.key} className="flex w-full items-center gap-1">
-          {isAudioFile(f)
-            ? <audio src={url(f)} controls preload="metadata" className="h-8 w-full min-w-0 flex-1" aria-label={f.name} />
-            : <a href={url(f)} target="_blank" rel="noreferrer noopener" className="min-w-0 flex-1 truncate text-2xs text-accent-strong hover:underline">{f.name}</a>}
-          {onRemove && <IconButton size="sm" tone="danger" icon={<X size={12} />} label="Remove voice note" onClick={() => onRemove(f)} />}
+        <div key={f.key} className="w-full">
+          <div className="flex w-full items-center gap-1">
+            {isAudioFile(f)
+              ? <audio src={url(f)} controls preload="metadata" className="h-8 w-full min-w-0 flex-1" aria-label={f.name} />
+              : <a href={url(f)} target="_blank" rel="noreferrer noopener" className="min-w-0 flex-1 truncate text-2xs text-accent-strong hover:underline">{f.name}</a>}
+            {onRemove && <IconButton size="sm" tone="danger" icon={<X size={12} />} label="Remove voice note" onClick={() => onRemove(f)} />}
+          </div>
+          {transcribes && isAudioFile(f) && <Transcript fileKey={f.key} />}
         </div>
       ))}
     </div>

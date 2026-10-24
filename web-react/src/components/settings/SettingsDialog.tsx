@@ -9,6 +9,7 @@ import {
   Settings2,
   Shield,
   Sparkles,
+  AudioLines,
   Sun,
   Trash2,
   User,
@@ -51,6 +52,7 @@ import { SegmentedControl } from '../ui/SegmentedControl';
 import { Switch } from '../ui/Switch';
 import { Webhooks } from './Webhooks';
 import { copyText } from '../../lib/clipboard';
+import { setTranscriptionEnabled, transcriptsApi } from '../../lib/transcripts';
 import { toast } from '../../lib/toast';
 
 function Avatar({ name, size = 32 }: { name: string; size?: number }) {
@@ -62,7 +64,7 @@ function Avatar({ name, size = 32 }: { name: string; size?: number }) {
   );
 }
 
-type SectionId = 'account' | 'preferences' | 'tokens' | 'members' | 'ai' | 'webhooks' | 'about';
+type SectionId = 'account' | 'preferences' | 'tokens' | 'members' | 'ai' | 'transcription' | 'webhooks' | 'about';
 
 /** A section only an admin may open at all. Everything else is shown to
  *  everyone — the AI panel, for instance, is readable by all and editable by
@@ -85,6 +87,7 @@ const NAV: { group: string; items: { id: SectionId; label: string; icon: typeof 
     items: [
       { id: 'members', label: 'Members', icon: Users },
       { id: 'ai', label: 'AI', icon: Sparkles },
+      { id: 'transcription', label: 'Voice transcription', icon: AudioLines },
       { id: 'webhooks', label: 'Webhooks', icon: Webhook },
       { id: 'about', label: 'About', icon: Info },
     ],
@@ -859,6 +862,138 @@ function AiSettings() {
   );
 }
 
+/**
+ * Voice-note transcription (Deepgram). Readable by everyone, changed by an
+ * admin. Like the AI key, the Deepgram key is write-only: GET says whether one
+ * is stored, and a blank field keeps it. The server checks a new key with
+ * Deepgram before keeping it.
+ */
+function TranscriptionSettingsSection() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
+  const [loaded, setLoaded] = useState(false);
+  const [keySet, setKeySet] = useState(false);
+  const [enabled, setEnabled] = useState(false);
+  const [language, setLanguage] = useState<'auto' | 'bn' | 'en'>('auto');
+  const [apiKey, setApiKey] = useState('');
+  const [saved, setSaved] = useState<{ enabled: boolean; language: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  useEffect(() => {
+    transcriptsApi.settings()
+      .then((c) => {
+        setEnabled(c.enabled);
+        setLanguage(c.language);
+        setKeySet(c.keySet);
+        setSaved({ enabled: c.enabled, language: c.language });
+      })
+      .catch((e) => setMsg({ ok: false, text: e instanceof Error ? e.message : 'Could not load transcription settings.' }))
+      .finally(() => setLoaded(true));
+  }, []);
+
+  const dirty = !!saved && (enabled !== saved.enabled || language !== saved.language || apiKey.trim().length > 0);
+  const missing = enabled && !keySet && !apiKey.trim();
+
+  const save = async () => {
+    if (!dirty || busy || missing) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      const c = await transcriptsApi.saveSettings({ enabled, language, ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}) });
+      setKeySet(c.keySet);
+      setApiKey('');
+      setSaved({ enabled: c.enabled, language: c.language });
+      setTranscriptionEnabled(c.enabled && c.keySet);
+      setMsg({ ok: true, text: 'Saved.' });
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof Error ? e.message : 'Could not save.' });
+    }
+    setBusy(false);
+  };
+
+  return (
+    <div>
+      <SectionTitle>Voice transcription</SectionTitle>
+      <p className="mb-5 text-sm text-muted">
+        Voice notes in comments and pages are transcribed by Deepgram as they are sent. The text stays folded under
+        each note until someone opens it.
+      </p>
+
+      {!isAdmin && (
+        <p className="mb-4 flex items-start gap-2 rounded-lg border border-line bg-surface px-3 py-2.5 text-xs leading-snug text-muted">
+          <Shield size={14} className="mt-px shrink-0 text-faint" />
+          Only workspace admins can change these. Transcription is currently{' '}
+          <span className="font-medium text-ink">{enabled && keySet ? 'on' : 'off'}</span> for everyone.
+        </p>
+      )}
+
+      <fieldset disabled={!isAdmin || !loaded} className="divide-y divide-line border-t border-line disabled:opacity-60">
+        <Row
+          title="Enabled"
+          desc="Off stops new transcripts and hides the Transcript toggle."
+          control={<Switch on={enabled} onChange={setEnabled} />}
+        />
+        <Row
+          title="Language"
+          desc="Auto keeps English as English and transcribes everything else as Bangla."
+          control={
+            <select
+              value={language}
+              onChange={(e) => setLanguage(e.target.value as 'auto' | 'bn' | 'en')}
+              aria-label="Language"
+              className={cn(field, 'min-[600px]:w-64')}
+            >
+              <option value="auto">Auto (English or Bangla)</option>
+              <option value="bn">Bangla</option>
+              <option value="en">English</option>
+            </select>
+          }
+        />
+        <Row
+          title="Deepgram API key"
+          desc={keySet ? 'A key is stored. Type a new one to replace it.' : 'From console.deepgram.com. Stored on the server; never sent back to a browser.'}
+          control={
+            <input
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && save()}
+              type="password"
+              autoComplete="off"
+              aria-label="Deepgram API key"
+              placeholder={keySet ? '••••••••••••  (unchanged)' : 'Deepgram key'}
+              className={cn(field, 'min-[600px]:w-64')}
+            />
+          }
+        />
+      </fieldset>
+
+      {isAdmin && (
+        <div className="mt-4 flex items-center gap-3">
+          <Button
+            size="sm"
+            variant="primary"
+            onClick={save}
+            disabled={!dirty || busy || missing}
+            leftIcon={busy ? <Loader2 size={14} className="animate-spin" /> : undefined}
+          >
+            Save
+          </Button>
+          {missing ? (
+            <span className="flex items-center gap-1.5 text-xs text-danger-strong">
+              <AlertCircle size={14} /> Add a Deepgram key before turning it on.
+            </span>
+          ) : msg ? (
+            <span role="status" className={cn('flex items-center gap-1.5 text-xs', msg.ok ? 'text-accent-strong' : 'text-danger-strong')}>
+              {msg.ok ? <Check size={14} /> : <AlertCircle size={14} />} {msg.text}
+            </span>
+          ) : null}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function About() {
   const rows = [
     ['Plan', 'Free · unlimited members, forever'],
@@ -1015,6 +1150,7 @@ const BODIES: Record<SectionId, () => JSX.Element> = {
   tokens: Tokens,
   members: Members,
   ai: AiSettings,
+  transcription: TranscriptionSettingsSection,
   webhooks: Webhooks,
   about: About,
 };
