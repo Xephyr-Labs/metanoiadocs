@@ -2,7 +2,7 @@ import { ActionPlacement, ToolbarModuleExtension, type ToolbarContext } from '@b
 import { BlockFlavourIdentifier } from '@blocksuite/affine/std';
 import { TextIcon } from '@blocksuite/icons/lit';
 import {
-  POLL_MS, keepPolling, onTranscriptionEnabled, transcriptMessage, transcriptionEnabled, transcriptsApi,
+  POLL_MS, STALLED, keepPolling, onTranscriptionEnabled, transcriptMessage, transcriptionEnabled, transcriptsApi,
 } from '../lib/transcripts';
 
 interface AttachmentModelLike {
@@ -19,6 +19,11 @@ const isVoiceNote = (m: AttachmentModelLike | null) => !!m?.props?.sourceId && !
 
 let open: { close: () => void } | null = null;
 
+/** Close the card; the editor calls this as it unmounts. */
+export function closeTranscriptCard(): void {
+  open?.close();
+}
+
 /**
  * A page's voice note keeps its transcript out of the page: the block's
  * toolbar offers "Transcript", which opens a card under the player. The card
@@ -27,6 +32,9 @@ let open: { close: () => void } | null = null;
  */
 function showTranscript(anchor: Element | null, key: string) {
   open?.close();
+  // Focus moves into the card (so Esc and Tab work from the keyboard) and goes
+  // back where it was when the card closes.
+  const before = document.activeElement as HTMLElement | null;
   const card = document.createElement('div');
   card.setAttribute('role', 'dialog');
   card.setAttribute('aria-label', 'Transcript');
@@ -51,6 +59,8 @@ function showTranscript(anchor: Element | null, key: string) {
   document.body.append(card);
 
   const place = () => {
+    // The block was deleted or the page re-rendered without it.
+    if (anchor && !anchor.isConnected) { close(); return; }
     const r = anchor?.getBoundingClientRect();
     const left = Math.max(16, Math.min(r ? r.left : 16, window.innerWidth - card.offsetWidth - 16));
     const below = r ? r.bottom + 6 : 80;
@@ -58,14 +68,13 @@ function showTranscript(anchor: Element | null, key: string) {
     card.style.left = `${left}px`;
     card.style.top = `${top}px`;
   };
-  place();
-
   let live = true;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const close = () => {
     if (!live) return;
     live = false;
     clearTimeout(timer);
+    if (card.contains(document.activeElement)) before?.focus?.({ preventScroll: true });
     card.remove();
     document.removeEventListener('pointerdown', onOutside, true);
     document.removeEventListener('keydown', onKey, true);
@@ -81,6 +90,8 @@ function showTranscript(anchor: Element | null, key: string) {
   window.addEventListener('scroll', place, true);
   window.addEventListener('resize', place);
   open = { close };
+  place();
+  x.focus({ preventScroll: true });
 
   let attempts = 0;
   const load = (retry: boolean) => {
@@ -91,16 +102,19 @@ function showTranscript(anchor: Element | null, key: string) {
       body.style.color = message ? 'var(--faint)' : 'var(--ink)';
       body.style.fontSize = message ? '13px' : '14px';
       if (t.language) body.lang = t.language;
-      if (t.status === 'failed') {
+      const polling = keepPolling(t, attempts++);
+      const stalled = !polling && t.status === 'pending';
+      if (stalled) body.textContent = STALLED;
+      if (t.status === 'failed' || stalled) {
         const again = document.createElement('button');
         again.type = 'button';
         again.textContent = 'Try again';
         again.style.cssText = 'margin-left:6px;border:0;background:none;padding:0;font:inherit;font-weight:600;color:var(--accent-strong);cursor:pointer';
-        again.addEventListener('click', () => { attempts = 0; body.textContent = 'Transcribing…'; load(true); });
+        again.addEventListener('click', () => { attempts = 0; body.textContent = 'Transcribing…'; load(t.status === 'failed'); });
         body.append(again);
       }
       place();
-      if (keepPolling(t, attempts++)) timer = setTimeout(() => load(false), POLL_MS);
+      if (polling) timer = setTimeout(() => load(false), POLL_MS);
     }).catch(() => {
       if (live) body.textContent = 'Could not load the transcript.';
     });
@@ -119,7 +133,11 @@ export function voiceTranscriptExtensions() {
             id: 'a.transcript',
             tooltip: 'Transcript',
             icon: TextIcon(),
-            when: (ctx: ToolbarContext) => enabled && isVoiceNote(ctx.getCurrentModel() as unknown as AttachmentModelLike | null),
+            when: (ctx: ToolbarContext) => {
+              // An earlier failed read is asked again, for the next time the toolbar opens.
+              if (!enabled) void transcriptionEnabled().then((v) => { enabled = v; });
+              return enabled && isVoiceNote(ctx.getCurrentModel() as unknown as AttachmentModelLike | null);
+            },
             run: (ctx: ToolbarContext) => {
               const model = ctx.getCurrentModel() as unknown as AttachmentModelLike | null;
               const key = model?.props?.sourceId;

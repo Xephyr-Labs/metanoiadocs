@@ -1792,10 +1792,18 @@ app.put('/api/settings/transcription', requireUser, requireAdmin, wrap(async (re
   // A new key is checked before it is kept: a typo would otherwise surface as
   // every voice note quietly failing.
   const fresh = typeof req.body?.apiKey === 'string' && req.body.apiKey.trim();
-  if (fresh && !(await checkDeepgramKey(next.apiKey).catch(() => false))) {
-    return res.status(400).json({ error: 'Deepgram did not accept that key.' });
+  if (fresh) {
+    let ok;
+    try {
+      ok = await checkDeepgramKey(next.apiKey);
+    } catch {
+      return res.status(502).json({ error: 'Could not reach Deepgram to check the key. Try again in a moment.' });
+    }
+    if (!ok) return res.status(400).json({ error: 'Deepgram did not accept that key.' });
   }
   await setSetting(TRANSCRIPTION_KEY, next);
+  // Notes that failed under the old key get another go the next time they are opened.
+  if (fresh) await pool.query("DELETE FROM transcripts WHERE status = 'failed'");
   res.json({ provider: 'deepgram', enabled: next.enabled, language: next.language, keySet: !!next.apiKey });
 }));
 
@@ -2430,9 +2438,10 @@ app.put('/api/blob/:key', requireUser, express.raw({ type: '*/*', limit: '25mb' 
     [req.params.key, mime, req.body, req.user.id]
   );
   res.json({ ok: true, key: req.params.key });
-  // A voice note — from a comment or a page block, both upload here — is
-  // transcribed now, in the background, so its transcript is ready when asked.
-  if (rowCount && shouldAutoTranscribe(await transcriptionSettings().catch(() => null), mime, req.body?.length ?? 0)) {
+  // A voice note — from a comment or a page block, both upload here and the
+  // recorder marks it — is transcribed now, in the background, so its
+  // transcript is ready when asked.
+  if (rowCount && shouldAutoTranscribe(await transcriptionSettings().catch(() => null), mime, req.body?.length ?? 0, req.get('x-voice-note') === '1')) {
     void transcribeBlob(req.params.key);
   }
 });

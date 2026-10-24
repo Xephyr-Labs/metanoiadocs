@@ -131,7 +131,7 @@ export function VoiceNoteButton({
     if (!alive.current) return;
     setState('uploading');
     try {
-      const stored = await uploadFile(file);
+      const stored = await uploadFile(file, { voiceNote: true });
       if (alive.current) onRecorded(stored);
     } catch (e) {
       if (alive.current) onError(e instanceof Error ? e.message : 'Could not upload the voice note.');

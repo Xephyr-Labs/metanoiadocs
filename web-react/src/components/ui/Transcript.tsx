@@ -1,8 +1,8 @@
 import { ChevronRight } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { cn } from '../../lib/cn';
 import {
-  POLL_MS, keepPolling, onTranscriptionEnabled, transcriptMessage, transcriptionEnabled, transcriptsApi, type Transcript as T,
+  POLL_MS, STALLED, keepPolling, onTranscriptionEnabled, transcriptMessage, transcriptionEnabled, transcriptsApi, type Transcript as T,
 } from '../../lib/transcripts';
 
 /** Whether this workspace transcribes voice notes (Settings → Voice transcription). */
@@ -25,27 +25,35 @@ export function useTranscriptionEnabled(): boolean {
 export function Transcript({ fileKey }: { fileKey: string }) {
   const [open, setOpen] = useState(false);
   const [t, setT] = useState<T | null>(null);
-  const [retry, setRetry] = useState(0);
+  const [stalled, setStalled] = useState(false);
+  // Bumped by Try again. `retryAsked` makes only that one load a retry: a
+  // reopen after it must not send a failing note to Deepgram yet again.
+  const [round, setRound] = useState(0);
+  const retryAsked = useRef(false);
 
   useEffect(() => {
     if (!open) return;
     let live = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let attempts = 0;
+    setStalled(false);
     const load = (again: boolean) => {
       transcriptsApi.get(fileKey, again)
         .then((r) => {
           if (!live) return;
           setT(r);
           if (keepPolling(r, attempts++)) timer = setTimeout(() => load(false), POLL_MS);
+          else if (r.status === 'pending') setStalled(true);
         })
         .catch(() => { if (live) setT({ status: 'failed' }); });
     };
-    load(retry > 0);
+    load(retryAsked.current);
+    retryAsked.current = false;
     return () => { live = false; clearTimeout(timer); };
-  }, [open, fileKey, retry]);
+  }, [open, fileKey, round]);
 
-  const message = t ? transcriptMessage(t) : 'Transcribing…';
+  const again = () => { retryAsked.current = t?.status === 'failed'; setRound((n) => n + 1); };
+  const message = stalled ? STALLED : t ? transcriptMessage(t) : 'Transcribing…';
   return (
     <div className="w-full">
       <button
@@ -62,8 +70,8 @@ export function Transcript({ fileKey }: { fileKey: string }) {
           {message ? (
             <p className="py-0.5 text-2xs text-faint">
               {message}
-              {t?.status === 'failed' && (
-                <button type="button" onClick={() => setRetry((n) => n + 1)} className="ml-1.5 font-medium text-accent-strong hover:underline">
+              {(t?.status === 'failed' || stalled) && (
+                <button type="button" onClick={again} className="ml-1.5 font-medium text-accent-strong hover:underline">
                   Try again
                 </button>
               )}

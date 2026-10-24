@@ -8,6 +8,7 @@ describe('transcriptMessage', () => {
     expect(transcriptMessage({ status: 'failed' })).toBe('Could not transcribe this recording.');
     expect(transcriptMessage({ status: 'off' })).toBe('Transcription is off. An admin can turn it on in Settings → Voice transcription.');
     expect(transcriptMessage({ status: 'none' })).toBe('This file has no transcript.');
+    expect(transcriptMessage({ status: 'toolong' })).toBe('This recording is too long to transcribe.');
     expect(transcriptMessage({ status: 'done', text: 'hi' })).toBeNull();
   });
 });

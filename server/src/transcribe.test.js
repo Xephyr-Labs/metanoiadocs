@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { cleanTranscriptionSettings, listenUrl, readListen, shouldAutoTranscribe, transcribeAudio } from './transcribe.js';
+import { checkDeepgramKey, cleanTranscriptionSettings, listenUrl, readListen, shouldAutoTranscribe, transcribable, transcribeAudio } from './transcribe.js';
 
 const reply = (transcript, detected) => ({
   results: { channels: [{ detected_language: detected, alternatives: [{ transcript }] }] },
@@ -74,12 +74,26 @@ test('cleanTranscriptionSettings: blank key keeps the stored one, unknown langua
   assert.deepEqual(cleanTranscriptionSettings({}, null), { enabled: false, apiKey: '', language: 'auto' });
 });
 
-test('shouldAutoTranscribe: audio up to 10 MB, only when switched on with a key', () => {
+test('shouldAutoTranscribe: a marked voice note up to 10 MB, only when switched on with a key', () => {
   const on = { enabled: true, apiKey: 'k', language: 'auto' };
-  assert.equal(shouldAutoTranscribe(on, 'audio/webm', 2_000_000), true);
-  assert.equal(shouldAutoTranscribe(on, 'audio/mp4', 11 * 1024 * 1024), false);
-  assert.equal(shouldAutoTranscribe(on, 'image/png', 1000), false);
-  assert.equal(shouldAutoTranscribe({ ...on, enabled: false }, 'audio/webm', 1000), false);
-  assert.equal(shouldAutoTranscribe({ ...on, apiKey: '' }, 'audio/webm', 1000), false);
-  assert.equal(shouldAutoTranscribe(null, 'audio/webm', 1000), false);
+  assert.equal(shouldAutoTranscribe(on, 'audio/webm', 2_000_000, true), true);
+  assert.equal(shouldAutoTranscribe(on, 'audio/webm', 2_000_000, false), false, 'an attached audio file waits to be asked');
+  assert.equal(shouldAutoTranscribe(on, 'audio/mp4', 11 * 1024 * 1024, true), false);
+  assert.equal(shouldAutoTranscribe(on, 'image/png', 1000, true), false);
+  assert.equal(shouldAutoTranscribe({ ...on, enabled: false }, 'audio/webm', 1000, true), false);
+  assert.equal(shouldAutoTranscribe({ ...on, apiKey: '' }, 'audio/webm', 1000, true), false);
+  assert.equal(shouldAutoTranscribe(null, 'audio/webm', 1000, true), false);
+});
+
+test('transcribable: audio up to 10 MB, on any path', () => {
+  assert.equal(transcribable('audio/mpeg', 10 * 1024 * 1024), true);
+  assert.equal(transcribable('audio/mpeg', 10 * 1024 * 1024 + 1), false);
+  assert.equal(transcribable('video/mp4', 100), false);
+});
+
+test('checkDeepgramKey: a refusal is false, an outage throws', async () => {
+  assert.equal(await checkDeepgramKey('k', { fetch: fakeFetch({ status: 200, body: {} }) }), true);
+  assert.equal(await checkDeepgramKey('k', { fetch: fakeFetch({ status: 401, body: {} }) }), false);
+  await assert.rejects(checkDeepgramKey('k', { fetch: fakeFetch({ status: 503, body: {} }) }), /Deepgram 503/);
+  await assert.rejects(checkDeepgramKey('k', { fetch: fakeFetch(new Error('getaddrinfo ENOTFOUND')) }), /ENOTFOUND/);
 });

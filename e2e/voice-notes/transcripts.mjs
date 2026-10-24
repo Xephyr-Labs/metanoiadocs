@@ -34,9 +34,9 @@ function session() {
   return { raw, call, cookie: () => cookie, post: (p, b) => call('POST', p, b ?? {}), get: (p) => call('GET', p) };
 }
 const listens = async () => (await (await fetch(`${STUB}/count`)).json()).listens;
-const putAudio = async (who, bytes, mime = 'audio/webm') => {
+const putAudio = async (who, bytes, mime = 'audio/webm', voiceNote = true) => {
   const key = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map((b) => b.toString(16).padStart(2, '0')).join('');
-  await who.raw('PUT', `/api/blob/${key}`, bytes, { 'content-type': mime });
+  await who.raw('PUT', `/api/blob/${key}`, bytes, { 'content-type': mime, ...(voiceNote ? { 'x-voice-note': '1' } : {}) });
   return key;
 };
 const until = async (fn, ms = 10000) => { for (let t = 0; t < ms; t += 250) { const v = await fn(); if (v) return v; await wait(250); } return null; };
@@ -132,6 +132,18 @@ await step('upload', async () => {
   await maya.raw('PUT', `/api/blob/${ikey}`, img, { 'content-type': 'image/png' });
   await wait(2000);
   check('upload: a non-audio upload is not transcribed', (await listens()) === before + 1 && (await maya.get(`/api/blob/${ikey}/transcript`)).status === 'none');
+  // Audio that is not a voice note (a file attached to a task) waits until asked.
+  const att = await putAudio(maya, new Uint8Array(1234).map((_, i) => (i * 3) % 241), 'audio/mpeg', false);
+  await wait(2500);
+  check('upload: an attached audio file is not transcribed unasked', (await listens()) === before + 1);
+  const asked = await until(async () => { const r = await maya.get(`/api/blob/${att}/transcript`); return r.status === 'done' && r; });
+  check('upload: ...but is when someone opens its transcript', asked?.text === 'Stub transcript of 1234 bytes.', JSON.stringify(asked));
+  // Nothing past 10 MB goes to Deepgram, on any path.
+  const big = await putAudio(maya, new Uint8Array(10 * 1024 * 1024 + 10).map((_, i) => i % 233), 'audio/mpeg', true);
+  const n = await listens();
+  const tl = await maya.get(`/api/blob/${big}/transcript`);
+  await wait(2500);
+  check('upload: an audio file over 10 MB is never sent, even when asked', tl.status === 'toolong' && (await listens()) === n, JSON.stringify(tl));
 });
 
 await step('older', async () => {
@@ -154,8 +166,10 @@ await step('comment', async () => {
   await page.getByRole('button', { name: 'Stop and attach' }).click();
   await page.locator('audio').first().waitFor({ timeout: 10000 });
   check('comment: the composer\'s pending note has no Transcript toggle', (await page.getByRole('button', { name: 'Transcript', exact: true }).count()) === 0);
+  const before = await listens();
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await page.waitForTimeout(1200);
+  check('comment: the recorded note was sent to Deepgram without anyone asking', !!(await until(async () => (await listens()) > before, 8000)));
   const toggle = page.getByRole('button', { name: 'Transcript', exact: true }).first();
   check('comment: a sent note shows a folded Transcript toggle', await toggle.isVisible() && (await toggle.getAttribute('aria-expanded')) === 'false');
   check('comment: the text is hidden until opened', (await page.getByText(/^Stub transcript of \d+ bytes\.$/).count()) === 0);
@@ -181,9 +195,11 @@ await step('page', async () => {
   await page.keyboard.press('Enter');
   await page.getByRole('button', { name: 'Stop', exact: true }).waitFor({ timeout: 5000 });
   await page.waitForTimeout(2000);
+  const before = await listens();
   await page.getByRole('button', { name: 'Stop', exact: true }).click();
   await page.locator('affine-attachment audio').first().waitFor({ timeout: 10000 });
-  await page.waitForTimeout(3000);
+  check('page: the /voice note was sent to Deepgram without anyone asking', !!(await until(async () => (await listens()) > before, 10000)));
+  await page.waitForTimeout(1000);
   // Select the block so its toolbar shows.
   const block = page.locator('affine-attachment').first();
   const box = await block.boundingBox();
@@ -198,9 +214,14 @@ await step('page', async () => {
     const shown = await card.getByText(/^Stub transcript of \d+ bytes\.$/).waitFor({ timeout: 15000 }).then(() => true).catch(() => false);
     check('page: it opens the transcript under the block', shown);
     await page.screenshot({ path: `${OUT}/e2e-transcript-page.png` });
+    check('page: focus moves into the card', await card.evaluate((c) => c.contains(document.activeElement)));
     await page.keyboard.press('Escape');
     await page.waitForTimeout(300);
     check('page: Esc closes it', (await card.count()) === 0);
+    await btn.click();
+    await card.waitFor({ timeout: 5000 });
+    await page.goto(`${BASE}/`); await page.waitForTimeout(1500);
+    check('page: leaving the page closes the card', (await page.getByRole('dialog', { name: 'Transcript' }).count()) === 0);
   }
   await ctx.close();
 });

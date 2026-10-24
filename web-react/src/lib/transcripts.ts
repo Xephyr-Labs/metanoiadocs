@@ -1,7 +1,7 @@
 // Voice-note transcripts and the workspace's transcription settings.
 // Same-origin and cookie-authed, matching docsApi.
 
-export type TranscriptStatus = 'off' | 'none' | 'pending' | 'done' | 'empty' | 'failed';
+export type TranscriptStatus = 'off' | 'none' | 'toolong' | 'pending' | 'done' | 'empty' | 'failed';
 export interface Transcript {
   status: TranscriptStatus;
   text?: string;
@@ -43,9 +43,13 @@ export function transcriptMessage(t: Transcript): string | null {
     case 'failed': return 'Could not transcribe this recording.';
     case 'off': return 'Transcription is off. An admin can turn it on in Settings → Voice transcription.';
     case 'none': return 'This file has no transcript.';
+    case 'toolong': return 'This recording is too long to transcribe.';
     default: return t.text ? null : 'No speech found in this recording.';
   }
 }
+
+/** Shown when polling gives up on a transcript still being made. */
+export const STALLED = 'Still transcribing. Check back in a minute.';
 
 /** Ask again every 2s while it is being made, for about two minutes. */
 export const POLL_MS = 2000;
@@ -58,7 +62,8 @@ export function keepPolling(t: Transcript, attempts: number): boolean {
 let enabled: Promise<boolean> | null = null;
 const listeners = new Set<(on: boolean) => void>();
 export function transcriptionEnabled(): Promise<boolean> {
-  enabled ??= transcriptsApi.settings().then((s) => s.enabled && s.keySet).catch(() => false);
+  // A failed read is not remembered: the next asker tries again.
+  enabled ??= transcriptsApi.settings().then((s) => s.enabled && s.keySet).catch(() => { enabled = null; return false; });
   return enabled;
 }
 export function setTranscriptionEnabled(on: boolean) {
