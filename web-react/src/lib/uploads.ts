@@ -24,7 +24,7 @@ async function sha256(bytes: ArrayBuffer): Promise<string> {
  * Store one file and return the reference to keep. Throws with a readable
  * message — every caller of this puts it straight in front of a person.
  */
-export async function uploadFile(file: File): Promise<StoredFile> {
+export async function uploadFile(file: File, opts: { voiceNote?: boolean } = {}): Promise<StoredFile> {
   if (file.size > MAX_UPLOAD_BYTES) {
     throw new Error(`${file.name} is larger than ${Math.round(MAX_UPLOAD_BYTES / 1048576)} MB.`);
   }
@@ -33,7 +33,8 @@ export async function uploadFile(file: File): Promise<StoredFile> {
   const res = await fetch(`/api/blob/${key}`, {
     method: 'PUT',
     credentials: 'same-origin',
-    headers: { 'Content-Type': file.type || 'application/octet-stream' },
+    // A voice note is transcribed as soon as it lands; other audio waits until asked.
+    headers: { 'Content-Type': file.type || 'application/octet-stream', ...(opts.voiceNote ? { 'X-Voice-Note': '1' } : {}) },
     body: bytes,
   });
   if (!res.ok) throw new Error(`Could not upload ${file.name}.`);

@@ -49,6 +49,7 @@ import { imageToolbarExtensions } from './imageToolbar';
 import { pageViewportExtension } from './pageViewport';
 import { attachCalloutPanels, calloutExtensions } from './callout';
 import { cancelVoiceNote, voiceNoteExtensions } from './voiceNote';
+import { closeTranscriptCard, voiceTranscriptExtensions } from './voiceTranscript';
 import { attachTextSize } from './textSize';
 import { chartEffects, chartViewExtensions } from './chart';
 import { MetanoiaChartBlockSchema, MetanoiaChartBlockSchemaExtension } from './chart/chart-model';
@@ -101,7 +102,12 @@ class HttpBlobSource {
     await fetch(`/api/blob/${encodeURIComponent(key)}`, {
       method: 'PUT',
       credentials: 'same-origin',
-      headers: { 'Content-Type': value.type || 'application/octet-stream' },
+      headers: {
+        'Content-Type': value.type || 'application/octet-stream',
+        // A /voice note recording (lib/recorder names them) is transcribed as
+        // soon as it lands; any other audio dropped in waits until asked.
+        ...(value instanceof File && /^Voice note /.test(value.name) ? { 'X-Voice-Note': '1' } : {}),
+      },
       body: value,
     });
     return key;
@@ -543,6 +549,7 @@ export async function mountEditor(
     // them too; the toolbar they are set from never opens for them.
     ...calloutExtensions(),
     ...voiceNoteExtensions(),
+    ...voiceTranscriptExtensions(),
     noLinkedDocConvertCanvasExtension(),
     // Phones: bold/italic/link… on the bar over the keyboard, not behind "Aa".
     keyboardToolbarExtension(),
@@ -793,6 +800,7 @@ export async function mountEditor(
       try { detachFileDrop?.(); } catch { /* noop */ }
       try { detachCalloutPanels(); } catch { /* noop */ }
       try { cancelVoiceNote(editor as unknown as Element); } catch { /* noop */ }
+      try { closeTranscriptCard(); } catch { /* noop */ }
       try { detachTextSize(); } catch { /* noop */ }
       try { detachMermaid(); } catch { /* noop */ }
       try { detachMarkdownPaste?.(); } catch { /* noop */ }

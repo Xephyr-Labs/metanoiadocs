@@ -5,3 +5,13 @@ services:
       - "8098:3000"
     environment:
       BASE_URL: http://localhost:8098
+      DEEPGRAM_URL: http://deepgram:8080
+  # Stands in for api.deepgram.com (transcripts.mjs).
+  deepgram:
+    image: node:22-alpine
+    command: ["node", "/stub/deepgram-stub.mjs"]
+    volumes:
+      # Relative to the project directory (the repo root), not this file.
+      - ./e2e/voice-notes/deepgram-stub.mjs:/stub/deepgram-stub.mjs:ro
+    ports:
+      - "8094:8080"
