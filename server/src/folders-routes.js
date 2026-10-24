@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { pool } from './db.js';
 import { wouldFolderCycle, safeFolderOrder } from './folders.js';
+import { inTransaction, spaceOf, spaceForNew, reparentInto, OWNED_PAGE } from './space-move.js';
 
 /** Folders are workspace-wide structure: every member sees and edits every
  *  folder (matching the team-editable doc model). Only doc *contents* carry
@@ -22,7 +23,7 @@ async function folderParents() {
 export function registerFolderRoutes(app, { requireUser, wrap }) {
   app.get('/api/folders', requireUser, wrap(async (req, res) => {
     const { rows } = await pool.query(
-      `SELECT f.id, f.name, f.parent_id, f.position, f.color, f.created_by, f.created_at,
+      `SELECT f.id, f.name, f.parent_id, f.position, f.color, f.space_id, f.created_by, f.created_at,
               (SELECT count(*)::int FROM docs d
                 WHERE d.folder_id = f.id AND d.deleted_at IS NULL) AS document_count,
               (SELECT count(*)::int FROM folders child
@@ -46,11 +47,13 @@ export function registerFolderRoutes(app, { requireUser, wrap }) {
       return res.status(403).json({ error: 'folder not accessible' });
     }
     const id = crypto.randomUUID();
+    // A sub-folder lives in its parent's space.
+    const spaceId = await spaceForNew(pool, { parentSpace: await spaceOf(pool, 'folder', parentId), requested: req.body?.spaceId });
     const { rows } = await pool.query(
-      `INSERT INTO folders (id, name, parent_id, position, created_by)
-       VALUES ($1, $2, $3, COALESCE((SELECT max(position) + 1 FROM folders WHERE parent_id IS NOT DISTINCT FROM $3 AND deleted_at IS NULL), 0), $4)
-       RETURNING id, name, parent_id, position, color, created_by, created_at`,
-      [id, name, parentId, req.user.id]
+      `INSERT INTO folders (id, name, parent_id, position, created_by, space_id)
+       VALUES ($1, $2, $3, COALESCE((SELECT max(position) + 1 FROM folders WHERE parent_id IS NOT DISTINCT FROM $3 AND deleted_at IS NULL), 0), $4, $5)
+       RETURNING id, name, parent_id, position, color, created_by, created_at, space_id`,
+      [id, name, parentId, req.user.id, spaceId]
     );
     res.json(rows[0]);
   }));
@@ -67,14 +70,27 @@ export function registerFolderRoutes(app, { requireUser, wrap }) {
     }
     const safe = safeFolderOrder(await folderParents(), ids, parentId);
     if (!safe.length) return res.status(400).json({ error: 'move would create a cycle' });
-    const { rowCount } = await pool.query(
-      `UPDATE folders f
-          SET position = o.pos, parent_id = $2
-         FROM (SELECT id, ordinality - 1 AS pos
-                 FROM unnest($1::text[]) WITH ORDINALITY AS t(id, ordinality)) o
-        WHERE f.id = o.id AND f.deleted_at IS NULL`,
-      [safe, parentId],
-    );
+    // Into a folder in another space: each such folder's tree moves there first.
+    const target = await spaceOf(pool, 'folder', parentId);
+    const { rowCount, owned } = await inTransaction(async (client) => {
+      if (target) {
+        const { rows: crossing } = await client.query(
+          'SELECT id FROM folders WHERE id = ANY($1) AND deleted_at IS NULL AND space_id IS DISTINCT FROM $2', [safe, target]);
+        for (const { id } of crossing) {
+          if ((await reparentInto(client, { type: 'folder', id }, target, { dryRun: true })) === 'owned') return { owned: true };
+        }
+        for (const { id } of crossing) await reparentInto(client, { type: 'folder', id }, target);
+      }
+      return client.query(
+        `UPDATE folders f
+            SET position = o.pos, parent_id = $2
+           FROM (SELECT id, ordinality - 1 AS pos
+                   FROM unnest($1::text[]) WITH ORDINALITY AS t(id, ordinality)) o
+          WHERE f.id = o.id AND f.deleted_at IS NULL`,
+        [safe, parentId],
+      );
+    });
+    if (owned) return res.status(409).json({ error: OWNED_PAGE });
     res.json({ ok: true, moved: rowCount });
   }));
 
@@ -92,18 +108,27 @@ export function registerFolderRoutes(app, { requireUser, wrap }) {
       values.push(req.body.color.slice(0, 20));
       sets.push(`color = $${values.length}`);
     }
+    let target = null;
     if ('parentId' in (req.body || {})) {
       const parentId = req.body.parentId || null;
       if (parentId && !(await visibleFolder(parentId, req.user.id))) return res.status(403).json({ error: 'folder not accessible' });
       if (wouldFolderCycle(await folderParents(), req.params.id, parentId)) {
         return res.status(400).json({ error: 'move would create a cycle' });
       }
+      // Under a folder in another space: this folder's tree moves there.
+      target = await spaceOf(pool, 'folder', parentId);
+      if ((await reparentInto(pool, { type: 'folder', id: req.params.id }, target, { dryRun: true })) === 'owned') {
+        return res.status(409).json({ error: OWNED_PAGE });
+      }
       values.push(parentId);
       sets.push(`parent_id = $${values.length}`);
     }
     if (!sets.length) return res.json({ ok: true });
     values.push(req.params.id);
-    await pool.query(`UPDATE folders SET ${sets.join(', ')} WHERE id = $${values.length} AND deleted_at IS NULL`, values);
+    await inTransaction(async (client) => {
+      await reparentInto(client, { type: 'folder', id: req.params.id }, target);
+      await client.query(`UPDATE folders SET ${sets.join(', ')} WHERE id = $${values.length} AND deleted_at IS NULL`, values);
+    });
     res.json({ ok: true });
   }));
 

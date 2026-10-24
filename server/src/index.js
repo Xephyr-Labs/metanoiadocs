@@ -28,6 +28,7 @@ import {
   deleteOtherSessions,
   clearSessionVia,
   recordDocEditors,
+  defaultSpaceId,
 } from './db.js';
 import { requestMagicLink, consumeMagicLink, mayReplacePassword, sendInviteEmail, sendNotificationEmail } from './auth.js';
 import { lockedFor, noteFailure, clearFailures, lockoutError } from './throttle.js';
@@ -62,6 +63,8 @@ import { registerHomeRoutes } from './home.js';
 import { registerPushRoutes, sendPush } from './push.js';
 import { linkFor } from './push-rules.js';
 import { registerFolderRoutes, visibleFolder } from './folders-routes.js';
+import { registerSpaceMoveRoutes, inTransaction, spaceOf, spaceForNew, reparentInto, OWNED_PAGE } from './space-move.js';
+import { registerSpaceRoutes } from './spaces-routes.js';
 import { registerWebhookRoutes, emit, startWebhookWorker } from './webhooks.js';
 import { registerGuestCommentRoutes, shareAccess } from './guest-comments.js';
 import { commentAnchors } from './text-match.js';
@@ -73,6 +76,7 @@ import { registerCsvRoutes } from './csv-import.js';
 import { TRASH_RETENTION_DAYS, startTrashSweeper } from './retention.js';
 import { startReminders } from './reminders.js';
 import { dayIn, isZone, zoneOf } from './timezone.js';
+import { byJoinedFirst } from './spaces.js';
 import OpenAI from 'openai';
 
 process.on('unhandledRejection', (e) => console.error('[proc] unhandledRejection', e?.message || e));
@@ -658,9 +662,9 @@ app.get('/api/docs/mine', requireUser, async (req, res) => {
 
 app.get('/api/docs', requireUser, async (req, res) => {
   const { rows } = await pool.query(
-    `SELECT d.id, d.title, d.icon, d.folder_id, d.parent_id, d.position, d.updated_at,
+    `SELECT d.id, d.title, d.icon, d.folder_id, d.parent_id, d.position, d.updated_at, d.space_id,
             CASE WHEN d.is_template AND coalesce(a.role, d.team_role, 'editor') NOT IN ('editor', 'owner')
-                 THEN 'editor' ELSE coalesce(a.role, d.team_role, 'editor') END AS role, d.team_role, d.visibility, d.kind, d.props, d.is_template,
+                 THEN 'editor' ELSE coalesce(a.role, d.team_role, 'editor') END AS role, d.team_role, d.visibility, d.kind, d.props, d.is_template, d.template_everywhere,
             ub.name AS updated_by_name,
             coalesce(ub.kind, 'person') AS updated_by_kind,
             d.updated_via, d.created_at, cb.name AS created_by_name,
@@ -716,19 +720,45 @@ app.post('/api/docs/reorder', requireUser, wrap(async (req, res) => {
   if (folderId && !(await visibleFolder(folderId, req.user.id))) {
     return res.status(403).json({ error: 'folder not accessible' });
   }
-  // The access predicate is the same one /api/docs lists by, so a page you
-  // cannot see is silently skipped rather than reordered on your say-so.
-  const { rowCount } = await pool.query(
-    `UPDATE docs d
-        SET position = o.pos, folder_id = $3, parent_id = NULL
-       FROM (SELECT id, ordinality - 1 AS pos
-               FROM unnest($1::text[]) WITH ORDINALITY AS t(id, ordinality)) o
-      WHERE d.id = o.id
-        AND d.deleted_at IS NULL
-        AND (d.visibility = 'team'
-             OR EXISTS (SELECT 1 FROM doc_access a WHERE a.doc_id = d.id AND a.user_id = $2))`,
-    [ids, req.user.id, folderId],
-  );
+  // The page that was dragged. A page whose parent is in the same list is a
+  // sub-page that came along (older clients send every page in the container),
+  // so it stays nested and moves with its parent; only the dragged page, or one
+  // whose parent is elsewhere, comes up to the top level.
+  const dragId = typeof req.body?.dragId === 'string' ? req.body.dragId : null;
+  // A drop into a folder in another space moves each such page's tree there
+  // first; a drop at the top level keeps every page in its space.
+  const target = await spaceOf(pool, 'folder', folderId);
+  const { rowCount, owned } = await inTransaction(async (client) => {
+    if (target) {
+      const { rows: crossing } = await client.query(
+        `SELECT d.id FROM docs d
+          WHERE d.id = ANY($1) AND d.deleted_at IS NULL AND d.space_id IS DISTINCT FROM $3
+            AND (d.id = $4 OR d.parent_id IS NULL OR NOT (d.parent_id = ANY($1)))
+            AND (d.visibility = 'team'
+                 OR EXISTS (SELECT 1 FROM doc_access a WHERE a.doc_id = d.id AND a.user_id = $2))`,
+        [ids, req.user.id, target, dragId],
+      );
+      for (const { id } of crossing) {
+        if ((await reparentInto(client, { type: 'doc', id }, target, { dryRun: true })) === 'owned') return { owned: true };
+      }
+      for (const { id } of crossing) await reparentInto(client, { type: 'doc', id }, target);
+    }
+    // The access predicate is the same one /api/docs lists by, so a page you
+    // cannot see is silently skipped rather than reordered on your say-so.
+    return client.query(
+      `UPDATE docs d
+          SET position = o.pos, folder_id = $3,
+              parent_id = CASE WHEN d.id = $4 OR NOT (d.parent_id = ANY($1)) THEN NULL ELSE d.parent_id END
+         FROM (SELECT id, ordinality - 1 AS pos
+                 FROM unnest($1::text[]) WITH ORDINALITY AS t(id, ordinality)) o
+        WHERE d.id = o.id
+          AND d.deleted_at IS NULL
+          AND (d.visibility = 'team'
+               OR EXISTS (SELECT 1 FROM doc_access a WHERE a.doc_id = d.id AND a.user_id = $2))`,
+      [ids, req.user.id, folderId, dragId],
+    );
+  });
+  if (owned) return res.status(409).json({ error: OWNED_PAGE });
   res.json({ ok: true, moved: rowCount });
 }));
 
@@ -737,14 +767,16 @@ app.post('/api/docs/reorder', requireUser, wrap(async (req, res) => {
  * transaction, so a failure part-way cannot leave a doc row with no content.
  * Shared by the JSON create route and the file import below.
  */
-async function createDocRow({ title, icon, userId, folderId, visibility, kind, content }) {
+async function createDocRow({ title, icon, userId, folderId, visibility, kind, content, spaceId }) {
   const id = crypto.randomUUID();
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    // No caller may leave a page without a space; one that names none gets the default.
+    spaceId ||= await defaultSpaceId(client);
     await client.query(
-      'INSERT INTO docs (id, title, icon, created_by, folder_id, visibility, kind) VALUES ($1, $2, $3, $4, $5, $6, $7)',
-      [id, title, icon, userId, folderId, visibility, kind]
+      'INSERT INTO docs (id, title, icon, created_by, folder_id, visibility, kind, space_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
+      [id, title, icon, userId, folderId, visibility, kind, spaceId]
     );
     await client.query(
       `INSERT INTO doc_access (doc_id, user_id, role) VALUES ($1, $2, 'owner')`,
@@ -762,7 +794,7 @@ async function createDocRow({ title, icon, userId, folderId, visibility, kind, c
   } finally {
     client.release();
   }
-  return { id, title, icon, parent_id: null, folder_id: folderId, role: 'owner', visibility, kind, shared: false, favorite: false, created_at: new Date().toISOString(), loved: false, love_count: 0 };
+  return { id, title, icon, parent_id: null, folder_id: folderId, space_id: spaceId, role: 'owner', visibility, kind, shared: false, favorite: false, created_at: new Date().toISOString(), loved: false, love_count: 0 };
 }
 
 app.post('/api/docs', requireUser, async (req, res) => {
@@ -775,6 +807,8 @@ app.post('/api/docs', requireUser, async (req, res) => {
     icon: String(req.body?.icon || '📄').slice(0, 8),
     userId: req.user.id,
     folderId,
+    // A page filed in a folder lives in the folder's space.
+    spaceId: await spaceForNew(pool, { folderSpace: await spaceOf(pool, 'folder', folderId), requested: req.body?.spaceId }),
     visibility: req.body?.visibility === 'private' ? 'private' : 'team',
     // 'task' is a row's page, minted only by POST /api/tasks/:id/page — never
     // by this public route, or an API/MCP client could create a page that no
@@ -835,6 +869,7 @@ app.post('/api/docs/import', requireUser, express.raw({ type: '*/*', limit: '25m
     icon: '📄',
     userId: req.user.id,
     folderId,
+    spaceId: await spaceForNew(pool, { folderSpace: await spaceOf(pool, 'folder', folderId), requested: req.query.spaceId }),
     visibility: 'team',
     kind: 'doc',
     content: file.markdown,
@@ -877,7 +912,7 @@ app.post('/api/docs/:id/children', requireUser, wrap(async (req, res) => {
   const parentId = req.params.id;
   if (!(await editGrant(parentId, req.user.id))) return res.status(403).json({ error: 'forbidden' });
   const parent = await pool.query(
-    'SELECT title, folder_id, visibility FROM docs WHERE id = $1 AND deleted_at IS NULL',
+    'SELECT title, folder_id, visibility, space_id FROM docs WHERE id = $1 AND deleted_at IS NULL',
     [parentId],
   );
   if (!parent.rows[0]) return res.status(404).json({ error: 'not found' });
@@ -890,13 +925,14 @@ app.post('/api/docs/:id/children', requireUser, wrap(async (req, res) => {
   // than no child at all, and this is the step that can fail.
   if (!(await referenceChild(parentId, id, req.user))) return res.status(409).json({ error: NO_BODY_TO_NEST_IN });
 
-  // The child keeps the parent's company: same folder, same visibility.
+  // The child keeps the parent's company: same folder, visibility and space.
+  const spaceId = await spaceForNew(pool, { parentSpace: parent.rows[0].space_id });
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     await client.query(
-      'INSERT INTO docs (id, title, icon, created_by, folder_id, visibility, parent_id) VALUES ($1, $2, $3, $4, $5, $6, $7)',
-      [id, title, icon, req.user.id, parent.rows[0].folder_id, parent.rows[0].visibility, parentId],
+      'INSERT INTO docs (id, title, icon, created_by, folder_id, visibility, parent_id, space_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
+      [id, title, icon, req.user.id, parent.rows[0].folder_id, parent.rows[0].visibility, parentId, spaceId],
     );
     await client.query(`INSERT INTO doc_access (doc_id, user_id, role) VALUES ($1, $2, 'owner')`, [id, req.user.id]);
     // The parent's next save recomputes this from its content and will find the
@@ -909,7 +945,7 @@ app.post('/api/docs/:id/children', requireUser, wrap(async (req, res) => {
   } finally {
     client.release();
   }
-  res.json({ id, title, icon, folder_id: parent.rows[0].folder_id, visibility: parent.rows[0].visibility });
+  res.json({ id, title, icon, folder_id: parent.rows[0].folder_id, visibility: parent.rows[0].visibility, space_id: spaceId });
 }));
 
 // Nest an *existing* page under another one (sidebar drag, or the link_docs MCP
@@ -936,6 +972,12 @@ app.post('/api/docs/:id/links', requireUser, wrap(async (req, res) => {
     return res.status(400).json({ error: 'that would nest a page inside itself' });
   }
 
+  // Nesting under a page in another space moves the child's tree there.
+  // Checked before the parent's body is touched, so a refusal changes nothing.
+  const root = { type: 'doc', id: childId };
+  const target = await spaceOf(pool, 'doc', parentId);
+  if ((await reparentInto(pool, root, target, { dryRun: true })) === 'owned') return res.status(409).json({ error: OWNED_PAGE });
+
   // Dragging the same page onto the same parent twice must not stack up two
   // reference blocks, so an existing link skips the append. The move itself is
   // still applied: a page the parent merely mentions in prose has a link row
@@ -943,8 +985,11 @@ app.post('/api/docs/:id/links', requireUser, wrap(async (req, res) => {
   const existing = await pool.query('SELECT 1 FROM doc_links WHERE from_id = $1 AND to_id = $2', [parentId, childId]);
   const already = existing.rowCount > 0;
   if (!already && !(await referenceChild(parentId, childId, req.user))) return res.status(409).json({ error: NO_BODY_TO_NEST_IN });
-  await pool.query('INSERT INTO doc_links (from_id, to_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [parentId, childId]);
-  await pool.query('UPDATE docs SET parent_id = $1, updated_at = now(), updated_by = $3, updated_via = $4 WHERE id = $2', [parentId, childId, req.user.id, req.via]);
+  await inTransaction(async (client) => {
+    await reparentInto(client, root, target);
+    await client.query('INSERT INTO doc_links (from_id, to_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [parentId, childId]);
+    await client.query('UPDATE docs SET parent_id = $1, updated_at = now(), updated_by = $3, updated_via = $4 WHERE id = $2', [parentId, childId, req.user.id, req.via]);
+  });
   res.json({ ok: true, already });
 }));
 
@@ -1373,8 +1418,10 @@ app.delete('/api/docs/:id/access/:userId', requireUser, wrap(async (req, res) =>
 
 // Rename and/or move a doc in the sidebar tree. Any grant lets you edit;
 // move guards against making a doc its own ancestor (a cycle).
-app.patch('/api/docs/:id', requireUser, async (req, res) => {
+app.patch('/api/docs/:id', requireUser, wrap(async (req, res) => {
   if (!(await editGrant(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
+  const root = { type: 'doc', id: req.params.id };
+  let target = null;
 
   const sets = [];
   const vals = [];
@@ -1391,6 +1438,9 @@ app.patch('/api/docs/:id', requireUser, async (req, res) => {
     if (folderId && !(await visibleFolder(folderId, req.user.id))) {
       return res.status(403).json({ error: 'folder not accessible' });
     }
+    // Filing into a folder in another space moves the page's tree there.
+    target = await spaceOf(pool, 'folder', folderId);
+    if ((await reparentInto(pool, root, target, { dryRun: true })) === 'owned') return res.status(409).json({ error: OWNED_PAGE });
     vals.push(folderId);
     // A page filed into a folder is filed *there*, not under whatever page it
     // used to hang from — otherwise it would owe two homes and show up in both.
@@ -1398,10 +1448,13 @@ app.patch('/api/docs/:id', requireUser, async (req, res) => {
   }
   if (!sets.length) return res.json({ ok: true });
   vals.push(req.params.id);
-  await pool.query(
-    `UPDATE docs SET ${sets.join(', ')}, updated_at = now(), updated_by = $${vals.length + 1}, updated_via = $${vals.length + 2} WHERE id = $${vals.length}`,
-    [...vals, req.user.id, req.via]
-  );
+  await inTransaction(async (client) => {
+    await reparentInto(client, root, target);
+    await client.query(
+      `UPDATE docs SET ${sets.join(', ')}, updated_at = now(), updated_by = $${vals.length + 1}, updated_via = $${vals.length + 2} WHERE id = $${vals.length}`,
+      [...vals, req.user.id, req.via]
+    );
+  });
   if (typeof req.body?.title === 'string') {
     // The row and its page show the same title. Write only when it differs,
     // which is what stops the two updates looping.
@@ -1423,7 +1476,7 @@ app.patch('/api/docs/:id', requireUser, async (req, res) => {
   }
   emit('doc.updated', { id: req.params.id, by: req.user.id, via: req.via });
   res.json({ ok: true });
-});
+}));
 
 // Trash: soft-deleted docs the user had access to, newest first.
 // Everyone who can see a trashed page can restore it; only its owner (or an
@@ -2065,6 +2118,8 @@ app.get('/api/docs/:id/backlinks', requireUser, wrap(async (req, res) => {
 app.get('/api/search', requireUser, wrap(async (req, res) => {
   const q = String(req.query.q || '').trim();
   if (!q) return res.json([]);
+  // Optional scope for agents: applied in SQL so it narrows before the LIMIT.
+  const spaceId = req.query.spaceId ? String(req.query.spaceId) : null;
 
   // Co-occurrence query expansion: pull the strongest terms that co-occur with
   // the query's own terms across the corpus, OR them in to widen recall (must
@@ -2088,6 +2143,7 @@ app.get('/api/search', requireUser, wrap(async (req, res) => {
          FROM docs d
          LEFT JOIN doc_access a ON a.doc_id=d.id AND a.user_id=$1
         WHERE d.deleted_at IS NULL AND (a.user_id IS NOT NULL OR d.visibility='team')
+          AND ($4::text IS NULL OR d.space_id::text = $4::text)
      ),
      fts AS (
        SELECT id, title, search_text, 1 AS pri,
@@ -2111,15 +2167,20 @@ app.get('/api/search', requireUser, wrap(async (req, res) => {
          FROM (SELECT * FROM fts UNION ALL SELECT * FROM fuzzy) u
         ORDER BY id, pri, rank DESC
      )
-     SELECT id, title,
+     SELECT id, title, (SELECT space_id FROM docs WHERE id = merged.id) AS space_id,
             ts_headline('english', search_text, plainto_tsquery('english', $2),
                         'MaxWords=18, MinWords=6, ShortWord=2') AS snippet
        FROM merged
       ORDER BY pri, rank DESC
       LIMIT 20`,
-    [req.user.id, q, expansionOr],
+    [req.user.id, q, expansionOr, spaceId],
   );
-  const docs = rows.map((r) => ({ kind: 'doc', id: r.id, title: r.title, snippet: r.snippet }));
+  // Spaces only reorder results (joined first) and flag them; nothing is dropped.
+  const joined = new Set((await pool.query('SELECT space_id FROM space_members WHERE user_id = $1', [req.user.id]))
+    .rows.map((r) => r.space_id));
+  const docs = byJoinedFirst(rows, joined).map((r) => ({
+    kind: 'doc', id: r.id, title: r.title, snippet: r.snippet, space_id: r.space_id, inJoinedSpace: joined.has(r.space_id),
+  }));
 
   // Tasks are searched in their own statement rather than folded into the CTE
   // above. They have no search_text, no tsvector and no per-doc grant, so every
@@ -2135,12 +2196,13 @@ app.get('/api/search', requireUser, wrap(async (req, res) => {
   const named = parseKeyQuery(q);
   const { rows: taskRows } = await pool.query(
     `SELECT t.id, t.title, t.num, t.status, t.due_at, t.kind,
-            t.project_id, p.name AS project_name, p.icon AS project_icon,
+            t.project_id, p.name AS project_name, p.icon AS project_icon, p.space_id,
             (lower(p.key) = lower($3::text) AND t.num = $4::int) AS named
        FROM tasks t
        JOIN projects p ON p.id = t.project_id
       WHERE t.deleted_at IS NULL
         AND p.archived_at IS NULL
+        AND ($5::text IS NULL OR p.space_id::text = $5::text)
         AND ((lower(p.key) = lower($3::text) AND t.num = $4::int)
              OR t.title ILIKE $1
              OR t.title % $2)
@@ -2149,9 +2211,10 @@ app.get('/api/search', requireUser, wrap(async (req, res) => {
     // The literal `%` and `_` a person may have typed are escaped: an ILIKE
     // pattern is not a search box, and "100%" should look for that string
     // rather than for everything.
-    [`%${q.replace(/([%_\\])/g, '\\$1')}%`, q, named?.key ?? null, named?.num ?? null],
+    [`%${q.replace(/([%_\\])/g, '\\$1')}%`, q, named?.key ?? null, named?.num ?? null, spaceId],
   );
-  const tasks = taskRows.map((r) => ({
+  // The task a key names stays on top whatever its space.
+  const tasks = [...taskRows.filter((r) => r.named), ...byJoinedFirst(taskRows.filter((r) => !r.named), joined)].map((r) => ({
     kind: 'task',
     id: r.id,
     title: r.title,
@@ -2162,6 +2225,11 @@ app.get('/api/search', requireUser, wrap(async (req, res) => {
     dueAt: r.due_at,
     // The palette draws the type icon from this, like every other task row.
     taskKind: r.kind,
+    space_id: r.space_id,
+    inJoinedSpace: joined.has(r.space_id),
+    // The task the query's key names: the palette keeps it first even when its
+    // space is not joined, since pasting a key means "open that task".
+    named: !!r.named,
   }));
 
   // A query that names a task answers with that task first; anything else is a
@@ -2606,13 +2674,15 @@ app.post('/api/docs/:id/versions/:vid/restore', requireUser, async (req, res) =>
   if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
   const v = await pool.query('SELECT state FROM doc_versions WHERE id = $1 AND doc_id = $2', [req.params.vid, req.params.id]);
   if (!v.rows[0]) return res.status(404).json({ error: 'version not found' });
-  const src = await pool.query('SELECT title FROM docs WHERE id = $1', [req.params.id]);
+  const src = await pool.query('SELECT title, space_id FROM docs WHERE id = $1', [req.params.id]);
   const newId = crypto.randomUUID();
   const title = `${(src.rows[0]?.title || 'Untitled')} (restored)`;
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    await client.query('INSERT INTO docs (id, title, created_by) VALUES ($1, $2, $3)', [newId, title, req.user.id]);
+    // The copy sits beside its source, in the same space.
+    await client.query('INSERT INTO docs (id, title, created_by, space_id) VALUES ($1, $2, $3, $4)',
+      [newId, title, req.user.id, src.rows[0]?.space_id || await defaultSpaceId(client)]);
     await client.query(`INSERT INTO doc_access (doc_id, user_id, role) VALUES ($1, $2, 'owner')`, [newId, req.user.id]);
     // An old version keeps the table keys the boot repair fixed; mend them.
     await client.query('INSERT INTO doc_states (doc_id, state) VALUES ($1, $2)', [newId, stateWithValidTableKeys(v.rows[0].state)]);
@@ -3117,6 +3187,8 @@ registerDocPropRoutes(app, { requireUser, wrap, grantOn, editGrant });
 registerHomeRoutes(app, { requireUser, wrap });
 registerPushRoutes(app, { requireUser, wrap });
 registerFolderRoutes(app, { requireUser, wrap });
+registerSpaceMoveRoutes(app, { requireUser, wrap, editGrant });
+registerSpaceRoutes(app, { requireUser, wrap });
 registerWebhookRoutes(app, { requireUser, requireAdmin, wrap });
 registerFormRoutes(app, { requireUser, wrap, baseUrl: BASE_URL });
 // Marking or unmarking a template goes by the page's own grant: the template

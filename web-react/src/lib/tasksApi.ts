@@ -179,6 +179,7 @@ export interface ProjectRow {
   total: string;
   done: string;
   overdue: string;
+  space_id: string | null;
 }
 
 export type PropType =
@@ -352,6 +353,7 @@ export interface TaskRow {
 export interface AnyTaskRow extends TaskRow {
   project_name: string;
   project_icon: string;
+  space_id: string | null;
 }
 
 /** What a page knows about the task it belongs to. */
@@ -513,7 +515,7 @@ export const tasksApi = {
   home: (): Promise<HomePayload> => req('/home'),
 
   projects: (): Promise<ProjectRow[]> => req('/projects'),
-  createProject: (b: { name: string; icon?: string; color?: string; docId?: string; parentId?: string | null; mode?: ProjectMode }): Promise<ProjectRow> =>
+  createProject: (b: { name: string; icon?: string; color?: string; docId?: string; parentId?: string | null; mode?: ProjectMode; spaceId?: string }): Promise<ProjectRow> =>
     req('/projects', { method: 'POST', ...body(b) }),
   patchProject: (
     id: string,
@@ -555,9 +557,10 @@ export const tasksApi = {
 
   projectTasks: (id: string): Promise<TaskRow[]> => req(`/projects/${id}/tasks`),
   /** Every live task in the workspace, plus the union of the task types the
-   *  projects define — what the cross-project Tasks view filters over. */
-  allTasks: (): Promise<{ tasks: AnyTaskRow[]; kinds: { key: string; label: string }[] }> =>
-    req('/tasks'),
+   *  projects define — what the cross-project Tasks view filters over.
+   *  `allSpaces` also lists tasks in spaces you have not joined. */
+  allTasks: (allSpaces = false): Promise<{ tasks: AnyTaskRow[]; kinds: { key: string; label: string }[] }> =>
+    req(allSpaces ? '/tasks?spaces=all' : '/tasks'),
   /** `templateId` names a row template; it fills in what this body leaves out
    *  and never overrules what it sets. */
   createTask: (b: { projectId: string; title: string; templateId?: string } & TaskPatch): Promise<TaskRow> =>

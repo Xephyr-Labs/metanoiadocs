@@ -12,6 +12,8 @@
 /** `/share/<token>` is handled in main.tsx before the app mounts. */
 const DOC_PATH = /^\/d\/([^/?#]+)/;
 const FOLDER_PATH = /^\/f\/([^/?#]+)/;
+/** A space's overview page. */
+const SPACE_PATH = /^\/s\/([^/?#]+)/;
 /** A database, and optionally which of its saved views. */
 const DB_PATH = /^\/db\/([^/?#]+)(?:\/([^/?#]+))?/;
 /** AFFiNE's page address, from before the move to MetanoiaDocs:
@@ -29,7 +31,7 @@ const AFFINE_PATH = /^\/workspace\/[^/?#]+\/(?!(?:all|collection|tag|trash|journ
  *  /jira, and a fallback that covered the whole origin handed them the app shell
  *  out of the precache instead of letting the request reach Caddy. A new route
  *  here is a new route there — that is the point of the shared list. */
-export const APP_PATHS = [/^\/$/, DOC_PATH, FOLDER_PATH, DB_PATH, AFFINE_PATH];
+export const APP_PATHS = [/^\/$/, DOC_PATH, FOLDER_PATH, SPACE_PATH, DB_PATH, AFFINE_PATH];
 
 export const docUrl = (docId: string, blockId?: string) =>
   `${location.origin}/d/${encodeURIComponent(docId)}${blockId ? `#${encodeURIComponent(blockId)}` : ''}`;
@@ -57,6 +59,7 @@ export const folderUrl = (folderId: string) =>
 export interface Route {
   docId: string | null;
   folderId: string | null;
+  spaceId: string | null;
   projectId: string | null;
   viewId: string | null;
   blockId: string | null;
@@ -79,6 +82,7 @@ const decode = (s: string) => {
 export function parseRoute(pathname: string, hash = '', search = ''): Route {
   const doc = DOC_PATH.exec(pathname) ?? AFFINE_PATH.exec(pathname);
   const folder = FOLDER_PATH.exec(pathname);
+  const space = SPACE_PATH.exec(pathname);
   const db = DB_PATH.exec(pathname);
   // AFFiNE put the block in the query (`blockIds`, comma-separated); ours is
   // the fragment.
@@ -87,6 +91,7 @@ export function parseRoute(pathname: string, hash = '', search = ''): Route {
   return {
     docId: doc ? decode(doc[1]) : null,
     folderId: folder ? decode(folder[1]) : null,
+    spaceId: space ? decode(space[1]) : null,
     projectId: db ? decode(db[1]) : null,
     viewId: db?.[2] ? decode(db[2]) : null,
     blockId: fragment ? decode(fragment) : null,
@@ -145,6 +150,13 @@ export function showFolder(folderId: string, { replace = false } = {}): void {
   const path = `/f/${encodeURIComponent(folderId)}`;
   if (location.pathname === path && !location.hash) return;
   history[replace ? 'replaceState' : 'pushState']({ folderId }, '', path);
+}
+
+/** Point the address at a space's page. Same contract as `showDoc`. */
+export function showSpace(spaceId: string, { replace = false } = {}): void {
+  const path = `/s/${encodeURIComponent(spaceId)}`;
+  if (location.pathname === path && !location.hash) return;
+  history[replace ? 'replaceState' : 'pushState']({ spaceId }, '', path);
 }
 
 export function showHome({ replace = false } = {}): void {

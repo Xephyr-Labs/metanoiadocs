@@ -19,6 +19,7 @@ import * as Y from 'yjs';
 import { pool } from './db.js';
 import { isRepeatRule } from './repeat.js';
 import { knownUsers } from './task-writes.js';
+import { spaceForNew, spaceOf } from './space-move.js';
 
 const MAX_NAME = 120;
 const MAX_BODY = 20000;
@@ -106,7 +107,7 @@ export function registerTemplateRoutes(app, { requireUser, wrap, grantOn, templa
   /** Every page template this person can open. */
   app.get('/api/templates', requireUser, wrap(async (req, res) => {
     const { rows } = await pool.query(
-      `SELECT d.id, d.title, d.icon, d.kind, d.updated_at,
+      `SELECT d.id, d.title, d.icon, d.kind, d.updated_at, d.space_id, d.template_everywhere,
               u.name AS created_by_name
          FROM docs d
          LEFT JOIN users u ON u.id = d.created_by
@@ -125,16 +126,24 @@ export function registerTemplateRoutes(app, { requireUser, wrap, grantOn, templa
       return res.status(403).json({ error: 'Only the page owner can change whether it is a template.' });
     }
     const on = req.body?.isTemplate !== false;
+    // Offering a template in every space reaches people outside the page's own
+    // space, so it is an admin's call. Left out, it stays as it was.
+    const everywhere = typeof req.body?.everywhere === 'boolean' ? req.body.everywhere : null;
+    if (everywhere !== null && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Only an admin can offer a template in every space.' });
+    }
     // A row's own page belongs to that row: it is reachable only through it,
     // and a copy of one would be a page belonging to nothing. The listing
     // excludes them too, so this is the same rule said twice on purpose —
     // marking one was possible, and the sidebar then quietly hid it, which is
     // two answers to one question.
     const { rows } = await pool.query(
-      `UPDATE docs SET is_template = $2
+      // Unmarking also drops "every space", so marking it again starts local.
+      `UPDATE docs SET is_template = $2,
+                       template_everywhere = CASE WHEN $2 THEN COALESCE($3, template_everywhere) ELSE false END
         WHERE id = $1 AND deleted_at IS NULL AND (kind <> 'task' OR $2 = false)
-       RETURNING id, is_template, kind`,
-      [req.params.id, on]
+       RETURNING id, is_template, kind, template_everywhere`,
+      [req.params.id, on, everywhere]
     );
     if (!rows[0] && on) {
       const { rows: row } = await pool.query('SELECT kind FROM docs WHERE id = $1', [req.params.id]);
@@ -144,7 +153,7 @@ export function registerTemplateRoutes(app, { requireUser, wrap, grantOn, templa
     }
     if (!rows[0]) return res.status(404).json({ error: 'not found' });
     rolesChanged(rows[0].id);
-    res.json({ id: rows[0].id, isTemplate: rows[0].is_template });
+    res.json({ id: rows[0].id, isTemplate: rows[0].is_template, everywhere: rows[0].template_everywhere });
   }));
 
   /**
@@ -159,7 +168,7 @@ export function registerTemplateRoutes(app, { requireUser, wrap, grantOn, templa
   app.post('/api/templates/:id/use', requireUser, wrap(async (req, res) => {
     if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
     const { rows: src } = await pool.query(
-      `SELECT d.id, d.title, d.icon, d.kind, d.is_template, d.search_text, d.props, s.state
+      `SELECT d.id, d.title, d.icon, d.kind, d.is_template, d.search_text, d.props, d.space_id, s.state
          FROM docs d LEFT JOIN doc_states s ON s.doc_id = d.id
         WHERE d.id = $1 AND d.deleted_at IS NULL`,
       [req.params.id]
@@ -170,6 +179,12 @@ export function registerTemplateRoutes(app, { requireUser, wrap, grantOn, templa
     const folderId = typeof req.body?.folderId === 'string' ? req.body.folderId : null;
     const title = String(req.body?.title || src[0].title || 'Untitled').slice(0, 200);
     const id = crypto.randomUUID();
+    // A copy filed in a folder lives in the folder's space; otherwise the space
+    // it was made from, else the default (not the template's own: a template
+    // offered everywhere would otherwise fill its home space with copies).
+    const spaceId = await spaceForNew(pool, {
+      folderSpace: await spaceOf(pool, 'folder', folderId), requested: req.body?.spaceId,
+    });
 
     const client = await pool.connect();
     try {
@@ -179,10 +194,10 @@ export function registerTemplateRoutes(app, { requireUser, wrap, grantOn, templa
         // unassigned" and the rest are part of what the template looks like,
         // the same way its headings are. Tags are not copied — a tag is how a
         // page is filed, and the copy has not been filed anywhere yet.
-        `INSERT INTO docs (id, title, icon, created_by, folder_id, visibility, kind, search_text, props)
-         VALUES ($1,$2,$3,$4,$5,'team',$6,$7,$8)`,
+        `INSERT INTO docs (id, title, icon, created_by, folder_id, visibility, kind, search_text, props, space_id)
+         VALUES ($1,$2,$3,$4,$5,'team',$6,$7,$8,$9)`,
         [id, title, src[0].icon, req.user.id, folderId, src[0].kind === 'design' ? 'design' : 'doc',
-         String(src[0].search_text || '').slice(0, 100000), JSON.stringify(src[0].props ?? {})]
+         String(src[0].search_text || '').slice(0, 100000), JSON.stringify(src[0].props ?? {}), spaceId]
       );
       await client.query(
         `INSERT INTO doc_access (doc_id, user_id, role) VALUES ($1, $2, 'owner')`,
@@ -199,7 +214,7 @@ export function registerTemplateRoutes(app, { requireUser, wrap, grantOn, templa
     } finally {
       client.release();
     }
-    res.json({ id, title, icon: src[0].icon, folder_id: folderId, kind: src[0].kind, role: 'owner' });
+    res.json({ id, title, icon: src[0].icon, folder_id: folderId, space_id: spaceId, kind: src[0].kind, role: 'owner' });
   }));
 
   // ── row templates ─────────────────────────────────────────────────────

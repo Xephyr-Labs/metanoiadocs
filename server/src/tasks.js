@@ -14,6 +14,8 @@ import { emit } from './webhooks.js';
 import { KEY_PREFIX, KEY_RE, deriveKey, uniqueKey, withKey } from './task-key.js';
 import { isRepeatRule, nextOccurrence } from './repeat.js';
 import { checkParent } from './task-parent.js';
+import { spaceOf, spaceForNew, reparentInto } from './space-move.js';
+import { tasksInAllSpaces } from './spaces.js';
 
 export const STATUSES = ['todo', 'doing', 'review', 'done'];
 
@@ -365,11 +367,19 @@ const TASK_SELECT = `
 // Every live task in the workspace, for the cross-project Tasks view. Narrowing
 // happens in the client against the same filter engine a board uses, so this
 // hands back the rows plus the names they are filtered by.
+// $1 is the caller and $2 whether to skip the space filter (?spaces=all, or an
+// agent: see tasksInAllSpaces). The
+// filter mirrors taskInScope in spaces.js: joined space, assigned to me, or
+// made by me. A task given to me in a space I never joined must still show.
 const ALL_TASKS_SQL = `
-  SELECT x.*, p.name AS project_name, p.icon AS project_icon
+  SELECT x.*, p.name AS project_name, p.icon AS project_icon, p.space_id
     FROM (${TASK_SELECT} WHERE t.deleted_at IS NULL) x
     JOIN projects p ON p.id = x.project_id
    WHERE p.archived_at IS NULL AND p.mode <> 'data'
+     AND ($2::boolean
+          OR p.space_id IN (SELECT space_id FROM space_members WHERE user_id = $1)
+          OR EXISTS (SELECT 1 FROM task_assignees ta WHERE ta.task_id = x.id AND ta.user_id = $1)
+          OR x.created_by = $1)
    ORDER BY x.due_at ASC NULLS LAST, x.priority DESC, x.created_at DESC
    LIMIT 1000`;
 
@@ -399,9 +409,16 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
   app.post('/api/projects', requireUser, wrap(async (req, res) => {
     const id = crypto.randomUUID();
     const name = String(req.body?.name || 'Untitled project').slice(0, 200);
+    // A sub-database lives in its parent's space, a database drawn on a page in
+    // that page's space (the page moves with it later, so they must agree).
+    const spaceId = await spaceForNew(pool, {
+      parentSpace: await spaceOf(pool, 'project', req.body?.parentId),
+      folderSpace: await spaceOf(pool, 'doc', req.body?.docId),
+      requested: req.body?.spaceId,
+    });
     const insert = (key) => pool.query(
-      `INSERT INTO projects (id, name, icon, color, doc_id, parent_id, mode, key, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+      `INSERT INTO projects (id, name, icon, color, doc_id, parent_id, mode, key, created_by, space_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
       [
         id,
         name,
@@ -412,6 +429,7 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
         isMode(req.body?.mode) ? req.body.mode : 'tasks',
         key,
         req.user.id,
+        spaceId,
       ]
     );
     // Two projects created in the same breath can reduce to the same key, and
@@ -461,6 +479,8 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
         await client.query('ROLLBACK');
         return res.status(400).json({ error: 'that would put a database inside itself' });
       }
+      // Under a database in another space: this one's tree moves there first.
+      await reparentInto(client, { type: 'project', id: req.params.id }, await spaceOf(client, 'project', parentId));
       const { rows } = await client.query(
         `UPDATE projects SET parent_id = $1, position = $2 WHERE id = $3 RETURNING *`,
         [parentId, Number(req.body?.position) || 0, req.params.id]
@@ -564,9 +584,9 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
   // they are per project and a cross-project filter needs the union: every
   // board here calls its own the same four things, and a Type filter that only
   // knew one project's would silently drop the rest.
-  app.get('/api/tasks', requireUser, wrap(async (_req, res) => {
+  app.get('/api/tasks', requireUser, wrap(async (req, res) => {
     const [tasks, kinds] = await Promise.all([
-      pool.query(ALL_TASKS_SQL),
+      pool.query(ALL_TASKS_SQL, [req.user.id, tasksInAllSpaces(req.user, req.query)]),
       pool.query(
         `SELECT key, min(label) AS label, min(position) AS position
            FROM task_kinds GROUP BY key ORDER BY position, key`

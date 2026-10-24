@@ -2,6 +2,7 @@ import { FileText, Folder, FolderInput } from 'lucide-react';
 import type { MenuItem } from '../components/ui/Menu';
 import type { PageId } from '../lib/types';
 import { useWorkspace } from '../store/workspace';
+import { okToCross } from './useMoveToSpace';
 
 /**
  * The "Move to →" submenu for a page, as one MenuItem ready to drop into any
@@ -32,7 +33,11 @@ export function useMoveToFolder(pageId: PageId | null | undefined): MenuItem | n
       .map((folder) => ({
         icon: Folder,
         label: folder.name,
-        onSelect: () => ws.movePage(pageId, folder.id),
+        // A folder in another space takes the page's whole tree there: ask first.
+        onSelect: () => {
+          void okToCross(ws.spaces, 'doc', pageId, page?.spaceId, folder.spaceId)
+            .then((ok) => { if (ok) ws.movePage(pageId, folder.id); });
+        },
       })),
   ];
 

@@ -19,6 +19,8 @@ import { Menu } from '../ui/Menu';
 import { Pager, usePaged } from '../ui/Pager';
 import { PageIcon } from '../ui/PageIcon';
 import { SegmentedControl } from '../ui/SegmentedControl';
+import { SpaceChip } from '../spaces/SpaceChip';
+import { inSpaceFilter, type SpaceFilter } from '../../lib/spaceTree';
 
 type Sort = 'updated' | 'title' | 'folder';
 
@@ -45,6 +47,7 @@ export function AllDocsView() {
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<Sort>('updated');
   const [scope, setScope] = useState<'all' | 'unfiled'>('all');
+  const [spaces, setSpaces] = useState<SpaceFilter>('joined');
 
   const total = useMemo(() => Object.values(ws.pages).filter(listable).length, [ws.pages]);
   const unfiled = useMemo(
@@ -56,6 +59,7 @@ export function AllDocsView() {
     const q = query.trim().toLowerCase();
     const all = Object.values(ws.pages).filter((p) => {
       if (!listable(p)) return false;
+      if (!inSpaceFilter(p.spaceId, spaces, ws.spaces)) return false;
       if (scope === 'unfiled' && (p.folderId || p.parentId)) return false;
       if (!q) return true;
       return (p.title || 'Untitled').toLowerCase().includes(q)
@@ -74,10 +78,10 @@ export function AllDocsView() {
       });
     }
     return all.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  }, [ws.pages, ws.folders, query, sort, scope]);
+  }, [ws.pages, ws.folders, ws.spaces, query, sort, scope, spaces]);
 
   const scroller = useRef<HTMLDivElement>(null);
-  const paged = usePaged(rows, `${query}|${sort}|${scope}`);
+  const paged = usePaged(rows, `${query}|${sort}|${scope}|${spaces}`);
 
   return (
     <div ref={scroller} className="scrollarea h-full overflow-y-auto bg-canvas">
@@ -103,6 +107,7 @@ export function AllDocsView() {
               className="h-8 w-full rounded-md bg-surface pl-8 pr-2.5 text-sm text-ink outline-none ring-1 ring-inset ring-line placeholder:text-faint focus:ring-2 focus:ring-accent"
             />
           </label>
+          <SpaceChip value={spaces} onChange={setSpaces} />
           <SegmentedControl
             aria-label="Which documents"
             value={scope}
@@ -143,7 +148,7 @@ export function AllDocsView() {
   );
 }
 
-function DocRow({ page }: { page: Page }) {
+export function DocRow({ page }: { page: Page }) {
   const ws = useWorkspace();
   const menu = useDocMenu(page.id);
   const path = page.folderId

@@ -5,6 +5,9 @@ import { dayIn, zoneOf } from './timezone.js';
 
 // Docs the caller may see: team-visible, or explicitly granted.
 const VISIBLE = `(a.user_id IS NOT NULL OR d.visibility = 'team')`;
+// Home favours the caller's joined spaces (My tasks and the my_* stats don't:
+// work assigned to me shows wherever it lives). Every row has a space_id.
+const JOINED = (col) => `${col} IN (SELECT space_id FROM space_members WHERE user_id = $1)`;
 const VISIBLE_JOIN = `LEFT JOIN doc_access a ON a.doc_id = d.id AND a.user_id = $1`;
 
 /**
@@ -19,7 +22,7 @@ const ACTIVITY_SQL = `
            coalesce(d.updated_via, 'human') AS updated_via,
            coalesce(d.search_text, '') <> '' AS has_text
       FROM docs d ${VISIBLE_JOIN}
-     WHERE d.deleted_at IS NULL AND ${VISIBLE}
+     WHERE d.deleted_at IS NULL AND ${VISIBLE} AND ${JOINED('d.space_id')}
   ),
   events AS (
     SELECT 'doc_created' AS kind, v.created_by AS actor_id, v.created_at AS at,
@@ -42,10 +45,12 @@ const ACTIVITY_SQL = `
     SELECT 'task_created', t.created_by, t.created_at, t.doc_id, p.id, p.name, p.icon, t.id, t.title, 'human'::text
       FROM tasks t JOIN projects p ON p.id = t.project_id
      WHERE t.deleted_at IS NULL AND p.archived_at IS NULL AND p.mode <> 'data' AND t.created_by IS NOT NULL
+       AND ${JOINED('p.space_id')}
     UNION ALL
     SELECT 'task_done', t.updated_by, t.done_at, t.doc_id, p.id, p.name, p.icon, t.id, t.title, coalesce(t.updated_via, 'human')
       FROM tasks t JOIN projects p ON p.id = t.project_id
      WHERE t.deleted_at IS NULL AND p.archived_at IS NULL AND p.mode <> 'data' AND t.done_at IS NOT NULL
+       AND ${JOINED('p.space_id')}
   )
   SELECT e.*, u.name AS actor_name, coalesce(u.kind, 'person') AS actor_kind
     FROM events e LEFT JOIN users u ON u.id = e.actor_id
@@ -84,7 +89,7 @@ export function registerHomeRoutes(app, { requireUser, wrap }) {
         `SELECT d.id, d.title, d.icon, d.updated_at, u.name AS updated_by_name
            FROM docs d ${VISIBLE_JOIN}
            LEFT JOIN users u ON u.id = d.updated_by
-          WHERE d.deleted_at IS NULL AND ${VISIBLE}
+          WHERE d.deleted_at IS NULL AND ${VISIBLE} AND ${JOINED('d.space_id')}
             -- A task's page lives behind its row (see tasks.js); opening the row
             -- creates it, which is not the same as working on a document.
             AND d.kind IS DISTINCT FROM 'task'
@@ -96,11 +101,11 @@ export function registerHomeRoutes(app, { requireUser, wrap }) {
                 count(t.id) FILTER (WHERE t.deleted_at IS NULL) AS total,
                 count(t.id) FILTER (WHERE t.deleted_at IS NULL AND t.status = 'done') AS done,
                 count(t.id) FILTER (WHERE t.deleted_at IS NULL AND t.status <> 'done'
-                                      AND t.due_at < $1::date) AS overdue
+                                      AND t.due_at < $2::date) AS overdue
            FROM projects p LEFT JOIN tasks t ON t.project_id = p.id
-          WHERE p.archived_at IS NULL AND p.mode <> 'data'
+          WHERE p.archived_at IS NULL AND p.mode <> 'data' AND ${JOINED('p.space_id')}
           GROUP BY p.id ORDER BY p.position ASC, p.created_at ASC LIMIT 12`,
-        [today]
+        [uid, today]
       ),
       pool.query(
         `SELECT
@@ -115,7 +120,7 @@ export function registerHomeRoutes(app, { requireUser, wrap }) {
                AND t.due_at BETWEEN $2::date AND $2::date + 7
                AND t.deleted_at IS NULL AND p.archived_at IS NULL AND p.mode <> 'data') AS my_week,
            (SELECT count(*) FROM docs d ${VISIBLE_JOIN}
-             WHERE d.deleted_at IS NULL AND ${VISIBLE} AND d.kind IS DISTINCT FROM 'task'
+             WHERE d.deleted_at IS NULL AND ${VISIBLE} AND ${JOINED('d.space_id')} AND d.kind IS DISTINCT FROM 'task'
                AND d.updated_at > now() - interval '7 days') AS docs_week`,
         [uid, today]
       ),

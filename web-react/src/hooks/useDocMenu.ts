@@ -8,6 +8,7 @@ import type { PageId } from '../lib/types';
 import { useAuth } from '../store/auth';
 import { useWorkspace } from '../store/workspace';
 import { useMoveToFolder } from './useMoveToFolder';
+import { useMoveToSpace } from './useMoveToSpace';
 
 /**
  * The actions a document carries, wherever its row is drawn.
@@ -42,6 +43,8 @@ export function useDocMenu(
   // action here addresses the document by id, so they all still work; the
   // favourite and pin toggles simply read as "add", which is the safe way round.
   const page = ws.pages[id] ?? null;
+  // A task page moves with its database, never alone.
+  const moveSpace = useMoveToSpace('doc', page?.kind === 'task' ? null : id, page?.spaceId);
   const fav = ws.favoriteIds.includes(id);
 
   const rename = onRename ?? (() => { requestTitleFocus(id); ws.select(id); });
@@ -79,6 +82,7 @@ export function useDocMenu(
         }]
       : []),
     ...(moveTo ? [moveTo] : []),
+    ...(moveSpace ? [moveSpace] : []),
     {
       icon: Download,
       label: 'Export',

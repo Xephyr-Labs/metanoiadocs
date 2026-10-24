@@ -71,7 +71,9 @@ export async function ensureTaskPage(taskId, userId, createDocRow, content = nul
   try {
     await client.query('BEGIN');
     const { rows } = await client.query(
-      'SELECT id, title, doc_id FROM tasks WHERE id = $1 AND deleted_at IS NULL FOR UPDATE',
+      `SELECT t.id, t.title, t.doc_id, p.space_id
+         FROM tasks t LEFT JOIN projects p ON p.id = t.project_id
+        WHERE t.id = $1 AND t.deleted_at IS NULL FOR UPDATE OF t`,
       [taskId]
     );
     if (!rows[0]) {
@@ -92,6 +94,8 @@ export async function ensureTaskPage(taskId, userId, createDocRow, content = nul
       folderId: null,
       visibility: 'team',
       kind: 'task',
+      // A task's page lives in its database's space.
+      spaceId: rows[0].space_id,
       // Markdown when a row template brought a body with it; null for the
       // ordinary "give this row a page" gesture, which opens an empty one.
       content,

@@ -408,6 +408,35 @@ export async function initSchema() {
     CREATE UNIQUE INDEX IF NOT EXISTS projects_doc_idx
       ON projects(doc_id) WHERE doc_id IS NOT NULL;
 
+    -- ── spaces ──────────────────────────────────────────────────────────────
+    -- A space groups docs, folders and projects. Membership only shapes what a
+    -- person's sidebar lists; it grants no access. Exactly one default space
+    -- ("General") exists, created on demand by defaultSpaceId().
+    CREATE TABLE IF NOT EXISTS spaces (
+      id          TEXT PRIMARY KEY,
+      name        TEXT NOT NULL,
+      icon        TEXT NOT NULL DEFAULT '🗂️',
+      description TEXT NOT NULL DEFAULT '',
+      is_default  BOOLEAN NOT NULL DEFAULT false,
+      created_by  TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS spaces_one_default ON spaces(is_default) WHERE is_default;
+    CREATE TABLE IF NOT EXISTS space_members (
+      space_id  TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+      user_id   TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      position  INT NOT NULL DEFAULT 0,
+      joined_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (space_id, user_id)
+    );
+    ALTER TABLE docs ADD COLUMN IF NOT EXISTS space_id TEXT REFERENCES spaces(id);
+    ALTER TABLE folders ADD COLUMN IF NOT EXISTS space_id TEXT REFERENCES spaces(id);
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS space_id TEXT REFERENCES spaces(id);
+    CREATE INDEX IF NOT EXISTS docs_space_idx ON docs(space_id);
+    CREATE INDEX IF NOT EXISTS folders_space_idx ON folders(space_id);
+    CREATE INDEX IF NOT EXISTS projects_space_idx ON projects(space_id);
+    ALTER TABLE docs ADD COLUMN IF NOT EXISTS template_everywhere BOOLEAN NOT NULL DEFAULT false;
+
     -- Four fixed statuses on purpose. Per-project custom columns are a real
     -- feature with real cost; add them when someone actually asks.
     CREATE TABLE IF NOT EXISTS tasks (
@@ -1328,16 +1357,50 @@ async function normalizeLegacyFolderImport() {
   }
 }
 
+/**
+ * The id of the default ("General") space, created if missing. Race-safe: the
+ * insert loses quietly to a concurrent one on the partial unique index, and the
+ * select then finds whichever row won.
+ */
+export async function defaultSpaceId(client = pool) {
+  await client.query(
+    `INSERT INTO spaces (id, name, icon, is_default) VALUES ($1, 'General', '🏠', true)
+     ON CONFLICT DO NOTHING`,
+    [crypto.randomUUID()]
+  );
+  const { rows } = await client.query('SELECT id FROM spaces WHERE is_default');
+  return rows[0].id;
+}
+
+/** Every new account starts in General, so its sidebar is never empty. */
+export async function joinDefaultSpace(client, userId) {
+  await client.query(
+    'INSERT INTO space_members (space_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+    [await defaultSpaceId(client), userId]
+  );
+}
+
 export async function findOrCreateUser(email) {
   const clean = email.trim().toLowerCase();
   const existing = await pool.query('SELECT * FROM users WHERE email = $1', [clean]);
   if (existing.rows[0]) return existing.rows[0];
   const id = crypto.randomUUID();
-  const created = await pool.query(
-    'INSERT INTO users (id, email, name) VALUES ($1, $2, $3) RETURNING *',
-    [id, clean, clean.split('@')[0]]
-  );
-  return created.rows[0];
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const created = await client.query(
+      'INSERT INTO users (id, email, name) VALUES ($1, $2, $3) RETURNING *',
+      [id, clean, clean.split('@')[0]]
+    );
+    await joinDefaultSpace(client, id);
+    await client.query('COMMIT');
+    return created.rows[0];
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
 }
 
 export async function findUserByUsername(username) {
@@ -1384,6 +1447,7 @@ export async function createFirstAdmin({ name, username, email, passwordHash }) 
        VALUES ($1, $2, $3, $4, $5, 'admin') RETURNING *`,
       [crypto.randomUUID(), email.trim().toLowerCase(), name.trim(), username.trim().toLowerCase(), passwordHash]
     );
+    await joinDefaultSpace(client, rows[0].id);
     await client.query('COMMIT');
     return rows[0];
   } catch (e) {
@@ -1396,12 +1460,23 @@ export async function createFirstAdmin({ name, username, email, passwordHash }) 
 
 export async function createUserWithPassword({ name, username, email, passwordHash, role = 'collaborator' }) {
   const id = crypto.randomUUID();
-  const { rows } = await pool.query(
-    `INSERT INTO users (id, email, name, username, password_hash, role)
-     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-    [id, email.trim().toLowerCase(), name.trim(), username.trim().toLowerCase(), passwordHash, role]
-  );
-  return rows[0];
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query(
+      `INSERT INTO users (id, email, name, username, password_hash, role)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [id, email.trim().toLowerCase(), name.trim(), username.trim().toLowerCase(), passwordHash, role]
+    );
+    await joinDefaultSpace(client, id);
+    await client.query('COMMIT');
+    return rows[0];
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
 }
 
 export async function isEmailInvited(email) {

@@ -4,6 +4,7 @@
 // recorded in data_migrations; a failure leaves it unrecorded (it runs again
 // on the next boot) and is logged, never fatal: the app works without it.
 import * as Y from 'yjs';
+import { defaultSpaceId } from './db.js';
 import { fixTableOrderKeys, stateWithValidTableKeys } from './blocks.js';
 
 const MIGRATIONS = [
@@ -68,6 +69,31 @@ const MIGRATIONS = [
         }
       }
       return `${fixed} draft(s)${failed ? `, ${failed} skipped` : ''}`;
+    },
+  },
+  {
+    // Spaces arrive: everything that exists moves into General, and everyone
+    // joins it, so nothing disappears from anybody's sidebar.
+    name: '2026-10-spaces-general',
+    async run(pool) {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        const space = await defaultSpaceId(client);
+        const counts = [];
+        for (const table of ['docs', 'folders', 'projects']) {
+          counts.push((await client.query(`UPDATE ${table} SET space_id = $1 WHERE space_id IS NULL`, [space])).rowCount);
+        }
+        const members = await client.query(
+          'INSERT INTO space_members (space_id, user_id) SELECT $1, id FROM users ON CONFLICT DO NOTHING', [space]);
+        await client.query('COMMIT');
+        return `${counts[0]} docs, ${counts[1]} folders, ${counts[2]} projects, ${members.rowCount} members`;
+      } catch (err) {
+        await client.query('ROLLBACK').catch(() => {});
+        throw err;
+      } finally {
+        client.release();
+      }
     },
   },
 ];

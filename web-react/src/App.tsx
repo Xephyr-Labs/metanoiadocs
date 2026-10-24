@@ -10,6 +10,7 @@ import { CommandPalette } from './components/palette/CommandPalette';
 import { AllDocsView } from './components/docs/AllDocsView';
 import { EditorArea } from './components/editor/EditorArea';
 import { FolderView } from './components/folder/FolderView';
+import { SpaceView } from './components/spaces/SpaceView';
 import { HistoryView } from './components/history/HistoryView';
 import { Home } from './components/home/Home';
 import { ProjectView } from './components/project/ProjectView';
@@ -121,6 +122,7 @@ export default function App() {
               : ws.view === 'tasks' ? <TasksView />
               : ws.view === 'project' ? <ProjectView />
               : ws.view === 'folder' ? <FolderView />
+              : ws.view === 'space' ? <SpaceView />
               : <EditorArea />}
           </main>
           {isMobile && <TabBar />}
