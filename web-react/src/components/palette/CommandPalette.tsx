@@ -19,7 +19,7 @@ import { splitKey } from '../../lib/taskKey';
 import { STATUS_COLOR } from '../../lib/builtinProps';
 import { swatch } from '../../lib/tagColors';
 import { useWorkspace } from '../../store/workspace';
-import { splitBySpace } from '../../lib/spaceTree';
+import { inCurrentSpace, splitBySpace } from '../../lib/spaceTree';
 import { DocIcon } from '../ui/DocIcon';
 import { Modal } from '../ui/Modal';
 import { ProjectIcon } from '../ui/ProjectIcon';
@@ -63,12 +63,12 @@ export function CommandPalette() {
     let alive = true;
     setBusy(true);
     const t = setTimeout(() => {
-      docsApi.search(query)
+      docsApi.search(query, ws.currentSpaceId || undefined)
         .then((r) => { if (alive) { setResults(r); setBusy(false); } })
         .catch(() => { if (alive) { setResults([]); setBusy(false); } });
     }, 160);
     return () => { alive = false; clearTimeout(t); };
-  }, [q]);
+  }, [q, ws.currentSpaceId]);
 
   const commands: Item[] = useMemo(() => {
     const db = ws.projects.find((p) => p.id === ws.activeProjectId) ?? null;
@@ -116,23 +116,26 @@ export function CommandPalette() {
   const recentItems: Item[] = useMemo(() => {
     if (query) return [];
     const ids = JSON.parse(localStorage.getItem('mn-recents') || '[]') as string[];
-    return ids.map((id) => ws.pages[id]).filter(Boolean).slice(0, 4)
+    return ids.map((id) => ws.pages[id]).filter((p) => p && inCurrentSpace(p.spaceId, ws.currentSpaceId, ws.spaces)).slice(0, 4)
       .map((p) => ({ kind: 'page' as const, id: p.id, title: p.title, sub: 'Recent' }));
-  }, [query, ws.pages]);
+  }, [query, ws.pages, ws.currentSpaceId, ws.spaces]);
 
   const allPages: Item[] = useMemo(
-    () => Object.values(ws.pages).map((p) => ({ kind: 'page' as const, id: p.id, title: p.title, sub: '' })),
-    [ws.pages],
+    () => Object.values(ws.pages).filter((p) => inCurrentSpace(p.spaceId, ws.currentSpaceId, ws.spaces))
+      .map((p) => ({ kind: 'page' as const, id: p.id, title: p.title, sub: '' })),
+    [ws.pages, ws.currentSpaceId, ws.spaces],
   );
 
   // Databases are matched here rather than on the server: the whole list is
   // already in memory and there are tens of them, not thousands.
   const dbItems: Item[] = useMemo(() => {
-    const rows = ws.projects.filter((p) => !query || p.name.toLowerCase().includes(query)
-      || (p.key ?? '').toLowerCase().startsWith(query));
+    // Typing searches every database; the idle list is the space you are in.
+    const rows = ws.projects.filter((p) => (query
+      ? p.name.toLowerCase().includes(query) || (p.key ?? '').toLowerCase().startsWith(query)
+      : inCurrentSpace(p.space_id, ws.currentSpaceId, ws.spaces)));
     return rows.slice(0, query ? 6 : 4)
       .map((p) => ({ kind: 'database' as const, id: p.id, title: p.name, icon: p.icon }));
-  }, [ws.projects, query]);
+  }, [ws.projects, query, ws.currentSpaceId, ws.spaces]);
 
   const toItem = (r: SearchRow): Item => (r.kind === 'task'
     ? {

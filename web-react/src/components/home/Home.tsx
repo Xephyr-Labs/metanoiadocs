@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useRef } from 'react';
 import { ArrowRight, ChevronDown, ChevronLeft, ChevronRight, FileText, MoreHorizontal, Plus, RefreshCw, Upload } from 'lucide-react';
 import { useDocMenu } from '../../hooks/useDocMenu';
 import { useAuth } from '../../store/auth';
@@ -13,7 +13,7 @@ import { EmptyState } from '../ui/EmptyState';
 import { IconButton } from '../ui/IconButton';
 import { Menu } from '../ui/Menu';
 import { Skeleton } from '../ui/Skeleton';
-import { spaceOf } from '../../lib/spaceTree';
+import { inCurrentSpace } from '../../lib/spaceTree';
 import { ActivityLine, Card, DocCard, ProjectCard, StatTile, TaskBucket } from './cards';
 
 const BUCKETS: MyTask['bucket'][] = ['overdue', 'today', 'week', 'later'];
@@ -109,16 +109,25 @@ export function Home() {
 
   // Home is the space you are in, like the sidebar beside it.
   const spaceId = ws.currentSpaceId || undefined;
+  // Only the newest request may land: the first load can go out before the
+  // spaces arrive (unscoped, every joined space) and finish after the scoped
+  // one, and a quick switch races the same way.
+  const seq = useRef(0);
   const load = useCallback(async () => {
+    const n = ++seq.current;
     try {
-      setData(await tasksApi.home(spaceId));
+      const d = await tasksApi.home(spaceId);
+      if (n !== seq.current) return;
+      setData(d);
       setError(null);
     } catch (e) {
+      if (n !== seq.current) return;
       setError(e instanceof Error ? e.message : 'Could not load your dashboard.');
     }
   }, [spaceId]);
 
-  useEffect(() => { load(); }, [load]);
+  // A new space never shows the old one's numbers while its own load.
+  useEffect(() => { setData(null); load(); }, [load]);
 
   // Recents are per-browser (localStorage), so prefer the docs this person
   // actually opened and fall back to workspace-wide recency to fill the row.
@@ -126,7 +135,7 @@ export function Home() {
     if (!data) return [];
     const byId = new Map(data.recentDocs.map((d) => [d.id, d]));
     const mine = ws.recentIds
-      .filter((id) => !ws.pages[id] || spaceOf(ws.pages[id].spaceId, ws.spaces) === ws.currentSpaceId || !ws.spaces.length)
+      .filter((id) => !ws.pages[id] || inCurrentSpace(ws.pages[id].spaceId, ws.currentSpaceId, ws.spaces))
       .map((id) => byId.get(id) ?? (ws.pages[id] && {
         id, title: ws.pages[id].title, icon: ws.pages[id].icon,
         updated_at: ws.pages[id].updatedAt, updated_by_name: null,

@@ -247,8 +247,6 @@ export interface SearchRow {
    *  send it yet, in which case the hit shows its status dot instead. */
   taskKind?: string;
   space_id?: string | null;
-  /** False when the hit lives in a space you have not joined. */
-  inJoinedSpace?: boolean;
   /** Tasks only — the task the query's key names (it stays first). */
   named?: boolean;
 }
@@ -479,7 +477,7 @@ export const docsApi = {
     req(`/docs/${id}/public`, { method: 'POST', body: JSON.stringify(access ? { access } : {}) }),
   publicDisable: (id: string) => req(`/docs/${id}/public`, { method: 'DELETE' }),
 
-  search: (q: string): Promise<SearchRow[]> => req(`/search?q=${encodeURIComponent(q)}`),
+  search: (q: string, prefer?: string): Promise<SearchRow[]> => req(`/search?q=${encodeURIComponent(q)}${prefer ? `&prefer=${encodeURIComponent(prefer)}` : ''}`),
   intelligence: (id: string): Promise<Intelligence> => req(`/docs/${id}/intelligence`),
 
   comments: (id: string): Promise<CommentRow[]> => req(`/docs/${id}/comments`),
