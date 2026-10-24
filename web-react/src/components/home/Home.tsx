@@ -13,6 +13,7 @@ import { EmptyState } from '../ui/EmptyState';
 import { IconButton } from '../ui/IconButton';
 import { Menu } from '../ui/Menu';
 import { Skeleton } from '../ui/Skeleton';
+import { spaceOf } from '../../lib/spaceTree';
 import { ActivityLine, Card, DocCard, ProjectCard, StatTile, TaskBucket } from './cards';
 
 const BUCKETS: MyTask['bucket'][] = ['overdue', 'today', 'week', 'later'];
@@ -54,17 +55,19 @@ function MyDocRow({ doc, onOpen }: { doc: MyDocRow; onOpen: () => void }) {
 }
 
 /** Paginated list of everything the signed-in user created. */
-function MyDocsCard({ onOpen }: { onOpen: (id: string) => void }) {
+function MyDocsCard({ onOpen, spaceId }: { onOpen: (id: string) => void; spaceId?: string }) {
   const [page, setPage] = useState(0);
+  // A new space starts at its own first page.
+  useEffect(() => setPage(0), [spaceId]);
   const [data, setData] = useState<{ total: number; rows: MyDocRow[] } | null>(null);
 
   useEffect(() => {
     let stale = false;
-    docsApi.myDocs(page * MY_DOCS_PAGE, MY_DOCS_PAGE)
+    docsApi.myDocs(page * MY_DOCS_PAGE, MY_DOCS_PAGE, spaceId)
       .then((d) => { if (!stale) setData(d); })
       .catch(() => { if (!stale) setData({ total: 0, rows: [] }); });
     return () => { stale = true; };
-  }, [page]);
+  }, [page, spaceId]);
 
   const pages = data ? Math.max(1, Math.ceil(data.total / MY_DOCS_PAGE)) : 1;
 
@@ -104,14 +107,16 @@ export function Home() {
   const [data, setData] = useState<HomePayload | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Home is the space you are in, like the sidebar beside it.
+  const spaceId = ws.currentSpaceId || undefined;
   const load = useCallback(async () => {
     try {
-      setData(await tasksApi.home());
+      setData(await tasksApi.home(spaceId));
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not load your dashboard.');
     }
-  }, []);
+  }, [spaceId]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -121,6 +126,7 @@ export function Home() {
     if (!data) return [];
     const byId = new Map(data.recentDocs.map((d) => [d.id, d]));
     const mine = ws.recentIds
+      .filter((id) => !ws.pages[id] || spaceOf(ws.pages[id].spaceId, ws.spaces) === ws.currentSpaceId || !ws.spaces.length)
       .map((id) => byId.get(id) ?? (ws.pages[id] && {
         id, title: ws.pages[id].title, icon: ws.pages[id].icon,
         updated_at: ws.pages[id].updatedAt, updated_by_name: null,
@@ -272,7 +278,7 @@ export function Home() {
                   );
                 })()}
 
-                <MyDocsCard onOpen={(id) => ws.select(id)} />
+                <MyDocsCard onOpen={(id) => ws.select(id)} spaceId={spaceId} />
               </div>
 
               <Card title="Activity">

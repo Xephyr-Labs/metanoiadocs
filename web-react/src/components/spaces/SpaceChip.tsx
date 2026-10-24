@@ -1,27 +1,25 @@
 import { ChevronDown, Layers } from 'lucide-react';
-import { EmojiIcon } from '../../hooks/useMoveToSpace';
+import { SpaceMenuIcon } from '../../hooks/useMoveToSpace';
 import type { SpaceFilter } from '../../lib/spaceTree';
 import { useWorkspace } from '../../store/workspace';
 import { Menu } from '../ui/Menu';
 
-/** Which spaces a list covers: yours (the default), every space, or one. */
+/** Which spaces a list covers: the space you are in (the default), one other, or every space. */
 export function SpaceChip({ value, onChange }: { value: SpaceFilter; onChange: (v: SpaceFilter) => void }) {
   const ws = useWorkspace();
   if (!ws.spaces.length) return null;
   const one = ws.spaces.find((s) => s.id === value);
-  const label = value === 'all' ? 'All spaces' : one ? `${one.icon} ${one.name}` : 'Joined spaces';
+  const label = value === 'all' ? 'All spaces' : one ? one.name : 'Joined spaces';
   return (
     <Menu
       items={[
-        { icon: Layers, label: 'Joined spaces', checked: value === 'joined', onSelect: () => onChange('joined') },
-        { icon: Layers, label: 'All spaces', checked: value === 'all', onSelect: () => onChange('all') },
-        ...ws.spaces.map((s, i) => ({
-          icon: EmojiIcon(s.icon),
+        ...ws.spaces.map((s) => ({
+          icon: SpaceMenuIcon(s),
           label: s.name,
-          separatorBefore: i === 0,
           checked: value === s.id,
           onSelect: () => onChange(s.id),
         })),
+        { icon: Layers, label: 'All spaces', separatorBefore: true, checked: value === 'all', onSelect: () => onChange('all') },
       ]}
       trigger={
         <button

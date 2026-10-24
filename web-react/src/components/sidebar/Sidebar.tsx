@@ -27,6 +27,8 @@ import {
   Files,
   Folder,
   Home,
+  Info,
+  Pencil,
   Link2,
   Inbox,
   KanbanSquare,
@@ -77,8 +79,12 @@ import { moveToSpaceItem } from '../../hooks/useMoveToSpace';
 import { ProjectIcon } from '../ui/ProjectIcon';
 import { SpaceSection } from './SpaceSection';
 import type { SpaceRow } from '../../lib/spacesApi';
-import { inSpaceFilter } from '../../lib/spaceTree';
+import { inCurrentSpace, spaceOf } from '../../lib/spaceTree';
+import { spacesApi } from '../../lib/spacesApi';
 import { BrowseSpaces } from '../spaces/BrowseSpaces';
+import { SpaceAvatar } from '../spaces/SpaceAvatar';
+import { SpaceDialog } from '../spaces/SpaceDialog';
+import { SpaceMenuIcon } from '../../hooks/useMoveToSpace';
 
 /**
  * Only `alert` spends the accent. "You are here" is a neutral fill — where you
@@ -710,7 +716,7 @@ function Rail({
 
 /** Stand-in when no spaces loaded: the store files everything under ''. */
 const NO_SPACE: SpaceRow = {
-  id: '', name: 'Workspace', icon: '🗂️', description: '', is_default: true,
+  id: '', name: 'Workspace', icon: '', description: '', is_default: true,
   created_by: null, member_count: 0, joined: true, position: 0,
 };
 
@@ -751,14 +757,45 @@ export function Sidebar() {
   const toggle = (key: string) => setCollapsed(toggleSection(key));
 
   const [browseOpen, setBrowseOpen] = useState(false);
+  const [creatingSpace, setCreatingSpace] = useState(false);
+  const [editingSpace, setEditingSpace] = useState(false);
   const joined = ws.spaces.filter((sp) => sp.joined);
-  const joinedIds = joined.map((sp) => sp.id);
-  // A template shows when its page sits in a space you joined, or when it is
-  // marked for every space. Pages with no space belong to the default one.
-  // A page made from a template lands in the space you are in: the open space
-  // page, else the open page's space. Anywhere else the server picks (the default).
-  const templateSpace = (ws.view === 'space' ? ws.activeSpaceId : ws.view === 'doc' ? ws.currentPage?.spaceId : null) ?? undefined;
-  const docTemplates = ws.docTemplates.filter((t) => t.templateEverywhere || inSpaceFilter(t.spaceId, 'joined', ws.spaces));
+  // The space you are in, Notion-workspace style: the switcher names it and
+  // everything below is cut to it.
+  const space = ws.spaces.find((sp) => sp.id === ws.currentSpaceId) ?? null;
+  const pageHere = (id: string) => inCurrentSpace(ws.pages[id]?.spaceId, ws.currentSpaceId, ws.spaces);
+  const folderHere = (id: string) => inCurrentSpace(ws.folders[id]?.spaceId, ws.currentSpaceId, ws.spaces);
+  const recentIds = ws.recentIds.filter(pageHere);
+  const favoriteIds = ws.favoriteIds.filter(pageHere);
+  const favoriteFolderIds = ws.favoriteFolderIds.filter(folderHere);
+  const privateRootIds = ws.privateRootIds.filter(pageHere);
+  const sharedRootIds = ws.sharedRootIds.filter(pageHere);
+  const libraryRootIds = ws.libraryRootIds.filter(pageHere);
+  // A template shows in its own space, or in every space when marked so. A
+  // page made from one lands in the space you are in (the store's default).
+  const docTemplates = ws.docTemplates.filter((t) => t.templateEverywhere || !ws.spaces.length || spaceOf(t.spaceId, ws.spaces) === ws.currentSpaceId);
+
+  const switchTo = (id: string) => {
+    if (id === ws.currentSpaceId) return;
+    ws.switchSpace(id);
+    // Land on the new space's Home: staying on a page from the old space would
+    // pull you straight back into it.
+    ws.openHome();
+  };
+  const canManageSpace = !!space && (space.created_by === auth.user?.id || auth.user?.role === 'admin');
+  const deleteSpace = async () => {
+    if (!space || !window.confirm(`Delete the space "${space.name}"?`)) return;
+    try {
+      await spacesApi.remove(space.id);
+    } catch (e) {
+      // The server says why: the default space, or one that still holds things.
+      toast(e instanceof Error ? e.message : 'Could not delete that space.');
+      return;
+    }
+    await ws.refreshSpaces();
+    ws.openHome();
+    toast(`Deleted the space ${space.name}.`);
+  };
 
   const onResizeStart = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -801,7 +838,24 @@ export function Sidebar() {
         <Menu
           width={248}
           items={[
-            { label: `${activeWs.icon}  ${activeWs.name}` },
+            ...(joined.length ? joined.map((sp) => ({
+              icon: SpaceMenuIcon(sp),
+              label: sp.name,
+              checked: sp.id === ws.currentSpaceId,
+              onSelect: () => switchTo(sp.id),
+            })) : [{ label: activeWs.name }]),
+            ...(ws.spaces.length ? [
+              { icon: LayoutGrid, label: 'Browse spaces', separatorBefore: true, onSelect: () => setBrowseOpen(true) },
+              { icon: Plus, label: 'New space', onSelect: () => setCreatingSpace(true) },
+            ] : []),
+            ...(space ? [
+              { icon: Info, label: 'Space overview', separatorBefore: true, onSelect: () => ws.openSpace(space.id) },
+              { icon: Pencil, label: 'Edit space', onSelect: () => setEditingSpace(true) },
+              { icon: LogOut, label: `Leave ${space.name}`, onSelect: () => { void ws.leaveSpace(space.id).then(ws.openHome); } },
+              ...(canManageSpace && !space.is_default
+                ? [{ icon: Trash2, label: 'Delete space', danger: true, onSelect: () => { void deleteSpace(); } }]
+                : []),
+            ] : []),
             {
               icon: Upload,
               label: 'Import…',
@@ -814,11 +868,11 @@ export function Sidebar() {
             { icon: LogOut, label: 'Log out', danger: true, onSelect: () => auth.logout() },
           ]}
           trigger={
-            <button className="group flex h-7 coarse:h-11 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left leading-5 transition-colors duration-120 hover:bg-hover">
+            <button aria-label={`Space: ${space?.name ?? activeWs.name}`} className="group flex h-7 coarse:h-11 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left leading-5 transition-colors duration-120 hover:bg-hover">
               <span className="flex h-5 w-5 shrink-0 items-center justify-center">
-                <LogoMark size={16} />
+                {space ? <SpaceAvatar space={space} size={20} /> : <LogoMark size={16} />}
               </span>
-              <span className="block h-5 min-w-0 flex-1 !self-center truncate text-sm font-semibold leading-5 text-ink">{activeWs.name}</span>
+              <span className="block h-5 min-w-0 flex-1 !self-center truncate text-sm font-semibold leading-5 text-ink">{space?.name ?? activeWs.name}</span>
               <ChevronDown size={16} className="shrink-0 text-faint opacity-0 transition-opacity group-hover:opacity-100" />
             </button>
           }
@@ -859,63 +913,59 @@ export function Sidebar() {
 
       {/* scroll region */}
       <div className="scrollarea mt-4 flex-1 overflow-y-auto px-2 pb-2">
-        {shows('docs') && ws.recentIds.length > 0 && (
+        {shows('docs') && recentIds.length > 0 && (
           <section className="mb-5">
-            <CollapsibleSection collapsed={collapsed} onToggle={toggle} sectionKey="recent" label="Recent" count={ws.recentIds.length}>
+            <CollapsibleSection collapsed={collapsed} onToggle={toggle} sectionKey="recent" label="Recent" count={recentIds.length}>
               <div className="space-y-px">
-                <Capped limit={5}>{ws.recentIds.map((id) => <DocRow key={id} id={id} />)}</Capped>
+                <Capped limit={5}>{recentIds.map((id) => <DocRow key={id} id={id} />)}</Capped>
               </div>
             </CollapsibleSection>
           </section>
         )}
 
-        {shows('docs') && (ws.favoriteFolderIds.length > 0 || ws.favoriteIds.length > 0) && (
+        {shows('docs') && (favoriteFolderIds.length > 0 || favoriteIds.length > 0) && (
           <section className="mb-5">
-            <CollapsibleSection collapsed={collapsed} onToggle={toggle} sectionKey="favorites" label="Favorites" count={ws.favoriteFolderIds.length + ws.favoriteIds.length}>
+            <CollapsibleSection collapsed={collapsed} onToggle={toggle} sectionKey="favorites" label="Favorites" count={favoriteFolderIds.length + favoriteIds.length}>
             <div className="space-y-px">
               <Capped>
-                {[...ws.favoriteFolderIds.map((id) => <FavoriteFolderRow key={`f${id}`} id={id} />),
-                  ...ws.favoriteIds.map((id) => <DocRow key={id} id={id} />)]}
+                {[...favoriteFolderIds.map((id) => <FavoriteFolderRow key={`f${id}`} id={id} />),
+                  ...favoriteIds.map((id) => <DocRow key={id} id={id} />)]}
               </Capped>
             </div>
             </CollapsibleSection>
           </section>
         )}
 
-        {shows('docs') && ws.privateRootIds.length > 0 && (
+        {shows('docs') && privateRootIds.length > 0 && (
           <section className="mb-5">
-            <CollapsibleSection collapsed={collapsed} onToggle={toggle} sectionKey="private" label="Private" count={ws.privateRootIds.length}>
-              <PageTree roots={ws.privateRootIds} />
+            <CollapsibleSection collapsed={collapsed} onToggle={toggle} sectionKey="private" label="Private" count={privateRootIds.length}>
+              <PageTree roots={privateRootIds} />
             </CollapsibleSection>
           </section>
         )}
 
-        {shows('docs') && ws.sharedRootIds.length > 0 && (
+        {shows('docs') && sharedRootIds.length > 0 && (
           <section className="mb-5">
-            <CollapsibleSection collapsed={collapsed} onToggle={toggle} sectionKey="public" label="Public links" count={ws.sharedRootIds.length}>
+            <CollapsibleSection collapsed={collapsed} onToggle={toggle} sectionKey="public" label="Public links" count={sharedRootIds.length}>
               <div className="space-y-px">
-                <Capped>{ws.sharedRootIds.map((id) => <DocRow key={id} id={id} />)}</Capped>
+                <Capped>{sharedRootIds.map((id) => <DocRow key={id} id={id} />)}</Capped>
               </div>
             </CollapsibleSection>
           </section>
         )}
 
-        {shows('docs') && ws.libraryRootIds.length > 0 && (
+        {shows('docs') && libraryRootIds.length > 0 && (
           <section className="mb-5">
-            <CollapsibleSection collapsed={collapsed} onToggle={toggle} sectionKey="shared" label="Shared with me" count={ws.libraryRootIds.length}>
-              <PageTree roots={ws.libraryRootIds} />
+            <CollapsibleSection collapsed={collapsed} onToggle={toggle} sectionKey="shared" label="Shared with me" count={libraryRootIds.length}>
+              <PageTree roots={libraryRootIds} />
             </CollapsibleSection>
           </section>
         )}
 
-        {/* One section per space you joined, in your order. Each holds that
-            space's pins, databases, folders and designs. With no spaces at
-            all (they failed to load) one unscoped section holds everything. */}
-        {ws.spaces.length ? joined.map((sp) => (
-          <SpaceSection key={sp.id} space={sp} order={joinedIds} shows={shows} collapsed={collapsed} onToggle={toggle} />
-        )) : (
-          <SpaceSection space={NO_SPACE} order={[]} shows={shows} collapsed={collapsed} onToggle={toggle} />
-        )}
+        {/* The space you are in: its pins, databases, folders and designs.
+            With no spaces at all (they failed to load) one unscoped section
+            holds everything. */}
+        <SpaceSection key={space?.id ?? ''} space={space ?? NO_SPACE} shows={shows} collapsed={collapsed} onToggle={toggle} />
 
         {shows('tags') && ws.allTags.length > 0 && (
           <section className="mb-5">
@@ -941,7 +991,7 @@ export function Sidebar() {
                 key={t.id}
                 type="button"
                 title={`New page from ${t.title}`}
-                onClick={() => ws.createFromPage(t.id, templateSpace)}
+                onClick={() => ws.createFromPage(t.id)}
                 className="flex h-7 coarse:h-11 w-full items-center gap-2 rounded-md px-2 text-sm leading-5 text-ink transition-colors duration-120 hover:bg-hover"
               >
                 <span className="flex h-5 w-5 shrink-0 items-center justify-center text-md leading-none">{t.icon}</span>
@@ -953,7 +1003,7 @@ export function Sidebar() {
               <button
                 key={t.id}
                 type="button"
-                onClick={() => ws.createFromTemplate(t, templateSpace)}
+                onClick={() => ws.createFromTemplate(t)}
                 className="flex h-7 coarse:h-11 w-full items-center gap-2 rounded-md px-2 text-sm leading-5 text-ink transition-colors duration-120 hover:bg-hover"
               >
                 <span className="flex h-5 w-5 shrink-0 items-center justify-center text-md leading-none">{t.icon}</span>
@@ -970,10 +1020,11 @@ export function Sidebar() {
       {/* footer */}
       <div className="border-t border-line px-2 py-2">
         <div className="mb-1.5">
-          <NavItem icon={<LayoutGrid size={16} />} label="Spaces" onClick={() => setBrowseOpen(true)} />
           <NavItem icon={<Trash2 size={16} />} label="Trash" onClick={() => ws.setTrashOpen(true)} />
         </div>
         <BrowseSpaces open={browseOpen} onOpenChange={setBrowseOpen} />
+        <SpaceDialog open={creatingSpace} onOpenChange={setCreatingSpace} />
+        {space && <SpaceDialog open={editingSpace} onOpenChange={setEditingSpace} space={space} />}
         <div className="flex items-center gap-2 rounded-md px-1.5 py-1">
           <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-3xs font-semibold text-white" style={{ background: av.color }}>{av.initials}</span>
           <div className="min-w-0 flex-1">

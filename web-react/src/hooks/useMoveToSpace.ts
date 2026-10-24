@@ -5,11 +5,12 @@ import { moveSummary, spaceOf } from '../lib/spaceTree';
 import { spacesApi, type MoveType, type SpaceRow } from '../lib/spacesApi';
 import { toast } from '../lib/toast';
 import { useWorkspace } from '../store/workspace';
+import { SpaceAvatar } from '../components/spaces/SpaceAvatar';
 
-/** A space's emoji in a menu row's icon slot. */
-export const EmojiIcon = (emoji: string) =>
-  function Emoji({ className }: { size?: number | string; strokeWidth?: number | string; className?: string }) {
-    return createElement('span', { 'aria-hidden': true, className: `w-4 text-center text-sm leading-none ${className ?? ''}` }, emoji);
+/** A space's avatar in a menu row's icon slot. */
+export const SpaceMenuIcon = (space: { id: string; name: string }) =>
+  function SpaceIcon({ className }: { size?: number | string; strokeWidth?: number | string; className?: string }) {
+    return createElement(SpaceAvatar, { space, size: 16, className });
   };
 
 /**
@@ -31,7 +32,7 @@ export async function confirmSpaceMove(type: MoveType, id: string, space: SpaceR
     toast(e instanceof Error ? e.message : 'Could not move that.');
     return false;
   }
-  return window.confirm(`Move to ${space.icon} ${space.name}?\n\n${summary}.`);
+  return window.confirm(`Move to ${space.name}?\n\n${summary}.`);
 }
 
 /**
@@ -66,7 +67,7 @@ export function moveToSpaceItem(
     icon: Shuffle,
     label: 'Move to space',
     items: targets.map((s) => ({
-      icon: EmojiIcon(s.icon),
+      icon: SpaceMenuIcon(s),
       label: s.name,
       onSelect: () => {
         void (async () => {

@@ -58,6 +58,7 @@ import { copyLink } from '../../lib/clipboard';
 import { useReducer } from 'react';
 import * as prefs from '../../lib/docPrefs';
 import { ProjectIcon } from '../ui/ProjectIcon';
+import { SpaceAvatar } from '../spaces/SpaceAvatar';
 import { EditModeSwitch } from './EditModeSwitch';
 
 /** Google-Docs-style stack of everyone else currently in the open doc. */
@@ -175,11 +176,11 @@ export function TopBar() {
   // folder had no way back to it but the sidebar.
   const rootFolderId = pagePath.find((p) => p.folderId)?.folderId;
   const pageFolders = rootFolderId ? folderChain(ws.folders, rootFolderId) : [];
-  // Pages, folders, databases and the space page itself start their path at
-  // the space; Home, Tasks and All documents are workspace-wide and keep the
-  // workspace as their root.
+  // Every path starts at a space: a page, folder or database at its own, the
+  // space page at itself, and Home, Tasks and All documents (which are cut to
+  // the space you are in) at the switcher's.
   const spaceId = page ? page.spaceId : folder ? folder.spaceId : project ? project.space_id
-    : ws.view === 'space' ? ws.activeSpaceId : undefined;
+    : ws.view === 'space' ? ws.activeSpaceId : (ws.currentSpaceId || undefined);
   const space = spaceId !== undefined && ws.spaces.length
     ? ws.spaces.find((s) => s.id === (ws.view === 'space' ? spaceId : spaceOf(spaceId, ws.spaces)))
     : undefined;
@@ -242,7 +243,7 @@ export function TopBar() {
           <>
             <Crumb
               keep
-              icon={<span aria-hidden className="text-sm leading-none">{space.icon}</span>}
+              icon={<SpaceAvatar space={space} size={16} />}
               current={ws.view === 'space'}
               onClick={() => ws.openSpace(space.id)}
             >

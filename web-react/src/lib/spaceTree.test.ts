@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { groupBySpace, inSpaceFilter, moveSummary, pageSiblings, spaceOf, splitByJoined } from './spaceTree';
+import { currentSpaceFrom, groupBySpace, inCurrentSpace, inSpaceFilter, inSpacePick, moveSummary, pageSiblings, spaceInitial, spaceOf, splitBySpace } from './spaceTree';
 import type { SpaceRow } from './spacesApi';
 
 const spaces = [
@@ -51,19 +51,6 @@ describe('moveSummary', () => {
   });
 });
 
-describe('splitByJoined', () => {
-  it('keeps order, missing flag counts as joined', () => {
-    const [mine, other] = splitByJoined([{ id: 1, inJoinedSpace: false }, { id: 2 }, { id: 3, inJoinedSpace: true }]);
-    expect(mine.map((r) => r.id)).toEqual([2, 3]);
-    expect(other.map((r) => r.id)).toEqual([1]);
-  });
-  it('keeps the task a pasted key names first, even from an unjoined space', () => {
-    const [mine, other] = splitByJoined([{ id: 'MD-14', named: true, inJoinedSpace: false }, { id: 2 }, { id: 3, inJoinedSpace: false }]);
-    expect(mine.map((r) => r.id)).toEqual(['MD-14', 2]);
-    expect(other.map((r) => r.id)).toEqual([3]);
-  });
-});
-
 describe('pageSiblings', () => {
   const folders = { F: { documentIds: ['a', 'b'] } };
   const trees = new Map([['g', { unfiledIds: ['u1', 'u2'] }], ['m', { unfiledIds: ['m1'] }]]);
@@ -76,5 +63,70 @@ describe('pageSiblings', () => {
     expect(pageSiblings({ folderId: 'F', parentId: 'a', spaceId: 'g' }, folders, trees, spaces)).toBeNull();
     expect(pageSiblings({ folderId: 'gone', parentId: null, spaceId: 'g' }, folders, trees, spaces)).toBeNull();
     expect(pageSiblings({ folderId: null, parentId: null, spaceId: 'o' }, folders, trees, spaces)).toBeNull();
+  });
+});
+
+describe('currentSpaceFrom', () => {
+  it('keeps a remembered joined space', () => {
+    expect(currentSpaceFrom('m', spaces)).toBe('m');
+  });
+  it('falls back to the default when the remembered one is unjoined, gone or unset', () => {
+    expect(currentSpaceFrom('o', spaces)).toBe('g');
+    expect(currentSpaceFrom('x', spaces)).toBe('g');
+    expect(currentSpaceFrom(null, spaces)).toBe('g');
+  });
+  it('takes the first joined space when the default was left', () => {
+    const left = [{ id: 'g', is_default: true, joined: false }, { id: 'm', is_default: false, joined: true }] as SpaceRow[];
+    expect(currentSpaceFrom(null, left)).toBe('m');
+  });
+  it('is the default with nothing joined, and empty with no spaces', () => {
+    const none = [{ id: 'g', is_default: true, joined: false }] as SpaceRow[];
+    expect(currentSpaceFrom('g', none)).toBe('g');
+    expect(currentSpaceFrom('m', [])).toBe('');
+  });
+});
+
+describe('inCurrentSpace', () => {
+  it('keeps the current space, drops other joined spaces', () => {
+    expect(inCurrentSpace('m', 'm', spaces)).toBe(true);
+    expect(inCurrentSpace(null, 'm', spaces)).toBe(false);
+    expect(inCurrentSpace(null, 'g', spaces)).toBe(true);
+  });
+  it('keeps what sits in a space you have not joined, so it never disappears', () => {
+    expect(inCurrentSpace('o', 'g', spaces)).toBe(true);
+    expect(inCurrentSpace('o', 'm', spaces)).toBe(true);
+  });
+  it('keeps everything when no spaces loaded', () => {
+    expect(inCurrentSpace('m', '', [])).toBe(true);
+  });
+});
+
+describe('splitBySpace', () => {
+  it('puts the current space first and every other space after, in order', () => {
+    const [here, other] = splitBySpace([{ id: 1, space_id: 'm' }, { id: 2, space_id: 'g' }, { id: 3, space_id: null }, { id: 4, space_id: 'o' }], 'g', spaces);
+    expect(here.map((r) => r.id)).toEqual([2, 3]);
+    expect(other.map((r) => r.id)).toEqual([1, 4]);
+  });
+  it('keeps the task a pasted key names first, whatever its space', () => {
+    const [here] = splitBySpace([{ id: 'MD-1', space_id: 'm', named: true }], 'g', spaces);
+    expect(here.map((r) => r.id)).toEqual(['MD-1']);
+  });
+});
+
+describe('spaceInitial', () => {
+  it('is the first letter, upper-cased, emoji-safe', () => {
+    expect(spaceInitial('general')).toBe('G');
+    expect(spaceInitial('  ')).toBe('?');
+    expect(spaceInitial('éclair')).toBe('É');
+  });
+});
+
+describe('inSpacePick', () => {
+  it('the current space also keeps unjoined-space items; another pick is strict', () => {
+    expect(inSpacePick('o', 'g', 'g', spaces)).toBe(true);
+    expect(inSpacePick('m', 'g', 'g', spaces)).toBe(false);
+    expect(inSpacePick('o', 'm', 'g', spaces)).toBe(false);
+    expect(inSpacePick('m', 'm', 'g', spaces)).toBe(true);
+    expect(inSpacePick('o', 'all', 'g', spaces)).toBe(true);
   });
 });

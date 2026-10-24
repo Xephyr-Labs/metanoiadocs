@@ -1,91 +1,42 @@
-import { FilePlus, FolderPlus, Info, KanbanSquare, LogOut, MoreHorizontal, Pencil, Plus, Table2, Trash2 } from 'lucide-react';
+import { KanbanSquare, Plus, Table2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { nestByParent } from '../../lib/pageTree';
-import { placeAt } from '../../lib/reorder';
-import { spacesApi, type SpaceRow } from '../../lib/spacesApi';
+import { type SpaceRow } from '../../lib/spacesApi';
 import { tasksApi, type ProjectMode, type ProjectRow } from '../../lib/tasksApi';
 import { toast } from '../../lib/toast';
 import type { RailSection } from '../../lib/sidebarPrefs';
-import { useAuth } from '../../store/auth';
 import { useWorkspace } from '../../store/workspace';
 import { Menu } from '../ui/Menu';
 import { rowAction } from '../ui/styles';
-import { SpaceDialog } from '../spaces/SpaceDialog';
 import { FolderTree } from './FolderTree';
-import { DOC_MIME, FOLDER_MIME, SPACE_MIME, dragSource, useRowDrop } from './rowDrag';
-import { confirmSpaceMove } from '../../hooks/useMoveToSpace';
-import { spaceOf } from '../../lib/spaceTree';
-import { cn } from '../../lib/cn';
 import { Capped, CollapsibleSection, DocRow, FavoriteFolderRow, ProjectRows, SectionLabel } from './Sidebar';
-
-const openKey = (id: string) => `mn-space-open:${id}`;
-
-/** Per browser, like the other sections' folds. Absent = open. */
-function readOpen(id: string): boolean {
-  try {
-    return localStorage.getItem(openKey(id)) !== '0';
-  } catch {
-    return true;
-  }
-}
-
-function writeOpen(id: string, open: boolean) {
-  try {
-    localStorage.setItem(openKey(id), open ? '1' : '0');
-  } catch {
-    /* private window — still folds, just unremembered */
-  }
-}
 
 const emptyRow =
   'mt-0.5 flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-faint hover:bg-hover hover:text-muted coarse:min-h-11';
 
 /**
- * One joined space in the sidebar: its header (drag to reorder, `+` to make
- * something in it, `⋯` to edit or leave it) over the same Pinned, Projects,
- * Folders and Designs blocks the sidebar has always drawn, cut to this space.
+ * The space you are in, as the sidebar draws it: the same Pinned, Projects,
+ * Folders and Designs blocks it has always drawn, cut to this space. There is
+ * no header: the switcher at the top of the sidebar names the space and holds
+ * its menu, as a Notion workspace's does.
  *
  * The database naming input lives here, one per space: `namingParent` is which
  * row shows it — undefined = none, null = a new top-level database in this
  * space, a string = a new sub-database of that project id.
  */
-export function SpaceSection({ space, order, shows, collapsed, onToggle }: {
+export function SpaceSection({ space, shows, collapsed, onToggle }: {
   space: SpaceRow;
-  /** Every joined space id in sidebar order — reorder sends the whole list. */
-  order: string[];
   shows: (s: RailSection) => boolean;
   collapsed: Set<string>;
   onToggle: (key: string) => void;
 }) {
   const ws = useWorkspace();
-  const auth = useAuth();
   const tree = ws.spaceTrees.get(space.id);
-  const [open, setOpen] = useState(() => readOpen(space.id));
-  const [editing, setEditing] = useState(false);
   const [namingParent, setNamingParent] = useState<string | null | undefined>(undefined);
   const [namingMode, setNamingMode] = useState<ProjectMode>('tasks');
-  const key = `space:${space.id}`;
   // '' is the stand-in section shown when no spaces loaded: nothing to send
   // as a space, so the server picks the default, and no menu or drag.
   const sid = space.id || undefined;
-
-  // A header takes another header (reorder) or a page or folder row, which
-  // moves that item's whole tree into this space, after asking.
-  const drop = useRowDrop({
-    accept: { [SPACE_MIME]: 'halves', [DOC_MIME]: 'whole', [FOLDER_MIME]: 'whole' },
-    enabled: !!sid,
-    onDrop: async (mime, draggedId, zone) => {
-      if (mime === SPACE_MIME) {
-        const next = placeAt(order, draggedId, space.id, zone === 'before' ? 'before' : 'after');
-        if (next) ws.reorderSpaces(next);
-        return;
-      }
-      const type = mime === DOC_MIME ? 'doc' : 'folder';
-      const from = type === 'doc' ? ws.pages[draggedId]?.spaceId : ws.folders[draggedId]?.spaceId;
-      if (spaceOf(from, ws.spaces) === space.id) return;
-      if (await confirmSpaceMove(type, draggedId, space)) await ws.moveToSpace(type, draggedId, space.id);
-    },
-  });
 
   // Same rules as groupBySpace: a project whose space is unknown sits in the
   // default one. Nested once here so an archived parent leaves its children
@@ -96,17 +47,9 @@ export function SpaceSection({ space, order, shows, collapsed, onToggle }: {
     return { count: mine.length, ...nestByParent(mine.map((p) => ({ id: p.id, parentId: p.parent_id }))) };
   }, [ws.projects, ws.spaces, space.id, space.is_default]);
 
-  const toggle = () => {
-    setOpen((v) => {
-      writeOpen(space.id, !v);
-      return !v;
-    });
-  };
-
   const startNaming = (parentId: string | null, mode: ProjectMode) => {
     setNamingMode(mode);
     setNamingParent(parentId);
-    if (!open) toggle();
   };
   const createProject = async (name: string) => {
     const p = await tasksApi.createProject({ name, parentId: namingParent ?? null, mode: namingMode, spaceId: sid });
@@ -152,61 +95,10 @@ export function SpaceSection({ space, order, shows, collapsed, onToggle }: {
     });
   };
 
-  const deleteSpace = async () => {
-    if (!window.confirm(`Delete the space "${space.name}"?`)) return;
-    try {
-      await spacesApi.remove(space.id);
-    } catch (e) {
-      // The server says why: the default space, or one that still holds things.
-      toast(e instanceof Error ? e.message : 'Could not delete that space.');
-      return;
-    }
-    await ws.refreshSpaces();
-    toast(`Deleted the space ${space.name}.`);
-  };
-
-  const canManage = space.created_by === auth.user?.id || auth.user?.role === 'admin';
   const pinned = (tree?.pinnedFolderIds.length ?? 0) + (tree?.pinnedIds.length ?? 0);
-  const count = pinned + projectTree.count + (tree?.designIds.length ?? 0) + (tree?.folderRootIds.length ?? 0) + (tree?.unfiledIds.length ?? 0);
 
   return (
     <section className="mb-5">
-      <CollapsibleSection
-        sectionKey={key}
-        label={`${space.icon} ${space.name}`}
-        collapsed={open ? new Set() : new Set([key])}
-        onToggle={toggle}
-        count={count}
-        headProps={sid
-          ? { ...dragSource(SPACE_MIME, space.id), ...drop.props, className: cn('group/space rounded-md', drop.zone === 'inside' && 'bg-accent-soft') }
-          : { className: 'group/space' }}
-        dropZone={drop.zone}
-        action={
-          <span className="flex items-center gap-0.5 opacity-0 transition-opacity duration-120 focus-within:opacity-100 group-hover/space:opacity-100">
-            {sid && <Menu
-              align="end"
-              trigger={<button type="button" className={rowAction} aria-label={`Actions for ${space.name}`}><MoreHorizontal size={14} /></button>}
-              items={[
-                { icon: Info, label: 'Open space page', onSelect: () => ws.openSpace(space.id) },
-                { icon: Pencil, label: 'Edit space', onSelect: () => setEditing(true) },
-                { icon: LogOut, label: 'Leave space', separatorBefore: true, onSelect: () => { ws.leaveSpace(space.id); } },
-                ...(canManage && !space.is_default
-                  ? [{ icon: Trash2, label: 'Delete space', danger: true, onSelect: () => { deleteSpace(); } }]
-                  : []),
-              ]}
-            />}
-            <Menu
-              align="end"
-              trigger={<button type="button" className={rowAction} aria-label={`New in ${space.name}`}><Plus size={14} /></button>}
-              items={[
-                { icon: FilePlus, label: 'Page', onSelect: () => { ws.createPage(null, sid); } },
-                { icon: FolderPlus, label: 'Folder', onSelect: () => { ws.createFolder(null, sid); } },
-                { icon: KanbanSquare, label: 'Database', onSelect: () => startNaming(null, 'tasks') },
-              ]}
-            />
-          </span>
-        }
-      >
         <div>
           {shows('docs') && pinned > 0 && tree && (
             <div className="mb-3">
@@ -307,8 +199,6 @@ export function SpaceSection({ space, order, shows, collapsed, onToggle }: {
             </div>
           )}
         </div>
-      </CollapsibleSection>
-      {sid && <SpaceDialog open={editing} onOpenChange={setEditing} space={space} />}
     </section>
   );
 }

@@ -10,7 +10,7 @@ export const DEFAULT_PROJECT_ICON = '📋';
 const TINTS = TAG_COLORS.filter((c) => c !== 'gray' && c !== 'red');
 
 /** Stable per project, so a board keeps its colour across reloads and people. */
-function tintFor(id: string): string {
+export function tintFor(id: string): string {
   let h = 0;
   for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0;
   return TINTS[Math.abs(h) % TINTS.length];

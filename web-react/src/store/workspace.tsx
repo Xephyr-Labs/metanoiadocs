@@ -12,7 +12,7 @@ import { docsApi, type DocPropRow, type DocRow, type FolderRow } from '../lib/do
 import * as prefs from '../lib/docPrefs';
 import { tasksApi, type ProjectRow } from '../lib/tasksApi';
 import { spacesApi, type MoveType, type SpaceRow } from '../lib/spacesApi';
-import { groupBySpace, pageSiblings } from '../lib/spaceTree';
+import { currentSpaceFrom, groupBySpace, pageSiblings, spaceOf } from '../lib/spaceTree';
 import { setPendingSeed } from '../editor/pendingSeed';
 import { toast } from '../lib/toast';
 import { MAX_IMPORT_BYTES } from '../lib/docFiles';
@@ -81,6 +81,10 @@ interface WorkspaceState {
   reorderSpaces: (ids: string[]) => Promise<void>;
   /** The sidebar's lists, one set per joined space, in `spaces` order. */
   spaceTrees: Map<string, SpaceTree>;
+  /** The space you are in (the switcher's). The sidebar, Home, Tasks and
+   *  search are cut to it. '' only while no spaces have loaded. */
+  currentSpaceId: string;
+  switchSpace: (id: string) => void;
 
   pages: Record<PageId, Page>;
   folders: Record<string, Folder>;
@@ -313,6 +317,21 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [spaces, setSpaces] = useState<SpaceRow[]>([]);
   const spacesRef = useRef(spaces);
   spacesRef.current = spaces;
+  // Remembered per browser, like the sidebar's folds; resolved against the
+  // live list so a space you left or that was deleted is never "current".
+  const [storedSpaceId, setStoredSpaceId] = useState<string | null>(() => {
+    try { return localStorage.getItem('mn-space'); } catch { return null; }
+  });
+  const currentSpaceId = useMemo(() => currentSpaceFrom(storedSpaceId, spaces), [storedSpaceId, spaces]);
+  // Something made without saying where lands in the space you are in. The
+  // server still lets a parent page or a folder decide first.
+  const currentSpaceRef = useRef(currentSpaceId);
+  currentSpaceRef.current = currentSpaceId;
+  const here = (spaceId?: string) => spaceId ?? (currentSpaceRef.current || undefined);
+  const switchSpace = useCallback((id: string) => {
+    setStoredSpaceId(id);
+    try { localStorage.setItem('mn-space', id); } catch { /* private window */ }
+  }, []);
   // Filled in below, once the per-space lists are derived; reorderPage reads it.
   const spaceTreesRef = useRef(new Map<string, SpaceTree>());
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -715,7 +734,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const createPage = useCallback(async (folderId: string | null, spaceId?: string): Promise<PageId | null> => {
     try {
-      const row = await docsApi.create({ title: 'Untitled', folderId, spaceId });
+      const row = await docsApi.create({ title: 'Untitled', folderId, spaceId: here(spaceId) });
       await refresh();
       if (folderId) {
         folderExpandedRef.current.add(folderId);
@@ -731,7 +750,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const createDesign = useCallback(async (spaceId?: string): Promise<PageId | null> => {
     try {
-      const row = await docsApi.create({ title: 'Untitled design', icon: '🎨', kind: 'design', spaceId });
+      const row = await docsApi.create({ title: 'Untitled design', icon: '🎨', kind: 'design', spaceId: here(spaceId) });
       await refresh();
       select(row.id);
       return row.id;
@@ -743,7 +762,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const createFolder = useCallback(async (parentId: string | null, spaceId?: string): Promise<string | null> => {
     try {
-      const row = await docsApi.createFolder({ name: 'New folder', parentId, spaceId });
+      const row = await docsApi.createFolder({ name: 'New folder', parentId, spaceId: here(spaceId) });
       folderExpandedRef.current.add(row.id);
       if (parentId) folderExpandedRef.current.add(parentId);
       await refresh();
@@ -781,12 +800,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     try {
       const row = await spacesApi.create(input);
       await refreshSpaces();
+      switchSpace(row.id);
       return row;
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Could not create that space.');
       return null;
     }
-  }, [refreshSpaces]);
+  }, [refreshSpaces, switchSpace]);
 
   const reorderSpaces = useCallback(async (ids: string[]) => {
     // Optimistic, like reorderFolder: the list is re-read either way, which
@@ -930,7 +950,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const createFromTemplate = useCallback(async (t: Template, spaceId?: string): Promise<PageId | null> => {
     try {
-      const row = await docsApi.create({ title: t.name, icon: t.icon, spaceId });
+      const row = await docsApi.create({ title: t.name, icon: t.icon, spaceId: here(spaceId) });
       setPendingSeed(row.id, t.blocks); // consumed by mountEditor on first mount
       await refresh();
       select(row.id);
@@ -955,7 +975,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const createFromPage = useCallback(async (templateId: PageId, spaceId?: string): Promise<PageId | null> => {
     try {
-      const row = await docsApi.useTemplate(templateId, { spaceId });
+      const row = await docsApi.useTemplate(templateId, { spaceId: here(spaceId) });
       await refresh();
       select(row.id);
       return row.id;
@@ -991,7 +1011,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     for (const file of files) {
       try {
         if (file.size > MAX_IMPORT_BYTES) throw new Error(`it is bigger than 25 MB`);
-        const row = await docsApi.import(file, folderId, spaceId);
+        const row = await docsApi.import(file, folderId, here(spaceId));
         warnings.push(...(row.warnings ?? []));
         first ??= row.id;
       } catch (e) {
@@ -1282,6 +1302,23 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }, [pages, folders, spaces, pinnedIds, pinnedFolderIds, folderRootIds, unfiledIds, designIds]);
   spaceTreesRef.current = spaceTrees;
 
+  // Opening a page, folder, database or space page that lives in another
+  // space you joined takes you into that space, as following a link into
+  // another Notion workspace does, so the sidebar shows where you are. One in
+  // a space you have not joined leaves you where you were (its breadcrumb
+  // offers Join).
+  const openedSpace =
+    view === 'doc' ? currentPage?.spaceId
+    : view === 'folder' ? (activeFolderId ? folders[activeFolderId]?.spaceId : undefined)
+    : view === 'project' ? projects.find((p) => p.id === activeProjectId)?.space_id
+    : view === 'space' ? activeSpaceId
+    : undefined;
+  useEffect(() => {
+    if (openedSpace === undefined || !spaces.length) return;
+    const id = spaceOf(openedSpace, spaces);
+    if (id && id !== currentSpaceId && spaces.find((s) => s.id === id)?.joined) switchSpace(id);
+  }, [openedSpace, spaces, currentSpaceId, switchSpace]);
+
   const value = useMemo<WorkspaceState>(
     () => ({
       pages, folders, folderRootIds, unfiledIds, rootIds, workspaceRootIds, privateRootIds, sharedRootIds, libraryRootIds, favoriteIds, favoriteFolderIds, designIds, recentIds: liveRecentIds,
@@ -1290,7 +1327,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       pinnedIds, pinnedFolderIds, togglePin, toggleFolderPin,
       currentId, currentPage, loading, error, workspaceId,
       historyDocId, openHistory, closeHistory,
-      view, activeProjectId, activeFolderId, openHome, openTasks, openAllDocs, openProject, createTaskIn, pendingTaskId, clearPendingTask, pendingViewId: activeViewId, clearPendingView, openFolder, activeSpaceId, openSpace, projects, refreshProjects, spaces, refreshSpaces, moveToSpace, joinSpace, leaveSpace, createSpace, reorderSpaces, spaceTrees,
+      view, activeProjectId, activeFolderId, openHome, openTasks, openAllDocs, openProject, createTaskIn, pendingTaskId, clearPendingTask, pendingViewId: activeViewId, clearPendingView, openFolder, activeSpaceId, openSpace, projects, refreshProjects, spaces, refreshSpaces, moveToSpace, joinSpace, leaveSpace, createSpace, reorderSpaces, spaceTrees, currentSpaceId, switchSpace,
       sidebarCollapsed, panelCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
       settingsOpen, trashOpen, inboxOpen, shortcutsOpen, captureOpen, mode, fullWidth, theme,
       refresh, select, toggleExpand, toggleFavorite, toggleLove, toggleFolderFavorite, setVisibility, rename, applyTitleFromEditor,
@@ -1306,7 +1343,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       pinnedIds, pinnedFolderIds, togglePin, toggleFolderPin,
       currentId, currentPage, loading, error, workspaceId,
       historyDocId, openHistory, closeHistory,
-      view, activeProjectId, activeFolderId, openHome, openTasks, openAllDocs, openProject, createTaskIn, pendingTaskId, clearPendingTask, activeViewId, clearPendingView, openFolder, activeSpaceId, openSpace, projects, refreshProjects, spaces, refreshSpaces, moveToSpace, joinSpace, leaveSpace, createSpace, reorderSpaces, spaceTrees,
+      view, activeProjectId, activeFolderId, openHome, openTasks, openAllDocs, openProject, createTaskIn, pendingTaskId, clearPendingTask, activeViewId, clearPendingView, openFolder, activeSpaceId, openSpace, projects, refreshProjects, spaces, refreshSpaces, moveToSpace, joinSpace, leaveSpace, createSpace, reorderSpaces, spaceTrees, currentSpaceId, switchSpace,
       sidebarCollapsed, panelCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
       settingsOpen, trashOpen, inboxOpen, shortcutsOpen, captureOpen, mode, fullWidth, theme,
       refresh, select, toggleExpand, toggleFavorite, toggleLove, toggleFolderFavorite, setVisibility, rename, applyTitleFromEditor,
