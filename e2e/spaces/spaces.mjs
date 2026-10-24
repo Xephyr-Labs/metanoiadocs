@@ -53,17 +53,19 @@ const cara = session();
 let G; let M; let users = {};
 let browser;
 
-async function open(who, path = '/') {
+async function open(who, path = '/', space = null) {
   const ctx = await browser.newContext({ viewport: { width: 1400, height: 1000 } });
   await ctx.addCookies(who.cookie.split('; ').map((c) => { const i = c.indexOf('='); return { name: c.slice(0, i), value: c.slice(i + 1), url: BASE }; }));
-  await ctx.addInitScript(() => {
+  await ctx.addInitScript((sp) => {
     try {
+      // The space the switcher starts in, set once per context.
+      if (sp && !sessionStorage.getItem('e2e-space')) { localStorage.setItem('mn-space', sp); sessionStorage.setItem('e2e-space', '1'); }
       // No saved Tasks filter (the first visit would narrow to "assigned to me"),
       // and no folded sidebar sections (Templates starts folded).
       if (!localStorage.getItem('mn-filters-all')) localStorage.setItem('mn-filters-all', '[]');
       if (!localStorage.getItem('mn.sidebar.v1')) localStorage.setItem('mn.sidebar.v1', '{"collapsed":[]}');
     } catch { /* fine */ }
-  });
+  }, space);
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
@@ -75,7 +77,26 @@ async function open(who, path = '/') {
   const nextDialog = (accept = true) => new Promise((res) => page.once('dialog', async (d) => {
     dialogs.push(d.message()); res(d.message()); await (accept ? d.accept() : d.dismiss());
   }));
-  return { ctx, page, side: page.locator('aside'), main: page.locator('main'), errors, nextDialog };
+  const switcher = () => page.locator('aside').getByRole('button', { name: /^Space: / }).first();
+  // The switcher's current space, and the joined spaces its menu lists.
+  const current = async () => ((await switcher().getAttribute('aria-label')) || '').replace(/^Space: /, '');
+  const listed = async () => {
+    await switcher().click();
+    await page.waitForTimeout(300);
+    const menu = page.getByRole('menu');
+    const names = [];
+    for (const n of ['General', 'Marketing', 'Archive']) if (await menu.getByText(n, { exact: true }).count()) names.push(n);
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(200);
+    return names;
+  };
+  const switchTo = async (name) => {
+    await switcher().click();
+    await page.waitForTimeout(300);
+    await page.getByRole('menu').getByText(name, { exact: true }).click();
+    await page.waitForTimeout(1500);
+  };
+  return { ctx, page, side: page.locator('aside'), main: page.locator('main'), errors, nextDialog, current, listed, switchTo };
 }
 const docsById = async (who) => Object.fromEntries((await who.get('/api/docs')).map((d) => [d.id, d]));
 
@@ -138,11 +159,12 @@ await step('3', async () => {
   const samM = (await sam.get('/api/spaces')).find((s) => s.id === M);
   check('3 Marketing created with Sam as a member', samM?.joined === true && samM.member_count === 2, JSON.stringify(samM));
   mb = await open(maya);
-  check('3 Maya\'s sidebar shows General', await mb.side.getByRole('button', { name: /General/ }).first().isVisible());
-  check('3 Maya\'s sidebar shows Marketing', await mb.side.getByRole('button', { name: /Marketing/ }).first().isVisible());
+  check('3 Maya starts in General (the default space)', (await mb.current()) === 'General', await mb.current());
+  check('3 Maya\'s switcher lists General and Marketing', (await mb.listed()).join(',') === 'General,Marketing');
+  check('3 no space emoji in the sidebar', !(await mb.side.innerText()).includes('📣') && !(await mb.side.innerText()).includes('🏠'));
   const cb = await open(cara);
-  check('3 Cara (joined nothing) sees General', await cb.side.getByRole('button', { name: /General/ }).first().isVisible());
-  check('3 Cara does not see Marketing', (await cb.side.getByRole('button', { name: /Marketing/ }).count()) === 0);
+  check('3 Cara (joined nothing) is in General', (await cb.current()) === 'General');
+  check('3 Cara\'s switcher does not list Marketing', (await cb.listed()).join(',') === 'General');
   await cb.ctx.close();
 });
 
@@ -150,14 +172,13 @@ await step('3', async () => {
 let board; let task; let taskPage;
 await step('4', async () => {
   const before = new Set(Object.keys(await docsById(maya)));
-  const head = mb.side.getByRole('button', { name: /Marketing/ }).first();
-  await head.hover();
-  await mb.side.getByRole('button', { name: 'New in Marketing' }).click();
-  await mb.page.getByRole('menu').getByText('Page', { exact: true }).click();
+  await mb.switchTo('Marketing');
+  check('4 switching lands on Marketing\'s Home', (await mb.current()) === 'Marketing' && await mb.main.getByText('My tasks').first().isVisible());
+  await mb.main.getByRole('button', { name: 'New page' }).first().click();
   await mb.page.waitForTimeout(3000);
   const fresh = Object.values(await docsById(maya)).filter((d) => !before.has(d.id));
   const plus = fresh[0];
-  check('4 page from Marketing\'s + is in Marketing', fresh.length === 1 && plus.space_id === M, JSON.stringify(fresh.map((d) => [d.title, d.space_id])));
+  check('4 a new page made while in Marketing is in Marketing', fresh.length === 1 && plus.space_id === M, JSON.stringify(fresh.map((d) => [d.title, d.space_id])));
   const sub = await maya.post(`/api/docs/${plus.id}/children`, { title: 'Plus sub-page' });
   const folder = await maya.post('/api/folders', { name: 'Campaigns', spaceId: M });
   const inFolder = await maya.post('/api/docs', { title: 'Campaign brief', content: 'x', folderId: folder.id });
@@ -184,6 +205,7 @@ await step('5', async () => {
   const secret = await sam.post(`/api/docs/${roadmap.id}/children`, { title: 'Sam secret' });
   await sam.call('PUT', `/api/docs/${secret.id}/visibility`, { visibility: 'private' });
   await mb.page.reload(); await mb.page.waitForTimeout(2500);
+  await mb.switchTo('General');
   const row = mb.side.getByRole('treeitem', { name: /Roadmap/ }).first();
   await row.hover();
   await row.getByRole('button', { name: 'Document actions' }).click();
@@ -198,14 +220,15 @@ await step('5', async () => {
   check('5 all three pages moved to Marketing', ids.every((id) => spaceOf('docs', id) === M), ids.map((id) => spaceOf('docs', id)).join(' '));
   const shape = () => sql(`SELECT string_agg(id || ':' || coalesce(parent_id,'-') || ':' || coalesce(folder_id,'-') || ':' || space_id, ',' ORDER BY id) FROM docs WHERE id IN ('${ids.join("','")}')`);
   check('5 nesting kept (both sub-pages under Roadmap)', sql(`SELECT count(*) FROM docs WHERE parent_id = '${roadmap.id}'`) === '2');
+  check('5 moved out of General, Roadmap leaves General\'s sidebar', (await mb.side.getByRole('treeitem', { name: /Roadmap/ }).count()) === 0);
+  await mb.switchTo('Marketing');
   // The tree as Maya sees it, Roadmap opened, before and after a reload.
   const tree = async () => {
     const r = mb.side.getByRole('treeitem', { name: /Roadmap/ }).first();
     await r.hover();
     const exp = mb.side.getByRole('button', { name: 'Expand Roadmap' });
     if (await exp.count()) { await exp.first().click(); await mb.page.waitForTimeout(300); }
-    const sec = mb.side.locator('section').filter({ has: mb.page.getByRole('button', { name: /Marketing/ }) }).first();
-    return (await sec.getByRole('treeitem').allInnerTexts()).map((t) => t.trim()).join(' / ');
+    return (await mb.side.getByRole('treeitem').allInnerTexts()).map((t) => t.trim()).join(' / ');
   };
   const t1 = await tree(); const s1 = shape();
   await mb.page.reload(); await mb.page.waitForTimeout(2500);
@@ -215,26 +238,27 @@ await step('5', async () => {
   check('5 Sam\'s private sub-page still under Roadmap, in Marketing', samTree?.parent_id === roadmap.id && samTree.space_id === M);
 });
 
-// ── 6. drag a General page onto a Marketing folder ──────────────────────────
+// ── 6. one space at a time; filing a General page in a Marketing folder ────
 await step('6', async () => {
   const drafts = await maya.post('/api/folders', { name: 'Drafts' });
   const brief = await maya.post('/api/docs', { title: 'Brief', content: 'x', folderId: drafts.id });
   const notes = await maya.post(`/api/docs/${brief.id}/children`, { title: 'Brief notes' });
   const campaigns = sql(`SELECT id FROM folders WHERE name = 'Campaigns'`);
   await mb.page.reload(); await mb.page.waitForTimeout(2500);
-  const dRow = mb.side.getByRole('treeitem', { name: /Drafts/ }).first();
-  await dRow.hover();
-  await dRow.getByRole('button', { name: 'Expand folder' }).click();
-  await mb.page.waitForTimeout(500);
-  const dlg = mb.nextDialog(true);
-  await mb.side.getByRole('treeitem', { name: /^Brief/ }).first().dragTo(mb.side.getByRole('treeitem', { name: /Campaigns/ }).first());
-  const msg = await Promise.race([dlg, wait(5000).then(() => null)]);
-  check('6 the cross-space confirm appears', !!msg && msg.includes('Marketing') && msg.includes('Moves 2 pages'), JSON.stringify(msg));
-  await mb.page.waitForTimeout(1500);
+  check('6 reload keeps Maya in Marketing', (await mb.current()) === 'Marketing');
+  check('6 in Marketing the sidebar shows Campaigns, not General\'s Drafts',
+    await mb.side.getByRole('treeitem', { name: /Campaigns/ }).first().isVisible() && (await mb.side.getByRole('treeitem', { name: /Drafts/ }).count()) === 0);
+  await mb.switchTo('General');
+  check('6 in General the sidebar shows Drafts, not Marketing\'s Campaigns',
+    await mb.side.getByRole('treeitem', { name: /Drafts/ }).first().isVisible() && (await mb.side.getByRole('treeitem', { name: /Campaigns/ }).count()) === 0);
+  await maya.call('PATCH', `/api/docs/${brief.id}`, { folderId: campaigns });
   check('6 the page and its sub-page moved to Marketing', spaceOf('docs', brief.id) === M && spaceOf('docs', notes.id) === M);
   check('6 the page is filed in Campaigns', sql(`SELECT folder_id FROM docs WHERE id = '${brief.id}'`) === campaigns);
   check('6 the old folder link (Drafts) is cleared', sql(`SELECT count(*) FROM docs WHERE folder_id = '${drafts.id}'`) === '0');
   check('6 the sub-page is still nested', sql(`SELECT parent_id FROM docs WHERE id = '${notes.id}'`) === brief.id);
+  // Opening a page from another joined space takes you into that space.
+  await mb.page.goto(`${BASE}/d/${brief.id}`); await mb.page.waitForTimeout(2500);
+  check('6 opening a Marketing page switches Maya to Marketing', (await mb.current()) === 'Marketing', await mb.current());
 });
 
 // ── 7. move a database ──────────────────────────────────────────────────────
@@ -290,6 +314,26 @@ await step('9', async () => {
   await cb.ctx.close();
 });
 
+// ── 9b. Home is the space you are in ───────────────────────────────────────
+await step('9b', async () => {
+  const gHome = await maya.get(`/api/home?spaceId=${G}`);
+  const mHome = await maya.get(`/api/home?spaceId=${M}`);
+  const space = (id) => spaceOf('docs', id);
+  check('9b Home in General lists only General pages', gHome.recentDocs.length > 0 && gHome.recentDocs.every((d) => space(d.id) === G), gHome.recentDocs.map((d) => d.title).join(','));
+  check('9b Home in Marketing lists only Marketing pages', mHome.recentDocs.length > 0 && mHome.recentDocs.every((d) => space(d.id) === M), mHome.recentDocs.map((d) => d.title).join(','));
+  check('9b Home in General lists only General databases', gHome.projects.every((p) => spaceOf('projects', p.id) === G) && !gHome.projects.some((p) => p.name === 'Launch board'));
+  check('9b Home in Marketing lists Marketing\'s database', mHome.projects.some((p) => p.name === 'Launch board'));
+  check('9b activity in General has nothing from Marketing', gHome.activity.every((e) => !e.doc_id || space(e.doc_id) === G), gHome.activity.map((e) => e.title).join(','));
+  const mine = await maya.get(`/api/docs/mine?limit=50&spaceId=${M}`);
+  check('9b My documents in Marketing lists only Marketing pages', mine.rows.length > 0 && mine.rows.every((d) => space(d.id) === M), mine.rows.map((d) => d.title).join(','));
+  const cHome = await cara.get(`/api/home?spaceId=${G}`);
+  check('9b Cara\'s General Home still lists her task from unjoined Marketing', Object.values(cHome.myTasks).flat().some((t) => t.title.includes('Cara reviews the launch')));
+  // The browser asks for the space it is in.
+  const req = mb.page.waitForRequest((r) => r.url().includes('/api/home'));
+  await mb.switchTo('General');
+  check('9b the browser\'s Home asks for General', (await req).url().includes(`spaceId=${G}`));
+});
+
 // ── 10. search: joined spaces first, "Other spaces" in the palette ──────────
 await step('10', async () => {
   await maya.post('/api/docs', { title: 'Zebra launch notes', content: 'zebra zebra zebra campaign', spaceId: M });
@@ -316,13 +360,14 @@ await step('10', async () => {
 await step('13', async () => {
   const tpl = await maya.post('/api/docs', { title: 'Launch template', content: 'x', spaceId: M });
   await maya.post(`/api/docs/${tpl.id}/template`, { isTemplate: true });
-  const offered = async (who) => {
-    const b = await open(who);
+  const offered = async (who, space = null) => {
+    const b = await open(who, '/', space);
     const n = await b.side.locator('button[title="New page from Launch template"]').count();
     await b.ctx.close();
     return n > 0;
   };
-  check('13 a Marketing template is offered to a Marketing member', await offered(maya));
+  check('13 a Marketing template is offered in Marketing', await offered(maya, M));
+  check('13 ...and not in General', !(await offered(maya, G)));
   check('13 ...and not to someone only in General', !(await offered(cara)));
   const samTpl = await sam.post('/api/docs', { title: 'Sam template', content: 'x', spaceId: M });
   await sam.post(`/api/docs/${samTpl.id}/template`, { isTemplate: true });
@@ -345,10 +390,11 @@ await step('11', async () => {
   const crumbs = cb.page.locator('nav[aria-label="Breadcrumb"]');
   const join = crumbs.getByRole('button', { name: 'Join Marketing' });
   check('11 the breadcrumb offers Join on a Marketing page', await join.isVisible());
-  check('11 Marketing is not in Cara\'s sidebar yet', (await cb.side.getByRole('button', { name: /Marketing/ }).count()) === 0);
+  check('11 Cara stays in General on a page from a space she has not joined', (await cb.current()) === 'General');
   await join.click();
-  await cb.page.waitForTimeout(1500);
-  check('11 after Join, Marketing appears in her sidebar', await cb.side.getByRole('button', { name: /Marketing/ }).first().isVisible());
+  await cb.page.waitForTimeout(2000);
+  check('11 after Join, she is in Marketing', (await cb.current()) === 'Marketing', await cb.current());
+  check('11 ...and Marketing is in her switcher', (await cb.listed()).includes('Marketing'));
   check('11 ...and she is a member', (await cara.get('/api/spaces')).find((s) => s.id === M)?.joined === true);
   check('11 no page errors in Cara\'s browser', !cb.errors.length, cb.errors.join(' | '));
   await cb.ctx.close();
@@ -381,6 +427,7 @@ await step('reorder', async () => {
   const kid = await maya.post(`/api/docs/${alpha.id}/children`, { title: 'Alpha child' });
   await maya.post('/api/docs', { title: 'Beta', content: 'x', folderId: f.id });
   await mb.page.reload(); await mb.page.waitForTimeout(2500);
+  if ((await mb.current()) !== 'General') await mb.switchTo('General');
   const nRow = mb.side.getByRole('treeitem', { name: /Notes/ }).first();
   await nRow.hover();
   await nRow.getByRole('button', { name: 'Expand folder' }).click();

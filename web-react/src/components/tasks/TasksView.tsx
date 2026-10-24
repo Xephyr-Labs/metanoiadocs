@@ -22,7 +22,7 @@ import { SegmentedControl } from '../ui/SegmentedControl';
 import { groupOf, groupsFor } from '../../lib/grouping';
 import { defaultCardProps } from '../../lib/builtinProps';
 import { SpaceChip } from '../spaces/SpaceChip';
-import { inSpaceFilter, type SpaceFilter } from '../../lib/spaceTree';
+import { inSpacePick, type SpaceFilter } from '../../lib/spaceTree';
 import { TASK_SCOPES, dropLegacyOpenChip, inScope, scopeCounts, type TaskScope } from '../../lib/taskScope';
 import { ProjectIcon } from '../ui/ProjectIcon';
 
@@ -115,16 +115,19 @@ export function TasksView() {
   const seeded = useRef(readFilters() !== null);
   const scroller = useRef<HTMLDivElement>(null);
 
-  // 'joined' is the server's own default (your spaces, plus anything assigned
-  // to or made by you), so it is not filtered again here. Any other choice
-  // asks for every space and narrows on the client.
-  const [spaces, setSpaces] = useState<SpaceFilter>('joined');
+  // Follows the space you are in until you pick another. The server's default
+  // (your spaces, plus anything assigned to or made by you) covers a joined
+  // space; an unjoined one, or All, asks for every space. Either way the
+  // client narrows to the pick.
+  const [pick, setSpaces] = useState<SpaceFilter | null>(null);
+  const spaces = pick ?? (ws.currentSpaceId || 'joined');
+  const needsAll = spaces === 'all' || (spaces !== 'joined' && !ws.spaces.find((s) => s.id === spaces)?.joined);
   const load = () => {
-    tasksApi.allTasks(spaces !== 'joined')
+    tasksApi.allTasks(needsAll)
       .then((d) => { setData(d); setError(null); })
       .catch((e) => setError(e instanceof Error ? e.message : 'Could not load tasks.'));
   };
-  useEffect(load, [spaces]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(load, [needsAll]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Types are per project and /api/tasks sends keys and labels only, so the
   // colours and the "holds children" flag come from each project's own list.
@@ -198,7 +201,7 @@ export function TasksView() {
   const now = todayISO();
   // The chips decide whose and which; the scope decides open, overdue or done.
   // Counts are taken after the chips, so each segment says what clicking it shows.
-  const inSpace = data && spaces !== 'joined' ? data.tasks.filter((t) => inSpaceFilter(t.space_id, spaces, ws.spaces)) : data?.tasks ?? [];
+  const inSpace = data && spaces !== 'joined' ? data.tasks.filter((t) => inSpacePick(t.space_id, spaces, ws.currentSpaceId, ws.spaces)) : data?.tasks ?? [];
   const filtered = data ? applyFilters(inSpace, pruneUnresolvable(filters, fields), fields) : [];
   const counts = scopeCounts(filtered, now);
   const visible = filtered.filter((t) => inScope(t, scope, now));

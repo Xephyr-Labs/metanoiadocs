@@ -8,6 +8,14 @@ const VISIBLE = `(a.user_id IS NOT NULL OR d.visibility = 'team')`;
 // Home favours the caller's joined spaces (My tasks and the my_* stats don't:
 // work assigned to me shows wherever it lives). Every row has a space_id.
 const JOINED = (col) => `${col} IN (SELECT space_id FROM space_members WHERE user_id = $1)`;
+// With a space (the switcher's), Home is that space alone; without one, every
+// space you joined. $n is the query's space parameter.
+const IN_SPACE = (col, n, space) => (space ? `${col} = $${n}` : JOINED(col));
+// Your own tasks also count from a space you have not joined: you cannot
+// switch there, and a task given to you must never drop out of sight.
+const MY_SPACE = (col, n, space) => (space
+  ? `(${col} = $${n} OR ${col} NOT IN (SELECT space_id FROM space_members WHERE user_id = $1))`
+  : 'true');
 const VISIBLE_JOIN = `LEFT JOIN doc_access a ON a.doc_id = d.id AND a.user_id = $1`;
 
 /**
@@ -16,13 +24,13 @@ const VISIBLE_JOIN = `LEFT JOIN doc_access a ON a.doc_id = d.id AND a.user_id = 
  * one row per doc (the last save) rather than one per keystroke — doc_versions
  * is deliberately not a source, since it would double every edit.
  */
-const ACTIVITY_SQL = `
+const ACTIVITY_SQL = (space) => `
   WITH visible AS (
     SELECT d.id, d.title, d.icon, d.kind, d.created_at, d.created_by, d.updated_at, d.updated_by,
            coalesce(d.updated_via, 'human') AS updated_via,
            coalesce(d.search_text, '') <> '' AS has_text
       FROM docs d ${VISIBLE_JOIN}
-     WHERE d.deleted_at IS NULL AND ${VISIBLE} AND ${JOINED('d.space_id')}
+     WHERE d.deleted_at IS NULL AND ${VISIBLE} AND ${IN_SPACE('d.space_id', 2, space)}
   ),
   events AS (
     SELECT 'doc_created' AS kind, v.created_by AS actor_id, v.created_at AS at,
@@ -45,12 +53,12 @@ const ACTIVITY_SQL = `
     SELECT 'task_created', t.created_by, t.created_at, t.doc_id, p.id, p.name, p.icon, t.id, t.title, 'human'::text
       FROM tasks t JOIN projects p ON p.id = t.project_id
      WHERE t.deleted_at IS NULL AND p.archived_at IS NULL AND p.mode <> 'data' AND t.created_by IS NOT NULL
-       AND ${JOINED('p.space_id')}
+       AND ${IN_SPACE('p.space_id', 2, space)}
     UNION ALL
     SELECT 'task_done', t.updated_by, t.done_at, t.doc_id, p.id, p.name, p.icon, t.id, t.title, coalesce(t.updated_via, 'human')
       FROM tasks t JOIN projects p ON p.id = t.project_id
      WHERE t.deleted_at IS NULL AND p.archived_at IS NULL AND p.mode <> 'data' AND t.done_at IS NOT NULL
-       AND ${JOINED('p.space_id')}
+       AND ${IN_SPACE('p.space_id', 2, space)}
   )
   SELECT e.*, u.name AS actor_name, coalesce(u.kind, 'person') AS actor_kind
     FROM events e LEFT JOIN users u ON u.id = e.actor_id
@@ -64,7 +72,7 @@ const ACTIVITY_SQL = `
 // answers in the server's zone: "overdue" and "due today" are statements about
 // the calendar the person reading is looking at, and a dashboard that disagrees
 // with the badge on the card is a dashboard nobody trusts twice.
-const MY_TASKS_SQL = `
+const MY_TASKS_SQL = (space) => `
   SELECT t.id, t.title, t.status, t.due_at, t.priority, t.progress, t.project_id,
          p.name AS project_name, p.icon AS project_icon,
          CASE WHEN t.due_at IS NULL           THEN 'later'
@@ -75,6 +83,7 @@ const MY_TASKS_SQL = `
     FROM tasks t JOIN projects p ON p.id = t.project_id
    WHERE EXISTS (SELECT 1 FROM task_assignees ta WHERE ta.task_id = t.id AND ta.user_id = $1) AND t.status <> 'done'
      AND t.deleted_at IS NULL AND p.archived_at IS NULL AND p.mode <> 'data'
+     AND ${MY_SPACE('p.space_id', 3, space)}
    ORDER BY t.due_at ASC NULLS LAST, t.priority DESC
    LIMIT 60`;
 
@@ -82,19 +91,21 @@ export function registerHomeRoutes(app, { requireUser, wrap }) {
   app.get('/api/home', requireUser, wrap(async (req, res) => {
     const uid = req.user.id;
     const today = dayIn(zoneOf(req.user));
+    const space = typeof req.query.spaceId === 'string' && req.query.spaceId ? req.query.spaceId : null;
+    const sp = space ? [space] : [];
     const [activity, myTasks, recentDocs, projects, stats] = await Promise.all([
-      pool.query(ACTIVITY_SQL, [uid]),
-      pool.query(MY_TASKS_SQL, [uid, today]),
+      pool.query(ACTIVITY_SQL(space), [uid, ...sp]),
+      pool.query(MY_TASKS_SQL(space), [uid, today, ...sp]),
       pool.query(
         `SELECT d.id, d.title, d.icon, d.updated_at, u.name AS updated_by_name
            FROM docs d ${VISIBLE_JOIN}
            LEFT JOIN users u ON u.id = d.updated_by
-          WHERE d.deleted_at IS NULL AND ${VISIBLE} AND ${JOINED('d.space_id')}
+          WHERE d.deleted_at IS NULL AND ${VISIBLE} AND ${IN_SPACE('d.space_id', 2, space)}
             -- A task's page lives behind its row (see tasks.js); opening the row
             -- creates it, which is not the same as working on a document.
             AND d.kind IS DISTINCT FROM 'task'
           ORDER BY d.updated_at DESC LIMIT 12`,
-        [uid]
+        [uid, ...sp]
       ),
       pool.query(
         `SELECT p.id, p.name, p.icon, p.color, p.doc_id,
@@ -103,26 +114,28 @@ export function registerHomeRoutes(app, { requireUser, wrap }) {
                 count(t.id) FILTER (WHERE t.deleted_at IS NULL AND t.status <> 'done'
                                       AND t.due_at < $2::date) AS overdue
            FROM projects p LEFT JOIN tasks t ON t.project_id = p.id
-          WHERE p.archived_at IS NULL AND p.mode <> 'data' AND ${JOINED('p.space_id')}
+          WHERE p.archived_at IS NULL AND p.mode <> 'data' AND ${space ? 'p.space_id = $1' : JOINED('p.space_id')}
           GROUP BY p.id ORDER BY p.position ASC, p.created_at ASC LIMIT 12`,
-        [uid, today]
+        // Nothing else here names the user, and Postgres cannot type a
+        // parameter no clause uses, so the space takes $1 when given.
+        [space ?? uid, today]
       ),
       pool.query(
         `SELECT
            (SELECT count(*) FROM tasks t JOIN projects p ON p.id = t.project_id
              WHERE EXISTS (SELECT 1 FROM task_assignees ta WHERE ta.task_id = t.id AND ta.user_id = $1) AND t.status <> 'done'
-               AND t.deleted_at IS NULL AND p.archived_at IS NULL AND p.mode <> 'data') AS my_open,
+               AND t.deleted_at IS NULL AND p.archived_at IS NULL AND p.mode <> 'data' AND ${MY_SPACE('p.space_id', 3, space)}) AS my_open,
            (SELECT count(*) FROM tasks t JOIN projects p ON p.id = t.project_id
              WHERE EXISTS (SELECT 1 FROM task_assignees ta WHERE ta.task_id = t.id AND ta.user_id = $1) AND t.status <> 'done' AND t.due_at < $2::date
-               AND t.deleted_at IS NULL AND p.archived_at IS NULL AND p.mode <> 'data') AS my_overdue,
+               AND t.deleted_at IS NULL AND p.archived_at IS NULL AND p.mode <> 'data' AND ${MY_SPACE('p.space_id', 3, space)}) AS my_overdue,
            (SELECT count(*) FROM tasks t JOIN projects p ON p.id = t.project_id
              WHERE EXISTS (SELECT 1 FROM task_assignees ta WHERE ta.task_id = t.id AND ta.user_id = $1) AND t.status <> 'done'
                AND t.due_at BETWEEN $2::date AND $2::date + 7
-               AND t.deleted_at IS NULL AND p.archived_at IS NULL AND p.mode <> 'data') AS my_week,
+               AND t.deleted_at IS NULL AND p.archived_at IS NULL AND p.mode <> 'data' AND ${MY_SPACE('p.space_id', 3, space)}) AS my_week,
            (SELECT count(*) FROM docs d ${VISIBLE_JOIN}
-             WHERE d.deleted_at IS NULL AND ${VISIBLE} AND ${JOINED('d.space_id')} AND d.kind IS DISTINCT FROM 'task'
+             WHERE d.deleted_at IS NULL AND ${VISIBLE} AND ${IN_SPACE('d.space_id', 3, space)} AND d.kind IS DISTINCT FROM 'task'
                AND d.updated_at > now() - interval '7 days') AS docs_week`,
-        [uid, today]
+        [uid, today, ...sp]
       ),
     ]);
 

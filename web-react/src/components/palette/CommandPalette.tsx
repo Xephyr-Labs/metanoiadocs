@@ -19,7 +19,7 @@ import { splitKey } from '../../lib/taskKey';
 import { STATUS_COLOR } from '../../lib/builtinProps';
 import { swatch } from '../../lib/tagColors';
 import { useWorkspace } from '../../store/workspace';
-import { splitByJoined } from '../../lib/spaceTree';
+import { splitBySpace } from '../../lib/spaceTree';
 import { DocIcon } from '../ui/DocIcon';
 import { Modal } from '../ui/Modal';
 import { ProjectIcon } from '../ui/ProjectIcon';
@@ -150,9 +150,8 @@ export function CommandPalette() {
       title: r.title,
       sub: stripMarks(r.snippet || '').replace(/\s+/g, ' ').trim().slice(0, 60),
     });
-  // The server already orders hits from your spaces first; the heading says
-  // where the rest come from.
-  const [mine, other] = splitByJoined(results);
+  // Hits in the space you are in first; the heading says where the rest come from.
+  const [mine, other] = splitBySpace(results, ws.currentSpaceId, ws.spaces);
   const searchItems: Item[] = query ? mine.map(toItem) : allPages.slice(0, 5);
   const otherItems: Item[] = query ? other.map(toItem) : [];
 

@@ -351,8 +351,8 @@ export interface DeliveryRow {
 
 export const docsApi = {
   list: (): Promise<DocRow[]> => req('/docs'),
-  myDocs: (offset: number, limit = 8): Promise<{ total: number; rows: MyDocRow[] }> =>
-    req(`/docs/mine?offset=${offset}&limit=${limit}`),
+  myDocs: (offset: number, limit = 8, spaceId?: string): Promise<{ total: number; rows: MyDocRow[] }> =>
+    req(`/docs/mine?offset=${offset}&limit=${limit}${spaceId ? `&spaceId=${encodeURIComponent(spaceId)}` : ''}`),
   folders: async (): Promise<FolderRow[]> => normalizeFolderRows(await req('/folders')),
   createFolder: (body: { name: string; parentId?: string | null; spaceId?: string }): Promise<FolderRow> =>
     req('/folders', { method: 'POST', body: JSON.stringify(body) }),

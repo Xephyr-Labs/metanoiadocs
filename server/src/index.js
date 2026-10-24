@@ -650,9 +650,11 @@ app.get('/api/docs/mine', requireUser, async (req, res) => {
     `SELECT d.id, d.title, d.icon, d.updated_at, count(*) OVER () AS total
        FROM docs d
       WHERE d.created_by = $1 AND d.deleted_at IS NULL AND d.kind IS DISTINCT FROM 'task'
+        -- Home asks for the space you are in.
+        AND ($4::text IS NULL OR d.space_id = $4::text)
       ORDER BY d.updated_at DESC
       LIMIT $2 OFFSET $3`,
-    [req.user.id, limit, offset]
+    [req.user.id, limit, offset, typeof req.query.spaceId === 'string' && req.query.spaceId ? req.query.spaceId : null]
   );
   res.json({
     total: rows[0] ? Number(rows[0].total) : 0,

@@ -3,11 +3,12 @@ import { useEffect, useState } from 'react';
 import { useWorkspace } from '../../store/workspace';
 import { Button } from '../ui/Button';
 import { Modal, ModalBody } from '../ui/Modal';
+import { SpaceAvatar } from './SpaceAvatar';
 import { SpaceDialog } from './SpaceDialog';
 
 /**
- * Every space, joined or not. Joining puts a space in your sidebar; leaving is
- * done from the space's own menu there, so this list only ever adds.
+ * Every space, joined or not. Joining adds a space to the switcher; leaving is
+ * done from the switcher's menu, so this list only ever adds.
  */
 export function BrowseSpaces({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const ws = useWorkspace();
@@ -24,6 +25,9 @@ export function BrowseSpaces({ open, onOpenChange }: { open: boolean; onOpenChan
     setBusy(id);
     await ws.joinSpace(id);
     setBusy(null);
+    ws.switchSpace(id);
+    ws.openHome();
+    onOpenChange(false);
   };
 
   return (
@@ -33,8 +37,8 @@ export function BrowseSpaces({ open, onOpenChange }: { open: boolean; onOpenChan
           <ul className="space-y-px">
             {ws.spaces.map((s) => (
               <li key={s.id} className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-hover">
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center text-lg leading-none" aria-hidden>{s.icon}</span>
-                <button type="button" onClick={() => { ws.openSpace(s.id); onOpenChange(false); }} className="min-w-0 flex-1 text-left">
+                <SpaceAvatar space={s} size={32} className="rounded-md" />
+                <button type="button" onClick={() => { if (s.joined) ws.switchSpace(s.id); ws.openSpace(s.id); onOpenChange(false); }} className="min-w-0 flex-1 text-left">
                   <p className="truncate text-sm font-medium text-ink hover:underline">{s.name}</p>
                   <p className="truncate text-2xs text-faint">
                     {s.member_count} member{s.member_count === 1 ? '' : 's'}

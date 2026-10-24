@@ -20,6 +20,35 @@ export function groupBySpace<T extends { spaceId?: string | null }>(items: T[], 
   return out;
 }
 
+/**
+ * The space you are in, Notion-workspace style: the remembered one while you
+ * are still a member, else the default, else your first joined space. Never
+ * '' while spaces exist, so the sidebar always has a space to draw.
+ */
+export function currentSpaceFrom(stored: string | null | undefined, spaces: SpaceRow[]): string {
+  const joined = spaces.filter((s) => s.joined);
+  if (stored && joined.some((s) => s.id === stored)) return stored;
+  const def = spaces.find((s) => s.is_default);
+  if (def?.joined) return def.id;
+  return joined[0]?.id ?? def?.id ?? spaces[0]?.id ?? '';
+}
+
+/**
+ * Whether an item shows while you are in `current`. Items in a space you have
+ * not joined show in every space: you cannot switch there, and nothing you
+ * could see before spaces may disappear.
+ */
+export function inCurrentSpace(spaceId: string | null | undefined, current: string, spaces: SpaceRow[]): boolean {
+  if (!spaces.length) return true;
+  const id = spaceOf(spaceId, spaces);
+  return id === current || !spaces.find((s) => s.id === id)?.joined;
+}
+
+/** First letter of a space's name, for its avatar tile. */
+export function spaceInitial(name: string): string {
+  return Array.from(name.trim())[0]?.toUpperCase() || '?';
+}
+
 /** The space chip on All documents and Tasks: 'joined', 'all', or one space id. */
 export type SpaceFilter = string;
 
@@ -28,6 +57,12 @@ export function inSpaceFilter(spaceId: string | null | undefined, filter: SpaceF
   const id = spaceOf(spaceId, spaces);
   if (filter === 'joined') return !!spaces.find((s) => s.id === id)?.joined;
   return id === filter;
+}
+
+/** A list's space chip: picking the space you are in reads like the sidebar
+ *  (unjoined-space items too); any other pick is that space alone. */
+export function inSpacePick(spaceId: string | null | undefined, pick: SpaceFilter, current: string, spaces: SpaceRow[]): boolean {
+  return pick === current ? inCurrentSpace(spaceId, current, spaces) : inSpaceFilter(spaceId, pick, spaces);
 }
 
 const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
@@ -45,13 +80,10 @@ export function moveSummary(p: MovePreview): string {
   return `Moves ${listed}${parts.length > 1 ? ',' : ''} and some pages you can't see`;
 }
 
-/**
- * Search hits in your spaces, then the rest, each in the server's order. The
- * task a pasted key names stays with the first group whatever its space.
- */
-export function splitByJoined<T extends { inJoinedSpace?: boolean; named?: boolean }>(rows: T[]): [T[], T[]] {
-  const mine = (r: T) => r.named || r.inJoinedSpace !== false;
-  return [rows.filter(mine), rows.filter((r) => !mine(r))];
+/** Search hits in the space you are in, then every other space's. */
+export function splitBySpace<T extends { space_id?: string | null; named?: boolean }>(rows: T[], current: string, spaces: SpaceRow[]): [T[], T[]] {
+  const here = (r: T) => r.named || !spaces.length || spaceOf(r.space_id, spaces) === current;
+  return [rows.filter(here), rows.filter((r) => !here(r))];
 }
 
 /**

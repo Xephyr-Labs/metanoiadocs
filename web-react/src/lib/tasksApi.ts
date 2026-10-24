@@ -512,7 +512,7 @@ export interface TaskComment {
 }
 
 export const tasksApi = {
-  home: (): Promise<HomePayload> => req('/home'),
+  home: (spaceId?: string): Promise<HomePayload> => req(spaceId ? `/home?spaceId=${encodeURIComponent(spaceId)}` : '/home'),
 
   projects: (): Promise<ProjectRow[]> => req('/projects'),
   createProject: (b: { name: string; icon?: string; color?: string; docId?: string; parentId?: string | null; mode?: ProjectMode; spaceId?: string }): Promise<ProjectRow> =>

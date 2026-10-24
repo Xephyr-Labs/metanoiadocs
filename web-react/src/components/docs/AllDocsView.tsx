@@ -20,7 +20,7 @@ import { Pager, usePaged } from '../ui/Pager';
 import { PageIcon } from '../ui/PageIcon';
 import { SegmentedControl } from '../ui/SegmentedControl';
 import { SpaceChip } from '../spaces/SpaceChip';
-import { inSpaceFilter, type SpaceFilter } from '../../lib/spaceTree';
+import { inSpacePick, type SpaceFilter } from '../../lib/spaceTree';
 
 type Sort = 'updated' | 'title' | 'folder';
 
@@ -47,7 +47,9 @@ export function AllDocsView() {
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<Sort>('updated');
   const [scope, setScope] = useState<'all' | 'unfiled'>('all');
-  const [spaces, setSpaces] = useState<SpaceFilter>('joined');
+  // Follows the space you are in until you pick another.
+  const [pick, setSpaces] = useState<SpaceFilter | null>(null);
+  const spaces = pick ?? (ws.currentSpaceId || 'joined');
 
   const total = useMemo(() => Object.values(ws.pages).filter(listable).length, [ws.pages]);
   const unfiled = useMemo(
@@ -59,7 +61,7 @@ export function AllDocsView() {
     const q = query.trim().toLowerCase();
     const all = Object.values(ws.pages).filter((p) => {
       if (!listable(p)) return false;
-      if (!inSpaceFilter(p.spaceId, spaces, ws.spaces)) return false;
+      if (!inSpacePick(p.spaceId, spaces, ws.currentSpaceId, ws.spaces)) return false;
       if (scope === 'unfiled' && (p.folderId || p.parentId)) return false;
       if (!q) return true;
       return (p.title || 'Untitled').toLowerCase().includes(q)
@@ -78,7 +80,7 @@ export function AllDocsView() {
       });
     }
     return all.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  }, [ws.pages, ws.folders, ws.spaces, query, sort, scope, spaces]);
+  }, [ws.pages, ws.folders, ws.spaces, ws.currentSpaceId, query, sort, scope, spaces]);
 
   const scroller = useRef<HTMLDivElement>(null);
   const paged = usePaged(rows, `${query}|${sort}|${scope}|${spaces}`);

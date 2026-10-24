@@ -9,7 +9,7 @@ import { Modal } from '../ui/Modal';
 import { field } from '../ui/styles';
 
 /**
- * Create a space, or edit one when `space` is given: name, icon, description,
+ * Create a space, or edit one when `space` is given: name, description,
  * and people to add. Adding is all there is — the server has no "remove a
  * member", and anyone can leave a space from its own menu.
  */
@@ -21,7 +21,6 @@ export function SpaceDialog({ open, onOpenChange, space }: {
   const ws = useWorkspace();
   const auth = useAuth();
   const [name, setName] = useState('');
-  const [icon, setIcon] = useState('');
   const [description, setDescription] = useState('');
   const [people, setPeople] = useState<string[]>([]);
   const [users, setUsers] = useState<UserRow[]>([]);
@@ -32,7 +31,6 @@ export function SpaceDialog({ open, onOpenChange, space }: {
   useEffect(() => {
     if (!open) return;
     setName(space?.name ?? '');
-    setIcon(space?.icon ?? '🗂️');
     setDescription(space?.description ?? '');
     setPeople([]);
     setError(null);
@@ -51,12 +49,12 @@ export function SpaceDialog({ open, onOpenChange, space }: {
     try {
       if (space) {
         // PATCH is the creator's or an admin's; any member may still add people.
-        const changed = name !== space.name || icon !== space.icon || description !== space.description;
-        if (canManage && changed) await spacesApi.patch(space.id, { name, icon, description });
+        const changed = name !== space.name || description !== space.description;
+        if (canManage && changed) await spacesApi.patch(space.id, { name, description });
         if (people.length) await spacesApi.addMembers(space.id, people);
         await ws.refreshSpaces();
       } else {
-        const row = await ws.createSpace({ name, icon, description, memberIds: people });
+        const row = await ws.createSpace({ name, description, memberIds: people });
         if (!row) return; // createSpace has already said why
       }
       onOpenChange(false);
@@ -75,12 +73,8 @@ export function SpaceDialog({ open, onOpenChange, space }: {
         className="space-y-3 px-4 py-3.5"
         onSubmit={(e) => { e.preventDefault(); void save(); }}
       >
-        <div className="flex gap-2">
-          <label className="w-16 shrink-0">
-            <span className="mb-1 block text-2xs font-medium text-muted">Icon</span>
-            <input value={icon} maxLength={16} readOnly={!canManage} onChange={(e) => setIcon(e.target.value)} className={`${field} text-center`} />
-          </label>
-          <label className="min-w-0 flex-1">
+        <div>
+          <label className="block">
             <span className="mb-1 block text-2xs font-medium text-muted">Name</span>
             <input
               autoFocus={canManage}
