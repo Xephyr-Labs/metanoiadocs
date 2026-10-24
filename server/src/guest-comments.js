@@ -106,7 +106,8 @@ export function registerGuestCommentRoutes(app, { wrap, notify, emit, changed = 
               CASE WHEN c.guest THEN c.author_name
                    ELSE coalesce(nullif(u.name, ''), u.username, 'Team member') END AS author_name,
               c.guest, c.parent_id, c.resolved, c.created_at, c.edited_at,
-              c.kind, c.suggestion, c.suggestion_status, c.quote_occurrence, c.anchor_start, c.anchor_end
+              c.kind, c.suggestion, c.suggestion_status, c.quote_occurrence, c.anchor_start, c.anchor_end,
+              c.attachments
          FROM comments c LEFT JOIN users u ON u.id = c.author_id
         WHERE c.doc_id = $1 AND c.task_id IS NULL ORDER BY c.created_at ASC`,
       [doc.id],

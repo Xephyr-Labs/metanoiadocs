@@ -13,6 +13,12 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { DEFAULT_ZONE, dayIn } from './timezone.js';
 import { REPEAT_RULES } from './repeat.js';
+import { commentText } from './comment-input.js';
+
+/** A comment's files as an agent can use them: what each is, and where to
+ *  fetch it with the same token. A voice note is not transcribed. */
+const agentFiles = (files) =>
+  files?.length ? files.map((f) => ({ name: f.name, mime: f.mime, url: `/api/blob/${f.key}` })) : undefined;
 
 const ok = (obj) => ({
   content: [{ type: 'text', text: typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2) }],
@@ -250,7 +256,8 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
           kept.map((c) => ({
             id: c.id,
             author: c.author_name,
-            body: c.body,
+            body: commentText(c.body, c.attachments),
+            files: agentFiles(c.attachments),
             quote: c.quote || null,
             parentId: c.parent_id,
             resolved: c.resolved,
@@ -281,7 +288,8 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
           (rows || []).map((c) => ({
             id: c.id,
             author: c.author_name,
-            body: c.body,
+            body: commentText(c.body, c.attachments),
+            files: agentFiles(c.attachments),
             parentId: c.parent_id,
             createdAt: c.created_at,
           })),

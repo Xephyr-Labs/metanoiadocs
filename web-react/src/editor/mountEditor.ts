@@ -48,6 +48,7 @@ import { attachFileDrop } from './fileDrop';
 import { imageToolbarExtensions } from './imageToolbar';
 import { pageViewportExtension } from './pageViewport';
 import { attachCalloutPanels, calloutExtensions } from './callout';
+import { cancelVoiceNote, voiceNoteExtensions } from './voiceNote';
 import { attachTextSize } from './textSize';
 import { chartEffects, chartViewExtensions } from './chart';
 import { MetanoiaChartBlockSchema, MetanoiaChartBlockSchemaExtension } from './chart/chart-model';
@@ -541,6 +542,7 @@ export async function mountEditor(
     // Panel colours are a property of the document, so a public viewer must see
     // them too; the toolbar they are set from never opens for them.
     ...calloutExtensions(),
+    ...voiceNoteExtensions(),
     noLinkedDocConvertCanvasExtension(),
     // Phones: bold/italic/link… on the bar over the keyboard, not behind "Aa".
     keyboardToolbarExtension(),
@@ -790,6 +792,7 @@ export async function mountEditor(
       try { detachSelectAll(); } catch { /* noop */ }
       try { detachFileDrop?.(); } catch { /* noop */ }
       try { detachCalloutPanels(); } catch { /* noop */ }
+      try { cancelVoiceNote(editor as unknown as Element); } catch { /* noop */ }
       try { detachTextSize(); } catch { /* noop */ }
       try { detachMermaid(); } catch { /* noop */ }
       try { detachMarkdownPaste?.(); } catch { /* noop */ }

@@ -16,6 +16,8 @@ import { Reactions } from '../ui/Reactions';
 import { ClampedText } from '../ui/ClampedText';
 import { emojify } from '../../lib/emoji';
 import { field } from '../ui/styles';
+import { CommentFiles } from '../ui/VoiceNoteButton';
+import type { StoredFile } from '../../lib/uploads';
 
 export interface GuestCommentRow {
   id: string;
@@ -33,6 +35,8 @@ export interface GuestCommentRow {
   suggestion?: string | null;
   suggestion_status?: 'accepted' | 'rejected' | null;
   reactions?: { emoji: string; count: number; names?: string[] }[];
+  /** A member's voice note — guests can hear one, not record one. */
+  attachments?: StoredFile[];
 }
 
 const NAME_KEY = 'mn-guest-name';
@@ -224,10 +228,13 @@ export function GuestComments({ token, onClose }: { token: string; onClose?: () 
       className={cn(field, 'mt-1 w-full resize-none text-sm')}
     />
   ) : (
-    <ClampedText className={className}>
-      {emojify(c.body)}
-      {c.edited_at && <span className="ml-1 text-2xs text-faint">(edited)</span>}
-    </ClampedText>
+    <>
+      <ClampedText className={className}>
+        {emojify(c.body)}
+        {c.edited_at && <span className="ml-1 text-2xs text-faint">(edited)</span>}
+      </ClampedText>
+      <CommentFiles files={c.attachments} share={token} />
+    </>
   );
 
   const card = (c: GuestCommentRow) => (

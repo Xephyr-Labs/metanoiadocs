@@ -505,6 +505,8 @@ export interface TaskComment {
   /** Set once the author has rewritten it; null while untouched. */
   edited_at?: string | null;
   reactions?: Reaction[];
+  /** Files posted with it — a voice note. */
+  attachments?: StoredFile[];
 }
 
 export const tasksApi = {
@@ -586,7 +588,7 @@ export const tasksApi = {
    *  date the task had before anyone changed it. */
   dueHistory: (taskId: string): Promise<DueChange[]> => req(`/tasks/${taskId}/due-history`),
   comments: (taskId: string): Promise<TaskComment[]> => req(`/tasks/${taskId}/comments`),
-  addComment: (taskId: string, b: { body: string; parentId?: string | null }): Promise<TaskComment> =>
+  addComment: (taskId: string, b: { body: string; parentId?: string | null; attachments?: StoredFile[] }): Promise<TaskComment> =>
     req(`/tasks/${taskId}/comments`, { method: 'POST', ...body(b) }),
   /** Shared with a page's comments — same table, same routes. */
   editComment: (id: string, b: { body: string }): Promise<{ body: string; edited_at: string }> =>

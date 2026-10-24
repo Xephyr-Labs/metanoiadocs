@@ -1,0 +1,7 @@
+# A throwaway stack for the voice-note checks, beside any other local stack.
+services:
+  server:
+    ports: !override
+      - "8098:3000"
+    environment:
+      BASE_URL: http://localhost:8098

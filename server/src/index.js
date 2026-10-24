@@ -38,6 +38,9 @@ import { runDataMigrations } from './data-migrations.js';
 import { runIntegrityScan, startIntegrityScan } from './integrity.js';
 import * as Y from 'yjs';
 import { mentionHandles } from './mentions.js';
+import { baseMime } from './media.js';
+import { commentInput } from './comment-input.js';
+import { deleteUnusedAudio } from './blob-cleanup.js';
 import { docCommentRecipients } from './comment-recipients.js';
 import { buildDocState, appendMarkdownToDoc, appendPageReference, extractText, extractBlocks, docToMarkdown, fixTableOrderKeys, stateWithValidTableKeys } from './blocks.js';
 import { rewriteDoc } from './restore.js';
@@ -2322,11 +2325,11 @@ app.get('/api/docs/:id/intelligence', requireUser, wrap(async (req, res) => {
 // share. Raw bytes in/out; session-gated. 25MB cap keeps a stray upload from
 // blowing up a Postgres row.
 app.put('/api/blob/:key', requireUser, express.raw({ type: '*/*', limit: '25mb' }), async (req, res) => {
-  const mime = req.headers['content-type'] || 'application/octet-stream';
+  const mime = baseMime(req.headers['content-type']);
   await pool.query(
-    `INSERT INTO blobs (key, mime, data) VALUES ($1, $2, $3)
+    `INSERT INTO blobs (key, mime, data, created_by) VALUES ($1, $2, $3, $4)
      ON CONFLICT (key) DO NOTHING`,
-    [req.params.key, mime, req.body]
+    [req.params.key, mime, req.body, req.user.id]
   );
   res.json({ ok: true, key: req.params.key });
 });
@@ -2341,9 +2344,20 @@ app.get('/api/blob/:key', async (req, res) => {
   // read it back, or a programmatic client cannot check what it just uploaded.
   const user = await userForRequest(req);
   if (!user) {
+    // A share link reads what its own page uses — a file in the page, in its
+    // properties, or on one of its comments — not every blob in the workspace.
+    // ponytail: scans the page's Yjs state for the key on each guest fetch; an
+    // index of page→blob keys if public pages ever get large or hot.
     const share = String(req.query.share || '');
     const ok = share && (await pool.query(
-      'SELECT 1 FROM docs WHERE share_token = $1', [share])).rowCount;
+      `SELECT 1 FROM docs d
+        WHERE d.share_token = $1 AND d.deleted_at IS NULL
+          AND (position(convert_to($2, 'UTF8') IN coalesce((SELECT state FROM doc_states WHERE doc_id = d.id), ''::bytea)) > 0
+               OR position($2 IN d.props::text) > 0
+               OR EXISTS (SELECT 1 FROM comments c
+                           WHERE c.doc_id = d.id AND c.task_id IS NULL
+                             AND c.attachments @> jsonb_build_array(jsonb_build_object('key', $2::text))))`,
+      [share, req.params.key])).rowCount;
     if (!ok) return res.status(401).json({ error: 'unauthorized' });
   }
   const { rows } = await pool.query('SELECT mime, data FROM blobs WHERE key = $1', [req.params.key]);
@@ -2394,6 +2408,13 @@ app.get('/api/blob/:key', async (req, res) => {
   res.setHeader('Content-Range', `bytes ${start}-${last}/${size}`);
   res.setHeader('Content-Length', last - start + 1);
   res.end(data.subarray(start, last + 1));
+});
+
+// Take back your own upload that nothing uses — a voice note recorded and then
+// removed before sending. Audio only; anything in use stays (blob-cleanup.js).
+app.delete('/api/blob/:key/unused', requireUser, async (req, res) => {
+  const deleted = await deleteUnusedAudio([req.params.key], { uploader: req.user.id });
+  res.json({ deleted: deleted > 0 });
 });
 
 app.get('/api/blob', requireUser, async (_req, res) => {
@@ -2606,7 +2627,7 @@ app.get('/api/docs/:id/comments', requireUser, async (req, res) => {
   const { rows } = await pool.query(
     `SELECT c.id, c.block_id, c.quote, c.body, c.author_id, c.author_name, c.parent_id, c.resolved,
             c.created_at, c.edited_at, c.guest, c.kind, c.suggestion, c.suggestion_status, c.quote_occurrence,
-            c.anchor_start, c.anchor_end, u.name AS decided_by_name
+            c.anchor_start, c.anchor_end, c.attachments, u.name AS decided_by_name
        FROM comments c LEFT JOIN users u ON u.id = c.decided_by
       WHERE c.doc_id = $1 ORDER BY c.created_at ASC`,
     [req.params.id]
@@ -2619,9 +2640,14 @@ app.post('/api/docs/:id/comments', requireUser, async (req, res) => {
   if (!canComment(role)) return res.status(403).json({ error: 'forbidden' });
   const suggestion = req.body?.kind === 'suggestion';
   // A suggestion proposes new text for a passage; the note beside it is optional.
-  const body = String(req.body?.body || '').trim().slice(0, 4000);
+  // A comment is text, a file (a voice note), or both; a suggestion is never a file.
+  const input = suggestion
+    ? { body: String(req.body?.body || '').trim().slice(0, 4000), attachments: [] }
+    : commentInput(req.body);
+  if (input.error) return res.status(400).json({ error: input.error });
+  const { body, attachments } = input;
+  const notifyText = input.notifyText ?? body;
   const replacement = suggestion ? String(req.body?.suggestion ?? '').slice(0, 4000) : null;
-  if (!body && !suggestion) return res.status(400).json({ error: 'empty comment' });
   if (suggestion) {
     if (!canSuggest(role)) return res.status(403).json({ error: 'You can comment on this page, but not suggest changes.' });
     if (!req.body?.blockId || !String(req.body?.quote || '').trim()) {
@@ -2638,7 +2664,7 @@ app.post('/api/docs/:id/comments', requireUser, async (req, res) => {
       [req.body.parentId, req.params.id]
     );
     if (parent) {
-      const { id } = await insertTaskComment({ task: parent, body, user: req.user, parentId: req.body.parentId });
+      const { id } = await insertTaskComment({ task: parent, body, attachments, user: req.user, parentId: req.body.parentId });
       return res.json({ id });
     }
   }
@@ -2661,22 +2687,23 @@ app.post('/api/docs/:id/comments', requireUser, async (req, res) => {
   const id = crypto.randomUUID();
   await pool.query(
     `INSERT INTO comments (id, doc_id, block_id, quote, body, author_id, author_name, parent_id, kind, suggestion, quote_occurrence,
-                           anchor_start, anchor_end)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+                           anchor_start, anchor_end, attachments)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
     [id, req.params.id, parentId ? null : (req.body?.blockId || null),
      parentId ? '' : String(req.body?.quote || '').slice(0, 500),
      body, req.user.id, req.user.name || req.user.email, parentId,
      suggestion ? 'suggestion' : 'comment', replacement,
      // Which copy of the quoted words in that block — "the" twice in a line.
      Math.max(0, Math.min(1000, Number.parseInt(req.body?.occurrence, 10) || 0)),
-     ...commentAnchors(parentId ? null : req.body)]
+     ...commentAnchors(parentId ? null : req.body),
+     JSON.stringify(attachments)]
   );
   // Fan out notifications for this comment (best-effort; never fails the comment).
   createCommentNotifications({
-    commentId: id, docId: req.params.id, body: suggestion ? suggestionSnippet(req.body.quote, replacement, body) : body,
+    commentId: id, docId: req.params.id, body: suggestion ? suggestionSnippet(req.body.quote, replacement, body) : notifyText,
     actor: req.user, parentId, replyToId, kind: suggestion ? 'suggestion' : null,
   }).catch((e) => console.error('[notify] fanout failed', e.message));
-  emit('comment.created', { id, doc_id: req.params.id, body, author_id: req.user.id });
+  emit('comment.created', { id, doc_id: req.params.id, body, attachments, author_id: req.user.id });
   commentsChanged(req.params.id);
   res.json({ id });
 });
@@ -3044,8 +3071,9 @@ const NOTIFY_VERBS = {
 // handle typed into an edit is a message nobody asked to receive.
 app.patch('/api/comments/:cid', requireUser, async (req, res) => {
   const body = String(req.body?.body || '').trim().slice(0, 4000);
-  if (!body) return res.status(400).json({ error: 'empty comment' });
-  const c = await pool.query('SELECT doc_id, task_id, author_id FROM comments WHERE id = $1', [req.params.cid]);
+  const c = await pool.query('SELECT doc_id, task_id, author_id, attachments FROM comments WHERE id = $1', [req.params.cid]);
+  // The words may go when a voice note stays: it is still a comment.
+  if (!body && !c.rows[0]?.attachments?.length) return res.status(400).json({ error: 'empty comment' });
   // Authorship on its own, checked here rather than through commentOwner:
   // that helper answers "may delete this", and on a page it says yes to the
   // owner too. Access still has to hold — an author dropped from a page does
@@ -3065,7 +3093,11 @@ app.delete('/api/comments/:cid', requireUser, async (req, res) => {
   if (!c.rows[0]) return res.json({ ok: true });
   if ((await commentOwner(c.rows[0], req.user.id)) !== 'author')
     return res.status(403).json({ error: 'forbidden' });
-  await pool.query('DELETE FROM comments WHERE id = $1 OR parent_id = $1', [req.params.cid]);
+  const { rows: gone } = await pool.query(
+    'DELETE FROM comments WHERE id = $1 OR parent_id = $1 RETURNING attachments', [req.params.cid]);
+  // Their voice notes go too, unless something else still uses the same bytes.
+  deleteUnusedAudio(gone.flatMap((r) => (r.attachments || []).map((f) => f.key)))
+    .catch((e) => console.error('[blob] cleanup after comment delete failed:', e.message));
   if (c.rows[0].doc_id) commentsChanged(c.rows[0].doc_id);
   res.json({ ok: true });
 });

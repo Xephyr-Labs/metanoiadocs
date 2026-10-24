@@ -9,6 +9,12 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 
+// A voice note has no words; say so rather than hand an agent an empty body.
+// Same rule as the server's comment-input.js — this package can't import it.
+const commentText = (c) => c.body || (c.attachments?.length ? '🎤 Voice note' : '');
+const agentFiles = (files) =>
+  files?.length ? files.map((f) => ({ name: f.name, mime: f.mime, url: `/api/blob/${f.key}` })) : undefined;
+
 const BASE = (process.env.METANOIA_URL || '').replace(/\/+$/, '');
 const TOKEN = process.env.METANOIA_TOKEN || '';
 if (!BASE || !TOKEN) {
@@ -151,7 +157,8 @@ server.registerTool(
       return ok(kept.map((c) => ({
         id: c.id,
         author: c.author_name,
-        body: c.body,
+        body: commentText(c),
+        files: agentFiles(c.attachments),
         quote: c.quote || null,
         parentId: c.parent_id,
         resolved: c.resolved,
@@ -175,7 +182,8 @@ server.registerTool(
       return ok((rows || []).map((c) => ({
         id: c.id,
         author: c.author_name,
-        body: c.body,
+        body: commentText(c),
+        files: agentFiles(c.attachments),
         parentId: c.parent_id,
         createdAt: c.created_at,
       })));

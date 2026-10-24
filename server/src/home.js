@@ -36,7 +36,7 @@ const ACTIVITY_SQL = `
      WHERE v.updated_by IS NOT NULL AND v.updated_at > v.created_at + interval '1 minute' AND v.has_text
     UNION ALL
     SELECT 'comment', c.author_id, c.created_at, c.doc_id, NULL, v.title, v.icon, NULL,
-           left(c.body, 140), 'human'::text
+           left(coalesce(nullif(c.body, ''), CASE WHEN jsonb_array_length(c.attachments) > 0 THEN '🎤 Voice note' END), 140), 'human'::text
       FROM comments c JOIN visible v ON v.id = c.doc_id
     UNION ALL
     SELECT 'task_created', t.created_by, t.created_at, t.doc_id, p.id, p.name, p.icon, t.id, t.title, 'human'::text

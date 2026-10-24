@@ -40,6 +40,12 @@ export async function uploadFile(file: File): Promise<StoredFile> {
   return { key, name: file.name, mime: file.type || '', size: file.size };
 }
 
+/** Take back an upload nothing ended up using (a voice note removed before
+ *  sending). Best effort: the server keeps it if anything does use it. */
+export function discardUpload(file: StoredFile): void {
+  void fetch(`/api/blob/${file.key}/unused`, { method: 'DELETE', credentials: 'same-origin' }).catch(() => {});
+}
+
 /** Where to fetch a stored file. The name rides along so a download is called
  *  what it was called when it went up, rather than by its hash. */
 export function fileUrl(file: StoredFile): string {
