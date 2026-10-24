@@ -329,6 +329,7 @@ await step('9b', async () => {
   const cHome = await cara.get(`/api/home?spaceId=${G}`);
   check('9b Cara\'s General Home still lists her task from unjoined Marketing', Object.values(cHome.myTasks).flat().some((t) => t.title.includes('Cara reviews the launch')));
   // The browser asks for the space it is in.
+  if ((await mb.current()) === 'General') await mb.switchTo('Marketing');
   const req = mb.page.waitForRequest((r) => r.url().includes('/api/home'));
   await mb.switchTo('General');
   check('9b the browser\'s Home asks for General', (await req).url().includes(`spaceId=${G}`));
@@ -343,6 +344,10 @@ await step('10', async () => {
   const gi = hits.findIndex((h) => h.space_id === G);
   const mi = hits.findIndex((h) => h.space_id === M);
   check('10 Cara\'s search lists the General hit before the Marketing hit', gi >= 0 && mi >= 0 && gi < mi, hits.map((h) => `${h.title}@${h.space_id === G ? 'G' : 'M'}`).join(', '));
+  for (const [name, id] of [['Marketing', M], ['General', G]]) {
+    const pref = (await maya.get(`/api/search?q=zebra&prefer=${id}`)).filter((h) => h.kind === 'doc');
+    check(`10 in ${name}, its hits rank first on the server (prefer)`, pref[0]?.space_id === id, pref.map((h) => `${h.title}@${h.space_id === G ? 'G' : 'M'}`).join(', '));
+  }
   const cb = await open(cara);
   await cb.page.getByRole('button', { name: 'Search' }).first().click();
   await cb.page.getByPlaceholder(/Search pages/).fill('zebra');
@@ -459,6 +464,31 @@ await step('reorder-top', async () => {
   check('reorder-top an old client sending sub-pages too leaves them nested', parent() === gamma.id, `parent_id=${parent()}`);
 });
 
+// ── a space made while a page is open becomes current ──────────────────────
+await step('create', async () => {
+  const pg = await maya.post('/api/docs', { title: 'Open while creating', content: 'x' });
+  await mb.page.goto(`${BASE}/d/${pg.id}`); await mb.page.waitForTimeout(2500);
+  await mb.side.getByRole('button', { name: /^Space: / }).first().click();
+  await mb.page.waitForTimeout(300);
+  await mb.page.getByRole('menu').getByText('New space', { exact: true }).click();
+  const dlg = mb.page.getByRole('dialog');
+  await dlg.locator('input').first().fill('Ops');
+  await dlg.getByRole('button', { name: 'New space' }).click();
+  await mb.page.waitForTimeout(2500);
+  check('create a new space made from a page becomes current', (await mb.current()) === 'Ops', await mb.current());
+  const ops = (await maya.get('/api/spaces')).find((sp) => sp.name === 'Ops');
+  if (ops) await maya.call('DELETE', `/api/spaces/${ops.id}`);
+  await mb.switchTo('General');
+});
+
+// ── your pages in a space you left still show in My documents ──────────────
+await step('left', async () => {
+  await sam.post(`/api/spaces/${M}/leave`);
+  const mine = await sam.get(`/api/docs/mine?limit=50&spaceId=${G}`);
+  check('left Sam\'s Marketing pages still list in his General My documents', mine.rows.some((d) => d.title === 'Sam template'), mine.rows.map((d) => d.title).join(','));
+  await sam.post(`/api/spaces/${M}/join`);
+});
+
 // ── phone: the top bar leads with the space and switches it ────────────────
 await step('phone', async () => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
@@ -470,11 +500,12 @@ await step('phone', async () => {
   await page.goto(BASE + '/'); await page.waitForTimeout(3000);
   const bar = page.locator('header').getByRole('button', { name: /^Space: / }).first();
   check('phone Home\'s top bar shows the space', (await bar.getAttribute('aria-label')) === 'Space: General');
+  const tasksTab = page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Tasks' });
+  await tasksTab.tap(); await page.waitForTimeout(1000);
   await bar.tap(); await page.waitForTimeout(400);
   await page.getByRole('menu').getByText('Marketing', { exact: true }).tap(); await page.waitForTimeout(1500);
   check('phone switching from the top bar moves to Marketing', (await bar.getAttribute('aria-label')) === 'Space: Marketing');
-  await page.getByRole('navigation', { name: 'Main' }).getByText('Tasks').tap(); await page.waitForTimeout(1000);
-  check('phone Tasks keeps the space in the bar', (await bar.getAttribute('aria-label')) === 'Space: Marketing');
+  check('phone switching on Tasks stays on Tasks', (await tasksTab.getAttribute('aria-current')) === 'page');
   check('phone no page errors', !errors.length, errors.join(' | '));
   await ctx.close();
 });

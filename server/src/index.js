@@ -650,8 +650,11 @@ app.get('/api/docs/mine', requireUser, async (req, res) => {
     `SELECT d.id, d.title, d.icon, d.updated_at, count(*) OVER () AS total
        FROM docs d
       WHERE d.created_by = $1 AND d.deleted_at IS NULL AND d.kind IS DISTINCT FROM 'task'
-        -- Home asks for the space you are in.
-        AND ($4::text IS NULL OR d.space_id = $4::text)
+        -- Home asks for the space you are in. Your pages in a space you are
+        -- not in (left, or never joined) show in every space, or they would
+        -- show in none.
+        AND ($4::text IS NULL OR d.space_id = $4::text
+             OR d.space_id NOT IN (SELECT space_id FROM space_members WHERE user_id = $1))
       ORDER BY d.updated_at DESC
       LIMIT $2 OFFSET $3`,
     [req.user.id, limit, offset, typeof req.query.spaceId === 'string' && req.query.spaceId ? req.query.spaceId : null]
@@ -2122,6 +2125,9 @@ app.get('/api/search', requireUser, wrap(async (req, res) => {
   if (!q) return res.json([]);
   // Optional scope for agents: applied in SQL so it narrows before the LIMIT.
   const spaceId = req.query.spaceId ? String(req.query.spaceId) : null;
+  // The space the asker is in: its hits rank first, ahead of the LIMIT, so a
+  // busy other space cannot crowd them out. Nothing is dropped.
+  const prefer = req.query.prefer ? String(req.query.prefer) : null;
 
   // Co-occurrence query expansion: pull the strongest terms that co-occur with
   // the query's own terms across the corpus, OR them in to widen recall (must
@@ -2169,13 +2175,13 @@ app.get('/api/search', requireUser, wrap(async (req, res) => {
          FROM (SELECT * FROM fts UNION ALL SELECT * FROM fuzzy) u
         ORDER BY id, pri, rank DESC
      )
-     SELECT id, title, (SELECT space_id FROM docs WHERE id = merged.id) AS space_id,
-            ts_headline('english', search_text, plainto_tsquery('english', $2),
+     SELECT merged.id, merged.title, d.space_id,
+            ts_headline('english', merged.search_text, plainto_tsquery('english', $2),
                         'MaxWords=18, MinWords=6, ShortWord=2') AS snippet
-       FROM merged
-      ORDER BY pri, rank DESC
+       FROM merged JOIN docs d ON d.id = merged.id
+      ORDER BY (d.space_id IS NOT DISTINCT FROM $5::text) DESC, pri, rank DESC
       LIMIT 20`,
-    [req.user.id, q, expansionOr, spaceId],
+    [req.user.id, q, expansionOr, spaceId, prefer],
   );
   // Spaces only reorder results (joined first) and flag them; nothing is dropped.
   const joined = new Set((await pool.query('SELECT space_id FROM space_members WHERE user_id = $1', [req.user.id]))
@@ -2208,12 +2214,12 @@ app.get('/api/search', requireUser, wrap(async (req, res) => {
         AND ((lower(p.key) = lower($3::text) AND t.num = $4::int)
              OR t.title ILIKE $1
              OR t.title % $2)
-      ORDER BY named DESC, similarity(t.title, $2) DESC, t.updated_at DESC
+      ORDER BY named DESC, (p.space_id IS NOT DISTINCT FROM $6::text) DESC, similarity(t.title, $2) DESC, t.updated_at DESC
       LIMIT 8`,
     // The literal `%` and `_` a person may have typed are escaped: an ILIKE
     // pattern is not a search box, and "100%" should look for that string
     // rather than for everything.
-    [`%${q.replace(/([%_\\])/g, '\\$1')}%`, q, named?.key ?? null, named?.num ?? null, spaceId],
+    [`%${q.replace(/([%_\\])/g, '\\$1')}%`, q, named?.key ?? null, named?.num ?? null, spaceId, prefer],
   );
   // The task a key names stays on top whatever its space.
   const tasks = [...taskRows.filter((r) => r.named), ...byJoinedFirst(taskRows.filter((r) => !r.named), joined)].map((r) => ({

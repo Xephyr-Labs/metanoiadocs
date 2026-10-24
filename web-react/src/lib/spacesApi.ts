@@ -62,9 +62,9 @@ const MOVE_PATH: Record<MoveType, string> = { doc: 'docs', folder: 'folders', pr
 
 export const spacesApi = {
   list: (): Promise<SpaceRow[]> => req('/spaces'),
-  create: (b: { name: string; icon?: string; description?: string; memberIds?: string[] }): Promise<SpaceRow> =>
+  create: (b: { name: string; description?: string; memberIds?: string[] }): Promise<SpaceRow> =>
     post('/spaces', b),
-  patch: (id: string, b: { name?: string; icon?: string; description?: string }): Promise<SpaceRow> =>
+  patch: (id: string, b: { name?: string; description?: string }): Promise<SpaceRow> =>
     req(`/spaces/${id}`, { method: 'PATCH', body: JSON.stringify(b) }),
   /** 409 with a message when the space is the default or still holds items. */
   remove: (id: string) => req(`/spaces/${id}`, { method: 'DELETE' }),
@@ -73,7 +73,6 @@ export const spacesApi = {
   addMembers: (id: string, userIds: string[]) => post(`/spaces/${id}/members`, { userIds }),
   members: (id: string): Promise<SpaceMember[]> => req(`/spaces/${id}/members`),
   /** `ids` is every space in its new order. */
-  reorder: (ids: string[]) => req('/spaces/order', { method: 'PUT', body: JSON.stringify({ ids }) }),
   /** Dry run of a move: what travels with it, and how much of it you cannot see. */
   movePreview: (type: MoveType, id: string, spaceId: string): Promise<MovePreview> =>
     req(`/move-preview?${new URLSearchParams({ type, id, spaceId })}`),

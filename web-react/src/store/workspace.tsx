@@ -76,9 +76,7 @@ interface WorkspaceState {
   joinSpace: (id: string) => Promise<void>;
   leaveSpace: (id: string) => Promise<void>;
   /** Null (with a toast) when the server refuses. */
-  createSpace: (input: { name: string; icon?: string; description?: string; memberIds?: string[] }) => Promise<SpaceRow | null>;
-  /** `ids` is every space in its new order. */
-  reorderSpaces: (ids: string[]) => Promise<void>;
+  createSpace: (input: { name: string; description?: string; memberIds?: string[] }) => Promise<SpaceRow | null>;
   /** The sidebar's lists, one set per joined space, in `spaces` order. */
   spaceTrees: Map<string, SpaceTree>;
   /** The space you are in (the switcher's). The sidebar, Home, Tasks and
@@ -796,25 +794,20 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     await refreshSpaces();
   }, [refreshSpaces]);
 
-  const createSpace = useCallback(async (input: { name: string; icon?: string; description?: string; memberIds?: string[] }) => {
+  const createSpace = useCallback(async (input: { name: string; description?: string; memberIds?: string[] }) => {
     try {
       const row = await spacesApi.create(input);
       await refreshSpaces();
       switchSpace(row.id);
+      // Its Home, as a switch does: left on an open page from the old space,
+      // following that page would switch you straight back.
+      openHome();
       return row;
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Could not create that space.');
       return null;
     }
-  }, [refreshSpaces, switchSpace]);
-
-  const reorderSpaces = useCallback(async (ids: string[]) => {
-    // Optimistic, like reorderFolder: the list is re-read either way, which
-    // puts the old order back if the save failed.
-    setSpaces((prev) => ids.map((id) => prev.find((s) => s.id === id)).filter((s): s is SpaceRow => !!s));
-    await spacesApi.reorder(ids).catch(() => toast('Could not save the new order.'));
-    await refreshSpaces();
-  }, [refreshSpaces]);
+  }, [refreshSpaces, switchSpace, openHome]);
 
   const movePage = useCallback(async (id: PageId, folderId: string | null) => {
     await docsApi.patch(id, { folderId }).catch((e) => toast(e instanceof Error ? e.message : 'Could not move that page.'));
@@ -1327,7 +1320,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       pinnedIds, pinnedFolderIds, togglePin, toggleFolderPin,
       currentId, currentPage, loading, error, workspaceId,
       historyDocId, openHistory, closeHistory,
-      view, activeProjectId, activeFolderId, openHome, openTasks, openAllDocs, openProject, createTaskIn, pendingTaskId, clearPendingTask, pendingViewId: activeViewId, clearPendingView, openFolder, activeSpaceId, openSpace, projects, refreshProjects, spaces, refreshSpaces, moveToSpace, joinSpace, leaveSpace, createSpace, reorderSpaces, spaceTrees, currentSpaceId, switchSpace,
+      view, activeProjectId, activeFolderId, openHome, openTasks, openAllDocs, openProject, createTaskIn, pendingTaskId, clearPendingTask, pendingViewId: activeViewId, clearPendingView, openFolder, activeSpaceId, openSpace, projects, refreshProjects, spaces, refreshSpaces, moveToSpace, joinSpace, leaveSpace, createSpace, spaceTrees, currentSpaceId, switchSpace,
       sidebarCollapsed, panelCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
       settingsOpen, trashOpen, inboxOpen, shortcutsOpen, captureOpen, mode, fullWidth, theme,
       refresh, select, toggleExpand, toggleFavorite, toggleLove, toggleFolderFavorite, setVisibility, rename, applyTitleFromEditor,
@@ -1343,7 +1336,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       pinnedIds, pinnedFolderIds, togglePin, toggleFolderPin,
       currentId, currentPage, loading, error, workspaceId,
       historyDocId, openHistory, closeHistory,
-      view, activeProjectId, activeFolderId, openHome, openTasks, openAllDocs, openProject, createTaskIn, pendingTaskId, clearPendingTask, activeViewId, clearPendingView, openFolder, activeSpaceId, openSpace, projects, refreshProjects, spaces, refreshSpaces, moveToSpace, joinSpace, leaveSpace, createSpace, reorderSpaces, spaceTrees, currentSpaceId, switchSpace,
+      view, activeProjectId, activeFolderId, openHome, openTasks, openAllDocs, openProject, createTaskIn, pendingTaskId, clearPendingTask, activeViewId, clearPendingView, openFolder, activeSpaceId, openSpace, projects, refreshProjects, spaces, refreshSpaces, moveToSpace, joinSpace, leaveSpace, createSpace, spaceTrees, currentSpaceId, switchSpace,
       sidebarCollapsed, panelCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
       settingsOpen, trashOpen, inboxOpen, shortcutsOpen, captureOpen, mode, fullWidth, theme,
       refresh, select, toggleExpand, toggleFavorite, toggleLove, toggleFolderFavorite, setVisibility, rename, applyTitleFromEditor,

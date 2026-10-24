@@ -44,8 +44,7 @@ import {
   Trash2,
   Upload,
 } from 'lucide-react';
-import { Children, useRef, useState, type HTMLAttributes, type KeyboardEvent, type ReactNode } from 'react';
-import type { DropZone } from '../../lib/reorder';
+import { Children, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { cn } from '../../lib/cn';
 import { MOD_LABEL } from '../../lib/hotkeys';
 import { SECTION_LIMIT, collapsedSections, railSection, setRailSection, toggleSection, type RailSection } from '../../lib/sidebarPrefs';
@@ -207,27 +206,20 @@ export function SectionLabel({ sectionKey, children, action }: { sectionKey: str
  * it and still offers its "+" — a fold that hides the count turns "collapse"
  * into "forget", and you stop folding things.
  */
-export function CollapsibleSection({ sectionKey, label, collapsed, onToggle, count, action, headProps, dropZone, children }: {
+export function CollapsibleSection({ sectionKey, label, collapsed, onToggle, count, action, children }: {
   sectionKey: string;
   label: string;
   collapsed: Set<string>;
   onToggle: (key: string) => void;
   count?: number;
   action?: ReactNode;
-  /** Extra props for the header row — a space's header drags and takes drops. */
-  headProps?: HTMLAttributes<HTMLDivElement>;
-  /** Draws the reorder line while something is dragged over the header. */
-  dropZone?: DropZone | null;
   children: ReactNode;
 }) {
   const open = !collapsed.has(sectionKey);
 
   return (
     <>
-      <div {...headProps} className={cn('relative mt-3 coarse:mt-1 flex h-6 coarse:h-11 items-center gap-1 pr-2 first:mt-0', headProps?.className)}>
-        {(dropZone === 'before' || dropZone === 'after') && (
-          <span className={cn('pointer-events-none absolute left-1 right-1 h-0.5 rounded-full bg-accent', dropZone === 'before' ? 'top-0' : 'bottom-0')} />
-        )}
+      <div className="relative mt-3 coarse:mt-1 flex h-6 coarse:h-11 items-center gap-1 pr-2 first:mt-0">
         <button
           type="button"
           aria-expanded={open}
@@ -824,7 +816,7 @@ export function Sidebar() {
                 {space ? <SpaceAvatar space={space} size={20} /> : <LogoMark size={16} />}
               </span>
               <span className="block h-5 min-w-0 flex-1 !self-center truncate text-sm font-semibold leading-5 text-ink">{space?.name ?? activeWs.name}</span>
-              <ChevronDown size={16} className="shrink-0 text-faint opacity-0 transition-opacity group-hover:opacity-100" />
+              <ChevronDown size={16} className="shrink-0 text-faint opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100 coarse:opacity-100" />
             </button>
           }
         />

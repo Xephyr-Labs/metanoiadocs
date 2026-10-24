@@ -38,9 +38,10 @@ export function SpaceSwitcher({ trigger, extra = [], fallbackLabel, width = 248 
   const switchTo = (id: string) => {
     if (id === ws.currentSpaceId) return;
     ws.switchSpace(id);
-    // Land on the new space's Home: staying on a page from the old space would
-    // pull you straight back into it.
-    ws.openHome();
+    // From a page, folder or database, land on the new space's Home: staying
+    // there would pull you straight back into the old space. Home, Docs and
+    // Tasks follow the space, so they stay put.
+    if (ws.view !== 'home' && ws.view !== 'docs' && ws.view !== 'tasks') ws.openHome();
   };
   const canManage = !!space && (space.created_by === auth.user?.id || auth.user?.role === 'admin');
   const deleteSpace = async () => {
