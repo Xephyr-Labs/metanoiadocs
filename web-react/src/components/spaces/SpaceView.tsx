@@ -65,9 +65,12 @@ export function SpaceView() {
             <h1 className="font-display text-2xl font-semibold leading-7 tracking-[-0.03em] text-ink md:text-3xl">{space.name}</h1>
             <p className="mt-1 text-sm text-muted">{space.description || 'No description yet.'}</p>
           </div>
-          <Button size="sm" variant={space.joined ? 'secondary' : 'primary'} disabled={busy} onClick={() => { void toggle(); }}>
-            {space.joined ? 'Leave space' : 'Join'}
-          </Button>
+          {/* Your only space cannot be left: you would be in none. */}
+          {!(space.joined && ws.spaces.filter((s) => s.joined).length <= 1) && (
+            <Button size="sm" variant={space.joined ? 'secondary' : 'primary'} disabled={busy} onClick={() => { void toggle(); }}>
+              {space.joined ? 'Leave space' : 'Join'}
+            </Button>
+          )}
         </header>
 
         <div className="grid gap-8 md:grid-cols-[1fr_240px]">

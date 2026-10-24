@@ -165,6 +165,13 @@ await step('3', async () => {
   const cb = await open(cara);
   check('3 Cara (joined nothing) is in General', (await cb.current()) === 'General');
   check('3 Cara\'s switcher does not list Marketing', (await cb.listed()).join(',') === 'General');
+  // Her only space: no Leave in the menu, and the server refuses it anyway.
+  await cb.side.getByRole('button', { name: /^Space: / }).first().click();
+  await cb.page.waitForTimeout(300);
+  check('3 no "Leave" on your only space', (await cb.page.getByRole('menu').getByText('Leave General', { exact: true }).count()) === 0);
+  await cb.page.keyboard.press('Escape');
+  const lv = await cara.raw('POST', `/api/spaces/${G}/leave`);
+  check('3 leaving your only space answers 409 and keeps you in it', lv.status === 409 && (await cara.get('/api/spaces')).find((sp) => sp.id === G)?.joined === true, `${lv.status} ${JSON.stringify(lv.json)}`);
   await cb.ctx.close();
 });
 
@@ -487,6 +494,23 @@ await step('left', async () => {
   const mine = await sam.get(`/api/docs/mine?limit=50&spaceId=${G}`);
   check('left Sam\'s Marketing pages still list in his General My documents', mine.rows.some((d) => d.title === 'Sam template'), mine.rows.map((d) => d.title).join(','));
   await sam.post(`/api/spaces/${M}/join`);
+});
+
+// ── a page made before the space list arrives lands in the remembered space ─
+await step('early', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 1400, height: 1000 } });
+  await ctx.addCookies(maya.cookie.split('; ').map((c) => { const i = c.indexOf('='); return { name: c.slice(0, i), value: c.slice(i + 1), url: BASE }; }));
+  await ctx.addInitScript((sp) => { try { localStorage.setItem('mn-space', sp); } catch { /* fine */ } }, M);
+  // Hold the space list back for 4s, so the click below lands before it.
+  await ctx.route('**/api/spaces', async (route) => { await wait(4000); await route.continue(); });
+  const page = await ctx.newPage();
+  const before = new Set(Object.keys(await docsById(maya)));
+  await page.goto(BASE + '/');
+  await page.locator('main').getByRole('button', { name: 'New page' }).first().click({ timeout: 15000 });
+  await page.waitForTimeout(7000);
+  const fresh = Object.values(await docsById(maya)).filter((d) => !before.has(d.id));
+  check('early a page made before the spaces load lands in the remembered space', fresh.length === 1 && fresh[0].space_id === M, JSON.stringify(fresh.map((d) => d.space_id === M ? 'M' : d.space_id === G ? 'G' : d.space_id)));
+  await ctx.close();
 });
 
 // ── phone: the top bar leads with the space and switches it ────────────────

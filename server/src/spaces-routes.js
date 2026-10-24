@@ -94,7 +94,18 @@ export function registerSpaceRoutes(app, { requireUser, wrap }) {
 
   app.post('/api/spaces/:id/leave', requireUser, wrap(async (req, res) => {
     if (!(await getSpace(req.params.id))) return res.status(404).json({ error: 'space not found' });
-    await pool.query('DELETE FROM space_members WHERE space_id = $1 AND user_id = $2', [req.params.id, req.user.id]);
+    // Everyone stays in at least one space: the app always shows you one, and
+    // with none joined it would show an empty one. The check sits inside the
+    // DELETE so two leaves at once cannot both pass it.
+    const { rowCount } = await pool.query(
+      `DELETE FROM space_members WHERE space_id = $1 AND user_id = $2
+          AND EXISTS (SELECT 1 FROM space_members WHERE user_id = $2 AND space_id <> $1)`,
+      [req.params.id, req.user.id]
+    );
+    if (!rowCount) {
+      const member = await pool.query('SELECT 1 FROM space_members WHERE space_id = $1 AND user_id = $2', [req.params.id, req.user.id]);
+      if (member.rowCount) return res.status(409).json({ error: 'This is your only space. Join another before leaving it.' });
+    }
     res.json({ ok: true });
   }));
 

@@ -72,7 +72,9 @@ export function SpaceSwitcher({ trigger, extra = [], fallbackLabel, width = 248 
     ...(space ? [
       { icon: Info, label: 'Space overview', separatorBefore: true, onSelect: () => ws.openSpace(space.id) },
       { icon: Pencil, label: 'Edit space', onSelect: () => setEditing(true) },
-      { icon: LogOut, label: `Leave ${space.name}`, onSelect: () => { void ws.leaveSpace(space.id).then(ws.openHome); } },
+      // Your only space cannot be left (the server refuses): you would be left
+      // in none, with nothing to show.
+      ...(joined.length > 1 ? [{ icon: LogOut, label: `Leave ${space.name}`, onSelect: () => { void ws.leaveSpace(space.id).then(ws.openHome); } }] : []),
       ...(canManage && !space.is_default
         ? [{ icon: Trash2, label: 'Delete space', danger: true, onSelect: () => { void deleteSpace(); } }]
         : []),
