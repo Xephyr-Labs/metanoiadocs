@@ -459,6 +459,26 @@ await step('reorder-top', async () => {
   check('reorder-top an old client sending sub-pages too leaves them nested', parent() === gamma.id, `parent_id=${parent()}`);
 });
 
+// ── phone: the top bar leads with the space and switches it ────────────────
+await step('phone', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  await ctx.addCookies(maya.cookie.split('; ').map((c) => { const i = c.indexOf('='); return { name: c.slice(0, i), value: c.slice(i + 1), url: BASE }; }));
+  await ctx.addInitScript(() => { try { localStorage.setItem('mn-space', 'none-yet'); } catch { /* fine */ } });
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(BASE + '/'); await page.waitForTimeout(3000);
+  const bar = page.locator('header').getByRole('button', { name: /^Space: / }).first();
+  check('phone Home\'s top bar shows the space', (await bar.getAttribute('aria-label')) === 'Space: General');
+  await bar.tap(); await page.waitForTimeout(400);
+  await page.getByRole('menu').getByText('Marketing', { exact: true }).tap(); await page.waitForTimeout(1500);
+  check('phone switching from the top bar moves to Marketing', (await bar.getAttribute('aria-label')) === 'Space: Marketing');
+  await page.getByRole('navigation', { name: 'Main' }).getByText('Tasks').tap(); await page.waitForTimeout(1000);
+  check('phone Tasks keeps the space in the bar', (await bar.getAttribute('aria-label')) === 'Space: Marketing');
+  check('phone no page errors', !errors.length, errors.join(' | '));
+  await ctx.close();
+});
+
 check('no page errors in Maya\'s browser', !!mb && !mb.errors.length, mb?.errors.join(' | '));
 await browser.close();
 console.log(results.join('\n'));

@@ -59,6 +59,7 @@ import { useReducer } from 'react';
 import * as prefs from '../../lib/docPrefs';
 import { ProjectIcon } from '../ui/ProjectIcon';
 import { SpaceAvatar } from '../spaces/SpaceAvatar';
+import { SpaceSwitcher, useCurrentSpace } from '../spaces/SpaceSwitcher';
 import { EditModeSwitch } from './EditModeSwitch';
 
 /** Google-Docs-style stack of everyone else currently in the open doc. */
@@ -185,6 +186,8 @@ export function TopBar() {
     ? ws.spaces.find((s) => s.id === (ws.view === 'space' ? spaceId : spaceOf(spaceId, ws.spaces)))
     : undefined;
   const isMobile = useMediaQuery('(max-width: 767px)');
+  const topLevel = ws.view === 'home' || ws.view === 'docs' || ws.view === 'tasks';
+  const currentSpace = useCurrentSpace();
   const compact = useMediaQuery('(max-width: 1023px)');
   const moveTo = useMoveToFolder(page?.id);
   // A task page moves with its database, never alone.
@@ -236,6 +239,29 @@ export function TopBar() {
         />
       )}
 
+      {/* A phone's top-level screens (the tab bar's Home, Docs and Tasks) lead
+          with the space you are in, as Notion's app leads with the workspace:
+          the tab bar already says which screen this is, and the drawer is two
+          taps away from the switcher otherwise. */}
+      {isMobile && topLevel && currentSpace ? (
+        <div className="flex min-w-0 flex-1 items-center">
+          <SpaceSwitcher
+            fallbackLabel="Metanoia"
+            width={260}
+            trigger={
+              <button
+                type="button"
+                aria-label={`Space: ${currentSpace.name}`}
+                className="flex h-10 min-w-0 max-w-full items-center gap-2 rounded-lg px-2 text-left transition-colors duration-120 active:bg-hover"
+              >
+                <SpaceAvatar space={currentSpace} size={22} />
+                <span className="min-w-0 truncate text-md font-semibold text-ink">{currentSpace.name}</span>
+                <ChevronDown size={16} className="shrink-0 text-faint" />
+              </button>
+            }
+          />
+        </div>
+      ) : (
       <nav aria-label="Breadcrumb" className="mn-crumbs flex min-w-0 flex-1 items-center overflow-hidden text-xs">
         {/* The space is the root of a path inside one; elsewhere the
             workspace is, and the way home. */}
@@ -297,6 +323,7 @@ export function TopBar() {
           <Crumb current>Home</Crumb>
         ) : null}
       </nav>
+      )}
 
       {/* Said once, on the bar, and only while it is true. A banner across the
           top would push every view down and back up again on a flaky

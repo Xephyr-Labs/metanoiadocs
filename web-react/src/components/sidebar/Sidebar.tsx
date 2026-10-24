@@ -27,12 +27,9 @@ import {
   Files,
   Folder,
   Home,
-  Info,
-  Pencil,
   Link2,
   Inbox,
   KanbanSquare,
-  LayoutGrid,
   LayoutList,
   LayoutTemplate,
   LogOut,
@@ -80,11 +77,8 @@ import { ProjectIcon } from '../ui/ProjectIcon';
 import { SpaceSection } from './SpaceSection';
 import type { SpaceRow } from '../../lib/spacesApi';
 import { inCurrentSpace, spaceOf } from '../../lib/spaceTree';
-import { spacesApi } from '../../lib/spacesApi';
-import { BrowseSpaces } from '../spaces/BrowseSpaces';
 import { SpaceAvatar } from '../spaces/SpaceAvatar';
-import { SpaceDialog } from '../spaces/SpaceDialog';
-import { SpaceMenuIcon } from '../../hooks/useMoveToSpace';
+import { SpaceSwitcher, useCurrentSpace } from '../spaces/SpaceSwitcher';
 
 /**
  * Only `alert` spends the accent. "You are here" is a neutral fill — where you
@@ -756,13 +750,9 @@ export function Sidebar() {
   };
   const toggle = (key: string) => setCollapsed(toggleSection(key));
 
-  const [browseOpen, setBrowseOpen] = useState(false);
-  const [creatingSpace, setCreatingSpace] = useState(false);
-  const [editingSpace, setEditingSpace] = useState(false);
-  const joined = ws.spaces.filter((sp) => sp.joined);
   // The space you are in, Notion-workspace style: the switcher names it and
   // everything below is cut to it.
-  const space = ws.spaces.find((sp) => sp.id === ws.currentSpaceId) ?? null;
+  const space = useCurrentSpace();
   const pageHere = (id: string) => inCurrentSpace(ws.pages[id]?.spaceId, ws.currentSpaceId, ws.spaces);
   const folderHere = (id: string) => inCurrentSpace(ws.folders[id]?.spaceId, ws.currentSpaceId, ws.spaces);
   const recentIds = ws.recentIds.filter(pageHere);
@@ -775,27 +765,6 @@ export function Sidebar() {
   // page made from one lands in the space you are in (the store's default).
   const docTemplates = ws.docTemplates.filter((t) => t.templateEverywhere || !ws.spaces.length || spaceOf(t.spaceId, ws.spaces) === ws.currentSpaceId);
 
-  const switchTo = (id: string) => {
-    if (id === ws.currentSpaceId) return;
-    ws.switchSpace(id);
-    // Land on the new space's Home: staying on a page from the old space would
-    // pull you straight back into it.
-    ws.openHome();
-  };
-  const canManageSpace = !!space && (space.created_by === auth.user?.id || auth.user?.role === 'admin');
-  const deleteSpace = async () => {
-    if (!space || !window.confirm(`Delete the space "${space.name}"?`)) return;
-    try {
-      await spacesApi.remove(space.id);
-    } catch (e) {
-      // The server says why: the default space, or one that still holds things.
-      toast(e instanceof Error ? e.message : 'Could not delete that space.');
-      return;
-    }
-    await ws.refreshSpaces();
-    ws.openHome();
-    toast(`Deleted the space ${space.name}.`);
-  };
 
   const onResizeStart = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -835,27 +804,9 @@ export function Sidebar() {
           a control that lived here permanently would be the loudest thing in
           the rail. Always visible where there is no hover (touch). */}
       <div className="group/head flex h-[var(--mn-head-h)] shrink-0 items-center gap-1 px-2">
-        <Menu
-          width={248}
-          items={[
-            ...(joined.length ? joined.map((sp) => ({
-              icon: SpaceMenuIcon(sp),
-              label: sp.name,
-              checked: sp.id === ws.currentSpaceId,
-              onSelect: () => switchTo(sp.id),
-            })) : [{ label: activeWs.name }]),
-            ...(ws.spaces.length ? [
-              { icon: LayoutGrid, label: 'Browse spaces', separatorBefore: true, onSelect: () => setBrowseOpen(true) },
-              { icon: Plus, label: 'New space', onSelect: () => setCreatingSpace(true) },
-            ] : []),
-            ...(space ? [
-              { icon: Info, label: 'Space overview', separatorBefore: true, onSelect: () => ws.openSpace(space.id) },
-              { icon: Pencil, label: 'Edit space', onSelect: () => setEditingSpace(true) },
-              { icon: LogOut, label: `Leave ${space.name}`, onSelect: () => { void ws.leaveSpace(space.id).then(ws.openHome); } },
-              ...(canManageSpace && !space.is_default
-                ? [{ icon: Trash2, label: 'Delete space', danger: true, onSelect: () => { void deleteSpace(); } }]
-                : []),
-            ] : []),
+        <SpaceSwitcher
+          fallbackLabel={activeWs.name}
+          extra={[
             {
               icon: Upload,
               label: 'Import…',
@@ -1022,9 +973,6 @@ export function Sidebar() {
         <div className="mb-1.5">
           <NavItem icon={<Trash2 size={16} />} label="Trash" onClick={() => ws.setTrashOpen(true)} />
         </div>
-        <BrowseSpaces open={browseOpen} onOpenChange={setBrowseOpen} />
-        <SpaceDialog open={creatingSpace} onOpenChange={setCreatingSpace} />
-        {space && <SpaceDialog open={editingSpace} onOpenChange={setEditingSpace} space={space} />}
         <div className="flex items-center gap-2 rounded-md px-1.5 py-1">
           <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-3xs font-semibold text-white" style={{ background: av.color }}>{av.initials}</span>
           <div className="min-w-0 flex-1">
