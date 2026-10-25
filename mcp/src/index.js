@@ -15,6 +15,20 @@ const commentText = (c) => c.body || (c.attachments?.length ? '🎤 Voice note' 
 const agentFiles = (files) =>
   files?.length ? files.map((f) => ({ name: f.name, mime: f.mime, url: `/api/blob/${f.key}` })) : undefined;
 
+/** A comment's proposed replacement for its quote, when it is a suggestion card. */
+const commentSuggestion = (c) =>
+  c.kind === 'suggestion' ? { text: c.suggestion ?? '', status: c.suggestion_status || 'pending' } : undefined;
+
+/** A Suggesting-mode change as an agent reads it: which block, and its text before and after. */
+const agentChange = (c) => ({
+  kind: c.kind,
+  block: c.label,
+  before: c.before,
+  after: c.after,
+  ...(c.mainChanged ? { pageChangedSince: true } : {}),
+  ...(c.gone ? { blockGone: true } : {}),
+});
+
 const BASE = (process.env.METANOIA_URL || '').replace(/\/+$/, '');
 const TOKEN = process.env.METANOIA_TOKEN || '';
 if (!BASE || !TOKEN) {
@@ -161,7 +175,7 @@ server.registerTool(
   {
     title: 'Read a doc\'s comments',
     description:
-      'The comment threads on a doc, oldest first. Each row carries the author, the body, the quoted text it is anchored to, whether it is resolved, and `parentId` — null for a thread root, otherwise the comment it replies to. Reach for this whenever you are told you were mentioned on a doc: the notification only says which doc, so the request itself lives here.',
+      'The comment threads on a doc, oldest first. Each row carries the author, the body, the quoted text it is anchored to, whether it is resolved, `suggestion` when the comment proposes new text for the quote ({ text, status: pending | accepted | rejected }), and `parentId` — null for a thread root, otherwise the comment it replies to. Reach for this whenever you are told you were mentioned on a doc: the notification only says which doc, so the request itself lives here.',
     inputSchema: {
       id: z.string().describe('Document id'),
       includeResolved: z.boolean().optional().describe('Include resolved threads too (default false — resolved means handled)'),
@@ -177,11 +191,44 @@ server.registerTool(
         body: commentText(c),
         files: agentFiles(c.attachments),
         quote: c.quote || null,
+        suggestion: commentSuggestion(c),
         parentId: c.parent_id,
         resolved: c.resolved,
         createdAt: c.created_at,
       })));
     } catch (e) { return fail(e); }
+  },
+);
+
+server.registerTool(
+  'read_suggestions',
+  {
+    title: 'Read suggested changes to a doc',
+    description:
+      "Changes proposed in Suggesting mode: each person's draft of the page, with every change still waiting on a decision (the block, its text before and after). You see drafts submitted for review when you can edit the page, plus your own. For a single passage someone proposed new text for, see `suggestion` on read_comments instead.",
+    inputSchema: { id: z.string().describe('Document id') },
+  },
+  async ({ id }) => {
+    try {
+      const drafts = await api(`/docs/${encodeURIComponent(id)}/suggestions`);
+      const out = [];
+      for (const d of drafts || []) {
+        const full = await api(`/suggestions/${encodeURIComponent(d.id)}`);
+        out.push({
+          id: d.id,
+          author: d.authorName,
+          status: d.status,
+          message: d.message || null,
+          submittedAt: d.submittedAt || null,
+          changes: (full.changes || []).map(agentChange),
+          accepted: full.accepted,
+          rejected: full.rejected,
+        });
+      }
+      return ok(out);
+    } catch (e) {
+      return fail(e);
+    }
   },
 );
 

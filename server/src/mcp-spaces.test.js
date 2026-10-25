@@ -51,3 +51,28 @@ test('list_spaces maps to id, name, icon, description, joined', async () => {
   });
   assert.deepEqual(r.data, [{ id: 's1', name: 'General', icon: '🏠', description: 'd', joined: true }]);
 });
+
+test('read_comments carries a suggestion card\'s proposed text and status', async () => {
+  const r = await call('read_comments', { id: 'd1' }, {
+    '/docs/d1/comments': [
+      { id: 'c1', author_name: 'Amy', body: 'tighter?', quote: 'very big', kind: 'suggestion', suggestion: 'huge', suggestion_status: null, resolved: false },
+      { id: 'c2', author_name: 'Bo', body: 'ok', quote: null, kind: 'comment', resolved: false },
+    ],
+  });
+  assert.deepEqual(r.data[0].suggestion, { text: 'huge', status: 'pending' });
+  assert.equal(r.data[1].suggestion, undefined);
+});
+
+test('read_suggestions lists each draft with its pending changes', async () => {
+  const r = await call('read_suggestions', { id: 'd1' }, {
+    '/docs/d1/suggestions': [{ id: 's1', authorName: 'Amy', status: 'submitted', message: 'pls', submittedAt: 't' }],
+    '/suggestions/s1': {
+      accepted: 1, rejected: 0,
+      changes: [{ id: 'b1', kind: 'modified', label: 'Paragraph', before: 'old', after: 'new', sig: 'x', mainChanged: true, gone: false }],
+    },
+  });
+  assert.deepEqual(r.data, [{
+    id: 's1', author: 'Amy', status: 'submitted', message: 'pls', submittedAt: 't', accepted: 1, rejected: 0,
+    changes: [{ kind: 'modified', block: 'Paragraph', before: 'old', after: 'new', pageChangedSince: true }],
+  }]);
+});
