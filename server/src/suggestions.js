@@ -15,6 +15,7 @@
 import crypto from 'node:crypto';
 import * as Y from 'yjs';
 import { cloneValue } from './restore.js';
+import { isPerson } from './approval.js';
 import { findQuote, normalizeQuote } from './text-match.js';
 
 // ── suggestion cards ───────────────────────────────────────────────────────
@@ -172,7 +173,9 @@ function valueSig(v) {
 function blockSig(block) {
   const parts = [];
   for (const [k, v] of block) {
-    if (k === 'sys:children' || k === 'sys:id' || k === 'sys:version') continue;
+    // A numbered item's order is its position, stored only because the editor
+    // shows the stored value: renumbering after an insert is not an edit.
+    if (k === 'sys:children' || k === 'sys:id' || k === 'sys:version' || k === 'prop:order') continue;
     parts.push([k, valueSig(v)]);
   }
   parts.sort((a, b) => (a[0] < b[0] ? -1 : 1));
@@ -335,6 +338,24 @@ export function syncText(target, source) {
   }
 }
 
+/**
+ * Renumber each run of numbered list items among `ids` — what the editor shows
+ * is the stored prop:order, so after an insert or delete it must be rewritten.
+ * As BlockSuite's correctNumberedListsOrderToPrev: a run's first item keeps its
+ * own start ("5. " starts a list at 5), each next one is the previous + 1.
+ */
+export function renumberLists(blocks, ids) {
+  let n = 0;
+  for (const id of ids) {
+    const b = blocks.get(id);
+    const numbered = b instanceof Y.Map && b.get('sys:flavour') === 'affine:list' && b.get('prop:type') === 'numbered';
+    if (!numbered) { n = 0; continue; }
+    const o = b.get('prop:order');
+    n = n ? n + 1 : Number.isInteger(o) && o > 0 ? o : 1;
+    if (o !== n) b.set('prop:order', n);
+  }
+}
+
 function parentIn(blocks, id) {
   for (const [pid, b] of blocks) {
     if (childrenOf(b).includes(id)) return pid;
@@ -382,6 +403,7 @@ export function applyChange(mainDoc, draftDoc, baseDoc, change) {
       if (i >= 0) {
         kids.delete(i, 1);
         if (survivors.length) kids.insert(i, survivors);
+        renumberLists(main, kids.toArray());
       }
       main.delete(id);
       // A column with nothing left in it, and a row with no columns left, go
@@ -413,6 +435,7 @@ export function applyChange(mainDoc, draftDoc, baseDoc, change) {
     const m = main.get(id);
     if (!(m instanceof Y.Map)) return false;
     const b = base.get(id);
+    const typeBefore = m.get('prop:type');
     for (const [k, v] of d) {
       if (k === 'sys:children' || k === 'sys:id') continue;
       const before = b instanceof Y.Map ? b.get(k) : undefined;
@@ -424,6 +447,10 @@ export function applyChange(mainDoc, draftDoc, baseDoc, change) {
     if (b instanceof Y.Map) {
       for (const [k] of b) if (!d.has(k) && k !== 'sys:children') m.delete(k);
     }
+    // A type change (bullet → numbered) renumbers the run it sits in; a text
+    // edit touches no order.
+    const pid = m.get('prop:type') !== typeBefore && parentIn(main, id);
+    if (pid) renumberLists(main, childrenOf(main.get(pid)));
     return true;
   }
 
@@ -470,6 +497,7 @@ export function applyChange(mainDoc, draftDoc, baseDoc, change) {
     }
   }
   siblings.insert(index, [id]);
+  renumberLists(main, siblings.toArray());
   return true;
 }
 
@@ -484,22 +512,30 @@ export function parseDraftName(name) {
   return { docId: name.slice(0, i), sid: name.slice(i + DRAFT_MARK.length) };
 }
 
+const liveStateOf = (hocuspocus, name) => {
+  const live = hocuspocus.documents.get(name);
+  return live ? Buffer.from(Y.encodeStateAsUpdate(live)) : null;
+};
+
+/** A page's current state: the open document if someone has it, else the saved row. */
+export const pageStateFrom = (pool, getHocuspocus) => async (docId) => {
+  const live = liveStateOf(getHocuspocus(), docId);
+  if (live) return live;
+  const { rows } = await pool.query('SELECT state FROM doc_states WHERE doc_id = $1', [docId]);
+  return rows[0]?.state ?? null;
+};
+
+/** The changes not yet decided (a change edited since its decision counts again). */
+export const pending = (changes, decisions) => changes.filter((c) => decisions?.[c.id]?.sig !== c.sig);
+
 /**
  * @param {object} deps
  * @param {() => import('@hocuspocus/server').Hocuspocus} deps.getHocuspocus
  *   A getter: the sync server is constructed after the routes are registered.
  */
 export function registerSuggestionRoutes(app, { requireUser, wrap, pool, grantOn, canEdit, canSuggest, getHocuspocus, notifyUser, recordDocEditors }) {
-  const liveState = (name) => {
-    const live = getHocuspocus().documents.get(name);
-    return live ? Buffer.from(Y.encodeStateAsUpdate(live)) : null;
-  };
-  const pageState = async (docId) => {
-    const live = liveState(docId);
-    if (live) return live;
-    const { rows } = await pool.query('SELECT state FROM doc_states WHERE doc_id = $1', [docId]);
-    return rows[0]?.state ?? null;
-  };
+  const liveState = (name) => liveStateOf(getHocuspocus(), name);
+  const pageState = pageStateFrom(pool, getHocuspocus);
   const draftState = (row) => liveState(draftName(row.doc_id, row.id)) || row.state;
 
   /** Tell an open draft it is finished, then cut it off. Without the message
@@ -523,10 +559,11 @@ export function registerSuggestionRoutes(app, { requireUser, wrap, pool, grantOn
     if (!role) return null;
     const mine = row.author_id === user.id;
     if (!mine && !canEdit(role)) return null;
-    return { row, role, mine, reviewer: canEdit(role) };
+    // An AI draft is decided by its one approver (none once that account is
+    // deleted); anyone else who can edit may only look.
+    const reviewer = row.writer_via ? user.id === row.approver_id : canEdit(role);
+    return { row, role, mine, reviewer };
   }
-
-  const pending = (changes, decisions) => changes.filter((c) => decisions?.[c.id]?.sig !== c.sig);
 
   const summary = (row) => ({
     id: row.id,
@@ -538,6 +575,8 @@ export function registerSuggestionRoutes(app, { requireUser, wrap, pool, grantOn
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     submittedAt: row.submitted_at,
+    writerVia: row.writer_via ?? null,
+    approverId: row.approver_id ?? null,
     draft: draftName(row.doc_id, row.id),
   });
 
@@ -546,11 +585,11 @@ export function registerSuggestionRoutes(app, { requireUser, wrap, pool, grantOn
     const role = await grantOn(req.params.id, req.user.id);
     if (!role) return res.status(403).json({ error: 'forbidden' });
     const { rows } = await pool.query(
-      `SELECT s.id, s.doc_id, s.author_id, s.status, s.message, s.created_at, s.updated_at, s.submitted_at,
+      `SELECT s.id, s.doc_id, s.author_id, s.status, s.message, s.created_at, s.updated_at, s.submitted_at, s.approver_id, s.writer_via,
               u.name AS author_name, u.email AS author_email
          FROM doc_suggestions s JOIN users u ON u.id = s.author_id
         WHERE s.doc_id = $1 AND s.status <> 'closed'
-          AND (s.author_id = $2 OR ($3 AND s.status = 'submitted'))
+          AND (s.author_id = $2 OR (s.status = 'submitted' AND (s.approver_id = $2 OR ($3 AND s.approver_id IS NULL AND s.writer_via IS NULL))))
         ORDER BY s.updated_at DESC`,
       [req.params.id, req.user.id, canEdit(role)]
     );
@@ -565,7 +604,7 @@ export function registerSuggestionRoutes(app, { requireUser, wrap, pool, grantOn
     }
     const open = await pool.query(
       `SELECT s.*, u.name AS author_name FROM doc_suggestions s JOIN users u ON u.id = s.author_id
-        WHERE s.doc_id = $1 AND s.author_id = $2 AND s.status <> 'closed'`,
+        WHERE s.doc_id = $1 AND s.author_id = $2 AND s.status <> 'closed' AND s.writer_via IS NULL`,
       [docId, req.user.id]
     );
     if (open.rows[0]) return res.json(summary(open.rows[0]));
@@ -583,7 +622,7 @@ export function registerSuggestionRoutes(app, { requireUser, wrap, pool, grantOn
       // Two tabs starting at once: the unique index lets one in; hand the other the same draft.
       const again = await pool.query(
         `SELECT s.*, u.name AS author_name FROM doc_suggestions s JOIN users u ON u.id = s.author_id
-          WHERE s.doc_id = $1 AND s.author_id = $2 AND s.status <> 'closed'`,
+          WHERE s.doc_id = $1 AND s.author_id = $2 AND s.status <> 'closed' AND s.writer_via IS NULL`,
         [docId, req.user.id]
       );
       if (!again.rows[0]) throw e;
@@ -600,8 +639,14 @@ export function registerSuggestionRoutes(app, { requireUser, wrap, pool, grantOn
     const decisions = v.row.decisions || {};
     const open = pending(changes, decisions);
     const decided = Object.values(decisions);
+    let approverName = null;
+    if (v.row.approver_id) {
+      const { rows: [a] } = await pool.query('SELECT name, email FROM users WHERE id = $1', [v.row.approver_id]);
+      approverName = a?.name || a?.email || null;
+    }
     res.json({
       ...summary(v.row),
+      approverName,
       canReview: v.reviewer,
       mine: v.mine,
       changes: open,
@@ -640,6 +685,10 @@ export function registerSuggestionRoutes(app, { requireUser, wrap, pool, grantOn
    * in one transaction, through the sync server.
    */
   app.post('/api/suggestions/:sid/decide', requireUser, wrap(async (req, res) => {
+    // Only a person decides. An AI or untrusted agent only ever suggests (accepting
+    // would approve its own edits); a trusted agent writes directly, so it never
+    // needs to decide anyone's suggestions either.
+    if (!isPerson(req)) return res.status(403).json({ error: 'Only a person can accept suggestions.' });
     const v = await visible(req.params.sid, req.user);
     if (!v) return res.status(404).json({ error: 'not found' });
     if (!v.reviewer) return res.status(403).json({ error: 'Only people who can edit this page can review changes to it.' });
@@ -710,7 +759,9 @@ export function registerSuggestionRoutes(app, { requireUser, wrap, pool, grantOn
       [v.row.id, JSON.stringify(decisions), done, req.user.id]
     );
     if (applied) {
-      await pool.query('UPDATE docs SET updated_at = now(), updated_by = $2 WHERE id = $1', [docId, req.user.id]);
+      // An AI draft's edit is the approver's, made through AI.
+      if (v.row.writer_via) await pool.query(`UPDATE docs SET updated_at = now(), updated_by = $2, updated_via = 'ai' WHERE id = $1`, [docId, req.user.id]);
+      else await pool.query('UPDATE docs SET updated_at = now(), updated_by = $2 WHERE id = $1', [docId, req.user.id]);
       // What was applied was written in the draft by its author: they edited
       // the page as much as the reviewer who let it in.
       await recordDocEditors(docId, [v.row.author_id]);

@@ -44,3 +44,7 @@ test('only the push service host is ever shown, never the endpoint itself', () =
   );
   assert.equal(hostOf('not a url'), 'unknown');
 });
+
+test('an AI draft notification opens the page straight into its review', () => {
+  assert.equal(linkFor({ docId: 'abc', suggestionId: 's1' }), '/d/abc?review=s1');
+});

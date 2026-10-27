@@ -29,7 +29,7 @@ export function EditModeSwitch({ page }: { page: Page }) {
           width={300}
           items={others.map((d) => ({
             icon: GitPullRequestArrow,
-            label: `Review ${d.authorName}'s changes`,
+            label: `Review ${d.writerVia === 'ai' ? 'Ask AI' : d.authorName}'s changes`,
             onSelect: () => openReview(d.id, page.id),
           }))}
           trigger={

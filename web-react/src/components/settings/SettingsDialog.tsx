@@ -37,7 +37,7 @@ import {
 } from '../../lib/push';
 import { useAuth } from '../../store/auth';
 import { sendInvite } from '../../lib/api';
-import { docsApi, type UserRow } from '../../lib/docsApi';
+import { docsApi, type AdminToken, type UserRow } from '../../lib/docsApi';
 import { setSmallText, smallText } from '../../lib/docPrefs';
 import { avatarFor } from '../../lib/avatar';
 import { relativeTime } from '../../lib/time';
@@ -553,6 +553,7 @@ function Members() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
+  const [minted, setMinted] = useState<{ who: string; token: string } | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
 
   const reload = () => docsApi.users().then(setRows).catch(() => setRows([]));
@@ -575,6 +576,17 @@ function Members() {
       .setUserKind(m.id, kind)
       .catch((e) => setMsg({ ok: false, text: e instanceof Error ? e.message : 'Could not change that.' }));
     reload();
+  };
+  // An agent cannot mint its own credentials; an admin does it here. Shown once.
+  const mintToken = async (m: UserRow) => {
+    setMsg(null);
+    setMinted(null);
+    try {
+      const r = await docsApi.mintUserToken(m.id);
+      setMinted({ who: m.name || m.email, token: r.token });
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof Error ? e.message : 'Could not create a token.' });
+    }
   };
   // Removing someone is the one action here with no undo, so it takes two
   // deliberate clicks in the row itself — no browser dialog, and the row can
@@ -633,6 +645,22 @@ function Members() {
           </p>
         )}
       </div>
+      {minted && (
+        <div className="mx-4 mb-2 rounded-lg border border-line bg-accent-soft p-3">
+          <p className="mb-1.5 text-xs font-medium text-ink">Token for {minted.who}. Copy it now, it won't be shown again.</p>
+          <div className="flex items-center gap-2">
+            <code className="flex-1 truncate rounded bg-canvas px-2 py-1.5 text-xs text-ink ring-1 ring-inset ring-line">{minted.token}</code>
+            <IconButton
+              icon={<Copy size={16} />}
+              label="Copy"
+              onClick={async () => {
+                if (!(await copyText(minted.token))) { toast('Could not copy — select the token and copy it by hand'); return; }
+                toast('Copied');
+              }}
+            />
+          </div>
+        </div>
+      )}
       <div className="divide-y divide-line">
         {(rows ?? []).map((m) => {
           const asking = confirming === m.id;
@@ -683,6 +711,7 @@ function Members() {
                     m.kind === 'agent'
                       ? { icon: User, label: 'Mark as a person', onSelect: () => changeKind(m, 'person') }
                       : { icon: Bot, label: 'Mark as an agent', onSelect: () => changeKind(m, 'agent') },
+                    ...(m.kind === 'agent' ? [{ icon: KeyRound, label: 'Create API token', onSelect: () => mintToken(m) }] : []),
                     { icon: Trash2, label: 'Remove from workspace', danger: true, separatorBefore: true, onSelect: () => { setMsg(null); setConfirming(m.id); } },
                   ]}
                   trigger={
@@ -1027,8 +1056,17 @@ function Tokens() {
   const [confirming, setConfirming] = useState<string | null>(null);
   const [revoking, setRevoking] = useState<string | null>(null);
 
+  const isAdmin = useAuth().user?.role === 'admin';
+  const [agentTokens, setAgentTokens] = useState<AdminToken[]>([]);
+
   const load = () => docsApi.listTokens().then(setRows).catch(() => setRows([]));
-  useEffect(() => { load(); }, []);
+  const loadAgents = () => docsApi.listAllTokens()
+    .then((all) => setAgentTokens(all.filter((t) => t.userKind === 'agent'))).catch(() => {});
+  useEffect(() => { load(); if (isAdmin) loadAgents(); }, [isAdmin]);
+  const setTrusted = async (id: string, trusted: boolean) => {
+    setAgentTokens((l) => l.map((t) => (t.id === id ? { ...t, trusted } : t)));
+    try { await docsApi.setTokenTrusted(id, trusted); } catch { toast('Could not change that'); loadAgents(); }
+  };
 
   const create = async () => {
     if (busy) return;
@@ -1140,6 +1178,29 @@ function Tokens() {
           );
         })}
       </div>
+
+      {isAdmin && (
+        <div className="mt-8">
+          <SectionTitle>Agent access</SectionTitle>
+          <p className="mb-3 text-sm text-muted">
+            Untrusted agent edits to existing pages become suggestions for a person to approve.
+          </p>
+          <div className="divide-y divide-line border-t border-line">
+            {agentTokens.length === 0 ? (
+              <p className="py-6 text-center text-sm text-faint">No agent tokens yet.</p>
+            ) : agentTokens.map((t) => (
+              <div key={t.id} className="flex items-center gap-3 py-3">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-ink">{t.name}</p>
+                  <p className="truncate text-xs text-faint">{t.userName}</p>
+                </div>
+                <span className="text-xs text-muted">Trusted — writes directly</span>
+                <Switch on={t.trusted} onChange={(v) => setTrusted(t.id, v)} label={`Trust ${t.name}`} />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

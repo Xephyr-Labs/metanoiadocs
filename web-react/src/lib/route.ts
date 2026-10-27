@@ -67,6 +67,9 @@ export interface Route {
    *  the database is where it lives — so a notification about one names it
    *  here, and the database opens with that task's panel up. */
   taskId: string | null;
+  /** `/d/<doc>?review=<draft>`: an AI (or person) suggestion waiting on this reader;
+   *  the link in its email, push and inbox row. */
+  reviewId: string | null;
 }
 
 /** The parsing half, kept apart from `location` so it can be tested without a
@@ -96,6 +99,7 @@ export function parseRoute(pathname: string, hash = '', search = ''): Route {
     viewId: db?.[2] ? decode(db[2]) : null,
     blockId: fragment ? decode(fragment) : null,
     taskId: db ? new URLSearchParams(search).get('task') : null,
+    reviewId: doc && !AFFINE_PATH.test(pathname) ? new URLSearchParams(search).get('review') : null,
   };
 }
 

@@ -329,7 +329,7 @@ export function CommentsTab({ docId }: { docId: string }) {
           <div key={d.id} className="flex items-center gap-2 rounded-lg border border-line bg-accent-soft px-3 py-2">
             <GitPullRequestArrow size={15} className="shrink-0 text-accent-strong" />
             <p className="min-w-0 flex-1 text-xs text-ink">
-              <span className="font-medium">{mine ? 'Your suggested edits' : `${d.authorName}'s suggested edits`}</span>
+              <span className="font-medium">{mine ? 'Your suggested edits' : `${d.writerVia === 'ai' ? 'Ask AI' : d.authorName}'s suggested edits`}</span>
               <span className="text-muted"> · {d.status === 'submitted' ? 'waiting for review' : 'draft, not sent yet'}</span>
             </p>
             {!mine ? (

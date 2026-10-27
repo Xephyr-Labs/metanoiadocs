@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, Check, Loader2, Minus, Plus, X } from 'lucide-react';
 import { docsApi, type DraftChange, type SuggestionDetail } from '../../lib/docsApi';
 import { closeReview, forgetDraft, loadDrafts } from '../../lib/reviewMode';
@@ -53,10 +53,15 @@ export function ReviewView({ sid, docId }: { sid: string; docId: string }) {
   const [detail, setDetail] = useState<SuggestionDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const loaded = useRef(false);
 
   const load = useCallback(async () => {
-    try { setDetail(await docsApi.suggestion(sid)); setError(null); }
-    catch (e) { setError(e instanceof Error ? e.message : 'Could not load these changes'); }
+    try { setDetail(await docsApi.suggestion(sid)); loaded.current = true; setError(null); }
+    catch (e) {
+      // A link to a draft that is closed or not yours to see just opens the page.
+      if (!loaded.current) { closeReview(); return; }
+      setError(e instanceof Error ? e.message : 'Could not load these changes');
+    }
   }, [sid]);
   useEffect(() => { void load(); }, [load]);
 
@@ -97,8 +102,17 @@ export function ReviewView({ sid, docId }: { sid: string; docId: string }) {
         <Avatar name={detail.authorName} size={28} />
         <div className="min-w-0 flex-1">
           <p className="text-sm text-ink">
-            <span className="font-medium">{detail.authorName}</span>
-            <span className="text-muted"> suggested {detail.changes.length} change{detail.changes.length === 1 ? '' : 's'}</span>
+            {detail.writerVia === 'ai' ? (
+              <span className="font-medium">Ask AI's suggestion for you</span>
+            ) : detail.writerVia ? (
+              <>
+                <span className="font-medium">{detail.authorName}'s suggestion</span>
+                <span className="text-muted"> for {detail.approverName ?? 'someone'} to review</span>
+              </>
+            ) : (
+              <span className="font-medium">{detail.authorName}</span>
+            )}
+            <span className="text-muted">{detail.writerVia ? ' · ' : ' suggested '}{detail.changes.length} change{detail.changes.length === 1 ? '' : 's'}</span>
             {detail.submittedAt && <span className="text-faint"> · {relativeTime(detail.submittedAt)}</span>}
           </p>
           {detail.message && <p className="mt-0.5 truncate text-xs text-muted">“{detail.message}”</p>}

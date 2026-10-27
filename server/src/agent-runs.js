@@ -102,7 +102,7 @@ async function runContext(run) {
   }
   if (run.requested_by) {
     const { rows } = await pool.query(
-      'SELECT id, name, username FROM users WHERE id = $1', [run.requested_by]);
+      'SELECT id, name, username, email FROM users WHERE id = $1', [run.requested_by]);
     out.requestedBy = rows[0] ?? null;
   }
   return out;

@@ -6,6 +6,7 @@
 // re-render the whole workspace on every switch.
 import { useCallback, useEffect, useState } from 'react';
 import { canCommentRole, canEditRole, canSuggestRole, docsApi, type SuggestionDraft } from './docsApi';
+import { readRoute } from './route';
 import { toast } from './toast';
 
 export type EditMode = 'editing' | 'suggesting' | 'viewing';
@@ -80,6 +81,19 @@ if (typeof window !== 'undefined') {
   });
 }
 
+/**
+ * Your own Suggesting draft (never an AI one, though Ask AI drafts carry your
+ * id as author), and the submitted drafts waiting on you: an AI/agent draft
+ * when you are its approver, another person's when you can edit the page.
+ */
+export function pickDrafts(drafts: SuggestionDraft[], userId: string | null | undefined, role: string | null | undefined) {
+  const myDraft = drafts.find((d) => d.authorId === userId && !d.writerVia) ?? null;
+  const toReview = drafts.filter((d) => d.status === 'submitted' && (d.writerVia
+    ? !!userId && d.approverId === userId
+    : canEditRole(role) && d.authorId !== userId));
+  return { myDraft, toReview };
+}
+
 export function useReviewState(docId: string | null | undefined, role: string | null | undefined, userId?: string | null) {
   const [, force] = useState(0);
   useEffect(() => {
@@ -88,16 +102,25 @@ export function useReviewState(docId: string | null | undefined, role: string | 
     return () => { listeners.delete(l); };
   }, []);
   useEffect(() => { if (docId) void loadDrafts(docId); }, [docId]);
+  // `/d/<doc>?review=<sid>` opens that draft's review, then leaves the address
+  // clean (as block links do) so a reload doesn't reopen it. A closed or
+  // invisible draft just shows ReviewView's own "could not load" fallback.
+  useEffect(() => {
+    if (!docId) return;
+    const { docId: routed, reviewId } = readRoute();
+    if (!reviewId || routed !== docId) return;
+    history.replaceState(history.state, '', location.pathname + location.hash);
+    openReview(reviewId, docId);
+  }, [docId]);
 
   const allowed = modesFor(role);
   const chosen = docId ? state.modes.get(docId) : undefined;
   let mode = chosen && allowed.includes(chosen) ? chosen : defaultMode(role);
   const drafts = (docId && state.drafts.get(docId)) || [];
-  const myDraft = drafts.find((d) => d.authorId === userId) ?? null;
+  const { myDraft, toReview } = pickDrafts(drafts, userId, role);
   // Suggesting needs the draft; until it is made (a suggester's first open),
   // the page shows read-only rather than editable-but-unsaved.
   if (mode === 'suggesting' && !myDraft) mode = 'viewing';
-  const toReview = canEditRole(role) ? drafts.filter((d) => d.status === 'submitted' && d.authorId !== userId) : [];
 
   // A suggester opening a page lands in Suggesting: make their draft.
   const needsDraft = !!docId && !chosen && defaultMode(role) === 'suggesting' && !myDraft;

@@ -184,6 +184,10 @@ export interface SuggestionDraft {
   createdAt: string;
   updatedAt: string;
   submittedAt: string | null;
+  /** Set on an Ask AI ('ai') or agent ('agent') draft; null for a person's own Suggesting draft. */
+  writerVia: 'ai' | 'agent' | null;
+  /** Who decides an AI/agent draft; null for a person's draft (any editor). */
+  approverId: string | null;
   /** The draft's sync name — what the editor connects to in Suggesting mode. */
   draft: string;
 }
@@ -209,6 +213,7 @@ export interface DraftChange {
 
 export interface SuggestionDetail extends SuggestionDraft {
   canReview: boolean;
+  approverName?: string | null;
   mine: boolean;
   changes: DraftChange[];
   accepted: number;
@@ -276,7 +281,7 @@ export interface InboxRow {
    *  person, so they carry a body that already reads as a sentence and no
    *  actor to name. See server/src/reminders.js. */
   kind: 'mention' | 'comment' | 'reply' | 'reply_to_you' | 'suggestion' | 'suggestion_accepted' | 'suggestion_rejected'
-    | 'review_requested' | 'review_done' | 'assigned' | 'due_soon' | 'due_today' | 'overdue' | 'digest';
+    | 'review_requested' | 'review_done' | 'ai_suggestion' | 'assigned' | 'due_soon' | 'due_today' | 'overdue' | 'digest';
   /** The comment that triggered it — null for notifications with no thread. */
   comment_id: string | null;
   /** Null for anything the system raised rather than a person. */
@@ -293,6 +298,8 @@ export interface InboxRow {
   task_id: string | null;
   task_title: string | null;
   project_id: string | null;
+  /** Set on kind='ai_suggestion': the draft to open for review. */
+  suggestion_id?: string | null;
 }
 
 export interface Intelligence {
@@ -346,6 +353,11 @@ export interface DeliveryRow {
   ok: boolean;
   created_at: string;
 }
+
+export type AdminToken = {
+  id: string; name: string; userId: string; userName: string; userKind: 'person' | 'agent';
+  trusted: boolean; createdAt: string; lastUsedAt: string | null;
+};
 
 export const docsApi = {
   list: (): Promise<DocRow[]> => req('/docs'),
@@ -458,6 +470,10 @@ export const docsApi = {
   users: (): Promise<UserRow[]> => req('/users'),
   updateMe: (name: string) => req('/me', { method: 'PATCH', body: JSON.stringify({ name }) }),
   listTokens: (): Promise<{ id: string; name: string; created_at: string; last_used_at: string | null }[]> => req('/tokens'),
+  /** Admin: every token of every account. */
+  listAllTokens: (): Promise<AdminToken[]> => req('/admin/tokens'),
+  setTokenTrusted: (id: string, trusted: boolean) =>
+    req(`/admin/tokens/${id}/trusted`, { method: 'PUT', body: JSON.stringify({ trusted }) }),
   createToken: (name: string): Promise<{ id: string; name: string; token: string }> =>
     req('/tokens', { method: 'POST', body: JSON.stringify({ name }) }),
   deleteToken: (id: string) => req(`/tokens/${id}`, { method: 'DELETE' }),
@@ -466,6 +482,9 @@ export const docsApi = {
   /** Mark an account as something running on a person's behalf, or back again. */
   setUserKind: (id: string, kind: 'person' | 'agent') =>
     req(`/users/${id}/kind`, { method: 'PATCH', body: JSON.stringify({ kind }) }),
+  /** Admin: mint an API token for another account (an agent cannot mint its own). Plaintext once. */
+  mintUserToken: (id: string, name?: string): Promise<{ id: string; name: string; token: string }> =>
+    req(`/admin/users/${id}/tokens`, { method: 'POST', body: JSON.stringify({ name }) }),
   removeUser: (id: string) => req(`/users/${id}`, { method: 'DELETE' }),
 
   love: (id: string, loved: boolean): Promise<{ count: number; loved: boolean }> =>

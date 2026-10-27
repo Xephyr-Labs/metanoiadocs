@@ -5,6 +5,8 @@
 import * as Y from 'yjs';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import { cloneValue } from './restore.js';
+import { renumberLists, syncText } from './suggestions.js';
 
 // Every name the editor's code block recognises (shiki's id, display name and
 // aliases) → the id it stores. The editor rewrites any other value on first
@@ -820,7 +822,6 @@ function tableMarkdown(b, opts) {
  * is being served from.
  */
 export function docToMarkdown(existing, opts = {}) {
-  const imageUrl = opts.imageUrl || ((key) => `/api/blob/${encodeURIComponent(key)}`);
   const doc = new Y.Doc();
   Y.applyUpdate(doc, new Uint8Array(existing));
   const blocks = doc.getMap('blocks');
@@ -835,7 +836,13 @@ export function docToMarkdown(existing, opts = {}) {
       break;
     }
   }
+  const kids = page?.get('sys:children');
+  return { title, markdown: blocksToMarkdown(blocks, kids instanceof Y.Array ? kids.toArray() : [], opts) };
+}
 
+/** The subtrees under `rootIds`, in order, as markdown (docToMarkdown's walker). */
+function blocksToMarkdown(blocks, rootIds, opts = {}) {
+  const imageUrl = opts.imageUrl || ((key) => `/api/blob/${encodeURIComponent(key)}`);
   // Parts, not lines: list items pack together, everything else gets a blank
   // line between it and its neighbour.
   let parts = [];
@@ -936,13 +943,10 @@ export function docToMarkdown(existing, opts = {}) {
     if (kids instanceof Y.Array) for (const c of kids.toArray()) walk(c, childDepth);
   };
 
-  if (page) {
-    const kids = page.get('sys:children');
-    if (kids instanceof Y.Array) for (const c of kids.toArray()) walk(c, 0);
-  }
+  for (const c of rootIds) walk(c, 0);
 
   // Trailing empty paragraphs are what an editor leaves behind, not content.
-  return { title, markdown: joinParts(parts) };
+  return joinParts(parts);
 }
 
 function joinParts(parts) {
@@ -1030,6 +1034,141 @@ export function appendMarkdownToDoc(doc, markdown, resolveLink) {
   children.push(makeBlocks(blocks, descs, resolveLink, pending));
   applyMarks(pending);
   numberLists(blocks);
+  return true;
+}
+
+/**
+ * Identity of a block for a replace: its subtree as canonical markdown, with
+ * references by page id so a reference compares by target. Blocks that render
+ * to nothing (empty paragraph, database…) only match their own kind.
+ */
+function blockKey(blocks, id) {
+  const md = blocksToMarkdown(blocks, [id], { escape: true, resolveTitle: (pid) => pid });
+  const b = blocks.get(id);
+  return md || `\0${b?.get?.('sys:flavour')}:${b?.get?.('prop:type')}`;
+}
+
+const kidsOf = (b) => {
+  const k = b instanceof Y.Map ? b.get('sys:children') : null;
+  return k instanceof Y.Array ? k.toArray() : [];
+};
+
+function dropTree(blocks, id, depth = 0) {
+  if (depth > 200) return;
+  for (const k of kidsOf(blocks.get(id))) dropTree(blocks, k, depth + 1);
+  blocks.delete(id);
+}
+
+/** Copy a scratch subtree into the live doc under fresh ids; returns the new root id. */
+function copyTree(from, to, id) {
+  const src = from.get(id);
+  const newId = blockId();
+  const m = new Y.Map();
+  for (const [k, v] of src) {
+    if (k === 'sys:id') m.set(k, newId);
+    else if (k === 'sys:children') { const a = new Y.Array(); a.push(kidsOf(src).map((c) => copyTree(from, to, c))); m.set(k, a); }
+    else m.set(k, cloneValue(v));
+  }
+  to.set(newId, m);
+  return newId;
+}
+
+// What a block says, as opposed to how the editor lays it out (collapsed,
+// width, xywh, textAlign, meta:*…) — those are only builder defaults in the
+// scratch doc and must survive an edit. prop:order is set by renumberLists.
+const CONTENT_PROPS = new Set(['prop:text', 'prop:type', 'prop:checked', 'prop:language', 'prop:mnSize',
+  'prop:mnPanel', 'prop:sourceId', 'prop:latex', 'prop:url', 'prop:emoji']);
+// Markdown carries a caption only for images, bookmarks and embeds; a code
+// block's caption is editor-only and the builder's '' would wipe it.
+const captioned = (fl) => fl === 'affine:image' || fl === 'affine:bookmark' || /^affine:embed-/.test(fl || '');
+const isContent = (k, fl) =>
+  CONTENT_PROPS.has(k) || /^prop:(rows|columns|cells)\./.test(k) || (k === 'prop:caption' && captioned(fl));
+
+/**
+ * Make live block `old` say what scratch block `neu` says, keeping its id and
+ * its editor state. Content props are matched exactly (a dropped size tag or
+ * table row goes); everything else is left alone. Equal content → no writes.
+ */
+function editInPlace(old, neu) {
+  const fl = old.get('sys:flavour');
+  for (const [k, v] of neu) {
+    if (!isContent(k, fl)) continue;
+    const cur = old.get(k);
+    if (v instanceof Y.Text && cur instanceof Y.Text) syncText(cur, v);
+    else if (v instanceof Y.AbstractType || cur !== v) old.set(k, cloneValue(v));
+  }
+  for (const k of [...old.keys()]) if (isContent(k, fl) && !neu.has(k)) old.delete(k);
+}
+
+/**
+ * Turn `children` (a live sys:children array) into `newIds` (scratch blocks):
+ * LCS on blockKey keeps matched blocks untouched; between matches, same
+ * flavour+type pairs are edited in place (recursing into their children),
+ * the rest of the old run is deleted and the rest of the new run copied in.
+ */
+function diffChildren(live, scratch, children, newIds) {
+  const oldIds = children.toArray();
+  const ok = oldIds.map((id) => blockKey(live, id));
+  const nk = newIds.map((id) => blockKey(scratch, id));
+  // ponytail: O(n·m) LCS table; fine for page-sized bodies, Myers if pages get huge.
+  const n = ok.length, m = nk.length;
+  const L = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) {
+    L[i][j] = ok[i] === nk[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+  }
+  let i = 0, j = 0, pos = 0, moved = false;
+  const flush = (iEnd, jEnd) => {
+    // Pair the runs in order while their heads are the same kind of block.
+    while (i < iEnd && j < jEnd) {
+      const o = live.get(oldIds[i]), nb = scratch.get(newIds[j]);
+      if (!(o instanceof Y.Map) || o.get('sys:flavour') !== nb.get('sys:flavour') || o.get('prop:type') !== nb.get('prop:type')) break;
+      editInPlace(o, nb);
+      if (!(o.get('sys:children') instanceof Y.Array)) o.set('sys:children', new Y.Array());
+      diffChildren(live, scratch, o.get('sys:children'), kidsOf(nb));
+      i++; j++; pos++;
+    }
+    if (iEnd > i) {
+      children.delete(pos, iEnd - i);
+      moved = true;
+      for (; i < iEnd; i++) dropTree(live, oldIds[i]);
+    }
+    if (jEnd > j) {
+      const ids = newIds.slice(j, jEnd).map((id) => copyTree(scratch, live, id));
+      children.insert(pos, ids);
+      moved = true;
+      pos += ids.length;
+      j = jEnd;
+    }
+  };
+  let a = 0, b = 0;
+  while (a < n && b < m) {
+    if (ok[a] === nk[b]) { flush(a, b); i++; j++; pos++; a++; b++; }
+    else if (L[a + 1][b] >= L[a][b + 1]) a++;
+    else b++;
+  }
+  flush(n, m);
+  if (moved) renumberLists(live, children.toArray());
+}
+
+/**
+ * Replace a LIVE doc's body with `markdown`, block by block: unchanged blocks
+ * keep their ids, edited ones are edited in place, only new ones get new ids —
+ * so a review of the result lists what actually changed. The page block,
+ * surface and title are left alone. Call inside the caller's transaction.
+ *
+ * @returns {boolean} false if the doc has no body note (build it from scratch).
+ */
+export function replaceBodyKeepingIds(doc, title, markdown, resolveLink) {
+  const live = doc.getMap('blocks');
+  const note = bodyNote(live);
+  if (!note) return false;
+  const scratchDoc = new Y.Doc();
+  Y.applyUpdate(scratchDoc, buildDocState(title, markdown, resolveLink));
+  const scratch = scratchDoc.getMap('blocks');
+  if (!(note.get('sys:children') instanceof Y.Array)) note.set('sys:children', new Y.Array());
+  diffChildren(live, scratch, note.get('sys:children'), kidsOf(bodyNote(scratch)));
+  // Marks came across inside the copied texts; numbering is positional.
+  numberLists(live);
   return true;
 }
 

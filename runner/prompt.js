@@ -10,6 +10,9 @@
  * written on, then the ask — a coding agent reads top-down and the ask is what
  * it should still have in mind when it starts working.
  */
+/** Who queued the run, as write_doc's onBehalfOf takes it; null when nobody did. */
+export const requesterOf = (run) => run.requestedBy?.username || run.requestedBy?.email || null;
+
 export function buildPrompt(run) {
   const parts = [];
   if (run.task) {
@@ -31,7 +34,9 @@ export function buildPrompt(run) {
     : run.task
       ? 'This task has been assigned to you. Do it, then say what you did.'
       : run.prompt;
+  const who = requesterOf(run);
   parts.push('## What to do', '', ask, '',
+    ...(who ? [`When you write to a page with write_doc, pass onBehalfOf: "${who}" — they review your changes.`, ''] : []),
     'Reply with what you did, in Markdown. It is posted as a comment on the page.');
   return parts.join('\n');
 }

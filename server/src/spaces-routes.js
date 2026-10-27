@@ -14,9 +14,10 @@ const addMembers = (db, spaceId, userIds) =>
     [spaceId, userIds]
   );
 
+import { isPerson } from './approval.js';
 export function registerSpaceRoutes(app, { requireUser, wrap }) {
   const getSpace = async (id) => (await pool.query('SELECT * FROM spaces WHERE id = $1', [id])).rows[0];
-  const canManage = (s, user) => s.created_by === user.id || user.role === 'admin';
+  const canManage = (s, req) => s.created_by === req.user.id || (req.user.role === 'admin' && isPerson(req));
 
   app.get('/api/spaces', requireUser, wrap(async (req, res) => {
     const { rows } = await pool.query(
@@ -57,7 +58,7 @@ export function registerSpaceRoutes(app, { requireUser, wrap }) {
   app.patch('/api/spaces/:id', requireUser, wrap(async (req, res) => {
     const s = await getSpace(req.params.id);
     if (!s) return res.status(404).json({ error: 'space not found' });
-    if (!canManage(s, req.user)) return res.status(403).json({ error: 'forbidden' });
+    if (!canManage(s, req)) return res.status(403).json({ error: 'forbidden' });
     const b = req.body || {};
     // Only the fields sent change; merge over the stored row and reuse the create validation.
     const input = spaceInput({
@@ -73,7 +74,7 @@ export function registerSpaceRoutes(app, { requireUser, wrap }) {
   app.delete('/api/spaces/:id', requireUser, wrap(async (req, res) => {
     const s = await getSpace(req.params.id);
     if (!s) return res.status(404).json({ error: 'space not found' });
-    if (!canManage(s, req.user)) return res.status(403).json({ error: 'forbidden' });
+    if (!canManage(s, req)) return res.status(403).json({ error: 'forbidden' });
     if (s.is_default) return res.status(409).json({ error: "The default space can't be deleted." });
     // No deleted_at filter: a trashed row would dangle on restore.
     const { rowCount } = await pool.query(

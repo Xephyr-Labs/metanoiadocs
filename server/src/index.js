@@ -46,7 +46,7 @@ import { deleteUnusedAudio } from './blob-cleanup.js';
 import { docCommentRecipients } from './comment-recipients.js';
 import { buildDocState, appendMarkdownToDoc, appendPageReference, extractText, extractBlocks, docToMarkdown, fixTableOrderKeys, stateWithValidTableKeys, linkResolver, linkLabeler, pageLinksOf, lossyBlocks } from './blocks.js';
 import { rewriteDoc } from './restore.js';
-import { applyTextSuggestion, parseDraftName, registerSuggestionRoutes } from './suggestions.js';
+import { applyTextSuggestion, draftName, pageStateFrom, parseDraftName, registerSuggestionRoutes } from './suggestions.js';
 import { registerReactionRoutes, withReactions } from './reactions.js';
 import { wouldFolderCycle } from './folders.js';
 import { bodyHtml, printHtml } from './print.js';
@@ -78,6 +78,8 @@ import { TRASH_RETENTION_DAYS, startTrashSweeper } from './retention.js';
 import { startReminders } from './reminders.js';
 import { dayIn, isZone, zoneOf } from './timezone.js';
 import { byJoinedFirst } from './spaces.js';
+import { ROLE_RANK, rankOf, canEdit, writePolicy, resolveApprover, untrusted, needsPerson, isPerson, pageSyncRole, mintAgentToken } from './approval.js';
+import { draftEdit, draftToRead, lossyRefusal } from './ai-drafts.js';
 import OpenAI from 'openai';
 
 process.on('unhandledRejection', (e) => console.error('[proc] unhandledRejection', e?.message || e));
@@ -185,7 +187,7 @@ async function userForRequest(req) {
   const m = auth.match(/^Bearer\s+(.+)$/i);
   if (!m) return null;
   const { rows } = await pool.query(
-    `SELECT u.* FROM api_tokens t JOIN users u ON u.id = t.user_id WHERE t.token_hash = $1`,
+    `SELECT u.*, t.id AS token_id, t.trusted AS token_trusted FROM api_tokens t JOIN users u ON u.id = t.user_id WHERE t.token_hash = $1`,
     [sha256(m[1].trim())]
   );
   if (!rows[0]) return null;
@@ -196,6 +198,10 @@ async function userForRequest(req) {
 async function requireUser(req, res, next) {
   const user = await userForRequest(req);
   if (!user) return res.status(401).json({ error: 'unauthorized' });
+  // Only the Bearer path carries a token; a cookie session has none.
+  req.token = user.token_id ? { id: user.token_id, trusted: !!user.token_trusted } : null;
+  delete user.token_id;
+  delete user.token_trusted;
   req.user = user;
   next();
 }
@@ -469,7 +475,7 @@ app.get('/api/inbox', requireUser, async (req, res) => {
     // actor_id rides along so the client can tell a self-tag from someone
     // else's: "Sajjad mentioned you" reads wrong when Sajjad is the reader.
     `SELECT n.id, n.kind, n.actor_id, n.actor_name, n.body, n.read_at, n.created_at,
-            n.doc_id, n.comment_id, d.title AS doc_title, d.icon AS doc_icon,
+            n.doc_id, n.comment_id, n.suggestion_id, d.title AS doc_title, d.icon AS doc_icon,
             n.task_id, t.title AS task_title, t.project_id
        FROM notifications n
        LEFT JOIN docs d ON d.id = n.doc_id AND d.deleted_at IS NULL
@@ -509,14 +515,14 @@ app.get('/api/users', requireUser, async (_req, res) => {
 // ── personal access tokens (for the MCP server / programmatic clients) ───────
 app.get('/api/tokens', requireUser, async (req, res) => {
   const { rows } = await pool.query(
-    'SELECT id, name, created_at, last_used_at FROM api_tokens WHERE user_id = $1 ORDER BY created_at DESC',
+    'SELECT id, name, trusted, created_at, last_used_at FROM api_tokens WHERE user_id = $1 ORDER BY created_at DESC',
     [req.user.id]
   );
   res.json(rows);
 });
 
 // Mint a token. The plaintext is returned ONCE; only its hash is stored.
-app.post('/api/tokens', requireUser, async (req, res) => {
+app.post('/api/tokens', requireUser, needsPerson, async (req, res) => {
   const name = String(req.body?.name || '').trim().slice(0, 60) || 'API token';
   const secret = 'mtn_' + crypto.randomBytes(24).toString('base64url');
   const id = crypto.randomUUID();
@@ -527,7 +533,31 @@ app.post('/api/tokens', requireUser, async (req, res) => {
   res.json({ id, name, token: secret });
 });
 
-app.delete('/api/tokens/:id', requireUser, async (req, res) => {
+// An agent cannot mint its own credentials, so an admin person mints one for
+// it here (agent accounts only). Plaintext is returned once; only the hash is stored.
+app.post('/api/admin/users/:id/tokens', requireUser, requireAdmin, needsPerson, wrap(mintAgentToken(pool, sha256)));
+
+// Admin: every token of every account, so trust can be granted per token.
+// Never the hash.
+app.get('/api/admin/tokens', requireUser, requireAdmin, async (_req, res) => {
+  const { rows } = await pool.query(
+    `SELECT t.id, t.name, t.user_id, u.name AS user_name, u.kind AS user_kind, t.trusted, t.created_at, t.last_used_at
+       FROM api_tokens t JOIN users u ON u.id = t.user_id ORDER BY t.created_at DESC`
+  );
+  res.json(rows.map((r) => ({
+    id: r.id, name: r.name, userId: r.user_id, userName: r.user_name, userKind: r.user_kind || 'person',
+    trusted: r.trusted, createdAt: r.created_at, lastUsedAt: r.last_used_at,
+  })));
+});
+
+app.put('/api/admin/tokens/:id/trusted', requireUser, requireAdmin, needsPerson, async (req, res) => {
+  if (typeof req.body?.trusted !== 'boolean') return res.status(400).json({ error: 'trusted must be true or false' });
+  const { rowCount } = await pool.query('UPDATE api_tokens SET trusted = $2 WHERE id = $1', [req.params.id, req.body.trusted]);
+  if (!rowCount) return res.status(404).json({ error: 'No such token.' });
+  res.json({ ok: true });
+});
+
+app.delete('/api/tokens/:id', requireUser, needsPerson, async (req, res) => {
   await pool.query('DELETE FROM api_tokens WHERE id = $1 AND user_id = $2', [req.params.id, req.user.id]);
   res.json({ ok: true });
 });
@@ -583,7 +613,7 @@ app.get('/api/admin/integrity', requireUser, requireAdmin, wrap(async (req, res)
   res.json({ ...r, issues: r.issues.map((i) => (seen.get(i.docId) ? i : { ...i, title: 'A page you cannot open' })) });
 }));
 
-app.patch('/api/users/:id/role', requireUser, requireAdmin, async (req, res) => {
+app.patch('/api/users/:id/role', requireUser, requireAdmin, needsPerson, async (req, res) => {
   const role = req.body?.role === 'admin' ? 'admin' : 'collaborator';
   if (req.params.id === req.user.id && role !== 'admin') {
     return res.status(400).json({ error: "You can't demote yourself." });
@@ -607,7 +637,7 @@ app.patch('/api/users/:id/role', requireUser, requireAdmin, async (req, res) => 
 // claim worth protecting, so only an admin can set it, and only for someone
 // else. Marking yourself an agent would be the one move a misbehaving token
 // could make to cover its tracks.
-app.patch('/api/users/:id/kind', requireUser, requireAdmin, async (req, res) => {
+app.patch('/api/users/:id/kind', requireUser, requireAdmin, needsPerson, async (req, res) => {
   const kind = req.body?.kind === 'agent' ? 'agent' : 'person';
   if (req.params.id === req.user.id) {
     return res.status(400).json({ error: "You can't change your own account kind." });
@@ -619,7 +649,7 @@ app.patch('/api/users/:id/kind', requireUser, requireAdmin, async (req, res) => 
 });
 
 // Admin: remove a member. Their owned docs transfer to you so nothing is orphaned.
-app.delete('/api/users/:id', requireUser, requireAdmin, async (req, res) => {
+app.delete('/api/users/:id', requireUser, requireAdmin, needsPerson, async (req, res) => {
   if (req.params.id === req.user.id) return res.status(400).json({ error: "You can't remove yourself." });
   const target = await pool.query('SELECT 1 FROM users WHERE id = $1', [req.params.id]);
   if (!target.rowCount) return res.status(404).json({ error: 'User not found.' });
@@ -1059,13 +1089,28 @@ app.get('/api/docs/:id/markdown', requireUser, wrap(async (req, res) => {
   const d = await pool.query('SELECT title FROM docs WHERE id = $1 AND deleted_at IS NULL', [req.params.id]);
   if (!d.rows[0]) return res.status(404).json({ error: 'not found' });
   const s = await pool.query('SELECT state FROM doc_states WHERE doc_id = $1', [req.params.id]);
+  let state = s.rows[0]?.state;
+  // A writer whose edits become suggestions reads its own open draft, so a
+  // read-change-replace builds on what it already proposed.
+  let pendingSuggestion;
+  if (writePolicy({ user: req.user, via: req.via, token: req.token }) === 'suggest') {
+    const who = await approverFor(req, req.params.id);
+    const draft = await draftToRead({
+      pool, docId: req.params.id, authorId: req.user.id, approverId: who?.id, writerVia: req.via === 'ai' ? 'ai' : 'agent',
+    });
+    if (draft) {
+      const live = hocuspocus.documents.get(draftName(req.params.id, draft.id));
+      state = live ? Buffer.from(Y.encodeStateAsUpdate(live)) : draft.state;
+      pendingSuggestion = { id: draft.id, reviewUrl: `/d/${req.params.id}?review=${draft.id}` };
+    }
+  }
   let markdown = '';
   let lossy = [];
-  if (s.rows[0]) {
+  if (state) {
     const { label } = await docLinkContext(req.user.id);
     try {
-      markdown = docToMarkdown(s.rows[0].state, { resolveTitle: label, escape: true }).markdown;
-      lossy = lossyBlocks(s.rows[0].state);
+      markdown = docToMarkdown(state, { resolveTitle: label, escape: true }).markdown;
+      lossy = lossyBlocks(state);
     } catch { /* empty */ }
   }
   const { rows: editors } = await pool.query(
@@ -1076,8 +1121,26 @@ app.get('/api/docs/:id/markdown', requireUser, wrap(async (req, res) => {
   );
   // `lossy` names what this markdown leaves out; write_doc refuses a replace
   // while the page holds any of it.
-  res.json({ id: req.params.id, title: d.rows[0].title, markdown, ...(lossy.length ? { lossy } : {}), editors });
+  res.json({ id: req.params.id, title: d.rows[0].title, markdown, ...(lossy.length ? { lossy } : {}), ...(pendingSuggestion ? { pendingSuggestion } : {}), editors });
 }));
+
+/** Who reviews this caller's AI edits on a page, as { id, name }; null when nobody can. */
+async function approverFor(req, docId) {
+  const id = await resolveApprover({
+    via: req.via, user: req.user, onBehalfOf: req.get('X-On-Behalf-Of'), docId,
+    lookupMember: async (who) => (await pool.query(
+      `SELECT id, kind FROM users WHERE lower(email) = lower($1) OR lower(username) = lower($1)
+        ORDER BY lower(email) = lower($1) DESC LIMIT 1`, [who])).rows[0] ?? null,
+    roleOn: grantOn,
+    // An agent that made the page owns it, but never reviews its own kind's edits.
+    ownerOf: async (doc) => (await pool.query(
+      `SELECT a.user_id FROM doc_access a JOIN users u ON u.id = a.user_id
+        WHERE a.doc_id = $1 AND a.role = 'owner' AND u.kind <> 'agent' LIMIT 1`, [doc])).rows[0]?.user_id ?? null,
+  });
+  if (!id) return null;
+  const { rows: [u] } = await pool.query('SELECT name, email FROM users WHERE id = $1', [id]);
+  return { id, name: u?.name || u?.email || 'the page owner' };
+}
 
 // ── export ──────────────────────────────────────────────────────────────────
 
@@ -1184,15 +1247,25 @@ app.post('/api/docs/:id/content', requireUser, wrap(async (req, res) => {
   if (!(await editGrant(docId, req.user.id))) return res.status(403).json({ error: 'forbidden' });
   const markdown = String(req.body?.markdown || '');
   const mode = req.body?.mode === 'replace' ? 'replace' : 'append';
-  const d = await pool.query('SELECT title FROM docs WHERE id = $1 AND deleted_at IS NULL', [docId]);
+  const d = await pool.query('SELECT title, kind FROM docs WHERE id = $1 AND deleted_at IS NULL', [docId]);
   if (!d.rows[0]) return res.status(404).json({ error: 'not found' });
+  const { resolve } = await docLinkContext(req.user.id);
+
+  // An untrusted writer's edit to a page with a body lands in a draft for a
+  // person to review, never on the page (see ai-drafts.js).
+  const drafted = await draftEdit({
+    policy: writePolicy({ user: req.user, via: req.via, token: req.token }), kind: d.rows[0].kind, via: req.via,
+    pageState: pageStateFrom(pool, () => hocuspocus), approver: () => approverFor(req, docId),
+    pool, hocuspocus, docId, title: d.rows[0].title, authorId: req.user.id, markdown, mode, resolve,
+    notify: (n) => notifyUser({ ...n, actor: req.user }),
+  });
+  if (drafted) return res.status(drafted.status).json(drafted.body);
 
   // A replace swaps the whole body, which is what restoring a version does —
   // same primitive, so the same one is used. An append on a doc with no body
   // yet has nothing to append to, and becomes the same wholesale write.
   let state;
   let rewrote = mode === 'replace';
-  const { resolve } = await docLinkContext(req.user.id);
   const conn = await hocuspocus.openDirectConnection(docId, { docId, user: req.user });
   try {
     // A replace throws the whole body away, so it is undoable from History the
@@ -1202,7 +1275,7 @@ app.post('/api/docs/:id/content', requireUser, wrap(async (req, res) => {
     // Markdown cannot carry these; replacing the body would delete them.
     const lossy = mode === 'replace' && had ? lossyBlocks(Y.encodeStateAsUpdate(conn.document)) : [];
     if (lossy.length) {
-      res.status(409).json({ error: `This page holds content markdown cannot carry (${lossy.join(', ')}); replacing it would delete that. Append instead, or leave a comment.`, lossy });
+      res.status(409).json(lossyRefusal(lossy));
       return;
     }
     if (mode === 'replace' && had) {
@@ -1567,7 +1640,7 @@ app.get('/api/docs/trash', requireUser, async (req, res) => {
        FROM docs d LEFT JOIN doc_access a ON a.doc_id = d.id AND a.user_id = $1
       WHERE ${TRASH_VISIBLE}
       ORDER BY d.deleted_at DESC LIMIT 100`,
-    [req.user.id, req.user.role === 'admin', String(TRASH_RETENTION_DAYS)]
+    [req.user.id, req.user.role === 'admin' && isPerson(req), String(TRASH_RETENTION_DAYS)]
   );
   res.json({ retentionDays: TRASH_RETENTION_DAYS, rows });
 });
@@ -1576,7 +1649,7 @@ app.get('/api/docs/trash', requireUser, async (req, res) => {
 // see but do not own are left alone and reported back, so "empty" never
 // silently means "emptied less than you asked for".
 app.post('/api/docs/trash/empty', requireUser, wrap(async (req, res) => {
-  const isAdmin = req.user.role === 'admin';
+  const isAdmin = req.user.role === 'admin' && isPerson(req); // an admin agent may not destroy pages
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -1625,14 +1698,11 @@ async function trashGrantOn(docId, userId) {
 // comments; 'suggester' also proposes changes (a suggestion card, or a draft in
 // Suggesting mode) that someone who can edit reviews; 'editor' and 'owner'
 // change the page itself. Anything unrecognised ranks below viewer.
-const ROLE_RANK = { viewer: 0, commenter: 1, suggester: 2, editor: 3, owner: 4 };
 const SHAREABLE_ROLES = ['viewer', 'commenter', 'suggester', 'editor'];
 /** A stored team role, read defensively: anything unknown means editor, as before. */
 const teamRole = (r) => (SHAREABLE_ROLES.includes(r) ? r : 'editor');
-const rankOf = (role) => (role in ROLE_RANK ? ROLE_RANK[role] : -1);
 const canComment = (role) => rankOf(role) >= ROLE_RANK.commenter;
 const canSuggest = (role) => rankOf(role) >= ROLE_RANK.suggester;
-const canEdit = (role) => rankOf(role) >= ROLE_RANK.editor;
 /**
  * Make everyone on a page reconnect, so a role that just changed takes effect
  * now: read-only is decided when a connection opens, and someone downgraded or
@@ -1674,7 +1744,7 @@ app.delete('/api/docs/:id/permanent', requireUser, wrap(async (req, res) => {
   // Stricter than the soft delete, because there is no undo: the owner or an
   // admin, not merely anyone who could edit it.
   const role = await trashGrantOn(req.params.id, req.user.id);
-  if (role !== 'owner' && req.user.role !== 'admin') {
+  if (role !== 'owner' && !(req.user.role === 'admin' && isPerson(req))) {
     return res.status(403).json({ error: 'Only the page owner or an admin can delete a page permanently.' });
   }
 
@@ -1768,7 +1838,7 @@ app.get('/api/public/:token', async (req, res) => {
 
 // Invite someone to the workspace. Invite-only means this is how new people
 // get in; any signed-in member may invite (trusted internal team).
-app.post('/api/invites', requireUser, requireAdmin, async (req, res) => {
+app.post('/api/invites', requireUser, requireAdmin, needsPerson, async (req, res) => {
   const email = String(req.body?.email || '').trim().toLowerCase();
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
     return res.status(400).json({ error: 'invalid email' });
@@ -1830,7 +1900,7 @@ app.get('/api/settings/ai', requireUser, async (_req, res) => {
 
 // PUT saves config. An omitted/blank apiKey keeps the stored one (so re-saving
 // base URL or model doesn't wipe the key); a non-blank value replaces it.
-app.put('/api/settings/ai', requireUser, requireAdmin, async (req, res) => {
+app.put('/api/settings/ai', requireUser, requireAdmin, needsPerson, async (req, res) => {
   const existing = (await getSetting('ai')) || {};
   const body = req.body || {};
   const next = {
@@ -1853,7 +1923,7 @@ app.get('/api/settings/transcription', requireUser, wrap(async (_req, res) => {
   res.json({ provider: 'deepgram', enabled: cfg.enabled, language: cfg.language, keySet: !!cfg.apiKey });
 }));
 
-app.put('/api/settings/transcription', requireUser, requireAdmin, wrap(async (req, res) => {
+app.put('/api/settings/transcription', requireUser, requireAdmin, needsPerson, wrap(async (req, res) => {
   const next = cleanTranscriptionSettings(req.body || {}, await getSetting(TRANSCRIPTION_KEY));
   if (next.enabled && !next.apiKey) return res.status(400).json({ error: 'Add a Deepgram API key to turn transcription on.' });
   // A new key is checked before it is kept: a typo would otherwise surface as
@@ -2609,7 +2679,7 @@ app.get('/api/blob', requireUser, async (_req, res) => {
 
 // Admin-only: a blob key is shared across the workspace (content-addressed), so
 // one user must not be able to destroy an image referenced by another user's doc.
-app.delete('/api/blob/:key', requireUser, requireAdmin, async (req, res) => {
+app.delete('/api/blob/:key', requireUser, requireAdmin, needsPerson, async (req, res) => {
   await pool.query('DELETE FROM blobs WHERE key = $1', [req.params.key]);
   res.json({ ok: true });
 });
@@ -2728,6 +2798,7 @@ async function pruneVersions(docId) {
  * a crash before that debounced save lands.
  */
 app.post('/api/docs/:id/versions/:vid/restore-in-place', requireUser, wrap(async (req, res) => {
+  if (untrusted(req)) return res.status(403).json({ error: 'This needs a person: an AI or agent cannot restore a version over the page.' });
   if (!(await editGrant(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
   const docId = req.params.id;
   const v = await pool.query('SELECT state FROM doc_versions WHERE id = $1 AND doc_id = $2', [req.params.vid, docId]);
@@ -3167,6 +3238,8 @@ app.post('/api/comments/:cid/resolve', requireUser, async (req, res) => {
 app.post('/api/comments/:cid/decision', requireUser, wrap(async (req, res) => {
   const accept = req.body?.decision === 'accept';
   if (!accept && req.body?.decision !== 'reject') return res.status(400).json({ error: 'accept or reject' });
+  // Person-only, trusted token or not: a trusted agent writes directly and never needs to decide anyone's suggestion.
+  if (!isPerson(req)) return res.status(403).json({ error: 'This needs a person: an AI or agent cannot accept or reject suggestions.' });
   const { rows: [c] } = await pool.query(
     `SELECT id, doc_id, block_id, quote, quote_occurrence, anchor_start, anchor_end, suggestion, suggestion_status, author_id, kind
        FROM comments WHERE id = $1 AND doc_id IS NOT NULL`,
@@ -3229,27 +3302,28 @@ app.post('/api/comments/:cid/decision', requireUser, wrap(async (req, res) => {
 }));
 
 /** One inbox row plus a push, for events aimed at a single person. */
-async function notifyUser({ userId, actor, docId, commentId = null, kind, body, title }) {
+async function notifyUser({ userId, actor, docId, commentId = null, suggestionId = null, kind, body, title }) {
   const doc = await pool.query('SELECT title FROM docs WHERE id = $1', [docId]);
   const docTitle = doc.rows[0]?.title || 'Untitled';
   const actorName = actor.name || actor.email;
   const rowId = crypto.randomUUID();
   await pool.query(
-    `INSERT INTO notifications (id, user_id, actor_id, actor_name, doc_id, comment_id, kind, body)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-    [rowId, userId, actor.id, actorName, docId, commentId, kind, String(body || '').slice(0, 280)]
+    `INSERT INTO notifications (id, user_id, actor_id, actor_name, doc_id, comment_id, suggestion_id, kind, body)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+    [rowId, userId, actor.id, actorName, docId, commentId, suggestionId, kind, String(body || '').slice(0, 280)]
   );
   const heading = title || `${actorName} ${NOTIFY_VERBS[kind] || 'updated'} "${docTitle}"`;
-  sendPush(userId, { title: heading, body: String(body || '').slice(0, 280), tag: rowId, docId })
+  sendPush(userId, { title: heading, body: String(body || '').slice(0, 280), tag: rowId, docId, suggestionId })
     .catch((e) => console.error('[push] notify:', e.message));
   const { rows: [u] } = await pool.query('SELECT email FROM users WHERE id = $1', [userId]);
-  if (u?.email) sendNotificationEmail(u.email, heading, String(body || '').slice(0, 280), `${BASE_URL}${linkFor({ docId })}`);
+  if (u?.email) sendNotificationEmail(u.email, heading, String(body || '').slice(0, 280), `${BASE_URL}${linkFor({ docId, suggestionId })}`);
 }
 const NOTIFY_VERBS = {
   suggestion_accepted: 'accepted your suggestion on',
   suggestion_rejected: 'declined your suggestion on',
   review_requested: 'asked you to review changes to',
   review_done: 'reviewed your changes to',
+  ai_suggestion: 'suggested changes to',
 };
 
 // Rewrite a comment. The author's own only — an owner may delete a comment on
@@ -3323,8 +3397,8 @@ registerTemplateRoutes(app, {
   rolesChanged: dropLiveConnections,
   // Goes by the page's own grant, not the template rule, and needs the owner
   // (or an admin): it changes what everyone else may do on the page.
-  templateGrant: async (docId, user) =>
-    user.role === 'admin' || (await pageGrant(docId, user.id)) === 'owner',
+  templateGrant: async (docId, user, person) =>
+    (user.role === 'admin' && person) || (await pageGrant(docId, user.id)) === 'owner',
 });
 registerCsvRoutes(app, {
   requireUser, wrap, createDocRow,
@@ -3533,7 +3607,8 @@ server.on('upgrade', async (request, socket, head) => {
       else if (canEdit(pageRole)) role = 'viewer';
       else return socket.destroy();
     } else {
-      role = await grantOn(docId, user.id);
+      // An agent's session reads and comments on a page but never edits it live.
+      role = pageSyncRole(await grantOn(docId, user.id), user);
     }
     if (!role) return socket.destroy();
 
