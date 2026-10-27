@@ -87,7 +87,7 @@ export function AllDocsView() {
 
   return (
     <div ref={scroller} className="scrollarea h-full overflow-y-auto bg-canvas">
-      <div className="mx-auto max-w-[1100px] px-6 py-8 md:px-10">
+      <div className="mx-auto max-w-[1440px] px-6 py-8 md:px-10">
         <header className="mb-5">
           <h1 className="font-display text-2xl font-semibold leading-7 tracking-[-0.03em] text-ink md:text-3xl">
             All documents
