@@ -8,6 +8,7 @@ test('recordOpen issues one upsert that refreshes opened_at', async () => {
   assert.equal(calls.length, 1);
   assert.match(calls[0][0], /INSERT INTO doc_opens/);
   assert.match(calls[0][0], /ON CONFLICT \(user_id, doc_id\) DO UPDATE SET opened_at = now\(\)/);
+  assert.match(calls[0][0], /kind IN \('doc','design'\) AND deleted_at IS NULL/);
   assert.deepEqual(calls[0][1], ['u1', 'd1']);
 });
 

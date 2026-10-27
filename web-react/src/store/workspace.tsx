@@ -652,15 +652,18 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     localStorage.setItem('mn-last-doc', id);
     setMobileDrawer(false);
     showDoc(id);
-    // Only real pages count; tasks have no "changed since you looked".
-    const kind = pagesRef.current[id]?.kind;
-    if (kind === 'doc' || kind === 'design') docsApi.markOpened(id).catch(() => {});
     setRecentIds((prev) => {
       const r = [id, ...prev.filter((x) => x !== id)].slice(0, 8);
       localStorage.setItem('mn-recents', JSON.stringify(r));
       return r;
     });
   }, []);
+
+  // Record arrival, not the click: cold loads, shared links, back/forward and
+  // new pages all land here. The server ignores tasks and trashed pages.
+  useEffect(() => {
+    if (view === 'doc' && currentId) docsApi.markOpened(currentId).catch(() => {});
+  }, [view, currentId]);
 
   const toggleExpand = useCallback((id: PageId) => {
     setPages((p) => (p[id] ? { ...p, [id]: { ...p[id], expanded: !p[id].expanded } } : p));
