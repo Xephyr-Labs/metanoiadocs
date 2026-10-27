@@ -44,7 +44,7 @@ import { baseMime } from './media.js';
 import { commentInput } from './comment-input.js';
 import { deleteUnusedAudio } from './blob-cleanup.js';
 import { docCommentRecipients } from './comment-recipients.js';
-import { buildDocState, appendMarkdownToDoc, appendPageReference, extractText, extractBlocks, docToMarkdown, fixTableOrderKeys, stateWithValidTableKeys } from './blocks.js';
+import { buildDocState, appendMarkdownToDoc, appendPageReference, extractText, extractBlocks, docToMarkdown, fixTableOrderKeys, stateWithValidTableKeys, linkResolver, linkLabeler, pageLinksOf } from './blocks.js';
 import { rewriteDoc } from './restore.js';
 import { applyTextSuggestion, parseDraftName, registerSuggestionRoutes } from './suggestions.js';
 import { registerReactionRoutes, withReactions } from './reactions.js';
@@ -775,6 +775,8 @@ app.post('/api/docs/reorder', requireUser, wrap(async (req, res) => {
  */
 async function createDocRow({ title, icon, userId, folderId, visibility, kind, content, spaceId }) {
   const id = crypto.randomUUID();
+  const links = content ? await docLinkContext(userId) : null;
+  let state = null;
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -789,7 +791,7 @@ async function createDocRow({ title, icon, userId, folderId, visibility, kind, c
       [id, userId]
     );
     if (content) {
-      const state = Buffer.from(buildDocState(title, content));
+      state = Buffer.from(buildDocState(title, content, links.resolve));
       await client.query('INSERT INTO doc_states (doc_id, state) VALUES ($1, $2)', [id, state]);
       await client.query('UPDATE docs SET search_text = $1 WHERE id = $2', [content.slice(0, 100000), id]);
     }
@@ -800,6 +802,7 @@ async function createDocRow({ title, icon, userId, folderId, visibility, kind, c
   } finally {
     client.release();
   }
+  if (state) await storeLinks(id, pageLinksOf(state));
   return { id, title, icon, parent_id: null, folder_id: folderId, space_id: spaceId, role: 'owner', visibility, kind, shared: false, favorite: false, created_at: new Date().toISOString(), loved: false, love_count: 0 };
 }
 
@@ -1027,6 +1030,48 @@ app.get('/api/docs/:id/text', requireUser, async (req, res) => {
   res.json({ id: req.params.id, title: d.rows[0].title, text, editors });
 });
 
+/**
+ * How markdown `[[links]]` map to pages for one user. `label` names only pages
+ * they can open; `resolve` also takes the bare id of any live page, so a link
+ * to a page the writer cannot see survives a read-then-replace untouched.
+ */
+async function docLinkContext(userId) {
+  const { rows } = await pool.query(
+    `SELECT d.id, d.title, (a.user_id IS NOT NULL OR d.visibility = 'team') AS visible
+       FROM docs d LEFT JOIN doc_access a ON a.doc_id = d.id AND a.user_id = $1
+      WHERE d.deleted_at IS NULL`,
+    [userId],
+  );
+  const visible = rows.filter((r) => r.visible);
+  const byVisible = linkResolver(visible);
+  const live = new Set(rows.map((r) => r.id));
+  return {
+    resolve: (key) => byVisible(key) ?? (live.has(String(key).trim()) ? String(key).trim() : null),
+    label: linkLabeler(visible),
+  };
+}
+
+// The body as the markdown write_doc takes, page references as [[links]], so
+// an agent can edit it and write it back without losing formatting or links.
+app.get('/api/docs/:id/markdown', requireUser, wrap(async (req, res) => {
+  if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
+  const d = await pool.query('SELECT title FROM docs WHERE id = $1 AND deleted_at IS NULL', [req.params.id]);
+  if (!d.rows[0]) return res.status(404).json({ error: 'not found' });
+  const s = await pool.query('SELECT state FROM doc_states WHERE doc_id = $1', [req.params.id]);
+  let markdown = '';
+  if (s.rows[0]) {
+    const { label } = await docLinkContext(req.user.id);
+    try { markdown = docToMarkdown(s.rows[0].state, { resolveTitle: label }).markdown; } catch { /* empty */ }
+  }
+  const { rows: editors } = await pool.query(
+    `SELECT u.id, u.name, coalesce(u.kind, 'person') AS kind, e.first_edit_at, e.last_edit_at
+       FROM doc_editors e JOIN users u ON u.id = e.user_id
+      WHERE e.doc_id = $1 ORDER BY e.last_edit_at DESC`,
+    [req.params.id]
+  );
+  res.json({ id: req.params.id, title: d.rows[0].title, markdown, editors });
+}));
+
 // ── export ──────────────────────────────────────────────────────────────────
 
 /** A safe download filename stem — also keeps quotes/newlines out of the header. */
@@ -1140,6 +1185,7 @@ app.post('/api/docs/:id/content', requireUser, wrap(async (req, res) => {
   // yet has nothing to append to, and becomes the same wholesale write.
   let state;
   let rewrote = mode === 'replace';
+  const { resolve } = await docLinkContext(req.user.id);
   const conn = await hocuspocus.openDirectConnection(docId, { docId, user: req.user });
   try {
     // A replace throws the whole body away, so it is undoable from History the
@@ -1154,10 +1200,10 @@ app.post('/api/docs/:id/content', requireUser, wrap(async (req, res) => {
     // it will be is only known inside the write, so the state is kept now.
     const before = mode === 'append' && had ? Buffer.from(Y.encodeStateAsUpdate(conn.document)) : null;
     await conn.transact((doc) => {
-      if (mode === 'append' && appendMarkdownToDoc(doc, markdown)) {
+      if (mode === 'append' && appendMarkdownToDoc(doc, markdown, resolve)) {
         // appended in place
       } else {
-        rewriteDoc(doc, buildDocState(d.rows[0].title, markdown));
+        rewriteDoc(doc, buildDocState(d.rows[0].title, markdown, resolve));
         rewrote = true;
       }
       state = Buffer.from(Y.encodeStateAsUpdate(doc));
@@ -1183,7 +1229,13 @@ app.post('/api/docs/:id/content', requireUser, wrap(async (req, res) => {
     const { text } = extractText(state);
     await pool.query('UPDATE docs SET search_text = $1, updated_at = now(), updated_by = $3, updated_via = $4 WHERE id = $2', [text.slice(0, 100000), docId, req.user.id, req.via]);
   } catch { /* an odd state still saves; only the search text goes stale */ }
-  res.json({ ok: true });
+  // Backlinks and the sidebar nesting read doc_links, which only an open editor
+  // refreshes otherwise.
+  if (state) await storeLinks(docId, pageLinksOf(state));
+  // [[keys]] that matched no page stay as literal text; say which, so the
+  // writer can fix the title instead of believing the link was made.
+  const unresolved = [...markdown.matchAll(/\[\[([^\]\n]+)\]\]/g)].map((m) => m[1]).filter((k) => !resolve(k));
+  res.json({ ok: true, ...(unresolved.length ? { unresolvedLinks: [...new Set(unresolved)] } : {}) });
 }));
 
 // Toggle a doc between team-visible and private (owner only). Private keeps only

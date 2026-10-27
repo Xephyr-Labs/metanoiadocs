@@ -145,6 +145,60 @@ function plainYText(s) {
   return t;
 }
 
+/**
+ * `[[key]]` → page id, over the pages `docs` ({id, title}) the writer can see.
+ * The key is an id, `id|Title` (what linkLabeler writes for an ambiguous
+ * title), or a title. A title two pages share resolves to nothing — the literal
+ * stays visible rather than linking the wrong page.
+ */
+export function linkResolver(docs) {
+  const ids = new Set(docs.map((d) => d.id));
+  const byTitle = new Map();
+  for (const d of docs) {
+    const k = String(d.title ?? '').trim().toLowerCase();
+    byTitle.set(k, byTitle.has(k) ? null : d.id);
+  }
+  return (key) => {
+    const k = String(key).trim();
+    const id = k.includes('|') ? k.slice(0, k.indexOf('|')).trim() : k;
+    if (ids.has(id)) return id;
+    return byTitle.get(k.toLowerCase()) ?? null;
+  };
+}
+
+/**
+ * Page id → the `[[key]]` label linkResolver reads back to the same page: the
+ * title when it is unique, `id|Title` when it is not, and the bare id for a
+ * page outside `docs`, so the link survives a rewrite without leaking a title.
+ */
+export function linkLabeler(docs) {
+  const titles = new Map(docs.map((d) => [d.id, d.title]));
+  const resolve = linkResolver(docs);
+  return (pageId) => {
+    const title = titles.get(pageId);
+    if (title == null) return pageId;
+    return resolve(title) === pageId ? title : `${pageId}|${title}`;
+  };
+}
+
+/** Every page a doc state @-references inline, deduped (the set doc_links stores). */
+export function pageLinksOf(existing) {
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, new Uint8Array(existing));
+  const ids = new Set();
+  for (const [, b] of doc.getMap('blocks')) {
+    if (!(b instanceof Y.Map)) continue;
+    for (const [, v] of b) {
+      if (!(v instanceof Y.Text)) continue;
+      for (const op of v.toDelta()) {
+        const id = op.attributes?.reference?.pageId;
+        if (typeof id === 'string' && id) ids.add(id);
+      }
+    }
+  }
+  return [...ids];
+}
+
 /** Every `[[key]]` a markdown source resolves to, deduped. */
 export function collectMarkdownLinks(markdown, resolveLink) {
   const ids = new Set();
@@ -811,6 +865,14 @@ export function docToMarkdown(existing, opts = {}) {
       // honest flat markdown for it, and half of one is worse than none.
       case 'affine:database':
         return;
+      // A linked-doc card points at a page, not a url. Read back in it comes
+      // as an inline reference — the link survives, the card styling does not.
+      case 'affine:embed-linked-doc':
+      case 'affine:embed-synced-doc': {
+        const label = b.get('prop:pageId') && opts.resolveTitle?.(b.get('prop:pageId'));
+        if (label) parts.push({ text: `[[${label}]]` });
+        break;
+      }
       default: {
         // Bookmarks and every affine:embed-* variant carry a url + caption.
         const url = b.get('prop:url');
@@ -906,7 +968,7 @@ export function appendPageReference(doc, pageId) {
  * False means the doc has no note block to append into — nobody has ever opened
  * it — which only the caller can resolve, by building a body from scratch.
  */
-export function appendMarkdownToDoc(doc, markdown) {
+export function appendMarkdownToDoc(doc, markdown, resolveLink) {
   const blocks = doc.getMap('blocks');
   // A doc without a note has no body yet.
   const note = bodyNote(blocks);
@@ -914,7 +976,7 @@ export function appendMarkdownToDoc(doc, markdown) {
   const descs = parseMarkdown(markdown);
   const pending = [];
   const children = note.get('sys:children');
-  children.push(makeBlocks(blocks, descs, null, pending));
+  children.push(makeBlocks(blocks, descs, resolveLink, pending));
   applyMarks(pending);
   numberLists(blocks);
   return true;

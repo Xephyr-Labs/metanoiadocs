@@ -96,6 +96,7 @@ export function aiTools({ base, headers = {}, zone }) {
         // read_doc hands back a whole document; one long one must not eat the
         // context every later round needs.
         if (out && typeof out.text === 'string') out.text = out.text.slice(0, MAX_TOOL_CHARS);
+        if (out && typeof out.markdown === 'string') out.markdown = out.markdown.slice(0, MAX_TOOL_CHARS);
         return out;
       } catch (e) {
         return { error: e.message || String(e) };

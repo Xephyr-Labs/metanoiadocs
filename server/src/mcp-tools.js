@@ -195,12 +195,13 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
     'read_doc',
     {
       title: 'Read a doc',
-      description: "Get a doc's title and its plain-text content by id.",
+      description:
+        "Get a doc's title and its body as markdown, by id — the same markdown write_doc and create_doc take, formatting included, with links to other docs as [[Title]] (or [[id|Title]] where two docs share the title). To edit a doc, change this markdown and write it back with mode=replace: everything you leave as it was, links included, comes back unchanged.",
       inputSchema: { id: z.string().describe('Document id') },
     },
     async ({ id }) => {
       try {
-        return ok(await api(`/docs/${encodeURIComponent(id)}/text`));
+        return ok(await api(`/docs/${encodeURIComponent(id)}/markdown`));
       } catch (e) {
         return fail(e);
       }
@@ -212,7 +213,7 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
     {
       title: 'Create a doc',
       description:
-        'Create a new document. `content` is markdown — headings (#), bullet/numbered lists, to-dos (- [ ]), quotes (>), fenced code (```), dividers (---), and panels (`> [!NOTE]`, `[!INFO]`, `[!SUCCESS]`, `[!WARNING]`, `[!ERROR]`, or a plain grey callout `[!CALLOUT 💡]` with any emoji, with the panel body on the `>` lines below) become real editor blocks; consecutive `>` lines are one multi-line quote. Text formatting beyond markdown: colour and highlight with `<span style="color: red; background: yellow">…</span>` (palette only: red, orange, yellow, green, teal, blue, purple, grey), `<mark>…</mark>` for a yellow highlight, `<u>…</u>` for underline; a whole body line (paragraph, quote or list item, not a heading) wrapped in `<small>…</small>` or `<big>…</big>` sets its text size — use small for footnotes and side notes. Returns the new doc id.',
+        'Create a new document. `content` is markdown — headings (#), bullet/numbered lists, to-dos (- [ ]), quotes (>), fenced code (```), dividers (---), and panels (`> [!NOTE]`, `[!INFO]`, `[!SUCCESS]`, `[!WARNING]`, `[!ERROR]`, or a plain grey callout `[!CALLOUT 💡]` with any emoji, with the panel body on the `>` lines below) become real editor blocks; consecutive `>` lines are one multi-line quote. Text formatting beyond markdown: colour and highlight with `<span style="color: red; background: yellow">…</span>` (palette only: red, orange, yellow, green, teal, blue, purple, grey), `<mark>…</mark>` for a yellow highlight, `<u>…</u>` for underline; a whole body line (paragraph, quote or list item, not a heading) wrapped in `<small>…</small>` or `<big>…</big>` sets its text size — use small for footnotes and side notes. Link (tag) another doc inline with `[[Doc title]]` or `[[doc id]]` — it becomes a real page reference, the same as typing @ in the editor; an unknown or ambiguous title stays as plain text. Returns the new doc id.',
       inputSchema: {
         title: z.string().describe('Document title'),
         content: z.string().optional().describe('Markdown body (optional)'),
@@ -238,7 +239,7 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
     {
       title: 'Write to a doc',
       description:
-        "Append or replace a doc's content with markdown. mode=append (default) adds to the end; mode=replace overwrites. Same markdown as create_doc — panels (`> [!NOTE]`), text colour and highlight (`<span style=\"color: red\">`, `<mark>`), `<u>` and `<small>`/`<big>` line sizes included. Changes appear when the doc is next opened.",
+        "Append or replace a doc's content with markdown. mode=append (default) adds to the end; mode=replace overwrites. Same markdown as create_doc — panels (`> [!NOTE]`), text colour and highlight (`<span style=\"color: red\">`, `<mark>`), `<u>` and `<small>`/`<big>` line sizes included, and `[[Doc title]]` / `[[doc id]]` links to other docs. To edit part of a doc, read_doc it, change that markdown and send all of it back with mode=replace — never rewrite from memory or from plain text, which drops formatting and links. Any [[link]] that matched no doc is listed back in unresolvedLinks. Changes appear when the doc is next opened.",
       inputSchema: {
         id: z.string().describe('Document id'),
         markdown: z.string().describe('Markdown content'),
@@ -247,11 +248,11 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
     },
     async ({ id, markdown, mode }) => {
       try {
-        await api(`/docs/${encodeURIComponent(id)}/content`, {
+        const r = await api(`/docs/${encodeURIComponent(id)}/content`, {
           method: 'POST',
           body: { markdown, mode },
         });
-        return ok('Done.');
+        return ok(r?.unresolvedLinks ? { done: true, unresolvedLinks: r.unresolvedLinks } : 'Done.');
       } catch (e) {
         return fail(e);
       }

@@ -110,11 +110,11 @@ server.registerTool(
   'read_doc',
   {
     title: 'Read a doc',
-    description: 'Get a doc\'s title and its plain-text content by id.',
+    description: 'Get a doc\'s title and its body as markdown (links to other docs as [[Title]]) by id. Edit that markdown and write it back with write_doc mode=replace.',
     inputSchema: { id: z.string().describe('Document id') },
   },
   async ({ id }) => {
-    try { return ok(await api(`/docs/${encodeURIComponent(id)}/text`)); } catch (e) { return fail(e); }
+    try { return ok(await api(`/docs/${encodeURIComponent(id)}/markdown`)); } catch (e) { return fail(e); }
   },
 );
 
