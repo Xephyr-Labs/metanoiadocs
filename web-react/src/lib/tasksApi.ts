@@ -428,11 +428,27 @@ export interface MyTask {
 }
 
 export interface HomePayload {
-  stats: { my_open: string; my_overdue: string; my_week: string; docs_week: string };
   myTasks: Record<'overdue' | 'today' | 'week' | 'later', MyTask[]>;
   recentDocs: { id: string; title: string; icon: string; updated_at: string; updated_by_name: string | null }[];
   activity: ActivityRow[];
   projects: ProjectRow[];
+}
+
+/** GET /api/home/needs (server/src/needs.js). `overdue` counts past-due only;
+ *  the overdue list also holds due-today tasks (`today: true`), counted in
+ *  `dueToday`. Each list is capped at 20; counts are the full totals. */
+export interface NeedsCounts { review: number; overdue: number; dueToday: number; mentions: number; changed: number }
+export interface NeedsPayload {
+  counts: NeedsCounts;
+  review: { suggestionId: string; docId: string; docTitle: string; authorName: string; writerVia: string | null; submittedAt: string }[];
+  overdue: { taskId: string; title: string; projectId: string; projectName: string; dueAt: string; today: boolean }[];
+  mentions: {
+    notificationId: string; commentId: string; threadId: string; docId: string | null; taskId: string | null;
+    projectId: string | null; title: string; authorName: string; snippet: string | null; createdAt: string; canResolve: boolean;
+  }[];
+  changed: { docId: string; title: string; changedByName: string; changedAt: string }[];
+  today: string;
+  tomorrow: string;
 }
 
 /* ---- automations ------------------------------------------------------ */
@@ -513,6 +529,8 @@ export interface TaskComment {
 
 export const tasksApi = {
   home: (spaceId?: string): Promise<HomePayload> => req(spaceId ? `/home?spaceId=${encodeURIComponent(spaceId)}` : '/home'),
+  needs: (spaceId?: string): Promise<NeedsPayload> =>
+    req(spaceId ? `/home/needs?spaceId=${encodeURIComponent(spaceId)}` : '/home/needs'),
 
   projects: (): Promise<ProjectRow[]> => req('/projects'),
   createProject: (b: { name: string; icon?: string; color?: string; docId?: string; parentId?: string | null; mode?: ProjectMode; spaceId?: string }): Promise<ProjectRow> =>

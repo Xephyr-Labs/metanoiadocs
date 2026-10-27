@@ -422,6 +422,8 @@ export const docsApi = {
   reorder: (folderId: string | null, ids: string[], dragId?: string) =>
     req('/docs/reorder', { method: 'POST', body: JSON.stringify({ folderId, ids, dragId }) }),
   restore: (id: string) => req(`/docs/${id}/restore`, { method: 'POST' }),
+  /** Remember that you opened this page now. Callers fire and forget. */
+  markOpened: (id: string) => req(`/docs/${id}/opened`, { method: 'POST' }),
   /** Destroy a trashed page. Owner or admin only; there is no undo. */
   destroy: (id: string) => req(`/docs/${id}/permanent`, { method: 'DELETE' }),
   docProps: (): Promise<DocPropRow[]> => req('/doc-props'),

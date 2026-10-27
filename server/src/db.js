@@ -164,6 +164,13 @@ export async function initSchema() {
       applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
     ALTER TABLE docs ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+    -- Last time each person opened each page (Home's "changed since you looked").
+    CREATE TABLE IF NOT EXISTS doc_opens (
+      user_id   TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      doc_id    TEXT NOT NULL REFERENCES docs(id) ON DELETE CASCADE,
+      opened_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (user_id, doc_id)
+    );
     -- Per-doc emoji shown in the sidebar/header.
     ALTER TABLE docs ADD COLUMN IF NOT EXISTS icon TEXT NOT NULL DEFAULT '📄';
     -- Visibility: 'team' = every workspace member can see/edit it (no explicit

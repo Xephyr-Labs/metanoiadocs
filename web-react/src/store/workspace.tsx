@@ -659,6 +659,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  // Record arrival, not the click: cold loads, shared links, back/forward and
+  // new pages all land here. The server ignores tasks and trashed pages.
+  useEffect(() => {
+    if (view === 'doc' && currentId) docsApi.markOpened(currentId).catch(() => {});
+  }, [view, currentId]);
+
   const toggleExpand = useCallback((id: PageId) => {
     setPages((p) => (p[id] ? { ...p, [id]: { ...p[id], expanded: !p[id].expanded } } : p));
   }, []);

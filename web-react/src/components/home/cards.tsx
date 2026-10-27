@@ -33,22 +33,6 @@ export function Card({ title, action, children, className }: {
   );
 }
 
-export function StatTile({ label, value, tone }: { label: string; value: number; tone?: 'danger' | 'accent' }) {
-  return (
-    <div className="px-1">
-      <p
-        className={cn(
-          'font-display text-3xl font-semibold leading-8 tracking-[-0.03em] tabular-nums',
-          tone === 'danger' && value > 0 ? 'text-danger-strong' : tone === 'accent' ? 'text-accent-strong' : 'text-ink',
-        )}
-      >
-        {value}
-      </p>
-      <p className="mt-0.5 text-xs text-muted">{label}</p>
-    </div>
-  );
-}
-
 /** Donut showing done/total. Pure SVG — no chart library for one ring. */
 export function ProgressRing({ pct, size = 34 }: { pct: number; size?: number }) {
   const r = (size - 4) / 2;

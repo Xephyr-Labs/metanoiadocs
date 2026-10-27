@@ -6,7 +6,7 @@ import { useWorkspace } from '../../store/workspace';
 import { docsApi, type MyDocRow } from '../../lib/docsApi';
 import { relativeTime } from '../../lib/time';
 import { pickImportFiles } from '../../lib/docFiles';
-import { tasksApi, type HomePayload, type MyTask } from '../../lib/tasksApi';
+import { tasksApi, type HomePayload, type MyTask, type NeedsPayload } from '../../lib/tasksApi';
 import { PageIcon } from '../ui/PageIcon';
 import { Button } from '../ui/Button';
 import { EmptyState } from '../ui/EmptyState';
@@ -14,7 +14,8 @@ import { IconButton } from '../ui/IconButton';
 import { Menu } from '../ui/Menu';
 import { Skeleton } from '../ui/Skeleton';
 import { inCurrentSpace } from '../../lib/spaceTree';
-import { ActivityLine, Card, DocCard, ProjectCard, StatTile, TaskBucket } from './cards';
+import { ActivityLine, Card, DocCard, ProjectCard, TaskBucket } from './cards';
+import { NeedsYou } from './NeedsYou';
 
 const BUCKETS: MyTask['bucket'][] = ['overdue', 'today', 'week', 'later'];
 
@@ -126,8 +127,18 @@ export function Home() {
     }
   }, [spaceId]);
 
+  // "Needs you" loads on its own, guarded the same way; a failure only hides it.
+  const [needs, setNeeds] = useState<NeedsPayload | null>(null);
+  const needsSeq = useRef(0);
+  const loadNeeds = useCallback(async () => {
+    const n = ++needsSeq.current;
+    const d = await tasksApi.needs(spaceId).catch(() => null);
+    if (n === needsSeq.current) setNeeds(d);
+  }, [spaceId]);
+  const reload = useCallback(() => { load(); loadNeeds(); }, [load, loadNeeds]);
+
   // A new space never shows the old one's numbers while its own load.
-  useEffect(() => { setData(null); load(); }, [load]);
+  useEffect(() => { setData(null); setNeeds(null); reload(); }, [reload]);
 
   // Recents are per-browser (localStorage), so prefer the docs this person
   // actually opened and fall back to workspace-wide recency to fill the row.
@@ -176,7 +187,7 @@ export function Home() {
             </p>
           </div>
           <div className="flex items-center gap-1">
-            <IconButton icon={<RefreshCw size={16} />} label="Refresh" onClick={load} />
+            <IconButton icon={<RefreshCw size={16} />} label="Refresh" onClick={reload} />
             {/* Beside New page, because the two are the same decision: start a
                 page empty, or start it from a file you already have. Secondary,
                 because starting empty is the common one. */}
@@ -195,6 +206,8 @@ export function Home() {
         {error && (
           <div className="mb-6 rounded-lg bg-surface px-4 py-3 text-sm text-danger-strong shadow-subtle">{error}</div>
         )}
+
+        {needs && <NeedsYou needs={needs} onChanged={reload} />}
 
         {!data ? (
           <div className="space-y-4">
@@ -215,13 +228,6 @@ export function Home() {
                 </div>
               </section>
             )}
-
-            <div className="mb-8 grid grid-cols-2 gap-x-6 gap-y-3 border-y border-line py-4 md:grid-cols-4">
-              <StatTile label="My open tasks" value={Number(data.stats.my_open)} />
-              <StatTile label="Overdue" value={Number(data.stats.my_overdue)} tone="danger" />
-              <StatTile label="Due this week" value={Number(data.stats.my_week)} tone="accent" />
-              <StatTile label="Docs this week" value={Number(data.stats.docs_week)} />
-            </div>
 
             {/* Two independent stacks, not grid rows: cards pack downward in
                 each column, so a short card never strands empty space beside

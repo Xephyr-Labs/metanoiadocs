@@ -2,21 +2,22 @@
 // five unrelated lists and five sequential fetches would show five spinners.
 import { pool } from './db.js';
 import { dayIn, zoneOf } from './timezone.js';
+import { needsQueries, needsDays } from './needs.js';
 
 // Docs the caller may see: team-visible, or explicitly granted.
-const VISIBLE = `(a.user_id IS NOT NULL OR d.visibility = 'team')`;
+export const VISIBLE = `(a.user_id IS NOT NULL OR d.visibility = 'team')`;
 // Home favours the caller's joined spaces (My tasks and the my_* stats don't:
 // work assigned to me shows wherever it lives). Every row has a space_id.
-const JOINED = (col) => `${col} IN (SELECT space_id FROM space_members WHERE user_id = $1)`;
+export const JOINED = (col) => `${col} IN (SELECT space_id FROM space_members WHERE user_id = $1)`;
 // With a space (the switcher's), Home is that space alone; without one, every
 // space you joined. $n is the query's space parameter.
-const IN_SPACE = (col, n, space) => (space ? `${col} = $${n}` : JOINED(col));
+export const IN_SPACE = (col, n, space) => (space ? `${col} = $${n}` : JOINED(col));
 // Your own tasks also count from a space you have not joined: you cannot
 // switch there, and a task given to you must never drop out of sight.
-const MY_SPACE = (col, n, space) => (space
+export const MY_SPACE = (col, n, space) => (space
   ? `(${col} = $${n} OR ${col} NOT IN (SELECT space_id FROM space_members WHERE user_id = $1))`
   : 'true');
-const VISIBLE_JOIN = `LEFT JOIN doc_access a ON a.doc_id = d.id AND a.user_id = $1`;
+export const VISIBLE_JOIN = `LEFT JOIN doc_access a ON a.doc_id = d.id AND a.user_id = $1`;
 
 /**
  * Activity feed, derived rather than logged: no write on the save path and it
@@ -93,7 +94,7 @@ export function registerHomeRoutes(app, { requireUser, wrap }) {
     const today = dayIn(zoneOf(req.user));
     const space = typeof req.query.spaceId === 'string' && req.query.spaceId ? req.query.spaceId : null;
     const sp = space ? [space] : [];
-    const [activity, myTasks, recentDocs, projects, stats] = await Promise.all([
+    const [activity, myTasks, recentDocs, projects] = await Promise.all([
       pool.query(ACTIVITY_SQL(space), [uid, ...sp]),
       pool.query(MY_TASKS_SQL(space), [uid, today, ...sp]),
       pool.query(
@@ -120,34 +121,22 @@ export function registerHomeRoutes(app, { requireUser, wrap }) {
         // parameter no clause uses, so the space takes $1 when given.
         [space ?? uid, today]
       ),
-      pool.query(
-        `SELECT
-           (SELECT count(*) FROM tasks t JOIN projects p ON p.id = t.project_id
-             WHERE EXISTS (SELECT 1 FROM task_assignees ta WHERE ta.task_id = t.id AND ta.user_id = $1) AND t.status <> 'done'
-               AND t.deleted_at IS NULL AND p.archived_at IS NULL AND p.mode <> 'data' AND ${MY_SPACE('p.space_id', 3, space)}) AS my_open,
-           (SELECT count(*) FROM tasks t JOIN projects p ON p.id = t.project_id
-             WHERE EXISTS (SELECT 1 FROM task_assignees ta WHERE ta.task_id = t.id AND ta.user_id = $1) AND t.status <> 'done' AND t.due_at < $2::date
-               AND t.deleted_at IS NULL AND p.archived_at IS NULL AND p.mode <> 'data' AND ${MY_SPACE('p.space_id', 3, space)}) AS my_overdue,
-           (SELECT count(*) FROM tasks t JOIN projects p ON p.id = t.project_id
-             WHERE EXISTS (SELECT 1 FROM task_assignees ta WHERE ta.task_id = t.id AND ta.user_id = $1) AND t.status <> 'done'
-               AND t.due_at BETWEEN $2::date AND $2::date + 7
-               AND t.deleted_at IS NULL AND p.archived_at IS NULL AND p.mode <> 'data' AND ${MY_SPACE('p.space_id', 3, space)}) AS my_week,
-           (SELECT count(*) FROM docs d ${VISIBLE_JOIN}
-             WHERE d.deleted_at IS NULL AND ${VISIBLE} AND ${IN_SPACE('d.space_id', 3, space)} AND d.kind IS DISTINCT FROM 'task'
-               AND d.updated_at > now() - interval '7 days') AS docs_week`,
-        [uid, today, ...sp]
-      ),
     ]);
 
     const buckets = { overdue: [], today: [], week: [], later: [] };
     for (const t of myTasks.rows) buckets[t.bucket].push(t);
 
     res.json({
-      stats: stats.rows[0],
       myTasks: buckets,
       recentDocs: recentDocs.rows,
       activity: activity.rows,
       projects: projects.rows,
     });
+  }));
+
+  // What is waiting on me: To review, Overdue, Mentions, Changed pages (needs.js).
+  app.get('/api/home/needs', requireUser, wrap(async (req, res) => {
+    const spaceId = typeof req.query.spaceId === 'string' && req.query.spaceId ? req.query.spaceId : null;
+    res.json(await needsQueries(pool, { userId: req.user.id, spaceId, today: needsDays(req.user).today }));
   }));
 }

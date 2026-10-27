@@ -1,0 +1,7 @@
+# A throwaway stack for the Home needs-you checks, beside any other local stack.
+services:
+  server:
+    ports: !override
+      - "8093:3000"
+    environment:
+      BASE_URL: http://localhost:8093
