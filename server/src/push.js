@@ -95,13 +95,13 @@ export async function sendPush(userId, message) {
       title: message.title,
       body: String(message.body || '').slice(0, 400),
       tag: message.tag,
-      url: linkFor({ docId: message.docId, projectId: message.projectId, taskId: message.taskId }),
+      url: linkFor({ docId: message.docId, projectId: message.projectId, taskId: message.taskId, suggestionId: message.suggestionId }),
     }).catch((err) => { console.error('[fcm]', err.message); return 0; }),
   ]);
   return web + app;
 }
 
-async function sendWebPush(userId, { title, body, tag, docId, projectId, taskId }) {
+async function sendWebPush(userId, { title, body, tag, docId, projectId, taskId, suggestionId }) {
   let key;
   try {
     key = await configure();
@@ -121,7 +121,7 @@ async function sendWebPush(userId, { title, body, tag, docId, projectId, taskId 
     title,
     body: String(body || '').slice(0, 400),
     tag,
-    url: linkFor({ docId, projectId, taskId }),
+    url: linkFor({ docId, projectId, taskId, suggestionId }),
   });
 
   await Promise.all(rows.map(async (row) => {

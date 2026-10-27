@@ -3,7 +3,7 @@
 // approver reviews it like any suggestion, block by block.
 import crypto from 'node:crypto';
 import * as Y from 'yjs';
-import { appendMarkdownToDoc, replaceBodyKeepingIds } from './blocks.js';
+import { appendMarkdownToDoc, lossyBlocks, replaceBodyKeepingIds } from './blocks.js';
 import { computeChanges, docFromState, draftName, pending } from './suggestions.js';
 
 const OPEN = `SELECT * FROM doc_suggestions
@@ -81,4 +81,43 @@ export async function writeToDraft({ pool, hocuspocus, pageState, docId, title, 
     } catch (e) { console.error('[notify] ai suggestion:', e.message); }
   }
   return { sid: row.id, created, changes };
+}
+
+/** The refusal for a replace that would delete what markdown cannot carry. */
+export const lossyRefusal = (lossy) => ({
+  error: `This page holds content markdown cannot carry (${lossy.join(', ')}); replacing it would delete that. Append instead, or leave a comment.`,
+  lossy,
+});
+
+/**
+ * Where a markdown write from POST /api/docs/:id/content goes. Null: straight
+ * onto the page (a trusted writer, a task page, or a page with no body yet).
+ * Otherwise the response to send — a refusal, or the draft it landed in.
+ * `approver()` resolves who reviews, as `{ id, name }` or null.
+ */
+export async function draftEdit({ policy, kind, via, pageState, approver, pool, hocuspocus, docId, title, authorId, markdown, mode, resolve, notify }) {
+  if (policy === 'direct' || kind === 'task') return null;
+  const state = await pageState(docId);
+  if (!state || !docFromState(state).getMap('blocks').size) return null;
+  // Before anything else: a refused replace must not leave a draft behind.
+  const lossy = mode === 'replace' ? lossyBlocks(state) : [];
+  if (lossy.length) return { status: 409, body: lossyRefusal(lossy) };
+  const who = await approver();
+  if (!who) return { status: 409, body: { error: 'No one can approve edits to this page.' } };
+  let out;
+  try {
+    out = await writeToDraft({
+      pool, hocuspocus, pageState, docId, title, authorId, approverId: who.id,
+      writerVia: via === 'ai' ? 'ai' : 'agent', markdown, mode, resolve, notify,
+    });
+  } catch (e) {
+    // A page with blocks but no text body (canvas only): nothing to draft against.
+    if (e.message === 'no body') return { status: 409, body: { error: 'This page has no text body to suggest changes to. Leave a comment instead.' } };
+    throw e;
+  }
+  const { sid, changes } = out;
+  return {
+    status: 200,
+    body: { ok: true, suggested: true, suggestionId: sid, reviewUrl: `/d/${docId}?review=${sid}`, approverName: who.name, changes },
+  };
 }

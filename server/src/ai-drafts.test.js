@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import * as Y from 'yjs';
 import { buildDocState, docToMarkdown } from './blocks.js';
 import { docFromState, parseDraftName } from './suggestions.js';
-import { writeToDraft, openDraftFor } from './ai-drafts.js';
+import { writeToDraft, openDraftFor, draftEdit } from './ai-drafts.js';
 
 /** One page `d1` plus a fake pool holding doc_suggestions rows, and a fake
  *  Hocuspocus that loads a draft from its row and saves it back on disconnect. */
@@ -145,4 +145,68 @@ test('a notify that throws synchronously does not fail the saved write', async (
   });
   assert.equal(out.created, true);
   assert.equal(w.rows.length, 1);
+});
+
+// ── draftEdit: what POST /api/docs/:id/content does with a write ──────────────
+
+const edit = (w, over) => draftEdit({
+  policy: 'suggest', kind: 'doc', via: 'human', pool: w.pool, hocuspocus: w.hocuspocus,
+  pageState: async () => Buffer.from(Y.encodeStateAsUpdate(w.page)),
+  approver: async () => ({ id: 'owner', name: 'Olive' }), notify: async () => {},
+  docId: 'd1', title: 'Plan', authorId: 'ai', markdown: 'AI paragraph.\n', mode: 'append', ...over,
+});
+
+test('a direct writer, a task page and an empty page all go straight to the page', async () => {
+  const w = world();
+  assert.equal(await edit(w, { policy: 'direct' }), null);
+  assert.equal(await edit(w, { kind: 'task' }), null);
+  const empty = Buffer.from(Y.encodeStateAsUpdate(new Y.Doc()));
+  assert.equal(await edit(w, { pageState: async () => empty }), null);
+  assert.equal(await edit(w, { pageState: async () => null }), null);
+  assert.equal(w.rows.length, 0);
+});
+
+test('a suggested write lands in a draft and answers with its review link', async () => {
+  const w = world();
+  const out = await edit(w, {});
+  assert.equal(out.status, 200);
+  assert.equal(out.body.suggested, true);
+  assert.equal(out.body.reviewUrl, `/d/d1?review=${out.body.suggestionId}`);
+  assert.equal(out.body.approverName, 'Olive');
+  assert.equal(out.body.changes, 1);
+  assert.equal(w.rows[0].writer_via, 'agent');
+  const ai = await edit(w, { via: 'ai' });
+  assert.equal(w.rows.find((r) => r.id === ai.body.suggestionId).writer_via, 'ai');
+});
+
+test('a lossy replace is refused before an approver is asked or a draft is made', async () => {
+  const w = world();
+  const page = new Y.Doc();
+  Y.applyUpdate(page, Y.encodeStateAsUpdate(w.page));
+  const blocks = page.getMap('blocks');
+  const db = new Y.Map();
+  db.set('sys:id', 'db1'); db.set('sys:flavour', 'affine:database'); db.set('sys:children', new Y.Array());
+  blocks.set('db1', db);
+  let asked = false;
+  const out = await edit(w, {
+    mode: 'replace', pageState: async () => Buffer.from(Y.encodeStateAsUpdate(page)),
+    approver: async () => { asked = true; return { id: 'owner', name: 'Olive' }; },
+  });
+  assert.equal(out.status, 409);
+  assert.ok(out.body.lossy.length);
+  assert.equal(asked, false);
+  assert.equal(w.rows.length, 0);
+});
+
+test('a page nobody can approve refuses the write and makes no draft', async () => {
+  const w = world();
+  const out = await edit(w, { approver: async () => null });
+  assert.deepEqual(out, { status: 409, body: { error: 'No one can approve edits to this page.' } });
+  assert.equal(w.rows.length, 0);
+});
+
+test('a page the draft cannot write a body into is refused, not a server error', async () => {
+  const w = world();
+  const out = await edit(w, { hocuspocus: { async openDirectConnection() { throw new Error('no body'); } } });
+  assert.equal(out.status, 409);
 });

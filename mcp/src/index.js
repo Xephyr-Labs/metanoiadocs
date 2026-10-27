@@ -36,12 +36,13 @@ if (!BASE || !TOKEN) {
   process.exit(1);
 }
 
-async function api(path, { method = 'GET', body } = {}) {
+async function api(path, { method = 'GET', body, headers } = {}) {
   const res = await fetch(`${BASE}/api${path}`, {
     method,
     headers: {
       Authorization: `Bearer ${TOKEN}`,
       ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+      ...headers,
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
@@ -54,6 +55,14 @@ async function api(path, { method = 'GET', body } = {}) {
   }
   return data;
 }
+
+// Who asked for an edit; they review it when it comes back as a suggestion.
+// metanoiadocs-runner sets the env var to the person who queued the run.
+const onBehalfOfInput = z.string().optional().describe('Email or username of the person who asked for this edit; they review it');
+const asked = (who) => {
+  const w = who || process.env.METANOIA_ON_BEHALF_OF;
+  return w ? { 'X-On-Behalf-Of': w } : undefined;
+};
 
 const ok = (obj) => ({ content: [{ type: 'text', text: typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2) }] });
 const fail = (e) => ({ isError: true, content: [{ type: 'text', text: `Error: ${e.message || e}` }] });
@@ -110,11 +119,11 @@ server.registerTool(
   'read_doc',
   {
     title: 'Read a doc',
-    description: 'Get a doc\'s title and its body as markdown (links to other docs as [[Title]]) by id. Edit that markdown and write it back with write_doc mode=replace.',
-    inputSchema: { id: z.string().describe('Document id') },
+    description: 'Get a doc\'s title and its body as markdown (links to other docs as [[Title]]) by id. Edit that markdown and write it back with write_doc mode=replace. If you have edits waiting for review on the page, you read your draft (with `pendingSuggestion`); pass the same onBehalfOf you write with.',
+    inputSchema: { id: z.string().describe('Document id'), onBehalfOf: onBehalfOfInput },
   },
-  async ({ id }) => {
-    try { return ok(await api(`/docs/${encodeURIComponent(id)}/markdown`)); } catch (e) { return fail(e); }
+  async ({ id, onBehalfOf }) => {
+    try { return ok(await api(`/docs/${encodeURIComponent(id)}/markdown`, { headers: asked(onBehalfOf) })); } catch (e) { return fail(e); }
   },
 );
 
@@ -144,16 +153,18 @@ server.registerTool(
   {
     title: 'Write to a doc',
     description:
-      'Append or replace a doc\'s content with markdown. mode=append (default) adds to the end; mode=replace overwrites. Link another doc with [[Doc title]] or [[doc id]]. To edit, read_doc, change that markdown and send all of it back with mode=replace. Changes appear when the doc is next opened.',
+      'Append or replace a doc\'s content with markdown. mode=append (default) adds to the end; mode=replace overwrites. Link another doc with [[Doc title]] or [[doc id]]. To edit, read_doc, change that markdown and send all of it back with mode=replace. Changes appear when the doc is next opened. An edit to an existing page may come back as a suggestion instead: a person reviews it before it lands, and you get a review link — share it with whoever asked. Pass onBehalfOf so the person who asked is the one who reviews it.',
     inputSchema: {
       id: z.string().describe('Document id'),
       markdown: z.string().describe('Markdown content'),
       mode: z.enum(['append', 'replace']).optional(),
+      onBehalfOf: onBehalfOfInput,
     },
   },
-  async ({ id, markdown, mode }) => {
+  async ({ id, markdown, mode, onBehalfOf }) => {
     try {
-      const r = await api(`/docs/${encodeURIComponent(id)}/content`, { method: 'POST', body: { markdown, mode } });
+      const r = await api(`/docs/${encodeURIComponent(id)}/content`, { method: 'POST', body: { markdown, mode }, headers: asked(onBehalfOf) });
+      if (r?.suggested) return ok(`Suggested ${r.changes} changes for ${r.approverName || 'the page owner'} to review: ${PUBLIC}${r.reviewUrl}`);
       return ok(r?.unresolvedLinks ? { done: true, unresolvedLinks: r.unresolvedLinks } : 'Done.');
     }
     catch (e) { return fail(e); }

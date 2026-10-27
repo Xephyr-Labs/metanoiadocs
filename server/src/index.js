@@ -46,7 +46,7 @@ import { deleteUnusedAudio } from './blob-cleanup.js';
 import { docCommentRecipients } from './comment-recipients.js';
 import { buildDocState, appendMarkdownToDoc, appendPageReference, extractText, extractBlocks, docToMarkdown, fixTableOrderKeys, stateWithValidTableKeys, linkResolver, linkLabeler, pageLinksOf, lossyBlocks } from './blocks.js';
 import { rewriteDoc } from './restore.js';
-import { applyTextSuggestion, parseDraftName, registerSuggestionRoutes } from './suggestions.js';
+import { applyTextSuggestion, draftName, pageStateFrom, parseDraftName, registerSuggestionRoutes } from './suggestions.js';
 import { registerReactionRoutes, withReactions } from './reactions.js';
 import { wouldFolderCycle } from './folders.js';
 import { bodyHtml, printHtml } from './print.js';
@@ -78,7 +78,8 @@ import { TRASH_RETENTION_DAYS, startTrashSweeper } from './retention.js';
 import { startReminders } from './reminders.js';
 import { dayIn, isZone, zoneOf } from './timezone.js';
 import { byJoinedFirst } from './spaces.js';
-import { ROLE_RANK, rankOf, canEdit } from './approval.js';
+import { ROLE_RANK, rankOf, canEdit, writePolicy, resolveApprover } from './approval.js';
+import { draftEdit, lossyRefusal, openDraftFor } from './ai-drafts.js';
 import OpenAI from 'openai';
 
 process.on('unhandledRejection', (e) => console.error('[proc] unhandledRejection', e?.message || e));
@@ -1084,13 +1085,28 @@ app.get('/api/docs/:id/markdown', requireUser, wrap(async (req, res) => {
   const d = await pool.query('SELECT title FROM docs WHERE id = $1 AND deleted_at IS NULL', [req.params.id]);
   if (!d.rows[0]) return res.status(404).json({ error: 'not found' });
   const s = await pool.query('SELECT state FROM doc_states WHERE doc_id = $1', [req.params.id]);
+  let state = s.rows[0]?.state;
+  // A writer whose edits become suggestions reads its own open draft, so a
+  // read-change-replace builds on what it already proposed.
+  let pendingSuggestion;
+  if (writePolicy({ user: req.user, via: req.via, token: req.token }) === 'suggest') {
+    const who = await approverFor(req, req.params.id);
+    const draft = who && await openDraftFor({
+      pool, docId: req.params.id, authorId: req.user.id, approverId: who.id, writerVia: req.via === 'ai' ? 'ai' : 'agent',
+    });
+    if (draft) {
+      const live = hocuspocus.documents.get(draftName(req.params.id, draft.id));
+      state = live ? Buffer.from(Y.encodeStateAsUpdate(live)) : draft.state;
+      pendingSuggestion = { id: draft.id, reviewUrl: `/d/${req.params.id}?review=${draft.id}` };
+    }
+  }
   let markdown = '';
   let lossy = [];
-  if (s.rows[0]) {
+  if (state) {
     const { label } = await docLinkContext(req.user.id);
     try {
-      markdown = docToMarkdown(s.rows[0].state, { resolveTitle: label, escape: true }).markdown;
-      lossy = lossyBlocks(s.rows[0].state);
+      markdown = docToMarkdown(state, { resolveTitle: label, escape: true }).markdown;
+      lossy = lossyBlocks(state);
     } catch { /* empty */ }
   }
   const { rows: editors } = await pool.query(
@@ -1101,8 +1117,24 @@ app.get('/api/docs/:id/markdown', requireUser, wrap(async (req, res) => {
   );
   // `lossy` names what this markdown leaves out; write_doc refuses a replace
   // while the page holds any of it.
-  res.json({ id: req.params.id, title: d.rows[0].title, markdown, ...(lossy.length ? { lossy } : {}), editors });
+  res.json({ id: req.params.id, title: d.rows[0].title, markdown, ...(lossy.length ? { lossy } : {}), ...(pendingSuggestion ? { pendingSuggestion } : {}), editors });
 }));
+
+/** Who reviews this caller's AI edits on a page, as { id, name }; null when nobody can. */
+async function approverFor(req, docId) {
+  const id = await resolveApprover({
+    via: req.via, user: req.user, onBehalfOf: req.get('X-On-Behalf-Of'), docId,
+    lookupMember: async (who) => (await pool.query(
+      `SELECT id, kind FROM users WHERE lower(email) = lower($1) OR lower(username) = lower($1)
+        ORDER BY lower(email) = lower($1) DESC LIMIT 1`, [who])).rows[0] ?? null,
+    roleOn: grantOn,
+    ownerOf: async (doc) => (await pool.query(
+      "SELECT user_id FROM doc_access WHERE doc_id = $1 AND role = 'owner' LIMIT 1", [doc])).rows[0]?.user_id ?? null,
+  });
+  if (!id) return null;
+  const { rows: [u] } = await pool.query('SELECT name, email FROM users WHERE id = $1', [id]);
+  return { id, name: u?.name || u?.email || 'the page owner' };
+}
 
 // ── export ──────────────────────────────────────────────────────────────────
 
@@ -1209,15 +1241,25 @@ app.post('/api/docs/:id/content', requireUser, wrap(async (req, res) => {
   if (!(await editGrant(docId, req.user.id))) return res.status(403).json({ error: 'forbidden' });
   const markdown = String(req.body?.markdown || '');
   const mode = req.body?.mode === 'replace' ? 'replace' : 'append';
-  const d = await pool.query('SELECT title FROM docs WHERE id = $1 AND deleted_at IS NULL', [docId]);
+  const d = await pool.query('SELECT title, kind FROM docs WHERE id = $1 AND deleted_at IS NULL', [docId]);
   if (!d.rows[0]) return res.status(404).json({ error: 'not found' });
+  const { resolve } = await docLinkContext(req.user.id);
+
+  // An untrusted writer's edit to a page with a body lands in a draft for a
+  // person to review, never on the page (see ai-drafts.js).
+  const drafted = await draftEdit({
+    policy: writePolicy({ user: req.user, via: req.via, token: req.token }), kind: d.rows[0].kind, via: req.via,
+    pageState: pageStateFrom(pool, () => hocuspocus), approver: () => approverFor(req, docId),
+    pool, hocuspocus, docId, title: d.rows[0].title, authorId: req.user.id, markdown, mode, resolve,
+    notify: (n) => notifyUser({ ...n, actor: req.user }),
+  });
+  if (drafted) return res.status(drafted.status).json(drafted.body);
 
   // A replace swaps the whole body, which is what restoring a version does —
   // same primitive, so the same one is used. An append on a doc with no body
   // yet has nothing to append to, and becomes the same wholesale write.
   let state;
   let rewrote = mode === 'replace';
-  const { resolve } = await docLinkContext(req.user.id);
   const conn = await hocuspocus.openDirectConnection(docId, { docId, user: req.user });
   try {
     // A replace throws the whole body away, so it is undoable from History the
@@ -1227,7 +1269,7 @@ app.post('/api/docs/:id/content', requireUser, wrap(async (req, res) => {
     // Markdown cannot carry these; replacing the body would delete them.
     const lossy = mode === 'replace' && had ? lossyBlocks(Y.encodeStateAsUpdate(conn.document)) : [];
     if (lossy.length) {
-      res.status(409).json({ error: `This page holds content markdown cannot carry (${lossy.join(', ')}); replacing it would delete that. Append instead, or leave a comment.`, lossy });
+      res.status(409).json(lossyRefusal(lossy));
       return;
     }
     if (mode === 'replace' && had) {
@@ -3251,27 +3293,28 @@ app.post('/api/comments/:cid/decision', requireUser, wrap(async (req, res) => {
 }));
 
 /** One inbox row plus a push, for events aimed at a single person. */
-async function notifyUser({ userId, actor, docId, commentId = null, kind, body, title }) {
+async function notifyUser({ userId, actor, docId, commentId = null, suggestionId = null, kind, body, title }) {
   const doc = await pool.query('SELECT title FROM docs WHERE id = $1', [docId]);
   const docTitle = doc.rows[0]?.title || 'Untitled';
   const actorName = actor.name || actor.email;
   const rowId = crypto.randomUUID();
   await pool.query(
-    `INSERT INTO notifications (id, user_id, actor_id, actor_name, doc_id, comment_id, kind, body)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-    [rowId, userId, actor.id, actorName, docId, commentId, kind, String(body || '').slice(0, 280)]
+    `INSERT INTO notifications (id, user_id, actor_id, actor_name, doc_id, comment_id, suggestion_id, kind, body)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+    [rowId, userId, actor.id, actorName, docId, commentId, suggestionId, kind, String(body || '').slice(0, 280)]
   );
   const heading = title || `${actorName} ${NOTIFY_VERBS[kind] || 'updated'} "${docTitle}"`;
-  sendPush(userId, { title: heading, body: String(body || '').slice(0, 280), tag: rowId, docId })
+  sendPush(userId, { title: heading, body: String(body || '').slice(0, 280), tag: rowId, docId, suggestionId })
     .catch((e) => console.error('[push] notify:', e.message));
   const { rows: [u] } = await pool.query('SELECT email FROM users WHERE id = $1', [userId]);
-  if (u?.email) sendNotificationEmail(u.email, heading, String(body || '').slice(0, 280), `${BASE_URL}${linkFor({ docId })}`);
+  if (u?.email) sendNotificationEmail(u.email, heading, String(body || '').slice(0, 280), `${BASE_URL}${linkFor({ docId, suggestionId })}`);
 }
 const NOTIFY_VERBS = {
   suggestion_accepted: 'accepted your suggestion on',
   suggestion_rejected: 'declined your suggestion on',
   review_requested: 'asked you to review changes to',
   review_done: 'reviewed your changes to',
+  ai_suggestion: 'suggested changes to',
 };
 
 // Rewrite a comment. The author's own only — an owner may delete a comment on
