@@ -68,10 +68,19 @@ test('review: submitted, not mine, approver or editor on a plain draft', async (
   await needsQueries(pool, { userId: 'u1', spaceId: null, today: '2026-10-28' });
   const sql = flat(pool.sqlOf('review').sql);
   assert.match(sql, /s\.status = 'submitted'/);
-  assert.match(sql, /s\.author_id <> \$1/);
-  assert.match(sql, /s\.approver_id = \$1 OR \(s\.approver_id IS NULL AND s\.writer_via IS NULL AND/);
+  assert.match(sql, /s\.approver_id = \$1 OR \(s\.author_id <> \$1 AND s\.approver_id IS NULL AND s\.writer_via IS NULL AND/);
   assert.match(sql, /a\.role IN \('editor', 'owner'\)/);
   assert.match(sql, /d\.is_template/);
+});
+
+test('review: an Ask AI draft I authored still shows when I am its approver', async () => {
+  const pool = fakePool();
+  await needsQueries(pool, { userId: 'u1', spaceId: null, today: '2026-10-28' });
+  const sql = flat(pool.sqlOf('review').sql);
+  // The author exclusion lives only inside the plain-draft branch, never before the approver branch.
+  assert.doesNotMatch(sql, /author_id <> \$1 AND \(s\.approver_id/);
+  assert.doesNotMatch(sql, /s\.status = 'submitted' AND s\.author_id/);
+  assert.match(sql, /AND \(s\.approver_id = \$1 OR \(s\.author_id <> \$1/);
 });
 
 test('changed: someone else changed it since I last opened it', async () => {

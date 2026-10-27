@@ -32,10 +32,11 @@ const REVIEW_SQL = (space) => `
     FROM doc_suggestions s JOIN docs d ON d.id = s.doc_id
     ${VISIBLE_JOIN}
     JOIN users u ON u.id = s.author_id
-   WHERE s.status = 'submitted' AND s.author_id <> $1
+   WHERE s.status = 'submitted'
      AND d.deleted_at IS NULL AND ${VISIBLE} AND ${IN_SPACE('d.space_id', 2, space)}
-     -- An AI draft is decided by its one approver; a person's draft by anyone who can edit.
-     AND (s.approver_id = $1 OR (s.approver_id IS NULL AND s.writer_via IS NULL AND ${EDITOR}))
+     -- An AI draft is decided by its one approver, even when that is its author
+     -- (Ask AI drafts as me, for me); a person's draft by anyone else who can edit.
+     AND (s.approver_id = $1 OR (s.author_id <> $1 AND s.approver_id IS NULL AND s.writer_via IS NULL AND ${EDITOR}))
    ORDER BY s.submitted_at DESC NULLS LAST
    LIMIT ${LIMIT}`;
 
