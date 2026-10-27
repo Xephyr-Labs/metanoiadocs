@@ -88,30 +88,35 @@ await step('2 who may decide', async () => {
   const a = await untrustedTok.raw('POST', `/api/suggestions/${sid}/decide`, { all: 'accept' });
   check('2 untrusted agent token decide -> 403', a.status === 403, `${a.status}`);
   const v = await viewer.raw('POST', `/api/suggestions/${sid}/decide`, { all: 'accept' });
-  check('2 viewer decide -> 403 (or 404, not visible)', v.status === 403 || v.status === 404, `${v.status} ${JSON.stringify(v.json)}`);
+  // 404, not 403: a viewer can't see the draft at all, so it "does not exist" for them.
+  check('2 viewer decide -> 404', v.status === 404, `${v.status} ${JSON.stringify(v.json)}`);
   check('2 page still unchanged after refusals', !(await md(page)).includes('cherries'));
 });
 
 await step('3 browser review (before accept)', async () => {
   const browser = await chromium.launch();
+  try {
   const open = async (who, path) => {
     const ctx = await browser.newContext({ viewport: { width: 1400, height: 1000 } });
     await ctx.addCookies(who.cookie.split('; ').map((c) => { const i = c.indexOf('='); return { name: c.slice(0, i), value: c.slice(i + 1), url: BASE }; }));
     const p = await ctx.newPage();
     await p.goto(BASE + path);
-    await p.waitForTimeout(5000);
     return { ctx, p };
   };
   const f = await open(farhanaj, `/d/${page}?review=${sid}`);
+  await f.p.getByRole('button', { name: /^Accept/ }).first().waitFor({ timeout: 15000 });
   const txt = await f.p.locator('body').innerText();
   const acc = await f.p.getByRole('button', { name: /^Accept/ }).count();
   check('3 Farhanaj: review shows the change and Accept buttons', acc > 0 && /cherries/.test(txt), `accept=${acc} cherries=${/cherries/.test(txt)}`);
   check('3 Farhanaj: address no longer has ?review=', !f.p.url().includes('review='), f.p.url());
   await f.p.screenshot({ path: '/tmp/ai-approval-farhanaj.png' });
   const v = await open(viewer, `/d/${page}?review=${sid}`);
+  // Positive control: the page itself loaded for the viewer (live text visible).
+  await v.p.getByText('plums').first().waitFor({ timeout: 15000 });
+  await v.p.waitForTimeout(1500);
   const vacc = await v.p.getByRole('button', { name: /^Accept/ }).count();
   check('3 viewer: no Accept buttons', vacc === 0, `accept=${vacc}`);
-  await browser.close();
+  } finally { await browser.close(); }
 });
 
 await step('4 accept', async () => {
