@@ -511,22 +511,30 @@ export function parseDraftName(name) {
   return { docId: name.slice(0, i), sid: name.slice(i + DRAFT_MARK.length) };
 }
 
+const liveStateOf = (hocuspocus, name) => {
+  const live = hocuspocus.documents.get(name);
+  return live ? Buffer.from(Y.encodeStateAsUpdate(live)) : null;
+};
+
+/** A page's current state: the open document if someone has it, else the saved row. */
+export const pageStateFrom = (pool, getHocuspocus) => async (docId) => {
+  const live = liveStateOf(getHocuspocus(), docId);
+  if (live) return live;
+  const { rows } = await pool.query('SELECT state FROM doc_states WHERE doc_id = $1', [docId]);
+  return rows[0]?.state ?? null;
+};
+
+/** The changes not yet decided (a change edited since its decision counts again). */
+export const pending = (changes, decisions) => changes.filter((c) => decisions?.[c.id]?.sig !== c.sig);
+
 /**
  * @param {object} deps
  * @param {() => import('@hocuspocus/server').Hocuspocus} deps.getHocuspocus
  *   A getter: the sync server is constructed after the routes are registered.
  */
 export function registerSuggestionRoutes(app, { requireUser, wrap, pool, grantOn, canEdit, canSuggest, getHocuspocus, notifyUser, recordDocEditors }) {
-  const liveState = (name) => {
-    const live = getHocuspocus().documents.get(name);
-    return live ? Buffer.from(Y.encodeStateAsUpdate(live)) : null;
-  };
-  const pageState = async (docId) => {
-    const live = liveState(docId);
-    if (live) return live;
-    const { rows } = await pool.query('SELECT state FROM doc_states WHERE doc_id = $1', [docId]);
-    return rows[0]?.state ?? null;
-  };
+  const liveState = (name) => liveStateOf(getHocuspocus(), name);
+  const pageState = pageStateFrom(pool, getHocuspocus);
   const draftState = (row) => liveState(draftName(row.doc_id, row.id)) || row.state;
 
   /** Tell an open draft it is finished, then cut it off. Without the message
@@ -554,8 +562,6 @@ export function registerSuggestionRoutes(app, { requireUser, wrap, pool, grantOn
     const reviewer = row.approver_id ? user.id === row.approver_id : canEdit(role);
     return { row, role, mine, reviewer };
   }
-
-  const pending = (changes, decisions) => changes.filter((c) => decisions?.[c.id]?.sig !== c.sig);
 
   const summary = (row) => ({
     id: row.id,
