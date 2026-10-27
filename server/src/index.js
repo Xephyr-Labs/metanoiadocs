@@ -78,7 +78,7 @@ import { TRASH_RETENTION_DAYS, startTrashSweeper } from './retention.js';
 import { startReminders } from './reminders.js';
 import { dayIn, isZone, zoneOf } from './timezone.js';
 import { byJoinedFirst } from './spaces.js';
-import { ROLE_RANK, rankOf, canEdit, writePolicy, resolveApprover, untrusted, needsPerson, isPerson, pageSyncRole } from './approval.js';
+import { ROLE_RANK, rankOf, canEdit, writePolicy, resolveApprover, untrusted, needsPerson, isPerson, pageSyncRole, mintAgentToken } from './approval.js';
 import { draftEdit, draftToRead, lossyRefusal } from './ai-drafts.js';
 import OpenAI from 'openai';
 
@@ -534,16 +534,8 @@ app.post('/api/tokens', requireUser, needsPerson, async (req, res) => {
 });
 
 // An agent cannot mint its own credentials, so an admin person mints one for
-// it here. Plaintext is returned once; only the hash is stored.
-app.post('/api/admin/users/:id/tokens', requireUser, requireAdmin, needsPerson, wrap(async (req, res) => {
-  const { rows } = await pool.query('SELECT id FROM users WHERE id = $1', [req.params.id]);
-  if (!rows[0]) return res.status(404).json({ error: 'No such member.' });
-  const name = String(req.body?.name || '').trim().slice(0, 60) || 'API token';
-  const secret = 'mtn_' + crypto.randomBytes(24).toString('base64url');
-  const id = crypto.randomUUID();
-  await pool.query('INSERT INTO api_tokens (id, user_id, name, token_hash) VALUES ($1, $2, $3, $4)', [id, req.params.id, name, sha256(secret)]);
-  res.json({ id, name, token: secret });
-}));
+// it here (agent accounts only). Plaintext is returned once; only the hash is stored.
+app.post('/api/admin/users/:id/tokens', requireUser, requireAdmin, needsPerson, wrap(mintAgentToken(pool, sha256)));
 
 // Admin: every token of every account, so trust can be granted per token.
 // Never the hash.

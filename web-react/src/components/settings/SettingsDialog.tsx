@@ -711,7 +711,7 @@ function Members() {
                     m.kind === 'agent'
                       ? { icon: User, label: 'Mark as a person', onSelect: () => changeKind(m, 'person') }
                       : { icon: Bot, label: 'Mark as an agent', onSelect: () => changeKind(m, 'agent') },
-                    { icon: KeyRound, label: 'Create API token', onSelect: () => mintToken(m) },
+                    ...(m.kind === 'agent' ? [{ icon: KeyRound, label: 'Create API token', onSelect: () => mintToken(m) }] : []),
                     { icon: Trash2, label: 'Remove from workspace', danger: true, separatorBefore: true, onSelect: () => { setMsg(null); setConfirming(m.id); } },
                   ]}
                   trigger={

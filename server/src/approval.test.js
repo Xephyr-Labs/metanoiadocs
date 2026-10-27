@@ -135,3 +135,20 @@ test('token minting and deleting need a person; admins mint for others', () => {
   }
   assert.match(src.split('\n').find((l) => l.includes("app.post('/api/admin/users/:id/tokens'")), /\brequireAdmin\b/);
 });
+
+test('admin token mint: agent accounts only (a person would be impersonated)', async () => {
+  const { mintAgentToken } = await import('./approval.js');
+  const run = async (kind) => {
+    const inserts = [];
+    const pool = { query: async (sql, p) => (/^SELECT/.test(sql) ? { rows: kind ? [{ kind }] : [] } : (inserts.push(p), { rows: [] })) };
+    let out = { status: 200, body: null };
+    const res = { status(c) { out.status = c; return this; }, json(b) { out.body = b; } };
+    await mintAgentToken(pool, (s) => 'h:' + s)({ params: { id: 'u1' }, body: { name: 'x' } }, res);
+    return { ...out, inserts };
+  };
+  const person = await run('person');
+  assert.equal(person.status, 400); assert.equal(person.inserts.length, 0);
+  assert.equal((await run(null)).status, 404);
+  const agent = await run('agent');
+  assert.equal(agent.status, 200); assert.match(agent.body.token, /^mtn_/); assert.equal(agent.inserts[0][3], 'h:' + agent.body.token);
+});

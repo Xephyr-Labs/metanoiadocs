@@ -1,3 +1,4 @@
+import { randomBytes, randomUUID } from 'node:crypto';
 /** Whether a write to an existing page lands directly or becomes a suggestion. */
 export function writePolicy({ user, via, token }) {
   if (via === 'ai') return 'suggest'; // Ask AI is never trusted
@@ -54,3 +55,15 @@ export async function resolveApprover({ via, user, onBehalfOf, docId, lookupMemb
   // A writer never approves its own edit (an agent that owns the page it wrote).
   return id === user.id ? null : id;
 }
+
+/** Admin mints an API token for an agent account. Never for a person: that would be impersonation. */
+export const mintAgentToken = (pool, hash) => async (req, res) => {
+  const { rows } = await pool.query('SELECT kind FROM users WHERE id = $1', [req.params.id]);
+  if (!rows[0]) return res.status(404).json({ error: 'No such member.' });
+  if (rows[0].kind !== 'agent') return res.status(400).json({ error: 'Tokens can only be created for agent accounts.' });
+  const name = String(req.body?.name || '').trim().slice(0, 60) || 'API token';
+  const secret = 'mtn_' + randomBytes(24).toString('base64url');
+  const id = randomUUID();
+  await pool.query('INSERT INTO api_tokens (id, user_id, name, token_hash) VALUES ($1, $2, $3, $4)', [id, req.params.id, name, hash(secret)]);
+  res.json({ id, name, token: secret });
+};
