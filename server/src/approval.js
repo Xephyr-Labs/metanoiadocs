@@ -8,9 +8,16 @@ export function writePolicy({ user, via, token }) {
 /** A caller whose writes only ever become suggestions: it may not decide them, or rewrite a page any other way. */
 export const untrusted = (req) => writePolicy({ user: req.user, via: req.via, token: req.token }) === 'suggest';
 
-/** Route guard: an untrusted caller may not change who is trusted (tokens, account kind, roles). */
-export function refuseUntrusted(req, res, next) {
-  if (untrusted(req)) return res.status(403).json({ error: 'This needs a person: an AI or agent cannot change trust, account kinds or roles.' });
+/**
+ * A person signed in as themselves: not an agent account (trusted token or
+ * not) and not Ask AI. Trust lets an agent write pages directly; it never lets
+ * it decide on approvals or change who is trusted.
+ */
+export const isPerson = (req) => req.user?.kind !== 'agent' && req.via !== 'ai';
+
+/** Route guard: only a person may change accounts, invites, trust, roles, kinds or workspace settings. */
+export function needsPerson(req, res, next) {
+  if (!isPerson(req)) return res.status(403).json({ error: 'This needs a person: an AI or agent cannot change accounts, trust, roles or workspace settings.' });
   next();
 }
 

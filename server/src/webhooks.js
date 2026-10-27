@@ -6,6 +6,7 @@
 // does the HTTP, on its own schedule, out of the request's way. Nothing here is
 // awaited by the route that triggered it and nothing here throws at its caller.
 import crypto from 'node:crypto';
+import { needsPerson } from './approval.js';
 import { pool } from './db.js';
 
 /**
@@ -290,7 +291,7 @@ export function registerWebhookRoutes(app, { requireUser, requireAdmin, wrap }) 
     res.json(WEBHOOK_EVENTS);
   }));
 
-  app.post('/api/webhooks', requireUser, requireAdmin, wrap(async (req, res) => {
+  app.post('/api/webhooks', requireUser, requireAdmin, needsPerson, wrap(async (req, res) => {
     const url = String(req.body?.url || '').trim();
     if (!validWebhookUrl(url)) return res.status(400).json({ error: 'Enter an http(s) URL.' });
     const events = Array.isArray(req.body?.events)
@@ -308,7 +309,7 @@ export function registerWebhookRoutes(app, { requireUser, requireAdmin, wrap }) 
     res.json({ ...publicHook(rows[0]), secret });
   }));
 
-  app.patch('/api/webhooks/:id', requireUser, requireAdmin, wrap(async (req, res) => {
+  app.patch('/api/webhooks/:id', requireUser, requireAdmin, needsPerson, wrap(async (req, res) => {
     const sets = [];
     const vals = [];
     const set = (sql, v) => { vals.push(v); sets.push(`${sql} = $${vals.length}`); };
@@ -336,7 +337,7 @@ export function registerWebhookRoutes(app, { requireUser, requireAdmin, wrap }) 
     res.json(publicHook(rows[0]));
   }));
 
-  app.post('/api/webhooks/:id/rotate', requireUser, requireAdmin, wrap(async (req, res) => {
+  app.post('/api/webhooks/:id/rotate', requireUser, requireAdmin, needsPerson, wrap(async (req, res) => {
     const secret = crypto.randomBytes(32).toString('base64url');
     const { rows } = await pool.query(
       'UPDATE webhooks SET secret = $2 WHERE id = $1 RETURNING *', [req.params.id, secret]);
@@ -345,7 +346,7 @@ export function registerWebhookRoutes(app, { requireUser, requireAdmin, wrap }) 
     res.json({ ...publicHook(rows[0]), secret });
   }));
 
-  app.delete('/api/webhooks/:id', requireUser, requireAdmin, wrap(async (req, res) => {
+  app.delete('/api/webhooks/:id', requireUser, requireAdmin, needsPerson, wrap(async (req, res) => {
     await pool.query('DELETE FROM webhooks WHERE id = $1', [req.params.id]);
     forgetHooks();
     res.json({ ok: true });
@@ -353,7 +354,7 @@ export function registerWebhookRoutes(app, { requireUser, requireAdmin, wrap }) 
 
   // Send one now and say what came back. Awaited, unlike a real emit: the whole
   // point is the answer, and the person is sitting there waiting for it.
-  app.post('/api/webhooks/:id/test', requireUser, requireAdmin, wrap(async (req, res) => {
+  app.post('/api/webhooks/:id/test', requireUser, requireAdmin, needsPerson, wrap(async (req, res) => {
     const { rows } = await pool.query('SELECT * FROM webhooks WHERE id = $1', [req.params.id]);
     if (!rows[0]) return res.status(404).json({ error: 'not found' });
     const payload = { message: 'Test delivery from MetanoiaDocs.', by: req.user.id };

@@ -154,6 +154,16 @@ await step('8 an admin agent cannot switch approval off', async () => {
   check('8 untrusted admin agent changing a role -> 403', r.status === 403, `${r.status}`);
   const c = await andy.raw('PUT', `/api/admin/tokens/${untrustedId}/trusted`, { trusted: true });
   check('8 agent cookie session -> 403 too', c.status === 403, `${c.status}`);
+  const i = await untrustedTok.raw('POST', '/api/invites', { email: 'sock@example.com' });
+  check('8 admin agent inviting an address -> 403', i.status === 403, `${i.status}`);
+  check('8 no invite row for it', sql("SELECT count(*) FROM invites WHERE email = 'sock@example.com'") === '0');
+  const tt = await trustedTok.raw('PUT', `/api/admin/tokens/${untrustedId}/trusted`, { trusted: true });
+  check('8 trusted admin agent trusting another token -> 403', tt.status === 403, `${tt.status}`);
+  check('8 token still untrusted after trusted-token try', sql(`SELECT trusted FROM api_tokens WHERE id = '${untrustedId}'`) === 'f');
+  const del = await trustedTok.raw('DELETE', `/api/users/${users.viewer}`);
+  check('8 trusted admin agent deleting a member -> 403', del.status === 403, `${del.status}`);
+  const dec = await trustedTok.raw('POST', `/api/suggestions/${sid}/decide`, { all: 'reject' });
+  check('8 trusted agent deciding a suggestion -> 403', dec.status === 403, `${dec.status}`);
 });
 
 console.log(failed ? `\n${failed} FAILED` : '\nall passed');

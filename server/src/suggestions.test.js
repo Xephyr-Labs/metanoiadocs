@@ -417,7 +417,7 @@ test('applying an AI draft stamps the page as AI-edited by the approver', async 
   else assert.fail('nothing applied');
 });
 
-test('an AI or untrusted agent cannot decide a draft, even one it may review', async () => {
+test('an AI or any agent, trusted or not, cannot decide a draft, even one it may review', async () => {
   const routes = {};
   const app = { get() {}, delete() {}, post: (path, ...h) => { routes[path] = h[h.length - 1]; } };
   let touched = false;
@@ -431,6 +431,7 @@ test('an AI or untrusted agent cannot decide a draft, even one it may review', a
   for (const caller of [
     { user: { id: 'andy', kind: 'agent' }, via: 'human', token: { id: 't', trusted: false } },
     { user: { id: 'u1', kind: 'person' }, via: 'ai', token: null },
+    { user: { id: 'andy', kind: 'agent' }, via: 'human', token: { id: 't2', trusted: true } },
   ]) {
     let code; let out;
     await routes['/api/suggestions/:sid/decide'](

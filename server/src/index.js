@@ -78,7 +78,7 @@ import { TRASH_RETENTION_DAYS, startTrashSweeper } from './retention.js';
 import { startReminders } from './reminders.js';
 import { dayIn, isZone, zoneOf } from './timezone.js';
 import { byJoinedFirst } from './spaces.js';
-import { ROLE_RANK, rankOf, canEdit, writePolicy, resolveApprover, untrusted, refuseUntrusted, pageSyncRole } from './approval.js';
+import { ROLE_RANK, rankOf, canEdit, writePolicy, resolveApprover, untrusted, needsPerson, isPerson, pageSyncRole } from './approval.js';
 import { draftEdit, draftToRead, lossyRefusal } from './ai-drafts.js';
 import OpenAI from 'openai';
 
@@ -546,7 +546,7 @@ app.get('/api/admin/tokens', requireUser, requireAdmin, async (_req, res) => {
   })));
 });
 
-app.put('/api/admin/tokens/:id/trusted', requireUser, requireAdmin, refuseUntrusted, async (req, res) => {
+app.put('/api/admin/tokens/:id/trusted', requireUser, requireAdmin, needsPerson, async (req, res) => {
   if (typeof req.body?.trusted !== 'boolean') return res.status(400).json({ error: 'trusted must be true or false' });
   const { rowCount } = await pool.query('UPDATE api_tokens SET trusted = $2 WHERE id = $1', [req.params.id, req.body.trusted]);
   if (!rowCount) return res.status(404).json({ error: 'No such token.' });
@@ -609,7 +609,7 @@ app.get('/api/admin/integrity', requireUser, requireAdmin, wrap(async (req, res)
   res.json({ ...r, issues: r.issues.map((i) => (seen.get(i.docId) ? i : { ...i, title: 'A page you cannot open' })) });
 }));
 
-app.patch('/api/users/:id/role', requireUser, requireAdmin, refuseUntrusted, async (req, res) => {
+app.patch('/api/users/:id/role', requireUser, requireAdmin, needsPerson, async (req, res) => {
   const role = req.body?.role === 'admin' ? 'admin' : 'collaborator';
   if (req.params.id === req.user.id && role !== 'admin') {
     return res.status(400).json({ error: "You can't demote yourself." });
@@ -633,7 +633,7 @@ app.patch('/api/users/:id/role', requireUser, requireAdmin, refuseUntrusted, asy
 // claim worth protecting, so only an admin can set it, and only for someone
 // else. Marking yourself an agent would be the one move a misbehaving token
 // could make to cover its tracks.
-app.patch('/api/users/:id/kind', requireUser, requireAdmin, refuseUntrusted, async (req, res) => {
+app.patch('/api/users/:id/kind', requireUser, requireAdmin, needsPerson, async (req, res) => {
   const kind = req.body?.kind === 'agent' ? 'agent' : 'person';
   if (req.params.id === req.user.id) {
     return res.status(400).json({ error: "You can't change your own account kind." });
@@ -645,7 +645,7 @@ app.patch('/api/users/:id/kind', requireUser, requireAdmin, refuseUntrusted, asy
 });
 
 // Admin: remove a member. Their owned docs transfer to you so nothing is orphaned.
-app.delete('/api/users/:id', requireUser, requireAdmin, async (req, res) => {
+app.delete('/api/users/:id', requireUser, requireAdmin, needsPerson, async (req, res) => {
   if (req.params.id === req.user.id) return res.status(400).json({ error: "You can't remove yourself." });
   const target = await pool.query('SELECT 1 FROM users WHERE id = $1', [req.params.id]);
   if (!target.rowCount) return res.status(404).json({ error: 'User not found.' });
@@ -1834,7 +1834,7 @@ app.get('/api/public/:token', async (req, res) => {
 
 // Invite someone to the workspace. Invite-only means this is how new people
 // get in; any signed-in member may invite (trusted internal team).
-app.post('/api/invites', requireUser, requireAdmin, async (req, res) => {
+app.post('/api/invites', requireUser, requireAdmin, needsPerson, async (req, res) => {
   const email = String(req.body?.email || '').trim().toLowerCase();
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
     return res.status(400).json({ error: 'invalid email' });
@@ -1896,7 +1896,7 @@ app.get('/api/settings/ai', requireUser, async (_req, res) => {
 
 // PUT saves config. An omitted/blank apiKey keeps the stored one (so re-saving
 // base URL or model doesn't wipe the key); a non-blank value replaces it.
-app.put('/api/settings/ai', requireUser, requireAdmin, async (req, res) => {
+app.put('/api/settings/ai', requireUser, requireAdmin, needsPerson, async (req, res) => {
   const existing = (await getSetting('ai')) || {};
   const body = req.body || {};
   const next = {
@@ -1919,7 +1919,7 @@ app.get('/api/settings/transcription', requireUser, wrap(async (_req, res) => {
   res.json({ provider: 'deepgram', enabled: cfg.enabled, language: cfg.language, keySet: !!cfg.apiKey });
 }));
 
-app.put('/api/settings/transcription', requireUser, requireAdmin, wrap(async (req, res) => {
+app.put('/api/settings/transcription', requireUser, requireAdmin, needsPerson, wrap(async (req, res) => {
   const next = cleanTranscriptionSettings(req.body || {}, await getSetting(TRANSCRIPTION_KEY));
   if (next.enabled && !next.apiKey) return res.status(400).json({ error: 'Add a Deepgram API key to turn transcription on.' });
   // A new key is checked before it is kept: a typo would otherwise surface as
@@ -2675,7 +2675,7 @@ app.get('/api/blob', requireUser, async (_req, res) => {
 
 // Admin-only: a blob key is shared across the workspace (content-addressed), so
 // one user must not be able to destroy an image referenced by another user's doc.
-app.delete('/api/blob/:key', requireUser, requireAdmin, async (req, res) => {
+app.delete('/api/blob/:key', requireUser, requireAdmin, needsPerson, async (req, res) => {
   await pool.query('DELETE FROM blobs WHERE key = $1', [req.params.key]);
   res.json({ ok: true });
 });
@@ -3234,7 +3234,8 @@ app.post('/api/comments/:cid/resolve', requireUser, async (req, res) => {
 app.post('/api/comments/:cid/decision', requireUser, wrap(async (req, res) => {
   const accept = req.body?.decision === 'accept';
   if (!accept && req.body?.decision !== 'reject') return res.status(400).json({ error: 'accept or reject' });
-  if (untrusted(req)) return res.status(403).json({ error: 'This needs a person: an AI or agent cannot accept or reject suggestions.' });
+  // Person-only, trusted token or not: a trusted agent writes directly and never needs to decide anyone's suggestion.
+  if (!isPerson(req)) return res.status(403).json({ error: 'This needs a person: an AI or agent cannot accept or reject suggestions.' });
   const { rows: [c] } = await pool.query(
     `SELECT id, doc_id, block_id, quote, quote_occurrence, anchor_start, anchor_end, suggestion, suggestion_status, author_id, kind
        FROM comments WHERE id = $1 AND doc_id IS NOT NULL`,

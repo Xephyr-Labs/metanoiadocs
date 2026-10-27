@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { writePolicy, resolveApprover, untrusted, refuseUntrusted, pageSyncRole } from './approval.js';
+import { readFileSync } from 'node:fs';
+import { writePolicy, resolveApprover, untrusted, needsPerson, isPerson, pageSyncRole } from './approval.js';
 
 test('writePolicy: person direct, Ask AI and untrusted agent suggest, trusted agent direct', () => {
   const person = { kind: 'person' }, agent = { kind: 'agent' };
@@ -56,18 +57,38 @@ test('untrusted: the callers whose writes only become suggestions', () => {
   assert.equal(untrusted({ user: { kind: 'person' }, via: 'human', token: null }), false);
 });
 
-test('refuseUntrusted: an untrusted agent or Ask AI gets 403 (cannot switch approval off); a person or trusted agent passes', () => {
+test('needsPerson: any agent (trusted or not) or Ask AI gets 403; only a person passes', () => {
   const run = (req) => {
     let status = null, nexted = false;
     const res = { status(c) { status = c; return { json: () => {} }; } };
-    refuseUntrusted(req, res, () => { nexted = true; });
+    needsPerson(req, res, () => { nexted = true; });
     return { status, nexted };
   };
   assert.deepEqual(run({ user: { kind: 'agent', role: 'admin' }, via: 'human', token: { trusted: false } }), { status: 403, nexted: false });
   assert.deepEqual(run({ user: { kind: 'agent', role: 'admin' }, via: 'human', token: null }), { status: 403, nexted: false });
   assert.deepEqual(run({ user: { kind: 'person', role: 'admin' }, via: 'ai', token: null }), { status: 403, nexted: false });
+  // A trusted token writes pages directly, but may never hand out trust: else the everyday token becomes trusted for good.
+  assert.deepEqual(run({ user: { kind: 'agent', role: 'admin' }, via: 'human', token: { trusted: true } }), { status: 403, nexted: false });
   assert.deepEqual(run({ user: { kind: 'person', role: 'admin' }, via: 'human', token: null }), { status: null, nexted: true });
-  assert.deepEqual(run({ user: { kind: 'agent', role: 'admin' }, via: 'human', token: { trusted: true } }), { status: null, nexted: true });
+  assert.equal(isPerson({ user: { kind: 'person' }, via: 'human' }), true);
+  assert.equal(isPerson({ user: {}, via: 'human' }), true); // an unset kind is a person
+});
+
+// Every admin route that changes something (accounts, invites, trust, roles,
+// kinds, provider settings, webhooks, shared blobs) needs a person. Reads stay
+// open to an admin agent. A new admin route has to take a side here.
+test('every admin-only route that changes something refuses agents', () => {
+  const src = ['./index.js', './webhooks.js'].map((f) => readFileSync(new URL(f, import.meta.url), 'utf8')).join('\n');
+  const routes = [...src.matchAll(/app\.(get|post|put|patch|delete)\('([^']+)',([^\n]*)/g)]
+    .filter((m) => /\brequireAdmin\b/.test(m[3]));
+  assert.ok(routes.length >= 18, `found ${routes.length} admin routes`);
+  const bad = routes.filter((m) => m[1] !== 'get' && !/\bneedsPerson\b/.test(m[3])).map((m) => `${m[1].toUpperCase()} ${m[2]}`);
+  assert.deepEqual(bad, []);
+  for (const route of ["'/api/comments/:cid/decision'", "'/api/suggestions/:sid/decide'"]) {
+    const at = src.indexOf(route) >= 0 ? src : readFileSync(new URL('./suggestions.js', import.meta.url), 'utf8');
+    const body = at.slice(at.indexOf(route), at.indexOf(route) + 400);
+    assert.match(body, /!isPerson\(req\)/, `${route} must refuse every agent`);
+  }
 });
 
 test('pageSyncRole: an agent session on a live page reads and comments but never edits', () => {

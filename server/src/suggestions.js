@@ -15,7 +15,7 @@
 import crypto from 'node:crypto';
 import * as Y from 'yjs';
 import { cloneValue } from './restore.js';
-import { untrusted } from './approval.js';
+import { isPerson } from './approval.js';
 import { findQuote, normalizeQuote } from './text-match.js';
 
 // ── suggestion cards ───────────────────────────────────────────────────────
@@ -685,9 +685,10 @@ export function registerSuggestionRoutes(app, { requireUser, wrap, pool, grantOn
    * in one transaction, through the sync server.
    */
   app.post('/api/suggestions/:sid/decide', requireUser, wrap(async (req, res) => {
-    // An AI or an untrusted agent token only ever suggests; letting it accept
-    // would let it approve its own edits.
-    if (untrusted(req)) return res.status(403).json({ error: 'Only a person can accept suggestions.' });
+    // Only a person decides. An AI or untrusted agent only ever suggests (accepting
+    // would approve its own edits); a trusted agent writes directly, so it never
+    // needs to decide anyone's suggestions either.
+    if (!isPerson(req)) return res.status(403).json({ error: 'Only a person can accept suggestions.' });
     const v = await visible(req.params.sid, req.user);
     if (!v) return res.status(404).json({ error: 'not found' });
     if (!v.reviewer) return res.status(403).json({ error: 'Only people who can edit this page can review changes to it.' });
