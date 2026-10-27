@@ -53,6 +53,8 @@ test('four queries run, each scoped to access and space', async () => {
   assert.match(o.sql, /p\.archived_at IS NULL AND p\.mode <> 'data'/);
   assert.match(o.sql, /p\.space_id = \$3/);
   assert.match(o.sql, /ORDER BY t\.due_at ASC/);
+  assert.match(flat(o.sql), /count\(\*\) FILTER \(WHERE t\.due_at < \$2::date\) OVER \(\) AS total/);
+  assert.match(flat(o.sql), /count\(\*\) FILTER \(WHERE t\.due_at = \$2::date\) OVER \(\) AS due_today/);
 });
 
 test('without a space, every joined space', async () => {
@@ -71,6 +73,7 @@ test('review: submitted, not mine, approver or editor on a plain draft', async (
   assert.match(sql, /s\.approver_id = \$1 OR \(s\.author_id <> \$1 AND s\.approver_id IS NULL AND s\.writer_via IS NULL AND/);
   assert.match(sql, /a\.role IN \('editor', 'owner'\)/);
   assert.match(sql, /d\.is_template/);
+  assert.match(sql, /coalesce\(nullif\(u\.name, ''\), u\.email\) AS author_name/);
 });
 
 test('review: an Ask AI draft I authored still shows when I am its approver', async () => {
@@ -83,6 +86,11 @@ test('review: an Ask AI draft I authored still shows when I am its approver', as
   assert.match(sql, /AND \(s\.approver_id = \$1 OR \(s\.author_id <> \$1/);
 });
 
+test('empty lists count zero, dueToday included', async () => {
+  const out = await needsQueries(fakePool(), { userId: 'u1', spaceId: null, today: '2026-10-28' });
+  assert.deepEqual(out.counts, { review: 0, overdue: 0, dueToday: 0, mentions: 0, changed: 0 });
+});
+
 test('changed: someone else changed it since I last opened it', async () => {
   const pool = fakePool();
   await needsQueries(pool, { userId: 'u1', spaceId: null, today: '2026-10-28' });
@@ -92,6 +100,7 @@ test('changed: someone else changed it since I last opened it', async () => {
   assert.match(sql, /d\.updated_at > coalesce\(o\.opened_at, CASE WHEN d\.created_by = \$1 THEN d\.created_at END\)/);
   assert.match(sql, /FROM doc_editors/);
   assert.match(sql, /FROM favorites/);
+  assert.match(sql, /coalesce\(nullif\(u\.name, ''\), u\.email\) AS changed_by_name/);
 });
 
 test('mentions: open threads I have not answered since', async () => {
@@ -101,7 +110,10 @@ test('mentions: open threads I have not answered since', async () => {
   assert.match(sql, /n\.kind IN \('mention', 'reply', 'reply_to_you'\)/);
   assert.match(sql, /coalesce\(c\.parent_id, c\.id\)/);
   assert.match(sql, /NOT r\.resolved/);
-  assert.match(sql, /NOT EXISTS \(SELECT 1 FROM comments m WHERE coalesce\(m\.parent_id, m\.id\) = r\.id AND m\.author_id = \$1 AND m\.created_at > n\.created_at\)/);
+  assert.match(sql, /NOT EXISTS \(SELECT 1 FROM comments m WHERE \(m\.id = r\.id OR m\.parent_id = r\.id\) AND m\.author_id = \$1 AND m\.created_at > n\.created_at\)/);
+  // A plain reply notification only counts in a thread I wrote in.
+  assert.match(sql, /\(n\.kind <> 'reply' OR EXISTS \(SELECT 1 FROM comments q WHERE \(q\.id = r\.id OR q\.parent_id = r\.id\) AND q\.author_id = \$1\)\)/);
+  assert.match(sql, /coalesce\(nullif\(u\.name, ''\), nullif\(c\.author_name, ''\), u\.email\) AS author_name/);
   assert.match(sql, /DISTINCT ON \(r\.id\)/);
   assert.match(sql, /t\.deleted_at IS NULL/);
 });
@@ -110,14 +122,14 @@ test('maps rows and counts as numbers', async () => {
   const pool = fakePool({
     review: [{ id: 's1', doc_id: 'd1', doc_title: 'Plan', author_name: 'Ann', writer_via: null, submitted_at: 'x', total: '3' }],
     overdue: [
-      { id: 't1', title: 'Late', project_id: 'p1', project_name: 'P', due_at: new Date(2026, 9, 20), total: '2' },
-      { id: 't2', title: 'Now', project_id: 'p1', project_name: 'P', due_at: '2026-10-28', total: '2' },
+      { id: 't1', title: 'Late', project_id: 'p1', project_name: 'P', due_at: new Date(2026, 9, 20), total: '1', due_today: '1' },
+      { id: 't2', title: 'Now', project_id: 'p1', project_name: 'P', due_at: '2026-10-28', total: '1', due_today: '1' },
     ],
     mentions: [{ notification_id: 'n1', comment_id: 'c2', thread_id: 'c1', doc_id: 'd1', task_id: null, title: 'Plan',
       author_name: 'Bo', snippet: 'hi', created_at: 'y', can_resolve: true, total: '41' }],
   });
   const out = await needsQueries(pool, { userId: 'u1', spaceId: null, today: '2026-10-28' });
-  assert.deepEqual(out.counts, { review: 3, overdue: 2, mentions: 41, changed: 0 });
+  assert.deepEqual(out.counts, { review: 3, overdue: 1, dueToday: 1, mentions: 41, changed: 0 });
   assert.equal(out.today, '2026-10-28');
   assert.equal(out.tomorrow, '2026-10-29');
   assert.deepEqual(out.review[0], { suggestionId: 's1', docId: 'd1', docTitle: 'Plan', authorName: 'Ann', writerVia: null, submittedAt: 'x' });
