@@ -15,15 +15,19 @@ export function encryptToken(plain, key) {
 export function decryptToken(enc, key) {
   const [v, iv, tag, ct] = String(enc).split(':');
   if (v !== 'v1' || !iv || !tag || ct === undefined) throw new Error('Unrecognised token format');
-  const d = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(iv, 'base64'));
-  d.setAuthTag(Buffer.from(tag, 'base64'));
+  const ivb = Buffer.from(iv, 'base64');
+  const tagb = Buffer.from(tag, 'base64');
+  if (ivb.length !== 12 || tagb.length !== 16) throw new Error('Unrecognised token format');
+  const d = crypto.createDecipheriv('aes-256-gcm', key, ivb, { authTagLength: 16 });
+  d.setAuthTag(tagb);
   return Buffer.concat([d.update(Buffer.from(ct, 'base64')), d.final()]).toString('utf8');
 }
 
 /** The 32-byte key from env, or null when unset/invalid. */
 export function tokenKey(env = process.env) {
-  const k = Buffer.from(env.CALENDAR_TOKEN_KEY || '', 'base64');
-  return k.length === 32 ? k : null;
+  const raw = (env.CALENDAR_TOKEN_KEY || '').trim();
+  const k = Buffer.from(raw, 'base64');
+  return k.length === 32 && k.toString('base64') === raw ? k : null;
 }
 
 /** ready = enabled + client id/secret saved + a valid token key on the server. */
@@ -50,7 +54,7 @@ export function registerCalendarRoutes(app, {
     if (req.user?.role !== 'admin' || !isPerson(req)) return res.json({ enabled: c.ready });
     res.json({
       enabled: c.enabled, clientId: c.clientId, secretSet: !!c.clientSecret, keySet: c.keySet,
-      redirectUri: `${baseUrl}/api/calendar/google/callback`,
+      redirectUri: `${String(baseUrl).replace(/\/+$/, '')}/api/calendar/google/callback`,
     });
   }));
 
@@ -58,6 +62,10 @@ export function registerCalendarRoutes(app, {
   app.put('/api/settings/calendar', requireUser, requireAdmin, needsPerson, wrap(async (req, res) => {
     const old = (await get(SETTING_KEY)) || {};
     const b = req.body || {};
+    if ((b.clientId !== undefined && (typeof b.clientId !== 'string' || b.clientId.length > 200))
+      || (b.clientSecret !== undefined && (typeof b.clientSecret !== 'string' || b.clientSecret.length > 500))) {
+      return res.status(400).json({ error: 'Client ID or secret is invalid or too long.' });
+    }
     const next = {
       enabled: b.enabled === undefined ? !!old.enabled : !!b.enabled,
       clientId: typeof b.clientId === 'string' ? b.clientId.trim() : old.clientId || '',

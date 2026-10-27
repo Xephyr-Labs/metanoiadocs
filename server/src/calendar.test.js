@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { encryptToken, decryptToken, calendarConfig, registerCalendarRoutes } from './calendar.js';
 
+function requireUser() {} function requireAdmin() {} function needsPerson() {}
 const key = crypto.randomBytes(32);
 const KEY_ENV = key.toString('base64');
 const good = { enabled: true, clientId: 'id', clientSecret: 'sec' };
@@ -22,6 +23,18 @@ test('tampered ciphertext, wrong key, bad format all throw', () => {
   assert.throws(() => decryptToken('nope', key));
 });
 
+test('a truncated auth tag is refused', () => {
+  const a = encryptToken('x', key).split(':');
+  const short = Buffer.from(a[2], 'base64').subarray(0, 4).toString('base64');
+  assert.throws(() => decryptToken([a[0], a[1], short, a[3]].join(':'), key));
+  assert.throws(() => decryptToken([a[0], Buffer.alloc(8).toString('base64'), a[2], a[3]].join(':'), key));
+});
+
+test('a mistyped token key is not ready', async () => {
+  const bad = KEY_ENV.slice(0, -4) + '!!!!';
+  assert.equal((await calendarConfig({ get: async () => good, env: { CALENDAR_TOKEN_KEY: bad } })).ready, false);
+});
+
 test('calendarConfig is ready only when enabled, configured and keyed', async () => {
   const cfg = (s, k) => calendarConfig({ get: async () => s, env: { CALENDAR_TOKEN_KEY: k } });
   assert.equal((await cfg(good, KEY_ENV)).ready, true);
@@ -33,19 +46,19 @@ test('calendarConfig is ready only when enabled, configured and keyed', async ()
 });
 
 function setup(stored, env = { CALENDAR_TOKEN_KEY: KEY_ENV }, rows = []) {
-  const routes = {};
-  const app = { get: (p, ...h) => { routes['GET ' + p] = h[h.length - 1]; }, put: (p, ...h) => { routes['PUT ' + p] = h[h.length - 1]; } };
+  const routes = {}; const chains = {};
+  const app = { get: (p, ...h) => { routes['GET ' + p] = h[h.length - 1]; }, put: (p, ...h) => { routes['PUT ' + p] = h[h.length - 1]; chains['PUT ' + p] = h; } };
   const store = { v: stored };
   registerCalendarRoutes(app, {
-    requireUser() {}, requireAdmin() {}, needsPerson() {}, wrap: (f) => f,
-    pool: { query: async () => ({ rows }) }, baseUrl: 'https://x.test', env,
+    requireUser, requireAdmin, needsPerson, wrap: (f) => f,
+    pool: { query: async () => ({ rows }) }, baseUrl: 'https://x.test/', env,
     get: async () => store.v, set: async (_k, v) => { store.v = v; },
   });
   const call = async (r, user, body) => {
-    let out; await routes[r]({ user, body }, { json: (v) => { out = v; }, status() { return this; } });
+    let out; await routes[r]({ user, body }, { json: (v) => { out = v; }, status(c) { this.code = c; return this; } });
     return out;
   };
-  return { call, store };
+  return { call, store, chains };
 }
 
 test('settings GET never returns the secret; non-admin sees only availability', async () => {
@@ -75,4 +88,18 @@ test('status reports availability and connection without tokens', async () => {
   assert.deepEqual(none, { available: true, connected: false, email: null });
   const off = await setup(good, {}).call('GET /api/calendar/status', { id: 'u' });
   assert.deepEqual(off, { available: false, connected: false, email: null });
+});
+
+test('settings PUT is guarded by requireUser, requireAdmin and needsPerson', () => {
+  const c = setup(good).chains['PUT /api/settings/calendar'];
+  for (const g of [requireUser, requireAdmin, needsPerson]) assert.ok(c.includes(g));
+});
+
+test('settings PUT rejects oversized or non-string fields', async () => {
+  const { call, store } = setup(good);
+  const r1 = await call('PUT /api/settings/calendar', { role: 'admin' }, { clientId: 'x'.repeat(201) });
+  const r2 = await call('PUT /api/settings/calendar', { role: 'admin' }, { clientSecret: 'x'.repeat(501) });
+  const r3 = await call('PUT /api/settings/calendar', { role: 'admin' }, { clientId: 5 });
+  for (const r of [r1, r2, r3]) assert.ok(r.error);
+  assert.deepEqual(store.v, good);
 });
