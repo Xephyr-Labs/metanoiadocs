@@ -124,3 +124,14 @@ test('every inline role admin check in server/src also requires a person', () =>
   }
   assert.deepEqual(bad, []);
 });
+
+// A token is the credential an agent acts with: minting or deleting one is a
+// person's job (an admin person mints for an agent account).
+test('token minting and deleting need a person; admins mint for others', () => {
+  const src = readFileSync(new URL('./index.js', import.meta.url), 'utf8');
+  for (const r of ["app.post('/api/tokens'", "app.delete('/api/tokens/:id'", "app.post('/api/admin/users/:id/tokens'"]) {
+    const line = src.split('\n').find((l) => l.includes(r));
+    assert.ok(line && /\bneedsPerson\b/.test(line), `${r} must use needsPerson`);
+  }
+  assert.match(src.split('\n').find((l) => l.includes("app.post('/api/admin/users/:id/tokens'")), /\brequireAdmin\b/);
+});

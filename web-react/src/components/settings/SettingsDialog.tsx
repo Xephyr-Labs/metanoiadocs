@@ -553,6 +553,7 @@ function Members() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
+  const [minted, setMinted] = useState<{ who: string; token: string } | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
 
   const reload = () => docsApi.users().then(setRows).catch(() => setRows([]));
@@ -575,6 +576,17 @@ function Members() {
       .setUserKind(m.id, kind)
       .catch((e) => setMsg({ ok: false, text: e instanceof Error ? e.message : 'Could not change that.' }));
     reload();
+  };
+  // An agent cannot mint its own credentials; an admin does it here. Shown once.
+  const mintToken = async (m: UserRow) => {
+    setMsg(null);
+    setMinted(null);
+    try {
+      const r = await docsApi.mintUserToken(m.id);
+      setMinted({ who: m.name || m.email, token: r.token });
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof Error ? e.message : 'Could not create a token.' });
+    }
   };
   // Removing someone is the one action here with no undo, so it takes two
   // deliberate clicks in the row itself — no browser dialog, and the row can
@@ -633,6 +645,22 @@ function Members() {
           </p>
         )}
       </div>
+      {minted && (
+        <div className="mx-4 mb-2 rounded-lg border border-line bg-accent-soft p-3">
+          <p className="mb-1.5 text-xs font-medium text-ink">Token for {minted.who}. Copy it now, it won't be shown again.</p>
+          <div className="flex items-center gap-2">
+            <code className="flex-1 truncate rounded bg-canvas px-2 py-1.5 text-xs text-ink ring-1 ring-inset ring-line">{minted.token}</code>
+            <IconButton
+              icon={<Copy size={16} />}
+              label="Copy"
+              onClick={async () => {
+                if (!(await copyText(minted.token))) { toast('Could not copy — select the token and copy it by hand'); return; }
+                toast('Copied');
+              }}
+            />
+          </div>
+        </div>
+      )}
       <div className="divide-y divide-line">
         {(rows ?? []).map((m) => {
           const asking = confirming === m.id;
@@ -683,6 +711,7 @@ function Members() {
                     m.kind === 'agent'
                       ? { icon: User, label: 'Mark as a person', onSelect: () => changeKind(m, 'person') }
                       : { icon: Bot, label: 'Mark as an agent', onSelect: () => changeKind(m, 'agent') },
+                    { icon: KeyRound, label: 'Create API token', onSelect: () => mintToken(m) },
                     { icon: Trash2, label: 'Remove from workspace', danger: true, separatorBefore: true, onSelect: () => { setMsg(null); setConfirming(m.id); } },
                   ]}
                   trigger={

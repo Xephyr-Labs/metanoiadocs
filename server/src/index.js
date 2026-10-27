@@ -522,7 +522,7 @@ app.get('/api/tokens', requireUser, async (req, res) => {
 });
 
 // Mint a token. The plaintext is returned ONCE; only its hash is stored.
-app.post('/api/tokens', requireUser, async (req, res) => {
+app.post('/api/tokens', requireUser, needsPerson, async (req, res) => {
   const name = String(req.body?.name || '').trim().slice(0, 60) || 'API token';
   const secret = 'mtn_' + crypto.randomBytes(24).toString('base64url');
   const id = crypto.randomUUID();
@@ -532,6 +532,18 @@ app.post('/api/tokens', requireUser, async (req, res) => {
   );
   res.json({ id, name, token: secret });
 });
+
+// An agent cannot mint its own credentials, so an admin person mints one for
+// it here. Plaintext is returned once; only the hash is stored.
+app.post('/api/admin/users/:id/tokens', requireUser, requireAdmin, needsPerson, wrap(async (req, res) => {
+  const { rows } = await pool.query('SELECT id FROM users WHERE id = $1', [req.params.id]);
+  if (!rows[0]) return res.status(404).json({ error: 'No such member.' });
+  const name = String(req.body?.name || '').trim().slice(0, 60) || 'API token';
+  const secret = 'mtn_' + crypto.randomBytes(24).toString('base64url');
+  const id = crypto.randomUUID();
+  await pool.query('INSERT INTO api_tokens (id, user_id, name, token_hash) VALUES ($1, $2, $3, $4)', [id, req.params.id, name, sha256(secret)]);
+  res.json({ id, name, token: secret });
+}));
 
 // Admin: every token of every account, so trust can be granted per token.
 // Never the hash.
@@ -553,7 +565,7 @@ app.put('/api/admin/tokens/:id/trusted', requireUser, requireAdmin, needsPerson,
   res.json({ ok: true });
 });
 
-app.delete('/api/tokens/:id', requireUser, async (req, res) => {
+app.delete('/api/tokens/:id', requireUser, needsPerson, async (req, res) => {
   await pool.query('DELETE FROM api_tokens WHERE id = $1 AND user_id = $2', [req.params.id, req.user.id]);
   res.json({ ok: true });
 });

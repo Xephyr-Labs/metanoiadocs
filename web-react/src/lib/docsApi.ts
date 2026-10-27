@@ -482,6 +482,9 @@ export const docsApi = {
   /** Mark an account as something running on a person's behalf, or back again. */
   setUserKind: (id: string, kind: 'person' | 'agent') =>
     req(`/users/${id}/kind`, { method: 'PATCH', body: JSON.stringify({ kind }) }),
+  /** Admin: mint an API token for another account (an agent cannot mint its own). Plaintext once. */
+  mintUserToken: (id: string, name?: string): Promise<{ id: string; name: string; token: string }> =>
+    req(`/admin/users/${id}/tokens`, { method: 'POST', body: JSON.stringify({ name }) }),
   removeUser: (id: string) => req(`/users/${id}`, { method: 'DELETE' }),
 
   love: (id: string, loved: boolean): Promise<{ count: number; loved: boolean }> =>

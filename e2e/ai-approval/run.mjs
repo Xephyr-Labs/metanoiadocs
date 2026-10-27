@@ -63,9 +63,11 @@ await step('seed', async () => {
   await admin.post(`/api/docs/${page}/share`, { email: 'farhanaj@example.com', role: 'editor' });
   await admin.post(`/api/docs/${page}/share`, { email: 'viewer@example.com', role: 'viewer' });
   await admin.post(`/api/docs/${page}/share`, { email: 'andy@example.com', role: 'editor' });
-  // Andy mints two tokens; one is made trusted by the admin.
-  const a = (await andy.post('/api/tokens', { name: 'untrusted' }));
-  const b = (await andy.post('/api/tokens', { name: 'trusted' }));
+  // An agent cannot mint its own tokens: the admin mints two for Andy, then trusts one.
+  const a = (await admin.post(`/api/admin/users/${users.andy}/tokens`, { name: 'untrusted' }));
+  const b = (await admin.post(`/api/admin/users/${users.andy}/tokens`, { name: 'trusted' }));
+  const selfMint = await andy.raw('POST', '/api/tokens', { name: 'mine' });
+  check('9 agent minting its own token -> 403', selfMint.status === 403, `${selfMint.status}`);
   untrustedTok = client({ token: a.token }); trustedTok = client({ token: b.token }); untrustedId = a.id;
   await admin.call('PUT', `/api/admin/tokens/${b.id}/trusted`, { trusted: true });
   check('seed: page has the five paragraphs', (await md(page)).includes(P5), (await md(page)).slice(0, 80));
