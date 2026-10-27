@@ -96,6 +96,12 @@ export function aiTools({ base, headers = {}, zone }) {
         // read_doc hands back a whole document; one long one must not eat the
         // context every later round needs.
         if (out && typeof out.text === 'string') out.text = out.text.slice(0, MAX_TOOL_CHARS);
+        // A cut-off body written back with replace would delete the rest of the
+        // page, so say it is partial.
+        if (out && typeof out.markdown === 'string' && out.markdown.length > MAX_TOOL_CHARS) {
+          out.markdown = out.markdown.slice(0, MAX_TOOL_CHARS);
+          out.truncated = 'Only the start of this page is shown. Do not write_doc mode=replace with it — append, or comment instead.';
+        }
         return out;
       } catch (e) {
         return { error: e.message || String(e) };

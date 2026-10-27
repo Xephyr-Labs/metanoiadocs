@@ -110,11 +110,11 @@ server.registerTool(
   'read_doc',
   {
     title: 'Read a doc',
-    description: 'Get a doc\'s title and its plain-text content by id.',
+    description: 'Get a doc\'s title and its body as markdown (links to other docs as [[Title]]) by id. Edit that markdown and write it back with write_doc mode=replace.',
     inputSchema: { id: z.string().describe('Document id') },
   },
   async ({ id }) => {
-    try { return ok(await api(`/docs/${encodeURIComponent(id)}/text`)); } catch (e) { return fail(e); }
+    try { return ok(await api(`/docs/${encodeURIComponent(id)}/markdown`)); } catch (e) { return fail(e); }
   },
 );
 
@@ -144,7 +144,7 @@ server.registerTool(
   {
     title: 'Write to a doc',
     description:
-      'Append or replace a doc\'s content with markdown. mode=append (default) adds to the end; mode=replace overwrites. Changes appear when the doc is next opened.',
+      'Append or replace a doc\'s content with markdown. mode=append (default) adds to the end; mode=replace overwrites. Link another doc with [[Doc title]] or [[doc id]]. To edit, read_doc, change that markdown and send all of it back with mode=replace. Changes appear when the doc is next opened.',
     inputSchema: {
       id: z.string().describe('Document id'),
       markdown: z.string().describe('Markdown content'),
@@ -152,7 +152,10 @@ server.registerTool(
     },
   },
   async ({ id, markdown, mode }) => {
-    try { await api(`/docs/${encodeURIComponent(id)}/content`, { method: 'POST', body: { markdown, mode } }); return ok('Done.'); }
+    try {
+      const r = await api(`/docs/${encodeURIComponent(id)}/content`, { method: 'POST', body: { markdown, mode } });
+      return ok(r?.unresolvedLinks ? { done: true, unresolvedLinks: r.unresolvedLinks } : 'Done.');
+    }
     catch (e) { return fail(e); }
   },
 );
