@@ -125,7 +125,7 @@ test('maps rows and counts as numbers', async () => {
       { id: 't1', title: 'Late', project_id: 'p1', project_name: 'P', due_at: new Date(2026, 9, 20), total: '1', due_today: '1' },
       { id: 't2', title: 'Now', project_id: 'p1', project_name: 'P', due_at: '2026-10-28', total: '1', due_today: '1' },
     ],
-    mentions: [{ notification_id: 'n1', comment_id: 'c2', thread_id: 'c1', doc_id: 'd1', task_id: null, title: 'Plan',
+    mentions: [{ notification_id: 'n1', comment_id: 'c2', thread_id: 'c1', doc_id: 'd1', task_id: null, project_id: null, title: 'Plan',
       author_name: 'Bo', snippet: 'hi', created_at: 'y', can_resolve: true, total: '41' }],
   });
   const out = await needsQueries(pool, { userId: 'u1', spaceId: null, today: '2026-10-28' });
@@ -134,7 +134,7 @@ test('maps rows and counts as numbers', async () => {
   assert.equal(out.tomorrow, '2026-10-29');
   assert.deepEqual(out.review[0], { suggestionId: 's1', docId: 'd1', docTitle: 'Plan', authorName: 'Ann', writerVia: null, submittedAt: 'x' });
   assert.deepEqual(out.overdue.map((t) => [t.taskId, t.dueAt, t.today]), [['t1', '2026-10-20', false], ['t2', '2026-10-28', true]]);
-  assert.deepEqual(out.mentions[0], { notificationId: 'n1', commentId: 'c2', threadId: 'c1', docId: 'd1', taskId: null, title: 'Plan',
+  assert.deepEqual(out.mentions[0], { notificationId: 'n1', commentId: 'c2', threadId: 'c1', docId: 'd1', taskId: null, projectId: null, title: 'Plan',
     authorName: 'Bo', snippet: 'hi', createdAt: 'y', canResolve: true });
   assert.deepEqual(out.changed, []);
 });

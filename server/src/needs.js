@@ -61,7 +61,7 @@ const OVERDUE_SQL = (space) => `
 const MENTIONS_SQL = (space) => `
   SELECT x.*, count(*) OVER () AS total FROM (
     SELECT DISTINCT ON (r.id)
-           n.id AS notification_id, c.id AS comment_id, r.id AS thread_id, c.doc_id, c.task_id,
+           n.id AS notification_id, c.id AS comment_id, r.id AS thread_id, c.doc_id, c.task_id, t.project_id,
            coalesce(d.title, t.title) AS title, coalesce(nullif(u.name, ''), nullif(c.author_name, ''), u.email) AS author_name,
            left(coalesce(nullif(c.body, ''), CASE WHEN jsonb_array_length(c.attachments) > 0 THEN '🎤 Voice note' END), 140) AS snippet,
            n.created_at,
@@ -130,7 +130,7 @@ export async function needsQueries(pool, { userId, spaceId, today }) {
     }),
     mentions: mentions.rows.map((r) => ({
       notificationId: r.notification_id, commentId: r.comment_id, threadId: r.thread_id,
-      docId: r.doc_id ?? null, taskId: r.task_id ?? null, title: r.title, authorName: r.author_name,
+      docId: r.doc_id ?? null, taskId: r.task_id ?? null, projectId: r.project_id ?? null, title: r.title, authorName: r.author_name,
       snippet: r.snippet, createdAt: r.created_at, canResolve: Boolean(r.can_resolve),
     })),
     changed: changed.rows.map((r) => ({
