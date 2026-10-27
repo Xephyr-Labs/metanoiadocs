@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { writePolicy, resolveApprover, untrusted } from './approval.js';
+import { writePolicy, resolveApprover, untrusted, refuseUntrusted, pageSyncRole } from './approval.js';
 
 test('writePolicy: person direct, Ask AI and untrusted agent suggest, trusted agent direct', () => {
   const person = { kind: 'person' }, agent = { kind: 'agent' };
@@ -54,4 +54,35 @@ test('untrusted: the callers whose writes only become suggestions', () => {
   assert.equal(untrusted({ user: { kind: 'person' }, via: 'ai', token: null }), true);
   assert.equal(untrusted({ user: { kind: 'agent' }, via: 'human', token: { trusted: true } }), false);
   assert.equal(untrusted({ user: { kind: 'person' }, via: 'human', token: null }), false);
+});
+
+test('refuseUntrusted: an untrusted agent or Ask AI gets 403 (cannot switch approval off); a person or trusted agent passes', () => {
+  const run = (req) => {
+    let status = null, nexted = false;
+    const res = { status(c) { status = c; return { json: () => {} }; } };
+    refuseUntrusted(req, res, () => { nexted = true; });
+    return { status, nexted };
+  };
+  assert.deepEqual(run({ user: { kind: 'agent', role: 'admin' }, via: 'human', token: { trusted: false } }), { status: 403, nexted: false });
+  assert.deepEqual(run({ user: { kind: 'agent', role: 'admin' }, via: 'human', token: null }), { status: 403, nexted: false });
+  assert.deepEqual(run({ user: { kind: 'person', role: 'admin' }, via: 'ai', token: null }), { status: 403, nexted: false });
+  assert.deepEqual(run({ user: { kind: 'person', role: 'admin' }, via: 'human', token: null }), { status: null, nexted: true });
+  assert.deepEqual(run({ user: { kind: 'agent', role: 'admin' }, via: 'human', token: { trusted: true } }), { status: null, nexted: true });
+});
+
+test('pageSyncRole: an agent session on a live page reads and comments but never edits', () => {
+  const agent = { kind: 'agent' }, person = { kind: 'person' };
+  assert.equal(pageSyncRole('owner', agent), 'commenter');
+  assert.equal(pageSyncRole('editor', agent), 'commenter');
+  assert.equal(pageSyncRole('suggester', agent), 'suggester');
+  assert.equal(pageSyncRole('viewer', agent), 'viewer');
+  assert.equal(pageSyncRole(null, agent), null); // no grant stays no grant (canEdit(null) would throw)
+  assert.equal(pageSyncRole(undefined, agent), undefined);
+  assert.equal(pageSyncRole('editor', person), 'editor');
+  assert.equal(pageSyncRole('owner', {}), 'owner');
+});
+
+test('Ask AI called with an agent token has no approver (→ 409): no one could use one', async () => {
+  assert.equal(await resolveApprover({ via: 'ai', user: { id: 'andy', kind: 'agent' }, ...deps }), null);
+  assert.equal(await resolveApprover({ via: 'ai', user: { id: 'u1', kind: 'person' }, ...deps }), 'u1');
 });

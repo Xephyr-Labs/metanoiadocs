@@ -17,6 +17,26 @@ export async function openDraftFor({ pool, docId, authorId, approverId, writerVi
 }
 
 /**
+ * The draft a suggesting writer's markdown READ should show: its exact draft
+ * for this approver, else its one open AI draft on the page — read_doc and
+ * write_doc may name a different onBehalfOf, and the agent should still build
+ * on its pending work. Two or more and no exact match: null (the live page).
+ * Writes keep the exact key (openDraftFor).
+ */
+export async function draftToRead({ pool, docId, authorId, approverId, writerVia }) {
+  if (approverId) {
+    const exact = await openDraftFor({ pool, docId, authorId, approverId, writerVia });
+    if (exact) return exact;
+  }
+  const { rows } = await pool.query(
+    `SELECT * FROM doc_suggestions
+      WHERE doc_id = $1 AND author_id = $2 AND status <> 'closed' AND writer_via IS NOT NULL`,
+    [docId, authorId]
+  );
+  return rows.length === 1 ? rows[0] : null;
+}
+
+/**
  * Write `markdown` into the writer's draft of `docId` for `approverId`, making
  * the draft (submitted, from the page as it is now) if there isn't one.
  * mode 'append' adds to the draft's body; 'replace' rewrites it keeping ids.

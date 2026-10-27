@@ -559,8 +559,9 @@ export function registerSuggestionRoutes(app, { requireUser, wrap, pool, grantOn
     if (!role) return null;
     const mine = row.author_id === user.id;
     if (!mine && !canEdit(role)) return null;
-    // An AI draft is decided by its one approver; anyone else who can edit may only look.
-    const reviewer = row.approver_id ? user.id === row.approver_id : canEdit(role);
+    // An AI draft is decided by its one approver (none once that account is
+    // deleted); anyone else who can edit may only look.
+    const reviewer = row.writer_via ? user.id === row.approver_id : canEdit(role);
     return { row, role, mine, reviewer };
   }
 
@@ -588,7 +589,7 @@ export function registerSuggestionRoutes(app, { requireUser, wrap, pool, grantOn
               u.name AS author_name, u.email AS author_email
          FROM doc_suggestions s JOIN users u ON u.id = s.author_id
         WHERE s.doc_id = $1 AND s.status <> 'closed'
-          AND (s.author_id = $2 OR (s.status = 'submitted' AND (s.approver_id = $2 OR ($3 AND s.approver_id IS NULL))))
+          AND (s.author_id = $2 OR (s.status = 'submitted' AND (s.approver_id = $2 OR ($3 AND s.approver_id IS NULL AND s.writer_via IS NULL))))
         ORDER BY s.updated_at DESC`,
       [req.params.id, req.user.id, canEdit(role)]
     );

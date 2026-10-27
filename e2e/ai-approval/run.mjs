@@ -47,7 +47,7 @@ const body = (p3) => [P1, P2, p3, P4, P5].join('\n\n');
 const md = async (id) => (await admin.get(`/api/docs/${id}/markdown`)).markdown;
 const write = (c, id, markdown, onBehalfOf) => c.raw('POST', `/api/docs/${id}/content`, { markdown, mode: 'replace' }, onBehalfOf ? { 'X-On-Behalf-Of': onBehalfOf } : {});
 
-let users; let page; let untrustedTok; let trustedTok; let sid;
+let users; let page; let untrustedTok; let trustedTok; let sid; let untrustedId;
 
 await step('seed', async () => {
   await admin.post('/api/setup', { name: 'Maya', username: 'maya', email: 'maya@example.com', password: PW });
@@ -66,7 +66,7 @@ await step('seed', async () => {
   // Andy mints two tokens; one is made trusted by the admin.
   const a = (await andy.post('/api/tokens', { name: 'untrusted' }));
   const b = (await andy.post('/api/tokens', { name: 'trusted' }));
-  untrustedTok = client({ token: a.token }); trustedTok = client({ token: b.token });
+  untrustedTok = client({ token: a.token }); trustedTok = client({ token: b.token }); untrustedId = a.id;
   await admin.call('PUT', `/api/admin/tokens/${b.id}/trusted`, { trusted: true });
   check('seed: page has the five paragraphs', (await md(page)).includes(P5), (await md(page)).slice(0, 80));
 });
@@ -141,6 +141,19 @@ await step('7 agent-owned page, no approver', async () => {
   const own = (await trustedTok.post('/api/docs', { title: 'Andy page', content: 'one\n\ntwo' })).id;
   const w = await write(untrustedTok, own, 'one\n\nthree');
   check('7 untrusted write to own page with no X-On-Behalf-Of -> 409', w.status === 409, `${w.status} ${JSON.stringify(w.json)}`);
+});
+
+await step('8 an admin agent cannot switch approval off', async () => {
+  await admin.call('PATCH', `/api/users/${users.andy}/role`, { role: 'admin' });
+  const t = await untrustedTok.raw('PUT', `/api/admin/tokens/${untrustedId}/trusted`, { trusted: true });
+  check('8 untrusted admin agent trusting its own token -> 403', t.status === 403, `${t.status} ${JSON.stringify(t.json)}`);
+  check('8 token still untrusted', sql(`SELECT trusted FROM api_tokens WHERE id = '${untrustedId}'`) === 'f');
+  const k = await untrustedTok.raw('PATCH', `/api/users/${users.farhanaj}/kind`, { kind: 'agent' });
+  check('8 untrusted admin agent changing a kind -> 403', k.status === 403, `${k.status}`);
+  const r = await untrustedTok.raw('PATCH', `/api/users/${users.farhanaj}/role`, { role: 'admin' });
+  check('8 untrusted admin agent changing a role -> 403', r.status === 403, `${r.status}`);
+  const c = await andy.raw('PUT', `/api/admin/tokens/${untrustedId}/trusted`, { trusted: true });
+  check('8 agent cookie session -> 403 too', c.status === 403, `${c.status}`);
 });
 
 console.log(failed ? `\n${failed} FAILED` : '\nall passed');

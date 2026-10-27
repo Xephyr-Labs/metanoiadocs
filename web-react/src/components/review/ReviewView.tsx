@@ -107,7 +107,7 @@ export function ReviewView({ sid, docId }: { sid: string; docId: string }) {
             ) : detail.writerVia ? (
               <>
                 <span className="font-medium">{detail.authorName}'s suggestion</span>
-                <span className="text-muted">, asked by {detail.approverName ?? 'someone'}</span>
+                <span className="text-muted"> for {detail.approverName ?? 'someone'} to review</span>
               </>
             ) : (
               <span className="font-medium">{detail.authorName}</span>

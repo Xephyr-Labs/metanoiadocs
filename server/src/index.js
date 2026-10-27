@@ -78,8 +78,8 @@ import { TRASH_RETENTION_DAYS, startTrashSweeper } from './retention.js';
 import { startReminders } from './reminders.js';
 import { dayIn, isZone, zoneOf } from './timezone.js';
 import { byJoinedFirst } from './spaces.js';
-import { ROLE_RANK, rankOf, canEdit, writePolicy, resolveApprover, untrusted } from './approval.js';
-import { draftEdit, lossyRefusal, openDraftFor } from './ai-drafts.js';
+import { ROLE_RANK, rankOf, canEdit, writePolicy, resolveApprover, untrusted, refuseUntrusted, pageSyncRole } from './approval.js';
+import { draftEdit, draftToRead, lossyRefusal } from './ai-drafts.js';
 import OpenAI from 'openai';
 
 process.on('unhandledRejection', (e) => console.error('[proc] unhandledRejection', e?.message || e));
@@ -546,7 +546,7 @@ app.get('/api/admin/tokens', requireUser, requireAdmin, async (_req, res) => {
   })));
 });
 
-app.put('/api/admin/tokens/:id/trusted', requireUser, requireAdmin, async (req, res) => {
+app.put('/api/admin/tokens/:id/trusted', requireUser, requireAdmin, refuseUntrusted, async (req, res) => {
   if (typeof req.body?.trusted !== 'boolean') return res.status(400).json({ error: 'trusted must be true or false' });
   const { rowCount } = await pool.query('UPDATE api_tokens SET trusted = $2 WHERE id = $1', [req.params.id, req.body.trusted]);
   if (!rowCount) return res.status(404).json({ error: 'No such token.' });
@@ -609,7 +609,7 @@ app.get('/api/admin/integrity', requireUser, requireAdmin, wrap(async (req, res)
   res.json({ ...r, issues: r.issues.map((i) => (seen.get(i.docId) ? i : { ...i, title: 'A page you cannot open' })) });
 }));
 
-app.patch('/api/users/:id/role', requireUser, requireAdmin, async (req, res) => {
+app.patch('/api/users/:id/role', requireUser, requireAdmin, refuseUntrusted, async (req, res) => {
   const role = req.body?.role === 'admin' ? 'admin' : 'collaborator';
   if (req.params.id === req.user.id && role !== 'admin') {
     return res.status(400).json({ error: "You can't demote yourself." });
@@ -633,7 +633,7 @@ app.patch('/api/users/:id/role', requireUser, requireAdmin, async (req, res) => 
 // claim worth protecting, so only an admin can set it, and only for someone
 // else. Marking yourself an agent would be the one move a misbehaving token
 // could make to cover its tracks.
-app.patch('/api/users/:id/kind', requireUser, requireAdmin, async (req, res) => {
+app.patch('/api/users/:id/kind', requireUser, requireAdmin, refuseUntrusted, async (req, res) => {
   const kind = req.body?.kind === 'agent' ? 'agent' : 'person';
   if (req.params.id === req.user.id) {
     return res.status(400).json({ error: "You can't change your own account kind." });
@@ -1091,8 +1091,8 @@ app.get('/api/docs/:id/markdown', requireUser, wrap(async (req, res) => {
   let pendingSuggestion;
   if (writePolicy({ user: req.user, via: req.via, token: req.token }) === 'suggest') {
     const who = await approverFor(req, req.params.id);
-    const draft = who && await openDraftFor({
-      pool, docId: req.params.id, authorId: req.user.id, approverId: who.id, writerVia: req.via === 'ai' ? 'ai' : 'agent',
+    const draft = await draftToRead({
+      pool, docId: req.params.id, authorId: req.user.id, approverId: who?.id, writerVia: req.via === 'ai' ? 'ai' : 'agent',
     });
     if (draft) {
       const live = hocuspocus.documents.get(draftName(req.params.id, draft.id));
@@ -3602,7 +3602,8 @@ server.on('upgrade', async (request, socket, head) => {
       else if (canEdit(pageRole)) role = 'viewer';
       else return socket.destroy();
     } else {
-      role = await grantOn(docId, user.id);
+      // An agent's session reads and comments on a page but never edits it live.
+      role = pageSyncRole(await grantOn(docId, user.id), user);
     }
     if (!role) return socket.destroy();
 

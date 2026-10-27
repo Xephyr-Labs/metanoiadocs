@@ -184,6 +184,10 @@ export interface SuggestionDraft {
   createdAt: string;
   updatedAt: string;
   submittedAt: string | null;
+  /** Set on an Ask AI ('ai') or agent ('agent') draft; null for a person's own Suggesting draft. */
+  writerVia: 'ai' | 'agent' | null;
+  /** Who decides an AI/agent draft; null for a person's draft (any editor). */
+  approverId: string | null;
   /** The draft's sync name — what the editor connects to in Suggesting mode. */
   draft: string;
 }
@@ -209,10 +213,7 @@ export interface DraftChange {
 
 export interface SuggestionDetail extends SuggestionDraft {
   canReview: boolean;
-  approverId?: string | null;
   approverName?: string | null;
-  /** Who wrote it on the approver's behalf: Ask AI, an agent, or null for a person. */
-  writerVia?: 'ai' | 'agent' | null;
   mine: boolean;
   changes: DraftChange[];
   accepted: number;

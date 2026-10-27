@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import * as Y from 'yjs';
 import { buildDocState, docToMarkdown } from './blocks.js';
 import { docFromState, parseDraftName } from './suggestions.js';
-import { writeToDraft, openDraftFor, draftEdit } from './ai-drafts.js';
+import { writeToDraft, openDraftFor, draftEdit, draftToRead } from './ai-drafts.js';
 
 /** One page `d1` plus a fake pool holding doc_suggestions rows, and a fake
  *  Hocuspocus that loads a draft from its row and saves it back on disconnect. */
@@ -14,6 +14,9 @@ function world(md = 'Intro line.\n') {
     async query(sql, p) {
       if (/^\s*SELECT/.test(sql)) {
         if (/WHERE id = \$1/.test(sql)) return { rows: rows.filter((r) => r.id === p[0]) };
+        if (/writer_via IS NOT NULL/.test(sql)) {
+          return { rows: rows.filter((r) => r.doc_id === p[0] && r.author_id === p[1] && r.status !== 'closed' && r.writer_via != null) };
+        }
         return {
           rows: rows.filter((r) => r.doc_id === p[0] && r.author_id === p[1] && r.status !== 'closed'
             && (r.approver_id ?? null) === (p[2] ?? null) && (r.writer_via ?? null) === (p[3] ?? null)),
@@ -209,4 +212,29 @@ test('a page the draft cannot write a body into is refused, not a server error',
   const w = world();
   const out = await edit(w, { hocuspocus: { async openDirectConnection() { throw new Error('no body'); } } });
   assert.equal(out.status, 409);
+});
+
+test('draftToRead: exact draft first; else the single open AI draft by this caller (read only); never a guess between two', async () => {
+  const w = world();
+  const key = { pool: w.pool, docId: 'd1', authorId: 'ai', writerVia: 'agent' };
+  assert.equal(await draftToRead({ ...key, approverId: 'farhanaj' }), null);
+  const { sid } = await w.write({ approverId: 'farhanaj' });
+  assert.equal((await draftToRead({ ...key, approverId: 'farhanaj' })).id, sid);
+  // read_doc without onBehalfOf resolves to the owner: still sees the pending work
+  assert.equal((await draftToRead({ ...key, approverId: 'owner' })).id, sid);
+  assert.equal((await draftToRead({ ...key, approverId: null })).id, sid);
+  // someone else's draft is never picked
+  assert.equal(await draftToRead({ ...key, authorId: 'someone', approverId: 'owner' }), null);
+  // a human Suggesting draft (writer_via null) is not an AI draft
+  w.rows.push({ id: 'human', doc_id: 'd1', author_id: 'p1', approver_id: null, writer_via: null, status: 'draft' });
+  assert.equal(await draftToRead({ ...key, authorId: 'p1', approverId: 'owner' }), null);
+  // two open AI drafts and no exact match: ambiguous, read the live page
+  const { sid: sid2 } = await w.write({ approverId: 'owner' });
+  assert.notEqual(sid2, sid);
+  assert.equal((await draftToRead({ ...key, approverId: 'owner' })).id, sid2);
+  assert.equal(await draftToRead({ ...key, approverId: 'maya' }), null);
+  // writes keep the exact key: a write for 'maya' makes its own draft
+  const { sid: sid3, created } = await w.write({ approverId: 'maya' });
+  assert.equal(created, true);
+  assert.ok(![sid, sid2].includes(sid3));
 });

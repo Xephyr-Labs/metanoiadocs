@@ -81,6 +81,19 @@ if (typeof window !== 'undefined') {
   });
 }
 
+/**
+ * Your own Suggesting draft (never an AI one, though Ask AI drafts carry your
+ * id as author), and the submitted drafts waiting on you: an AI/agent draft
+ * when you are its approver, another person's when you can edit the page.
+ */
+export function pickDrafts(drafts: SuggestionDraft[], userId: string | null | undefined, role: string | null | undefined) {
+  const myDraft = drafts.find((d) => d.authorId === userId && !d.writerVia) ?? null;
+  const toReview = drafts.filter((d) => d.status === 'submitted' && (d.writerVia
+    ? !!userId && d.approverId === userId
+    : canEditRole(role) && d.authorId !== userId));
+  return { myDraft, toReview };
+}
+
 export function useReviewState(docId: string | null | undefined, role: string | null | undefined, userId?: string | null) {
   const [, force] = useState(0);
   useEffect(() => {
@@ -104,11 +117,10 @@ export function useReviewState(docId: string | null | undefined, role: string | 
   const chosen = docId ? state.modes.get(docId) : undefined;
   let mode = chosen && allowed.includes(chosen) ? chosen : defaultMode(role);
   const drafts = (docId && state.drafts.get(docId)) || [];
-  const myDraft = drafts.find((d) => d.authorId === userId) ?? null;
+  const { myDraft, toReview } = pickDrafts(drafts, userId, role);
   // Suggesting needs the draft; until it is made (a suggester's first open),
   // the page shows read-only rather than editable-but-unsaved.
   if (mode === 'suggesting' && !myDraft) mode = 'viewing';
-  const toReview = canEditRole(role) ? drafts.filter((d) => d.status === 'submitted' && d.authorId !== userId) : [];
 
   // A suggester opening a page lands in Suggesting: make their draft.
   const needsDraft = !!docId && !chosen && defaultMode(role) === 'suggesting' && !myDraft;
