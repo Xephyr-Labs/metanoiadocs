@@ -6,6 +6,7 @@
 // re-render the whole workspace on every switch.
 import { useCallback, useEffect, useState } from 'react';
 import { canCommentRole, canEditRole, canSuggestRole, docsApi, type SuggestionDraft } from './docsApi';
+import { readRoute } from './route';
 import { toast } from './toast';
 
 export type EditMode = 'editing' | 'suggesting' | 'viewing';
@@ -88,6 +89,16 @@ export function useReviewState(docId: string | null | undefined, role: string | 
     return () => { listeners.delete(l); };
   }, []);
   useEffect(() => { if (docId) void loadDrafts(docId); }, [docId]);
+  // `/d/<doc>?review=<sid>` opens that draft's review, then leaves the address
+  // clean (as block links do) so a reload doesn't reopen it. A closed or
+  // invisible draft just shows ReviewView's own "could not load" fallback.
+  useEffect(() => {
+    if (!docId) return;
+    const { docId: routed, reviewId } = readRoute();
+    if (!reviewId || routed !== docId) return;
+    history.replaceState(history.state, '', location.pathname + location.hash);
+    openReview(reviewId, docId);
+  }, [docId]);
 
   const allowed = modesFor(role);
   const chosen = docId ? state.modes.get(docId) : undefined;

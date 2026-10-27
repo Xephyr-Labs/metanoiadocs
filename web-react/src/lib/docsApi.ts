@@ -209,6 +209,10 @@ export interface DraftChange {
 
 export interface SuggestionDetail extends SuggestionDraft {
   canReview: boolean;
+  approverId?: string | null;
+  approverName?: string | null;
+  /** Who wrote it on the approver's behalf: Ask AI, an agent, or null for a person. */
+  writerVia?: 'ai' | 'agent' | null;
   mine: boolean;
   changes: DraftChange[];
   accepted: number;
@@ -276,7 +280,7 @@ export interface InboxRow {
    *  person, so they carry a body that already reads as a sentence and no
    *  actor to name. See server/src/reminders.js. */
   kind: 'mention' | 'comment' | 'reply' | 'reply_to_you' | 'suggestion' | 'suggestion_accepted' | 'suggestion_rejected'
-    | 'review_requested' | 'review_done' | 'assigned' | 'due_soon' | 'due_today' | 'overdue' | 'digest';
+    | 'review_requested' | 'review_done' | 'ai_suggestion' | 'assigned' | 'due_soon' | 'due_today' | 'overdue' | 'digest';
   /** The comment that triggered it — null for notifications with no thread. */
   comment_id: string | null;
   /** Null for anything the system raised rather than a person. */
@@ -293,6 +297,8 @@ export interface InboxRow {
   task_id: string | null;
   task_title: string | null;
   project_id: string | null;
+  /** Set on kind='ai_suggestion': the draft to open for review. */
+  suggestion_id?: string | null;
 }
 
 export interface Intelligence {

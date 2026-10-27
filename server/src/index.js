@@ -475,7 +475,7 @@ app.get('/api/inbox', requireUser, async (req, res) => {
     // actor_id rides along so the client can tell a self-tag from someone
     // else's: "Sajjad mentioned you" reads wrong when Sajjad is the reader.
     `SELECT n.id, n.kind, n.actor_id, n.actor_name, n.body, n.read_at, n.created_at,
-            n.doc_id, n.comment_id, d.title AS doc_title, d.icon AS doc_icon,
+            n.doc_id, n.comment_id, n.suggestion_id, d.title AS doc_title, d.icon AS doc_icon,
             n.task_id, t.title AS task_title, t.project_id
        FROM notifications n
        LEFT JOIN docs d ON d.id = n.doc_id AND d.deleted_at IS NULL

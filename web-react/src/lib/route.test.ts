@@ -101,3 +101,11 @@ describe('a malformed escape in an address', () => {
     expect(r.blockId).toBe('blk%zz');
   });
 });
+
+describe('review links', () => {
+  it('reads ?review= on a document address', () => {
+    expect(parseRoute('/d/abc', '', '?review=s1')).toMatchObject({ docId: 'abc', reviewId: 's1' });
+    expect(parseRoute('/d/abc').reviewId).toBeNull();
+    expect(parseRoute('/f/x', '', '?review=s1').reviewId).toBeNull();
+  });
+});
