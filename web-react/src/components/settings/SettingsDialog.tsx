@@ -10,6 +10,7 @@ import {
   Shield,
   Sparkles,
   AudioLines,
+  CalendarDays,
   Sun,
   Trash2,
   User,
@@ -36,6 +37,7 @@ import {
   type PushResult,
 } from '../../lib/push';
 import { useAuth } from '../../store/auth';
+import { calendarApi } from '../../lib/calendar';
 import { sendInvite } from '../../lib/api';
 import { docsApi, type AdminToken, type UserRow } from '../../lib/docsApi';
 import { setSmallText, smallText } from '../../lib/docPrefs';
@@ -64,14 +66,14 @@ function Avatar({ name, size = 32 }: { name: string; size?: number }) {
   );
 }
 
-type SectionId = 'account' | 'preferences' | 'tokens' | 'members' | 'ai' | 'transcription' | 'webhooks' | 'about';
+type SectionId = 'account' | 'preferences' | 'tokens' | 'members' | 'ai' | 'transcription' | 'calendar' | 'webhooks' | 'about';
 
 /** A section only an admin may open at all. Everything else is shown to
  *  everyone — the AI panel, for instance, is readable by all and editable by
  *  admins, which is why it is not in here. Webhooks are different: a
  *  collaborator cannot even list them, so offering the screen would answer a
  *  403 with an empty list and tell them the workspace has none. */
-const ADMIN_ONLY: ReadonlySet<SectionId> = new Set(['webhooks']);
+const ADMIN_ONLY: ReadonlySet<SectionId> = new Set(['webhooks', 'calendar']);
 
 const NAV: { group: string; items: { id: SectionId; label: string; icon: typeof Settings2 }[] }[] = [
   {
@@ -88,6 +90,7 @@ const NAV: { group: string; items: { id: SectionId; label: string; icon: typeof 
       { id: 'members', label: 'Members', icon: Users },
       { id: 'ai', label: 'AI', icon: Sparkles },
       { id: 'transcription', label: 'Voice transcription', icon: AudioLines },
+      { id: 'calendar', label: 'Google Calendar', icon: CalendarDays },
       { id: 'webhooks', label: 'Webhooks', icon: Webhook },
       { id: 'about', label: 'About', icon: Info },
     ],
@@ -1023,6 +1026,125 @@ function TranscriptionSettingsSection() {
   );
 }
 
+/**
+ * Google Calendar connector (admin only). The client secret is write-only: GET
+ * says whether one is stored, and a blank field keeps it. The token key lives in
+ * the server environment, not here.
+ */
+function CalendarSettingsSection() {
+  const [loaded, setLoaded] = useState(false);
+  const [enabled, setEnabled] = useState(false);
+  const [clientId, setClientId] = useState('');
+  const [secret, setSecret] = useState('');
+  const [secretSet, setSecretSet] = useState(false);
+  const [keySet, setKeySet] = useState(true);
+  const [redirectUri, setRedirectUri] = useState('');
+  const [saved, setSaved] = useState<{ enabled: boolean; clientId: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  useEffect(() => {
+    calendarApi.settings()
+      .then((c) => {
+        setEnabled(c.enabled);
+        setClientId(c.clientId ?? '');
+        setSecretSet(!!c.secretSet);
+        setKeySet(!!c.keySet);
+        setRedirectUri(c.redirectUri ?? '');
+        setSaved({ enabled: c.enabled, clientId: c.clientId ?? '' });
+      })
+      .catch((e) => setMsg({ ok: false, text: e instanceof Error ? e.message : 'Could not load calendar settings.' }))
+      .finally(() => setLoaded(true));
+  }, []);
+
+  const dirty = !!saved && (enabled !== saved.enabled || clientId.trim() !== saved.clientId || secret.trim().length > 0);
+  const missing = enabled && (!clientId.trim() || (!secretSet && !secret.trim()));
+
+  const save = async () => {
+    if (!dirty || busy || missing) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      await calendarApi.saveSettings({ enabled, clientId: clientId.trim(), ...(secret.trim() ? { clientSecret: secret.trim() } : {}) });
+      if (secret.trim()) setSecretSet(true);
+      setSecret('');
+      setSaved({ enabled, clientId: clientId.trim() });
+      setMsg({ ok: true, text: 'Saved.' });
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof Error ? e.message : 'Could not save.' });
+    }
+    setBusy(false);
+  };
+
+  return (
+    <div>
+      <SectionTitle>Google Calendar</SectionTitle>
+      <p className="mb-5 text-sm text-muted">
+        Lets people connect their own Google Calendar (read-only) and see their events here. Create an OAuth client in
+        Google Cloud, then paste its details below.
+      </p>
+
+      {!keySet && (
+        <p className="mb-4 flex items-start gap-2 rounded-lg border border-line bg-surface px-3 py-2.5 text-xs leading-snug text-danger-strong">
+          <AlertCircle size={14} className="mt-px shrink-0" />
+          CALENDAR_TOKEN_KEY is not set on the server (a base64 32-byte key). Until it is, the connector stays off for everyone.
+        </p>
+      )}
+
+      <fieldset disabled={!loaded} className="divide-y divide-line border-t border-line disabled:opacity-60">
+        <Row title="Enabled" desc="Off hides the connector for everyone." control={<Switch on={enabled} onChange={setEnabled} />} />
+        <Row
+          title="Redirect URI"
+          desc="Add this as an authorized redirect URI on the Google OAuth client."
+          control={<input readOnly value={redirectUri} aria-label="Redirect URI" onFocus={(e) => e.currentTarget.select()} className={cn(field, 'min-[600px]:w-80')} />}
+        />
+        <Row
+          title="Client ID"
+          desc="From Google Cloud, APIs & Services, Credentials."
+          control={<input value={clientId} onChange={(e) => setClientId(e.target.value)} aria-label="Client ID" autoComplete="off" className={cn(field, 'min-[600px]:w-80')} />}
+        />
+        <Row
+          title="Client secret"
+          desc={secretSet ? 'A secret is stored. Type a new one to replace it.' : 'Stored on the server; never sent back to a browser.'}
+          control={
+            <input
+              value={secret}
+              onChange={(e) => setSecret(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && save()}
+              type="password"
+              autoComplete="off"
+              aria-label="Client secret"
+              placeholder={secretSet ? '••••••••••••  (unchanged)' : 'Client secret'}
+              className={cn(field, 'min-[600px]:w-80')}
+            />
+          }
+        />
+      </fieldset>
+
+      <div className="mt-4 flex items-center gap-3">
+        <Button
+          size="sm"
+          variant="primary"
+          onClick={save}
+          disabled={!dirty || busy || missing}
+          leftIcon={busy ? <Loader2 size={14} className="animate-spin" /> : undefined}
+        >
+          Save
+        </Button>
+        {missing ? (
+          <span className="flex items-center gap-1.5 text-xs text-danger-strong">
+            <AlertCircle size={14} /> Add the client ID and secret before turning it on.
+          </span>
+        ) : msg ? (
+          <span role="status" className={cn('flex items-center gap-1.5 text-xs', msg.ok ? 'text-accent-strong' : 'text-danger-strong')}>
+            {msg.ok ? <Check size={14} /> : <AlertCircle size={14} />} {msg.text}
+          </span>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function About() {
   const rows = [
     ['Plan', 'Free · unlimited members, forever'],
@@ -1212,6 +1334,7 @@ const BODIES: Record<SectionId, () => JSX.Element> = {
   members: Members,
   ai: AiSettings,
   transcription: TranscriptionSettingsSection,
+  calendar: CalendarSettingsSection,
   webhooks: Webhooks,
   about: About,
 };

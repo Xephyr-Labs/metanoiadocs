@@ -1114,6 +1114,15 @@ export async function initSchema() {
       EXECUTE FUNCTION record_task_due_change();
   `);
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_calendar_tokens (
+      user_id           TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      google_email      TEXT,
+      refresh_token_enc TEXT NOT NULL,
+      connected_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+
   await normalizeLegacyFolderImport();
   await relaxFavoritesKey();
   await seedTaskAssignees();
