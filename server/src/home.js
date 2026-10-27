@@ -2,21 +2,22 @@
 // five unrelated lists and five sequential fetches would show five spinners.
 import { pool } from './db.js';
 import { dayIn, zoneOf } from './timezone.js';
+import { needsQueries, needsDays } from './needs.js';
 
 // Docs the caller may see: team-visible, or explicitly granted.
-const VISIBLE = `(a.user_id IS NOT NULL OR d.visibility = 'team')`;
+export const VISIBLE = `(a.user_id IS NOT NULL OR d.visibility = 'team')`;
 // Home favours the caller's joined spaces (My tasks and the my_* stats don't:
 // work assigned to me shows wherever it lives). Every row has a space_id.
-const JOINED = (col) => `${col} IN (SELECT space_id FROM space_members WHERE user_id = $1)`;
+export const JOINED = (col) => `${col} IN (SELECT space_id FROM space_members WHERE user_id = $1)`;
 // With a space (the switcher's), Home is that space alone; without one, every
 // space you joined. $n is the query's space parameter.
-const IN_SPACE = (col, n, space) => (space ? `${col} = $${n}` : JOINED(col));
+export const IN_SPACE = (col, n, space) => (space ? `${col} = $${n}` : JOINED(col));
 // Your own tasks also count from a space you have not joined: you cannot
 // switch there, and a task given to you must never drop out of sight.
-const MY_SPACE = (col, n, space) => (space
+export const MY_SPACE = (col, n, space) => (space
   ? `(${col} = $${n} OR ${col} NOT IN (SELECT space_id FROM space_members WHERE user_id = $1))`
   : 'true');
-const VISIBLE_JOIN = `LEFT JOIN doc_access a ON a.doc_id = d.id AND a.user_id = $1`;
+export const VISIBLE_JOIN = `LEFT JOIN doc_access a ON a.doc_id = d.id AND a.user_id = $1`;
 
 /**
  * Activity feed, derived rather than logged: no write on the save path and it
@@ -149,5 +150,11 @@ export function registerHomeRoutes(app, { requireUser, wrap }) {
       activity: activity.rows,
       projects: projects.rows,
     });
+  }));
+
+  // What is waiting on me: To review, Overdue, Mentions, Changed pages (needs.js).
+  app.get('/api/home/needs', requireUser, wrap(async (req, res) => {
+    const spaceId = typeof req.query.spaceId === 'string' && req.query.spaceId ? req.query.spaceId : null;
+    res.json(await needsQueries(pool, { userId: req.user.id, spaceId, today: needsDays(req.user).today }));
   }));
 }
