@@ -78,6 +78,7 @@ import { TRASH_RETENTION_DAYS, startTrashSweeper } from './retention.js';
 import { startReminders } from './reminders.js';
 import { dayIn, isZone, zoneOf } from './timezone.js';
 import { byJoinedFirst } from './spaces.js';
+import { ROLE_RANK, rankOf, canEdit } from './approval.js';
 import OpenAI from 'openai';
 
 process.on('unhandledRejection', (e) => console.error('[proc] unhandledRejection', e?.message || e));
@@ -1649,14 +1650,11 @@ async function trashGrantOn(docId, userId) {
 // comments; 'suggester' also proposes changes (a suggestion card, or a draft in
 // Suggesting mode) that someone who can edit reviews; 'editor' and 'owner'
 // change the page itself. Anything unrecognised ranks below viewer.
-const ROLE_RANK = { viewer: 0, commenter: 1, suggester: 2, editor: 3, owner: 4 };
 const SHAREABLE_ROLES = ['viewer', 'commenter', 'suggester', 'editor'];
 /** A stored team role, read defensively: anything unknown means editor, as before. */
 const teamRole = (r) => (SHAREABLE_ROLES.includes(r) ? r : 'editor');
-const rankOf = (role) => (role in ROLE_RANK ? ROLE_RANK[role] : -1);
 const canComment = (role) => rankOf(role) >= ROLE_RANK.commenter;
 const canSuggest = (role) => rankOf(role) >= ROLE_RANK.suggester;
-const canEdit = (role) => rankOf(role) >= ROLE_RANK.editor;
 /**
  * Make everyone on a page reconnect, so a role that just changed takes effect
  * now: read-only is decided when a connection opens, and someone downgraded or
