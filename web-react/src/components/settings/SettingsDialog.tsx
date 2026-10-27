@@ -37,7 +37,7 @@ import {
 } from '../../lib/push';
 import { useAuth } from '../../store/auth';
 import { sendInvite } from '../../lib/api';
-import { docsApi, type UserRow } from '../../lib/docsApi';
+import { docsApi, type AdminToken, type UserRow } from '../../lib/docsApi';
 import { setSmallText, smallText } from '../../lib/docPrefs';
 import { avatarFor } from '../../lib/avatar';
 import { relativeTime } from '../../lib/time';
@@ -1027,8 +1027,17 @@ function Tokens() {
   const [confirming, setConfirming] = useState<string | null>(null);
   const [revoking, setRevoking] = useState<string | null>(null);
 
+  const isAdmin = useAuth().user?.role === 'admin';
+  const [agentTokens, setAgentTokens] = useState<AdminToken[]>([]);
+
   const load = () => docsApi.listTokens().then(setRows).catch(() => setRows([]));
-  useEffect(() => { load(); }, []);
+  const loadAgents = () => docsApi.listAllTokens()
+    .then((all) => setAgentTokens(all.filter((t) => t.userKind === 'agent'))).catch(() => {});
+  useEffect(() => { load(); if (isAdmin) loadAgents(); }, [isAdmin]);
+  const setTrusted = async (id: string, trusted: boolean) => {
+    setAgentTokens((l) => l.map((t) => (t.id === id ? { ...t, trusted } : t)));
+    try { await docsApi.setTokenTrusted(id, trusted); } catch { toast('Could not change that'); loadAgents(); }
+  };
 
   const create = async () => {
     if (busy) return;
@@ -1140,6 +1149,29 @@ function Tokens() {
           );
         })}
       </div>
+
+      {isAdmin && (
+        <div className="mt-8">
+          <SectionTitle>Agent access</SectionTitle>
+          <p className="mb-3 text-sm text-muted">
+            Untrusted agent edits to existing pages become suggestions for a person to approve.
+          </p>
+          <div className="divide-y divide-line border-t border-line">
+            {agentTokens.length === 0 ? (
+              <p className="py-6 text-center text-sm text-faint">No agent tokens yet.</p>
+            ) : agentTokens.map((t) => (
+              <div key={t.id} className="flex items-center gap-3 py-3">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-ink">{t.name}</p>
+                  <p className="truncate text-xs text-faint">{t.userName}</p>
+                </div>
+                <span className="text-xs text-muted">Trusted — writes directly</span>
+                <Switch on={t.trusted} onChange={(v) => setTrusted(t.id, v)} label={`Trust ${t.name}`} />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

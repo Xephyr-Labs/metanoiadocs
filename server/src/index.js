@@ -185,7 +185,7 @@ async function userForRequest(req) {
   const m = auth.match(/^Bearer\s+(.+)$/i);
   if (!m) return null;
   const { rows } = await pool.query(
-    `SELECT u.* FROM api_tokens t JOIN users u ON u.id = t.user_id WHERE t.token_hash = $1`,
+    `SELECT u.*, t.id AS token_id, t.trusted AS token_trusted FROM api_tokens t JOIN users u ON u.id = t.user_id WHERE t.token_hash = $1`,
     [sha256(m[1].trim())]
   );
   if (!rows[0]) return null;
@@ -196,6 +196,10 @@ async function userForRequest(req) {
 async function requireUser(req, res, next) {
   const user = await userForRequest(req);
   if (!user) return res.status(401).json({ error: 'unauthorized' });
+  // Only the Bearer path carries a token; a cookie session has none.
+  req.token = user.token_id ? { id: user.token_id, trusted: !!user.token_trusted } : null;
+  delete user.token_id;
+  delete user.token_trusted;
   req.user = user;
   next();
 }
@@ -509,7 +513,7 @@ app.get('/api/users', requireUser, async (_req, res) => {
 // ── personal access tokens (for the MCP server / programmatic clients) ───────
 app.get('/api/tokens', requireUser, async (req, res) => {
   const { rows } = await pool.query(
-    'SELECT id, name, created_at, last_used_at FROM api_tokens WHERE user_id = $1 ORDER BY created_at DESC',
+    'SELECT id, name, trusted, created_at, last_used_at FROM api_tokens WHERE user_id = $1 ORDER BY created_at DESC',
     [req.user.id]
   );
   res.json(rows);
@@ -525,6 +529,26 @@ app.post('/api/tokens', requireUser, async (req, res) => {
     [id, req.user.id, name, sha256(secret)]
   );
   res.json({ id, name, token: secret });
+});
+
+// Admin: every token of every account, so trust can be granted per token.
+// Never the hash.
+app.get('/api/admin/tokens', requireUser, requireAdmin, async (_req, res) => {
+  const { rows } = await pool.query(
+    `SELECT t.id, t.name, t.user_id, u.name AS user_name, u.kind AS user_kind, t.trusted, t.created_at, t.last_used_at
+       FROM api_tokens t JOIN users u ON u.id = t.user_id ORDER BY t.created_at DESC`
+  );
+  res.json(rows.map((r) => ({
+    id: r.id, name: r.name, userId: r.user_id, userName: r.user_name, userKind: r.user_kind || 'person',
+    trusted: r.trusted, createdAt: r.created_at, lastUsedAt: r.last_used_at,
+  })));
+});
+
+app.put('/api/admin/tokens/:id/trusted', requireUser, requireAdmin, async (req, res) => {
+  if (typeof req.body?.trusted !== 'boolean') return res.status(400).json({ error: 'trusted must be true or false' });
+  const { rowCount } = await pool.query('UPDATE api_tokens SET trusted = $2 WHERE id = $1', [req.params.id, req.body.trusted]);
+  if (!rowCount) return res.status(404).json({ error: 'No such token.' });
+  res.json({ ok: true });
 });
 
 app.delete('/api/tokens/:id', requireUser, async (req, res) => {

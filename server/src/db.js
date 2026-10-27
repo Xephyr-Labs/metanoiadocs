@@ -357,6 +357,8 @@ export async function initSchema() {
       last_used_at TIMESTAMPTZ
     );
     CREATE INDEX IF NOT EXISTS api_tokens_user_idx ON api_tokens(user_id);
+    -- An admin-trusted token writes to existing pages directly; see approval.js.
+    ALTER TABLE api_tokens ADD COLUMN IF NOT EXISTS trusted BOOLEAN NOT NULL DEFAULT false;
 
     -- Intelligence layer: per-doc term vector + extracted signals. Computed
     -- synchronously on the /text save. Best-effort; never blocks a save.

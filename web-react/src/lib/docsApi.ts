@@ -347,6 +347,11 @@ export interface DeliveryRow {
   created_at: string;
 }
 
+export type AdminToken = {
+  id: string; name: string; userId: string; userName: string; userKind: 'person' | 'agent';
+  trusted: boolean; createdAt: string; lastUsedAt: string | null;
+};
+
 export const docsApi = {
   list: (): Promise<DocRow[]> => req('/docs'),
   myDocs: (offset: number, limit = 8, spaceId?: string): Promise<{ total: number; rows: MyDocRow[] }> =>
@@ -458,6 +463,10 @@ export const docsApi = {
   users: (): Promise<UserRow[]> => req('/users'),
   updateMe: (name: string) => req('/me', { method: 'PATCH', body: JSON.stringify({ name }) }),
   listTokens: (): Promise<{ id: string; name: string; created_at: string; last_used_at: string | null }[]> => req('/tokens'),
+  /** Admin: every token of every account. */
+  listAllTokens: (): Promise<AdminToken[]> => req('/admin/tokens'),
+  setTokenTrusted: (id: string, trusted: boolean) =>
+    req(`/admin/tokens/${id}/trusted`, { method: 'PUT', body: JSON.stringify({ trusted }) }),
   createToken: (name: string): Promise<{ id: string; name: string; token: string }> =>
     req('/tokens', { method: 'POST', body: JSON.stringify({ name }) }),
   deleteToken: (id: string) => req(`/tokens/${id}`, { method: 'DELETE' }),
