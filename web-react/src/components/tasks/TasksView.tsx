@@ -231,7 +231,7 @@ export function TasksView() {
       <header className="shrink-0 border-b border-line px-4 py-2.5">
         {/* The same column the list keeps, so the chips sit over the rows they
             narrow rather than drifting apart on a wide screen. */}
-        <div className="mx-auto flex w-full max-w-[1100px] flex-wrap items-center gap-x-3 gap-y-2">
+        <div className="mx-auto flex w-full max-w-[1440px] flex-wrap items-center gap-x-3 gap-y-2">
           <h1 className="order-1 flex items-center gap-2 text-sm font-semibold text-ink">
             <CheckSquare size={16} className="text-faint" />
             Tasks
@@ -272,7 +272,7 @@ export function TasksView() {
         </div>
         {/* Its own line: sharing the first one squeezed the filter chips until
             they overlapped it. */}
-        <div className="mx-auto mt-2 w-full max-w-[1100px]">
+        <div className="mx-auto mt-2 w-full max-w-[1440px]">
           <SegmentedControl
             aria-label="Which tasks"
             value={scope}
@@ -287,7 +287,7 @@ export function TasksView() {
       </header>
 
       <div ref={scroller} className={cn('min-h-0 flex-1 overscroll-contain', shape === 'list' ? 'scrollarea overflow-y-auto px-4' : 'flex flex-col overflow-hidden p-3')}>
-        <div className={cn(shape === 'list' ? 'mx-auto w-full max-w-[1100px]' : 'flex min-h-0 flex-1 flex-col')}>
+        <div className={cn(shape === 'list' ? 'mx-auto w-full max-w-[1440px]' : 'flex min-h-0 flex-1 flex-col')}>
         {error && <p className="py-3 text-sm text-danger-strong">{error}</p>}
         {!data ? (
           <div className="space-y-2 py-4">

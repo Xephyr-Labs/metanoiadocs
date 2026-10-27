@@ -161,6 +161,7 @@ export function InboxDialog() {
       onOpenChange={ws.setInboxOpen}
       placement="top"
       focusPanel
+      width={720}
       className="max-h-[70vh]"
       title={<><Inbox size={16} className="text-muted" /> Inbox</>}
     >
