@@ -44,7 +44,7 @@ import { baseMime } from './media.js';
 import { commentInput } from './comment-input.js';
 import { deleteUnusedAudio } from './blob-cleanup.js';
 import { docCommentRecipients } from './comment-recipients.js';
-import { buildDocState, appendMarkdownToDoc, appendPageReference, extractText, extractBlocks, docToMarkdown, fixTableOrderKeys, stateWithValidTableKeys, linkResolver, linkLabeler, pageLinksOf } from './blocks.js';
+import { buildDocState, appendMarkdownToDoc, appendPageReference, extractText, extractBlocks, docToMarkdown, fixTableOrderKeys, stateWithValidTableKeys, linkResolver, linkLabeler, pageLinksOf, lossyBlocks } from './blocks.js';
 import { rewriteDoc } from './restore.js';
 import { applyTextSuggestion, parseDraftName, registerSuggestionRoutes } from './suggestions.js';
 import { registerReactionRoutes, withReactions } from './reactions.js';
@@ -1032,14 +1032,15 @@ app.get('/api/docs/:id/text', requireUser, async (req, res) => {
 
 /**
  * How markdown `[[links]]` map to pages for one user. `label` names only pages
- * they can open; `resolve` also takes the bare id of any live page, so a link
- * to a page the writer cannot see survives a read-then-replace untouched.
+ * they can open; `resolve` also takes the bare id of any page, trashed ones
+ * included, so a link to a page the writer cannot see (or one restored later)
+ * survives a read-then-replace untouched.
  */
 async function docLinkContext(userId) {
   const { rows } = await pool.query(
-    `SELECT d.id, d.title, (a.user_id IS NOT NULL OR d.visibility = 'team') AS visible
-       FROM docs d LEFT JOIN doc_access a ON a.doc_id = d.id AND a.user_id = $1
-      WHERE d.deleted_at IS NULL`,
+    `SELECT d.id, d.title,
+            d.deleted_at IS NULL AND (a.user_id IS NOT NULL OR d.visibility = 'team') AS visible
+       FROM docs d LEFT JOIN doc_access a ON a.doc_id = d.id AND a.user_id = $1`,
     [userId],
   );
   const visible = rows.filter((r) => r.visible);
@@ -1059,9 +1060,13 @@ app.get('/api/docs/:id/markdown', requireUser, wrap(async (req, res) => {
   if (!d.rows[0]) return res.status(404).json({ error: 'not found' });
   const s = await pool.query('SELECT state FROM doc_states WHERE doc_id = $1', [req.params.id]);
   let markdown = '';
+  let lossy = [];
   if (s.rows[0]) {
     const { label } = await docLinkContext(req.user.id);
-    try { markdown = docToMarkdown(s.rows[0].state, { resolveTitle: label }).markdown; } catch { /* empty */ }
+    try {
+      markdown = docToMarkdown(s.rows[0].state, { resolveTitle: label, escape: true }).markdown;
+      lossy = lossyBlocks(s.rows[0].state);
+    } catch { /* empty */ }
   }
   const { rows: editors } = await pool.query(
     `SELECT u.id, u.name, coalesce(u.kind, 'person') AS kind, e.first_edit_at, e.last_edit_at
@@ -1069,7 +1074,9 @@ app.get('/api/docs/:id/markdown', requireUser, wrap(async (req, res) => {
       WHERE e.doc_id = $1 ORDER BY e.last_edit_at DESC`,
     [req.params.id]
   );
-  res.json({ id: req.params.id, title: d.rows[0].title, markdown, editors });
+  // `lossy` names what this markdown leaves out; write_doc refuses a replace
+  // while the page holds any of it.
+  res.json({ id: req.params.id, title: d.rows[0].title, markdown, ...(lossy.length ? { lossy } : {}), editors });
 }));
 
 // ── export ──────────────────────────────────────────────────────────────────
@@ -1192,6 +1199,12 @@ app.post('/api/docs/:id/content', requireUser, wrap(async (req, res) => {
     // way a restore is. Taken from the live document, before the write, so it
     // holds the edits still waiting on the debounced save.
     const had = !!conn.document?.getMap('blocks').size;
+    // Markdown cannot carry these; replacing the body would delete them.
+    const lossy = mode === 'replace' && had ? lossyBlocks(Y.encodeStateAsUpdate(conn.document)) : [];
+    if (lossy.length) {
+      res.status(409).json({ error: `This page holds content markdown cannot carry (${lossy.join(', ')}); replacing it would delete that. Append instead, or leave a comment.`, lossy });
+      return;
+    }
     if (mode === 'replace' && had) {
       await snapshotVersion(docId, Buffer.from(Y.encodeStateAsUpdate(conn.document)), 'Before replace', req.user.id);
     }
@@ -1234,7 +1247,9 @@ app.post('/api/docs/:id/content', requireUser, wrap(async (req, res) => {
   if (state) await storeLinks(docId, pageLinksOf(state));
   // [[keys]] that matched no page stay as literal text; say which, so the
   // writer can fix the title instead of believing the link was made.
-  const unresolved = [...markdown.matchAll(/\[\[([^\]\n]+)\]\]/g)].map((m) => m[1]).filter((k) => !resolve(k));
+  // Code is literal and so is an escaped \[[, so neither counts.
+  const prose = markdown.replace(/^```[^\n]*\n[\s\S]*?^```\s*$/gm, '').replace(/`[^`\n]+`/g, '');
+  const unresolved = [...prose.matchAll(/(?<!\\)\[\[([^\]\n]+)\]\]/g)].map((m) => m[1]).filter((k) => !resolve(k));
   res.json({ ok: true, ...(unresolved.length ? { unresolvedLinks: [...new Set(unresolved)] } : {}) });
 }));
 

@@ -25,6 +25,9 @@ const LINK_RE = /\[\[([^\]\n]+)\]\]/g;
 // Inline markdown, in the order a match is preferred. `raw` means the contents
 // are literal — nothing inside a code span is markup.
 const INLINE = [
+  // A backslash makes the next markup character literal — how docToMarkdown
+  // writes text that only looks like markdown (`\[[`, `\*`, a leading `\#`).
+  { re: /\\([\\`*_~[\]<>#|.!+-])/, raw: true, attrs: () => ({}) },
   { re: /`([^`\n]+)`/, raw: true, attrs: () => ({ code: true }) },
   { re: /\*\*([^*\n]+)\*\*/, attrs: () => ({ bold: true }) },
   { re: /__([^_\n]+)__/, attrs: () => ({ bold: true }) },
@@ -176,7 +179,8 @@ export function linkLabeler(docs) {
   const resolve = linkResolver(docs);
   return (pageId) => {
     const title = titles.get(pageId);
-    if (title == null) return pageId;
+    // No title, or one the [[…]] syntax cannot hold: the id still links.
+    if (title == null || !String(title).trim() || /[\]\n]/.test(title)) return pageId;
     return resolve(title) === pageId ? title : `${pageId}|${title}`;
   };
 }
@@ -186,17 +190,51 @@ export function pageLinksOf(existing) {
   const doc = new Y.Doc();
   Y.applyUpdate(doc, new Uint8Array(existing));
   const ids = new Set();
-  for (const [, b] of doc.getMap('blocks')) {
-    if (!(b instanceof Y.Map)) continue;
-    for (const [, v] of b) {
-      if (!(v instanceof Y.Text)) continue;
+  // Database cells nest their text (prop:cells → row → column → value); scan
+  // as deep as the editor's own collectPageLinks does, or a headless write
+  // would delete those backlinks.
+  const scan = (v, depth) => {
+    if (depth > 6) return;
+    if (v instanceof Y.Text) {
       for (const op of v.toDelta()) {
         const id = op.attributes?.reference?.pageId;
         if (typeof id === 'string' && id) ids.add(id);
       }
+    } else if (v instanceof Y.Map || v instanceof Y.Array) {
+      v.forEach((x) => scan(x, depth + 1));
+    }
+  };
+  for (const [, b] of doc.getMap('blocks')) scan(b, 0);
+  return [...ids];
+}
+
+const LOSSY = {
+  'affine:database': 'database', 'affine:attachment': 'attachment', 'affine:latex': 'equation',
+  'affine:bookmark': 'embed', 'affine:frame': 'canvas', 'affine:edgeless-text': 'canvas',
+};
+
+/**
+ * What a doc holds that its markdown cannot carry — a markdown replace would
+ * delete it. Linked-doc cards are not on the list: they come back as inline
+ * links, which keeps what they are for.
+ */
+export function lossyBlocks(existing) {
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, new Uint8Array(existing));
+  const out = new Set();
+  for (const [, b] of doc.getMap('blocks')) {
+    if (!(b instanceof Y.Map)) continue;
+    const fl = b.get('sys:flavour');
+    if (LOSSY[fl]) out.add(LOSSY[fl]);
+    else if (/^affine:embed-/.test(fl) && fl !== 'affine:embed-linked-doc' && fl !== 'affine:embed-synced-doc') out.add('embed');
+    else if (fl === 'affine:note' && b.get('prop:displayMode') === 'edgeless') out.add('canvas');
+    else if (fl === 'affine:surface') {
+      const els = b.get('prop:elements');
+      const value = els instanceof Y.Map ? els.get('value') : null;
+      if (value instanceof Y.Map && value.size > 0) out.add('canvas');
     }
   }
-  return [...ids];
+  return [...out].sort();
 }
 
 /** Every `[[key]]` a markdown source resolves to, deduped. */
@@ -720,6 +758,7 @@ function inlineMarkdown(t, opts = {}) {
     let s = raw.slice(lead.length, raw.length - tail.length);
     if (!s) { out += raw; continue; }
     if (a.code) s = '`' + s + '`';
+    else if (opts.escape) s = escapeInline(s);
     if (a.strike) s = `~~${s}~~`;
     if (a.italic) s = `*${s}*`;
     if (a.bold) s = `**${s}**`;
@@ -732,6 +771,16 @@ function inlineMarkdown(t, opts = {}) {
   }
   return out;
 }
+
+/** Plain text → markdown that parses back to the same text, not to markup. */
+const escapeInline = (s) =>
+  s.replace(/[\\`*~[]/g, '\\$&').replace(/__/g, '\\_\\_').replace(/<(?=\/?(?:span|u|mark|small|big)\b)/g, '\\<');
+
+/** A paragraph whose text would open a block (list, heading, quote…) keeps it as text. */
+const escapeLead = (md) => {
+  if (/^\d+\.\s/.test(md)) return md.replace('.', '\\.');
+  return /^(#{1,6}\s|>|[-+]\s|-{3,}\s*$|_{3,}\s*$|\||```|\$\$)/.test(md) ? `\\${md}` : md;
+};
 
 /** A table block's flat prop keys → a markdown pipe table. */
 function tableMarkdown(b, opts) {
@@ -765,6 +814,8 @@ function tableMarkdown(b, opts) {
  * The inverse of buildDocState for everything buildDocState can make, plus the
  * block types only the editor produces (images, attachments, bookmarks, LaTeX).
  * `opts.resolveTitle(pageId)` renders page references as `[[Title]]`;
+ * `opts.escape` backslash-escapes text that would otherwise parse as markup,
+ * for markdown that is written back (not for print/preview, which show it);
  * `opts.imageUrl(sourceId)` points image/attachment links at wherever the blob
  * is being served from.
  */
@@ -810,7 +861,7 @@ export function docToMarkdown(existing, opts = {}) {
         const body = text(b);
         if (/^h[1-6]$/.test(type)) parts.push({ text: `${'#'.repeat(Number(type[1]))} ${body}` });
         else if (type === 'quote') parts.push({ text: withSize(b, body).split('\n').map((l) => `> ${l}`).join('\n') });
-        else parts.push({ text: withSize(b, body) });
+        else parts.push({ text: withSize(b, opts.escape ? escapeLead(body) : body) });
         break;
       }
       case 'affine:list': {
@@ -821,7 +872,7 @@ export function docToMarkdown(existing, opts = {}) {
         break;
       }
       case 'affine:code':
-        parts.push({ text: '```' + (b.get('prop:language') || '') + '\n' + text(b) + '\n```' });
+        parts.push({ text: '```' + (b.get('prop:language') || '') + '\n' + String(b.get('prop:text') ?? '') + '\n```' });
         break;
       case 'affine:divider':
         parts.push({ text: '---' });

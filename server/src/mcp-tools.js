@@ -196,7 +196,7 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
     {
       title: 'Read a doc',
       description:
-        "Get a doc's title and its body as markdown, by id — the same markdown write_doc and create_doc take, formatting included, with links to other docs as [[Title]] (or [[id|Title]] where two docs share the title). To edit a doc, change this markdown and write it back with mode=replace: everything you leave as it was, links included, comes back unchanged.",
+        "Get a doc's title and its body as markdown, by id — the same markdown write_doc and create_doc take, formatting included, with links to other docs as [[Title]] (or [[id|Title]] where two docs share the title). To edit a doc, change this markdown and write it back with mode=replace: text, formatting, lists, tables, panels, images and links you leave as they were come back unchanged. If the result has `lossy`, the page also holds things markdown cannot carry (database, canvas, attachment, equation, embed) and replace is refused — append or comment instead.",
       inputSchema: { id: z.string().describe('Document id') },
     },
     async ({ id }) => {
