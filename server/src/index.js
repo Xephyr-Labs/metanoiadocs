@@ -46,6 +46,7 @@ import { deleteUnusedAudio } from './blob-cleanup.js';
 import { docCommentRecipients } from './comment-recipients.js';
 import { buildDocState, appendMarkdownToDoc, appendPageReference, extractText, extractBlocks, docToMarkdown, fixTableOrderKeys, stateWithValidTableKeys, linkResolver, linkLabeler, pageLinksOf, lossyBlocks } from './blocks.js';
 import { rewriteDoc } from './restore.js';
+import { registerDocOpenRoutes } from './doc-opens.js';
 import { applyTextSuggestion, draftName, pageStateFrom, parseDraftName, registerSuggestionRoutes } from './suggestions.js';
 import { registerReactionRoutes, withReactions } from './reactions.js';
 import { wouldFolderCycle } from './folders.js';
@@ -3409,6 +3410,7 @@ registerCsvRoutes(app, {
 startWebhookWorker();
 registerAgentRoutes(app, { requireUser, wrap, createDocRow });
 registerAutomationRoutes(app, { requireUser, wrap });
+registerDocOpenRoutes(app, { requireUser, wrap, pool, grantOn });
 registerSuggestionRoutes(app, {
   requireUser, wrap, pool, grantOn, canEdit, canSuggest, notifyUser, recordDocEditors,
   // The sync server is built further down; the routes only reach it per request.

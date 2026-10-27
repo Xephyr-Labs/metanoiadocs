@@ -652,6 +652,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     localStorage.setItem('mn-last-doc', id);
     setMobileDrawer(false);
     showDoc(id);
+    // Only real pages count; tasks have no "changed since you looked".
+    const kind = pagesRef.current[id]?.kind;
+    if (kind === 'doc' || kind === 'design') docsApi.markOpened(id).catch(() => {});
     setRecentIds((prev) => {
       const r = [id, ...prev.filter((x) => x !== id)].slice(0, 8);
       localStorage.setItem('mn-recents', JSON.stringify(r));
