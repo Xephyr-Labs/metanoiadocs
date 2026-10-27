@@ -1077,8 +1077,12 @@ function copyTree(from, to, id) {
 // width, xywh, textAlign, meta:*…) — those are only builder defaults in the
 // scratch doc and must survive an edit. prop:order is set by renumberLists.
 const CONTENT_PROPS = new Set(['prop:text', 'prop:type', 'prop:checked', 'prop:language', 'prop:mnSize',
-  'prop:mnPanel', 'prop:caption', 'prop:sourceId', 'prop:latex', 'prop:url', 'prop:emoji']);
-const isContent = (k) => CONTENT_PROPS.has(k) || /^prop:(rows|columns|cells)\./.test(k);
+  'prop:mnPanel', 'prop:sourceId', 'prop:latex', 'prop:url', 'prop:emoji']);
+// Markdown carries a caption only for images, bookmarks and embeds; a code
+// block's caption is editor-only and the builder's '' would wipe it.
+const captioned = (fl) => fl === 'affine:image' || fl === 'affine:bookmark' || /^affine:embed-/.test(fl || '');
+const isContent = (k, fl) =>
+  CONTENT_PROPS.has(k) || /^prop:(rows|columns|cells)\./.test(k) || (k === 'prop:caption' && captioned(fl));
 
 /**
  * Make live block `old` say what scratch block `neu` says, keeping its id and
@@ -1086,13 +1090,14 @@ const isContent = (k) => CONTENT_PROPS.has(k) || /^prop:(rows|columns|cells)\./.
  * table row goes); everything else is left alone. Equal content → no writes.
  */
 function editInPlace(old, neu) {
+  const fl = old.get('sys:flavour');
   for (const [k, v] of neu) {
-    if (!isContent(k)) continue;
+    if (!isContent(k, fl)) continue;
     const cur = old.get(k);
     if (v instanceof Y.Text && cur instanceof Y.Text) syncText(cur, v);
     else if (v instanceof Y.AbstractType || cur !== v) old.set(k, cloneValue(v));
   }
-  for (const k of [...old.keys()]) if (isContent(k) && !neu.has(k)) old.delete(k);
+  for (const k of [...old.keys()]) if (isContent(k, fl) && !neu.has(k)) old.delete(k);
 }
 
 /**

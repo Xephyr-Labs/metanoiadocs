@@ -156,3 +156,45 @@ test('editor state survives: a parent paired for its child, an image whose capti
   const changes = computeChanges(base, draft, base).map((c) => `${c.kind}:${c.before}->${c.after}`);
   assert.deepEqual(changes, ['modified:c1->c1 edited', 'modified:cap->new cap']);
 });
+
+/** intro + a list that starts at 5 (as typing "5. " makes it) + tail. */
+function fromFive() {
+  const doc = docOf('T', 'intro\n\n1. e\n2. f\n3. g\n\ntail');
+  doc.transact(() => body(doc).slice(1, 4).forEach(({ id }, i) => doc.getMap('blocks').get(id).set('prop:order', 5 + i)));
+  return doc;
+}
+const listOrders = (doc) => orders(doc).filter((o) => o !== undefined);
+
+test('a list started at 5 keeps its numbers through accepts and replaces', () => {
+  const base = fromFive();
+  const accept = (edit) => {
+    const draft = new Y.Doc();
+    Y.applyUpdate(draft, Y.encodeStateAsUpdate(base));
+    draft.transact(() => edit(draft));
+    const main = new Y.Doc();
+    Y.applyUpdate(main, Y.encodeStateAsUpdate(base));
+    main.transact(() => { for (const c of computeChanges(base, draft, base)) applyChange(main, draft, base, c); });
+    return main;
+  };
+  const textOf = (d, i) => d.getMap('blocks').get(body(d)[i].id).get('prop:text');
+  // A person edits only the paragraph: the list is not renumbered.
+  assert.deepEqual(listOrders(accept((d) => textOf(d, 0).insert(5, ' edited'))), [5, 6, 7]);
+  // A person deletes f / the AI inserts and deletes: the run still starts at 5.
+  assert.deepEqual(listOrders(accept((d) => {
+    const k = d.getMap('blocks').get(body(d)[2].id);
+    const note = [...d.getMap('blocks').values()].find((b) => b.get('sys:flavour') === 'affine:note');
+    note.get('sys:children').delete(2, 1); d.getMap('blocks').delete(k.get('sys:id'));
+  })), [5, 6]);
+  assert.deepEqual(listOrders(accept((d) => replaceBodyKeepingIds(d, 'T', 'intro\n\n1. e\n2. X\n3. f\n4. g\n\ntail'))), [5, 6, 7, 8]);
+  assert.deepEqual(listOrders(accept((d) => replaceBodyKeepingIds(d, 'T', 'intro\n\n1. e\n2. g\n\ntail'))), [5, 6]);
+  assert.deepEqual(listOrders(accept((d) => replaceBodyKeepingIds(d, 'T', 'intro2\n\n1. e\n2. f\n3. g\n\ntail'))), [5, 6, 7]);
+});
+
+test('a code block keeps its editor-only caption when its code is edited', () => {
+  const doc = docOf('T', '```js\nx\n```');
+  const code = [...doc.getMap('blocks').values()].find((b) => b.get('sys:flavour') === 'affine:code');
+  doc.transact(() => code.set('prop:caption', 'my cap'));
+  replace(doc, 'T', '```js\ny\n```');
+  assert.equal(String(code.get('prop:text')), 'y');
+  assert.equal(code.get('prop:caption'), 'my cap');
+});
