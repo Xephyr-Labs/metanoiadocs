@@ -330,3 +330,89 @@ test('text added at the start of a passage does not take the link before it', ()
   assert.equal(applyTextSuggestion(doc, id, 'world', 'big world'), true);
   assert.deepEqual(text.toDelta(), [{ insert: 'Link', attributes: { link: 'https://example.com' } }, { insert: 'big world' }]);
 });
+
+function fakeRoutes(rows, { grant = 'editor', main } = {}) {
+  const routes = {};
+  const reg = (m) => (path, ...h) => { routes[`${m} ${path}`] = h[h.length - 1]; };
+  const app = { get: reg('GET'), post: reg('POST'), delete: reg('DELETE') };
+  const calls = [];
+  const rank = { viewer: 0, commenter: 1, suggester: 2, editor: 3, owner: 4 };
+  registerSuggestionRoutes(app, {
+    requireUser: () => {}, wrap: (fn) => fn,
+    pool: {
+      query: async (sql, params) => {
+        calls.push(sql);
+        if (/FROM doc_suggestions s JOIN users u ON u.id = s.author_id\s+WHERE s.id/.test(sql)) return { rows: rows.filter((r) => r.id === params[0]) };
+        if (/WHERE s.doc_id = \$1 AND s.author_id = \$2/.test(sql)) {
+          const personOnly = /writer_via IS NULL/.test(sql);
+          return { rows: rows.filter((r) => r.doc_id === params[0] && r.author_id === params[1] && r.status !== 'closed' && (!personOnly || !r.writer_via)) };
+        }
+        if (/^\s*INSERT INTO doc_suggestions/.test(sql)) {
+          const row = { id: params[0], doc_id: params[1], author_id: params[2], status: 'draft', writer_via: null, approver_id: null };
+          rows.push(row);
+          return { rows: [row] };
+        }
+        if (/FROM users WHERE id/.test(sql)) return { rows: [{ name: 'Approver' }] };
+        if (/^\s*SELECT state FROM doc_states/.test(sql)) return { rows: [{ state: Buffer.from('x') }] };
+        return { rows: [], rowCount: 1 };
+      },
+    },
+    grantOn: async () => grant, canEdit: (r) => rank[r] >= 3, canSuggest: () => true,
+    getHocuspocus: () => ({
+      documents: new Map([['d1', new Y.Doc()]]),
+      openDirectConnection: async () => ({ transact: async (fn) => fn(main || new Y.Doc()), disconnect: async () => {} }),
+    }),
+    notifyUser: async () => {}, recordDocEditors: async () => {},
+  });
+  return { routes, calls };
+}
+const res = () => { const r = { status() { return r; }, json(v) { r.out = v; } }; return r; };
+const aiRow = (over = {}) => {
+  const base = buildDocState('T', 'x\n');
+  return { id: 's1', doc_id: 'd1', author_id: 'u2', status: 'submitted', decisions: {}, approver_id: 'a1', writer_via: 'ai', base_state: Buffer.from(base), state: Buffer.from(base), ...over };
+};
+
+test('only the designated approver may decide an AI draft', async () => {
+  const { routes } = fakeRoutes([aiRow()]);
+  const denied = []; const r1 = { status(c) { denied.push(c); return r1; }, json() {} };
+  await routes['POST /api/suggestions/:sid/decide']({ params: { sid: 's1' }, user: { id: 'e1' }, body: { all: 'accept' } }, r1);
+  assert.deepEqual(denied, [403]);
+  const ok = res();
+  await routes['POST /api/suggestions/:sid/decide']({ params: { sid: 's1' }, user: { id: 'a1' }, body: { all: 'accept' } }, ok);
+  assert.equal(ok.out.ok, true);
+});
+
+test('a non-approver editor can see an AI draft but not review it; a person draft stays reviewable', async () => {
+  const { routes } = fakeRoutes([aiRow(), aiRow({ id: 's2', approver_id: null, writer_via: null })]);
+  const a = res(); const p = res();
+  await routes['GET /api/suggestions/:sid']({ params: { sid: 's1' }, user: { id: 'e1' } }, a);
+  await routes['GET /api/suggestions/:sid']({ params: { sid: 's2' }, user: { id: 'e1' } }, p);
+  assert.equal(a.out.canReview, false);
+  assert.equal(a.out.approverId, 'a1');
+  assert.equal(a.out.approverName, 'Approver');
+  assert.equal(a.out.writerVia, 'ai');
+  assert.equal(p.out.canReview, true);
+});
+
+test('an Ask-AI draft does not stand in for the author\'s own draft', async () => {
+  const rows = [aiRow({ author_id: 'u2', approver_id: 'u2' })];
+  const { routes, calls } = fakeRoutes(rows);
+  const r = res();
+  await routes['POST /api/docs/:id/suggestions']({ params: { id: 'd1' }, user: { id: 'u2' } }, r);
+  assert.notEqual(r.out.id, 's1');
+  assert.equal(rows.length, 2, 'a person draft was inserted beside the AI one');
+  assert.ok(calls.some((s) => /writer_via IS NULL/.test(s)));
+  // And the v2 index lets both exist.
+});
+
+test('applying an AI draft stamps the page as AI-edited by the approver', async () => {
+  const base = buildDocState('T', 'Hello.\n');
+  const draft = docFromState(base);
+  textBlock(draft, 'Hello.').text.insert(0, 'Oh ');
+  const main = docFromState(base);
+  const { routes, calls } = fakeRoutes([aiRow({ base_state: Buffer.from(base), state: Buffer.from(state(draft)) })], { main });
+  const r = res();
+  await routes['POST /api/suggestions/:sid/decide']({ params: { sid: 's1' }, user: { id: 'a1' }, body: { all: 'accept' } }, r);
+  if (r.out.applied) assert.ok(calls.some((s) => /updated_via = 'ai'/.test(s)));
+  else assert.fail('nothing applied');
+});

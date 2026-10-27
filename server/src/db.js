@@ -639,8 +639,14 @@ export async function initSchema() {
     ALTER TABLE docs ADD COLUMN IF NOT EXISTS team_role TEXT NOT NULL DEFAULT 'editor';
     CREATE INDEX IF NOT EXISTS doc_suggestions_doc_idx ON doc_suggestions(doc_id, status);
     -- One open draft per person per page: Suggesting mode reopens it.
-    CREATE UNIQUE INDEX IF NOT EXISTS doc_suggestions_one_open
-      ON doc_suggestions(doc_id, author_id) WHERE status <> 'closed';
+    -- AI/agent drafts: one designated approver decides them; writer_via marks
+    -- who wrote it ('ai' | 'agent'), NULL for a person's own draft.
+    ALTER TABLE doc_suggestions ADD COLUMN IF NOT EXISTS approver_id TEXT REFERENCES users(id) ON DELETE SET NULL;
+    ALTER TABLE doc_suggestions ADD COLUMN IF NOT EXISTS writer_via TEXT;
+    ALTER TABLE notifications ADD COLUMN IF NOT EXISTS suggestion_id TEXT;
+    CREATE UNIQUE INDEX IF NOT EXISTS doc_suggestions_one_open_v2
+      ON doc_suggestions(doc_id, author_id, COALESCE(approver_id, ''), COALESCE(writer_via, '')) WHERE status <> 'closed';
+    DROP INDEX IF EXISTS doc_suggestions_one_open;
 
     -- Task types, per project and editable by anyone who can see the project.
     -- Epic/Story/Task/Bug are seeded defaults, not built-ins.

@@ -523,7 +523,9 @@ export function registerSuggestionRoutes(app, { requireUser, wrap, pool, grantOn
     if (!role) return null;
     const mine = row.author_id === user.id;
     if (!mine && !canEdit(role)) return null;
-    return { row, role, mine, reviewer: canEdit(role) };
+    // An AI draft is decided by its one approver; anyone else who can edit may only look.
+    const reviewer = row.approver_id ? user.id === row.approver_id : canEdit(role);
+    return { row, role, mine, reviewer };
   }
 
   const pending = (changes, decisions) => changes.filter((c) => decisions?.[c.id]?.sig !== c.sig);
@@ -538,6 +540,8 @@ export function registerSuggestionRoutes(app, { requireUser, wrap, pool, grantOn
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     submittedAt: row.submitted_at,
+    writerVia: row.writer_via ?? null,
+    approverId: row.approver_id ?? null,
     draft: draftName(row.doc_id, row.id),
   });
 
@@ -546,11 +550,11 @@ export function registerSuggestionRoutes(app, { requireUser, wrap, pool, grantOn
     const role = await grantOn(req.params.id, req.user.id);
     if (!role) return res.status(403).json({ error: 'forbidden' });
     const { rows } = await pool.query(
-      `SELECT s.id, s.doc_id, s.author_id, s.status, s.message, s.created_at, s.updated_at, s.submitted_at,
+      `SELECT s.id, s.doc_id, s.author_id, s.status, s.message, s.created_at, s.updated_at, s.submitted_at, s.approver_id, s.writer_via,
               u.name AS author_name, u.email AS author_email
          FROM doc_suggestions s JOIN users u ON u.id = s.author_id
         WHERE s.doc_id = $1 AND s.status <> 'closed'
-          AND (s.author_id = $2 OR ($3 AND s.status = 'submitted'))
+          AND (s.author_id = $2 OR (s.status = 'submitted' AND (s.approver_id = $2 OR ($3 AND s.approver_id IS NULL))))
         ORDER BY s.updated_at DESC`,
       [req.params.id, req.user.id, canEdit(role)]
     );
@@ -565,7 +569,7 @@ export function registerSuggestionRoutes(app, { requireUser, wrap, pool, grantOn
     }
     const open = await pool.query(
       `SELECT s.*, u.name AS author_name FROM doc_suggestions s JOIN users u ON u.id = s.author_id
-        WHERE s.doc_id = $1 AND s.author_id = $2 AND s.status <> 'closed'`,
+        WHERE s.doc_id = $1 AND s.author_id = $2 AND s.status <> 'closed' AND s.writer_via IS NULL`,
       [docId, req.user.id]
     );
     if (open.rows[0]) return res.json(summary(open.rows[0]));
@@ -583,7 +587,7 @@ export function registerSuggestionRoutes(app, { requireUser, wrap, pool, grantOn
       // Two tabs starting at once: the unique index lets one in; hand the other the same draft.
       const again = await pool.query(
         `SELECT s.*, u.name AS author_name FROM doc_suggestions s JOIN users u ON u.id = s.author_id
-          WHERE s.doc_id = $1 AND s.author_id = $2 AND s.status <> 'closed'`,
+          WHERE s.doc_id = $1 AND s.author_id = $2 AND s.status <> 'closed' AND s.writer_via IS NULL`,
         [docId, req.user.id]
       );
       if (!again.rows[0]) throw e;
@@ -600,8 +604,14 @@ export function registerSuggestionRoutes(app, { requireUser, wrap, pool, grantOn
     const decisions = v.row.decisions || {};
     const open = pending(changes, decisions);
     const decided = Object.values(decisions);
+    let approverName = null;
+    if (v.row.approver_id) {
+      const { rows: [a] } = await pool.query('SELECT name, email FROM users WHERE id = $1', [v.row.approver_id]);
+      approverName = a?.name || a?.email || null;
+    }
     res.json({
       ...summary(v.row),
+      approverName,
       canReview: v.reviewer,
       mine: v.mine,
       changes: open,
@@ -710,7 +720,9 @@ export function registerSuggestionRoutes(app, { requireUser, wrap, pool, grantOn
       [v.row.id, JSON.stringify(decisions), done, req.user.id]
     );
     if (applied) {
-      await pool.query('UPDATE docs SET updated_at = now(), updated_by = $2 WHERE id = $1', [docId, req.user.id]);
+      // An AI draft's edit is the approver's, made through AI.
+      if (v.row.writer_via) await pool.query(`UPDATE docs SET updated_at = now(), updated_by = $2, updated_via = 'ai' WHERE id = $1`, [docId, req.user.id]);
+      else await pool.query('UPDATE docs SET updated_at = now(), updated_by = $2 WHERE id = $1', [docId, req.user.id]);
       // What was applied was written in the draft by its author: they edited
       // the page as much as the reviewer who let it in.
       await recordDocEditors(docId, [v.row.author_id]);
