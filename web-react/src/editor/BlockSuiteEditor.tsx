@@ -107,8 +107,11 @@ export function BlockSuiteEditor({
         instRef.current = inst;
         // Slides ARE edgeless — the deck chrome lives outside the editor.
         inst.setMode(mode === 'page' ? 'page' : 'edgeless');
-        setLoading(false);
+        // Hand the editor out first, so the meta band and properties portal in
+        // under the title while the preview still covers the page; revealing
+        // first showed the body, then shoved it down when they landed.
         onEditorRef.current?.(inst.editor);
+        requestAnimationFrame(() => requestAnimationFrame(() => { if (alive) setLoading(false); }));
       })
       .catch((err) => {
         if (!alive) return; // abandoned on purpose (the cleanup below)
@@ -163,10 +166,14 @@ export function BlockSuiteEditor({
   }, [loading, docId, snapshot, draft]);
 
   const edgeless = mode !== 'page';
+  // On a page the preview sits in the flow and the editor builds underneath it,
+  // laid out but invisible: an overlay pinned to the editor's still-short box
+  // let a long preview spill over the linked pages and comments below it.
+  const inFlowPreview = loading && !edgeless;
   return (
     <div className={cn(edgeless ? 'bs-fill relative h-full' : 'relative min-h-[70vh]', !edgeless && fullWidth && 'bs-fullwidth')}>
       {loading && (
-        <div className="absolute inset-0 z-10 bg-canvas">
+        <div className={inFlowPreview ? 'bg-canvas' : 'absolute inset-0 z-10 bg-canvas'}>
           {preview && preview.docId === docId && !edgeless ? <PagePreview title={preview.title} html={preview.html} /> : <PageSkeleton />}
         </div>
       )}
@@ -185,7 +192,7 @@ export function BlockSuiteEditor({
           </div>
         </div>
       )}
-      <div ref={hostRef} className={edgeless ? 'h-full' : ''} />
+      <div ref={hostRef} className={edgeless ? 'h-full' : inFlowPreview ? 'invisible absolute inset-x-0 top-0' : ''} aria-hidden={inFlowPreview || undefined} />
     </div>
   );
 }

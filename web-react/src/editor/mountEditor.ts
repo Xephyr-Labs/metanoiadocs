@@ -526,7 +526,6 @@ export async function mountEditor(
   const virtualKeyboard = createVirtualKeyboardProvider();
 
   const common = [
-    FontConfigExtension(CommunityCanvasTextFonts),
     EditorSettingExtension({ setting$: new Signal({}) }),
     { setup: (di: { override: (a: unknown, b: unknown) => void }) => di.override(DocModeProvider, docModeService(editor, mode)) },
     {
@@ -583,7 +582,9 @@ export async function mountEditor(
   // provider the page view extensions register, and the canvas has its own
   // viewport element that genuinely scrolls.
   editor.pageSpecs = [...viewManager.get('page'), ...chartViewExtensions, ...databaseViewExtensions, ...columnsViewExtensions, ...common, pageViewportExtension];
-  editor.edgelessSpecs = [...viewManager.get('edgeless'), ...chartViewExtensions, ...databaseViewExtensions, ...columnsViewExtensions, ...common];
+  // The canvas text fonts are ~30 files from a third-party CDN that only canvas
+  // text draws with; a page open fetched every one of them.
+  editor.edgelessSpecs = [...viewManager.get('edgeless'), ...chartViewExtensions, ...databaseViewExtensions, ...columnsViewExtensions, ...common, FontConfigExtension(CommunityCanvasTextFonts)];
 
   root.replaceChildren(editor);
   await editor.updateComplete;

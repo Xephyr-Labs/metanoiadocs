@@ -5,7 +5,7 @@
 // process to babysit) out of the deployment for a feature that is one dialog
 // either way. Layout is defined here rather than by @media print rules on the
 // app shell, so what gets printed does not depend on the editor's DOM.
-import { parseMarkdown, imageDescAsParagraph } from './blocks.js';
+import { parseMarkdown, imageDescAsParagraph, TEXT_COLORS } from './blocks.js';
 
 const esc = (s) =>
   String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -42,6 +42,20 @@ function inline(src) {
   s = s.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
   s = s.replace(/~~([^~]+)~~/g, '<del>$1</del>');
   s = s.replace(/\[\[([^\]]+)\]\]/g, '<span class="ref">$1</span>');
+  // The editor's own text marks, as create_doc/write_doc and the export write
+  // them. Colours only from its palette, as classes — never a raw style.
+  s = s.replace(/&lt;span style=&quot;([^&<>]*)&quot;&gt;(.*?)&lt;\/span&gt;/g, (m, style, body) => {
+    const cls = [];
+    for (const decl of style.split(';')) {
+      const [k, v] = decl.split(':').map((x) => x?.trim().toLowerCase().replace(/^gray$/, 'grey'));
+      if (!TEXT_COLORS.includes(v)) continue;
+      if (k === 'color') cls.push(`fg-${v}`);
+      else if (k === 'background' || k === 'background-color') cls.push(`bg-${v}`);
+    }
+    return cls.length ? `<span class="${cls.join(' ')}">${body}</span>` : body;
+  });
+  s = s.replace(/&lt;(u|mark|small)&gt;(.*?)&lt;\/\1&gt;/g, '<$1>$2</$1>');
+  s = s.replace(/&lt;big&gt;(.*?)&lt;\/big&gt;/g, '<span class="big">$1</span>');
   return s.replace(/\x00(\d+)\x00/g, (_, i) => `<code>${esc(code[Number(i)])}</code>`);
 }
 
@@ -85,6 +99,9 @@ function blocksToHtml(descs) {
         break;
       case 'affine:divider':
         out.push('<hr />');
+        break;
+      case 'affine:callout':
+        out.push(`<div class="callout"${d.panel ? ` data-panel="${esc(d.panel)}"` : ''}><span class="callout-icon">${esc(d.emoji || '')}</span><div>${blocksToHtml(d.children || [])}</div></div>`);
         break;
       case 'affine:table': {
         const [head, ...body] = d.rows;
@@ -137,6 +154,18 @@ img { max-width: 100%; height: auto; break-inside: avoid; }
 a { color: #1b64da; text-decoration: none; }
 .ref { color: #1b64da; }
 .doc-meta { margin: -.4em 0 2em; color: #86868b; font-size: .85em; }
+.callout { display: flex; gap: .6em; margin: 1em 0; padding: .7em 1em; border-radius: 8px; background: #f4f4f6; border-left: 3px solid #c7c7cc; break-inside: avoid; }
+.callout > div > :last-child { margin-bottom: 0; }
+.callout[data-panel="info"] { background: #eaf2fd; border-color: #4a8fe7; }
+.callout[data-panel="note"] { background: #f1ecfb; border-color: #9171d8; }
+.callout[data-panel="success"] { background: #e9f6ee; border-color: #3fa66b; }
+.callout[data-panel="warning"] { background: #fdf3e6; border-color: #e5933a; }
+.callout[data-panel="error"] { background: #fdecec; border-color: #e5484d; }
+.big { font-size: 1.19em; }
+.fg-red { color: #d93f3a; } .fg-orange { color: #d97a1e; } .fg-yellow { color: #b8901a; } .fg-green { color: #2f9b5b; }
+.fg-teal { color: #1f9b97; } .fg-blue { color: #2f6fd6; } .fg-purple { color: #7b56c9; } .fg-grey { color: #6e6e73; }
+.bg-red { background: #fde3e2; } .bg-orange { background: #fdebd8; } .bg-yellow { background: #fbf2c9; } .bg-green { background: #dff3e6; }
+.bg-teal { background: #d9f2f1; } .bg-blue { background: #dfeafc; } .bg-purple { background: #ece4fb; } .bg-grey { background: #ececef; }
 @media print {
   body { padding: 0; max-width: none; }
   a { color: inherit; text-decoration: underline; }
@@ -150,12 +179,15 @@ a { color: #1b64da; text-decoration: none; }
  */
 /** Just the page's body, rendered the same safe way: the editor shows it while
  *  BlockSuite is still starting, so a page can be read before it is editable. */
+// Panels render as panels here; only images go through the paragraph form.
+const forHtml = (md) => parseMarkdown(md).map((d) => (d.flavour === 'affine:image' ? imageDescAsParagraph(d) : d));
+
 export function bodyHtml(markdown) {
-  return blocksToHtml(parseMarkdown(markdown).map(imageDescAsParagraph));
+  return blocksToHtml(forHtml(markdown));
 }
 
 export function printHtml({ title, icon, markdown, meta, auto = true }) {
-  const body = blocksToHtml(parseMarkdown(markdown).map(imageDescAsParagraph));
+  const body = blocksToHtml(forHtml(markdown));
   return `<!doctype html>
 <html lang="en">
 <head>
