@@ -18,6 +18,13 @@ export function defaultTab(c: NeedsCounts): NeedsTab | null {
   return NEEDS_TABS.find((t) => tabCount(c, t) > 0) ?? null;
 }
 
+/** The tab on show: nothing once every count is zero, else the picked tab
+ *  (an empty one stays picked while others have items), else the default. */
+export function shownTab(picked: NeedsTab | null, c: NeedsCounts): NeedsTab | null {
+  const first = defaultTab(c);
+  return first && (picked ?? first);
+}
+
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 /** The sentence's non-zero parts, each with the tab it selects. */

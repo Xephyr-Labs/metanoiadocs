@@ -10,7 +10,7 @@ trap '[ -n "${KEEP:-}" ] || $STACK down -v' EXIT
 $STACK down -v --remove-orphans
 $STACK up -d --build
 for i in $(seq 1 90); do
-  curl -sf -o /dev/null http://localhost:8099/health && break
+  curl -sf -o /dev/null http://localhost:8093/health && break
   if [ "$i" = 90 ]; then echo "server never became healthy"; $STACK logs server | tail -80; exit 1; fi
   sleep 2
 done

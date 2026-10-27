@@ -2,6 +2,6 @@
 services:
   server:
     ports: !override
-      - "8099:3000"
+      - "8093:3000"
     environment:
-      BASE_URL: http://localhost:8099
+      BASE_URL: http://localhost:8093

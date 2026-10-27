@@ -5,6 +5,9 @@ import { VISIBLE, VISIBLE_JOIN, IN_SPACE, MY_SPACE } from './home.js';
 import { dayIn, zoneOf, isoDate } from './timezone.js';
 
 const LIMIT = 20;
+// Mentions and Changed look back this far, so day one is not a flood of
+// everything that ever happened.
+const WINDOW = "interval '30 days'";
 
 /** The calendar day after a 'YYYY-MM-DD', with no clock or zone involved. */
 export function nextDay(day) {
@@ -76,6 +79,7 @@ const MENTIONS_SQL = (space) => `
       LEFT JOIN projects p ON p.id = t.project_id
       LEFT JOIN users u ON u.id = c.author_id
      WHERE n.user_id = $1 AND n.kind IN ('mention', 'reply', 'reply_to_you')
+       AND n.created_at > now() - ${WINDOW}
        AND NOT r.resolved
        -- Written as id/parent_id rather than coalesce() so comments_parent_idx serves it.
        AND NOT EXISTS (SELECT 1 FROM comments m WHERE (m.id = r.id OR m.parent_id = r.id) AND m.author_id = $1 AND m.created_at > n.created_at)
@@ -90,18 +94,24 @@ const MENTIONS_SQL = (space) => `
   LIMIT ${LIMIT}`;
 
 // Pages I made, edited or pinned that someone else saved since I last opened
-// them. A page I never opened counts from its creation only if I created it.
+// them. My own last edit counts as a look. A page I never opened or edited
+// counts from its creation only if I created it.
 const CHANGED_SQL = (space) => `
   SELECT d.id, d.title, d.updated_at, coalesce(nullif(u.name, ''), u.email) AS changed_by_name, count(*) OVER () AS total
     FROM docs d ${VISIBLE_JOIN}
     LEFT JOIN doc_opens o ON o.doc_id = d.id AND o.user_id = $1
+    LEFT JOIN doc_editors e ON e.doc_id = d.id AND e.user_id = $1
     LEFT JOIN users u ON u.id = d.updated_by
    WHERE d.deleted_at IS NULL AND d.kind <> 'task' AND ${VISIBLE} AND ${IN_SPACE('d.space_id', 2, space)}
      AND (d.created_by = $1
-          OR EXISTS (SELECT 1 FROM doc_editors e WHERE e.doc_id = d.id AND e.user_id = $1)
+          OR e.user_id IS NOT NULL
           OR EXISTS (SELECT 1 FROM favorites f WHERE f.doc_id = d.id AND f.user_id = $1))
      AND d.updated_by IS NOT NULL AND d.updated_by <> $1
-     AND d.updated_at > coalesce(o.opened_at, CASE WHEN d.created_by = $1 THEN d.created_at END)
+     AND d.updated_at > now() - ${WINDOW}
+     -- greatest() skips NULLs, so either one alone is the last look.
+     AND d.updated_at > coalesce(greatest(o.opened_at, e.last_edit_at), CASE WHEN d.created_by = $1 THEN d.created_at END)
+     -- The skeleton seed on first open is a save with nothing in it (as ACTIVITY_SQL in home.js).
+     AND d.updated_at > d.created_at + interval '1 minute' AND coalesce(d.search_text, '') <> ''
    ORDER BY d.updated_at DESC
    LIMIT ${LIMIT}`;
 

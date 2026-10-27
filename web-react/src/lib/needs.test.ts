@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { defaultTab, summarySentence, tabCount, type NeedsCounts } from './needs';
+import { defaultTab, shownTab, summarySentence, tabCount, type NeedsCounts } from './needs';
 
 const zero: NeedsCounts = { review: 0, overdue: 0, dueToday: 0, mentions: 0, changed: 0 };
 
@@ -42,5 +42,19 @@ describe('tabCount', () => {
   it('counts due-today tasks in the Overdue tab', () => {
     expect(tabCount({ ...zero, overdue: 2, dueToday: 1 }, 'overdue')).toBe(3);
     expect(tabCount({ ...zero, mentions: 4 }, 'mentions')).toBe(4);
+  });
+});
+
+describe('shownTab', () => {
+  it('is caught up once everything is cleared, even with a tab picked', () => {
+    expect(shownTab('mentions', zero)).toBeNull();
+  });
+
+  it('keeps a picked empty tab while others have items', () => {
+    expect(shownTab('changed', { ...zero, review: 2 })).toBe('changed');
+  });
+
+  it('falls back to the default tab when nothing is picked', () => {
+    expect(shownTab(null, { ...zero, mentions: 1 })).toBe('mentions');
   });
 });

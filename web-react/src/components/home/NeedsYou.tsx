@@ -8,7 +8,7 @@ import { focusComment } from '../../editor/comments';
 import { relativeTime } from '../../lib/time';
 import { toast } from '../../lib/toast';
 import { cn } from '../../lib/cn';
-import { NEEDS_TABS, defaultTab, joiner, summaryParts, tabCount, type NeedsTab } from '../../lib/needs';
+import { NEEDS_TABS, joiner, shownTab, summaryParts, tabCount, type NeedsTab } from '../../lib/needs';
 import { Button } from '../ui/Button';
 
 const LABEL: Record<NeedsTab, string> = { review: 'To review', overdue: 'Overdue', mentions: 'Mentions', changed: 'Changed pages' };
@@ -37,7 +37,7 @@ export function NeedsYou({ needs, onChanged }: { needs: NeedsPayload; onChanged:
   const { counts } = needs;
   const [picked, setPicked] = useState<NeedsTab | null>(null);
   const [busy, setBusy] = useState(false);
-  const tab = picked ?? defaultTab(counts);
+  const tab = shownTab(picked, counts);
   const parts = summaryParts(counts);
 
   const act = async (run: () => Promise<unknown>) => {

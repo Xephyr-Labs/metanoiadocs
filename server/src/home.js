@@ -94,7 +94,7 @@ export function registerHomeRoutes(app, { requireUser, wrap }) {
     const today = dayIn(zoneOf(req.user));
     const space = typeof req.query.spaceId === 'string' && req.query.spaceId ? req.query.spaceId : null;
     const sp = space ? [space] : [];
-    const [activity, myTasks, recentDocs, projects, stats] = await Promise.all([
+    const [activity, myTasks, recentDocs, projects] = await Promise.all([
       pool.query(ACTIVITY_SQL(space), [uid, ...sp]),
       pool.query(MY_TASKS_SQL(space), [uid, today, ...sp]),
       pool.query(
@@ -121,30 +121,12 @@ export function registerHomeRoutes(app, { requireUser, wrap }) {
         // parameter no clause uses, so the space takes $1 when given.
         [space ?? uid, today]
       ),
-      pool.query(
-        `SELECT
-           (SELECT count(*) FROM tasks t JOIN projects p ON p.id = t.project_id
-             WHERE EXISTS (SELECT 1 FROM task_assignees ta WHERE ta.task_id = t.id AND ta.user_id = $1) AND t.status <> 'done'
-               AND t.deleted_at IS NULL AND p.archived_at IS NULL AND p.mode <> 'data' AND ${MY_SPACE('p.space_id', 3, space)}) AS my_open,
-           (SELECT count(*) FROM tasks t JOIN projects p ON p.id = t.project_id
-             WHERE EXISTS (SELECT 1 FROM task_assignees ta WHERE ta.task_id = t.id AND ta.user_id = $1) AND t.status <> 'done' AND t.due_at < $2::date
-               AND t.deleted_at IS NULL AND p.archived_at IS NULL AND p.mode <> 'data' AND ${MY_SPACE('p.space_id', 3, space)}) AS my_overdue,
-           (SELECT count(*) FROM tasks t JOIN projects p ON p.id = t.project_id
-             WHERE EXISTS (SELECT 1 FROM task_assignees ta WHERE ta.task_id = t.id AND ta.user_id = $1) AND t.status <> 'done'
-               AND t.due_at BETWEEN $2::date AND $2::date + 7
-               AND t.deleted_at IS NULL AND p.archived_at IS NULL AND p.mode <> 'data' AND ${MY_SPACE('p.space_id', 3, space)}) AS my_week,
-           (SELECT count(*) FROM docs d ${VISIBLE_JOIN}
-             WHERE d.deleted_at IS NULL AND ${VISIBLE} AND ${IN_SPACE('d.space_id', 3, space)} AND d.kind IS DISTINCT FROM 'task'
-               AND d.updated_at > now() - interval '7 days') AS docs_week`,
-        [uid, today, ...sp]
-      ),
     ]);
 
     const buckets = { overdue: [], today: [], week: [], later: [] };
     for (const t of myTasks.rows) buckets[t.bucket].push(t);
 
     res.json({
-      stats: stats.rows[0],
       myTasks: buckets,
       recentDocs: recentDocs.rows,
       activity: activity.rows,

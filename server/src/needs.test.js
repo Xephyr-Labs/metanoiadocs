@@ -97,8 +97,13 @@ test('changed: someone else changed it since I last opened it', async () => {
   const sql = flat(pool.sqlOf('changed').sql);
   assert.match(sql, /d\.updated_by IS NOT NULL AND d\.updated_by <> \$1/);
   assert.match(sql, /d\.kind <> 'task'/);
-  assert.match(sql, /d\.updated_at > coalesce\(o\.opened_at, CASE WHEN d\.created_by = \$1 THEN d\.created_at END\)/);
-  assert.match(sql, /FROM doc_editors/);
+  // My own last edit is a look too.
+  assert.match(sql, /LEFT JOIN doc_editors e ON e\.doc_id = d\.id AND e\.user_id = \$1/);
+  assert.match(sql, /d\.updated_at > coalesce\(greatest\(o\.opened_at, e\.last_edit_at\), CASE WHEN d\.created_by = \$1 THEN d\.created_at END\)/);
+  assert.match(sql, /OR e\.user_id IS NOT NULL/);
+  // Within the window, and not the empty skeleton seed.
+  assert.match(sql, /d\.updated_at > now\(\) - interval '30 days'/);
+  assert.match(sql, /d\.updated_at > d\.created_at \+ interval '1 minute' AND coalesce\(d\.search_text, ''\) <> ''/);
   assert.match(sql, /FROM favorites/);
   assert.match(sql, /coalesce\(nullif\(u\.name, ''\), u\.email\) AS changed_by_name/);
 });
@@ -115,6 +120,7 @@ test('mentions: open threads I have not answered since', async () => {
   assert.match(sql, /\(n\.kind <> 'reply' OR EXISTS \(SELECT 1 FROM comments q WHERE \(q\.id = r\.id OR q\.parent_id = r\.id\) AND q\.author_id = \$1\)\)/);
   assert.match(sql, /coalesce\(nullif\(u\.name, ''\), nullif\(c\.author_name, ''\), u\.email\) AS author_name/);
   assert.match(sql, /DISTINCT ON \(r\.id\)/);
+  assert.match(sql, /n\.created_at > now\(\) - interval '30 days'/);
   assert.match(sql, /t\.deleted_at IS NULL/);
 });
 

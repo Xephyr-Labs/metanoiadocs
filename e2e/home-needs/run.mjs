@@ -1,7 +1,8 @@
 // Home "Needs you", end to end: API counts and contents, then the browser. Stack from run.sh.
+import { execFileSync } from 'node:child_process';
 import { chromium } from 'playwright';
 
-const BASE = process.env.BASE || 'http://localhost:8099';
+const BASE = process.env.BASE || 'http://localhost:8093';
 const PW = 'homeneeds-1';
 let failed = 0;
 const check = (name, ok, extra = '') => { if (!ok) failed++; console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${extra ? ` — ${extra}` : ''}`); };
@@ -32,9 +33,15 @@ function client() {
   return s;
 }
 
+// Changed ignores saves in a page's first minute (the skeleton seed); age each
+// seeded page past that rather than wait it out.
+const age = (id) => execFileSync('docker', ['exec', 'mdocs-homeneeds-db-1', 'psql', '-U', 'metanoia', '-d', 'metanoiadocs', '-qc',
+  `UPDATE docs SET created_at = created_at - interval '2 minutes' WHERE id = '${id}'`]);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 const a = client(); const b = client();
 const needs = () => a.get('/api/home/needs');
-let P; let Q; let t1; let t2; let t3; let thread; let sid; let n0;
+let P; let Q; let R; let t1; let t2; let t3; let thread; let sid; let n0;
 
 await step('seed', async () => {
   await a.post('/api/setup', { name: 'Alice', username: 'alice', email: 'alice@example.com', password: PW });
@@ -44,8 +51,9 @@ await step('seed', async () => {
   await a.call('PATCH', '/api/me', { timezone: 'UTC' });
 
   P = (await a.post('/api/docs', { title: 'Team plan', content: 'First line.' })).id;
+  age(P);
   await a.post(`/api/docs/${P}/opened`);                 // A has looked at P ...
-  await new Promise((r) => setTimeout(r, 1100));
+  await sleep(1100);
   await b.post(`/api/docs/${P}/content`, { markdown: 'Bob added a line.', mode: 'append' }); // ... then Bob edits it.
   const c = await b.post(`/api/docs/${P}/comments`, { body: '@alice can you check this?' });
   thread = c.id;
@@ -53,8 +61,14 @@ await step('seed', async () => {
   sid = d.id;
   await b.post(`/api/suggestions/${sid}/submit`, { message: 'please review' });
 
-  Q = (await b.post('/api/docs', { title: 'Bob private', content: 'secret', visibility: 'private' })).id;
-  await b.post(`/api/docs/${Q}/comments`, { body: '@alice psst' }).catch(() => {});
+  // R: Bob's page, Bob edits after Alice opened it, then Alice edits it last.
+  R = (await b.post('/api/docs', { title: 'Bob notes', content: 'Notes.' })).id;
+  age(R);
+  await a.post(`/api/docs/${R}/opened`);
+  await sleep(1100);
+  await b.post(`/api/docs/${R}/content`, { markdown: 'Bob line.', mode: 'append' });
+  await sleep(1100);
+  await a.post(`/api/docs/${R}/content`, { markdown: 'Alice line.', mode: 'append' });
 
   const proj = await a.post('/api/projects', { name: 'Launch' });
   const { today } = await needs();
@@ -65,6 +79,25 @@ await step('seed', async () => {
   t3 = (await mk('Due today', today)).id;
 });
 
+// Q: Bob's private page, shared with Alice, then taken back.
+await step('private page', async () => {
+  const me = await a.get('/api/me');
+  Q = (await b.post('/api/docs', { title: 'Bob private', content: 'secret', visibility: 'private' })).id;
+  age(Q);
+  await b.post(`/api/docs/${Q}/share`, { email: 'alice@example.com' });
+  await a.call('PUT', `/api/docs/${Q}/favorite`, {});
+  await a.post(`/api/docs/${Q}/opened`);
+  await sleep(1100);
+  await b.post(`/api/docs/${Q}/content`, { markdown: 'Bob again.', mode: 'append' });
+  await b.post(`/api/docs/${Q}/comments`, { body: '@alice psst' });
+  const shared = await needs();
+  check('shared Q: in Mentions and Changed', shared.mentions.some((m) => m.docId === Q) && shared.changed.some((d) => d.docId === Q),
+    JSON.stringify({ mentions: shared.mentions, changed: shared.changed }));
+  await b.call('DELETE', `/api/docs/${Q}/access/${me.id}`);
+  const gone = JSON.stringify(await needs());
+  check('unshared Q: gone from Mentions and Changed', !gone.includes(Q) && !gone.includes('psst'), gone.slice(0, 400));
+});
+
 await step('api', async () => {
   n0 = await needs();
   const c = n0.counts;
@@ -73,7 +106,7 @@ await step('api', async () => {
   check('overdue lists 3 tasks, only the due-today one flagged today', n0.overdue.length === 3 && n0.overdue.filter((t) => t.today).map((t) => t.taskId).join() === t3, JSON.stringify(n0.overdue));
   check('mention is the thread on P, canResolve', n0.mentions[0]?.threadId === thread && n0.mentions[0]?.docId === P && n0.mentions[0]?.canResolve === true, JSON.stringify(n0.mentions));
   check('changed is P by Bob', n0.changed[0]?.docId === P && /bob/i.test(n0.changed[0]?.changedByName), JSON.stringify(n0.changed));
-  check('private page Q absent everywhere', !JSON.stringify(n0).includes(Q) && !JSON.stringify(n0).includes('psst'));
+  check('my own last edit is a look: R not changed', !n0.changed.some((d) => d.docId === R), JSON.stringify(n0.changed));
   check('tomorrow is the day after today', n0.tomorrow > n0.today, `${n0.today} ${n0.tomorrow}`);
 });
 

@@ -428,7 +428,6 @@ export interface MyTask {
 }
 
 export interface HomePayload {
-  stats: { my_open: string; my_overdue: string; my_week: string; docs_week: string };
   myTasks: Record<'overdue' | 'today' | 'week' | 'later', MyTask[]>;
   recentDocs: { id: string; title: string; icon: string; updated_at: string; updated_by_name: string | null }[];
   activity: ActivityRow[];
