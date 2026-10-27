@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { writePolicy, resolveApprover, untrusted, needsPerson, isPerson, pageSyncRole } from './approval.js';
 
 test('writePolicy: person direct, Ask AI and untrusted agent suggest, trusted agent direct', () => {
@@ -106,4 +106,21 @@ test('pageSyncRole: an agent session on a live page reads and comments but never
 test('Ask AI called with an agent token has no approver (→ 409): no one could use one', async () => {
   assert.equal(await resolveApprover({ via: 'ai', user: { id: 'andy', kind: 'agent' }, ...deps }), null);
   assert.equal(await resolveApprover({ via: 'ai', user: { id: 'u1', kind: 'person' }, ...deps }), 'u1');
+});
+
+// An inline admin check (not requireAdmin) must also refuse agents: a
+// `role === 'admin'` within a few lines of an isPerson/needsPerson, or reviewed
+// here. requireAdmin's own definition and the role-being-assigned line are not checks.
+test('every inline role admin check in server/src also requires a person', () => {
+  // templateGrant's `&& person` is isPerson(req), passed in by templates.js.
+  const reviewed = [/^\(user\.role === 'admin' && person\)/, /^if \(req\.user\?\.role !== 'admin'\) return res\.status\(403\)/, /^const role = req\.body\?\.role === 'admin'/];
+  const bad = [];
+  for (const f of readdirSync(new URL('.', import.meta.url)).filter((n) => n.endsWith('.js') && !n.endsWith('.test.js'))) {
+    const lines = readFileSync(new URL(f, import.meta.url), 'utf8').split('\n');
+    lines.forEach((l, i) => {
+      if (!/role\s*[!=]==\s*'admin'/.test(l) || reviewed.some((r) => r.test(l.trim()))) return;
+      if (!/\b(isPerson|needsPerson)\b/.test(lines.slice(Math.max(0, i - 2), i + 3).join('\n'))) bad.push(`${f}:${i + 1}`);
+    });
+  }
+  assert.deepEqual(bad, []);
 });

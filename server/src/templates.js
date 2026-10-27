@@ -16,6 +16,7 @@
 //   sweeper and every count — and each of those is a place to forget.
 import crypto from 'node:crypto';
 import * as Y from 'yjs';
+import { isPerson } from './approval.js';
 import { pool } from './db.js';
 import { isRepeatRule } from './repeat.js';
 import { knownUsers } from './task-writes.js';
@@ -122,14 +123,14 @@ export function registerTemplateRoutes(app, { requireUser, wrap, grantOn, templa
    *  may: a template gives everyone who can open it edit rights, so this is a
    *  permission change, like the team role, which is owner-only too. */
   app.post('/api/docs/:id/template', requireUser, wrap(async (req, res) => {
-    if (!(await templateGrant(req.params.id, req.user))) {
+    if (!(await templateGrant(req.params.id, req.user, isPerson(req)))) {
       return res.status(403).json({ error: 'Only the page owner can change whether it is a template.' });
     }
     const on = req.body?.isTemplate !== false;
     // Offering a template in every space reaches people outside the page's own
     // space, so it is an admin's call. Left out, it stays as it was.
     const everywhere = typeof req.body?.everywhere === 'boolean' ? req.body.everywhere : null;
-    if (everywhere !== null && req.user.role !== 'admin') {
+    if (everywhere !== null && !(req.user.role === 'admin' && isPerson(req))) {
       return res.status(403).json({ error: 'Only an admin can offer a template in every space.' });
     }
     // A row's own page belongs to that row: it is reachable only through it,

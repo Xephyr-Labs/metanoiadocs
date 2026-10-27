@@ -17,6 +17,7 @@
 // two hundred times. The dialog says so before the file is chosen; an import is
 // a bulk write, and bulk writes are not the event those rules were written for.
 import crypto from 'node:crypto';
+import { isPerson } from './approval.js';
 import { pool } from './db.js';
 import { parseCsv, mapColumns, normalizeHeader } from './csv.js';
 import { coercePropValue, propKey } from './props.js';
@@ -184,7 +185,7 @@ export function registerCsvRoutes(app, { requireUser, wrap, createDocRow, raw })
     const dry = req.query.dry === '1' || req.query.dry === 'true';
     const createMissing = req.query.create === '1' || req.query.create === 'true';
     const silent = req.query.notify === '0' || req.query.notify === 'false';
-    const isAdmin = req.user.role === 'admin';
+    const isAdmin = req.user.role === 'admin' && isPerson(req); // an admin agent can't import silently
     if (silent && !isAdmin) {
       return res.status(403).json({ error: 'Only an admin can import without notifying anyone.' });
     }

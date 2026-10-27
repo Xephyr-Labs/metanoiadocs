@@ -1636,7 +1636,7 @@ app.get('/api/docs/trash', requireUser, async (req, res) => {
        FROM docs d LEFT JOIN doc_access a ON a.doc_id = d.id AND a.user_id = $1
       WHERE ${TRASH_VISIBLE}
       ORDER BY d.deleted_at DESC LIMIT 100`,
-    [req.user.id, req.user.role === 'admin', String(TRASH_RETENTION_DAYS)]
+    [req.user.id, req.user.role === 'admin' && isPerson(req), String(TRASH_RETENTION_DAYS)]
   );
   res.json({ retentionDays: TRASH_RETENTION_DAYS, rows });
 });
@@ -1645,7 +1645,7 @@ app.get('/api/docs/trash', requireUser, async (req, res) => {
 // see but do not own are left alone and reported back, so "empty" never
 // silently means "emptied less than you asked for".
 app.post('/api/docs/trash/empty', requireUser, wrap(async (req, res) => {
-  const isAdmin = req.user.role === 'admin';
+  const isAdmin = req.user.role === 'admin' && isPerson(req); // an admin agent may not destroy pages
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -1740,7 +1740,7 @@ app.delete('/api/docs/:id/permanent', requireUser, wrap(async (req, res) => {
   // Stricter than the soft delete, because there is no undo: the owner or an
   // admin, not merely anyone who could edit it.
   const role = await trashGrantOn(req.params.id, req.user.id);
-  if (role !== 'owner' && req.user.role !== 'admin') {
+  if (role !== 'owner' && !(req.user.role === 'admin' && isPerson(req))) {
     return res.status(403).json({ error: 'Only the page owner or an admin can delete a page permanently.' });
   }
 
@@ -3393,8 +3393,8 @@ registerTemplateRoutes(app, {
   rolesChanged: dropLiveConnections,
   // Goes by the page's own grant, not the template rule, and needs the owner
   // (or an admin): it changes what everyone else may do on the page.
-  templateGrant: async (docId, user) =>
-    user.role === 'admin' || (await pageGrant(docId, user.id)) === 'owner',
+  templateGrant: async (docId, user, person) =>
+    (user.role === 'admin' && person) || (await pageGrant(docId, user.id)) === 'owner',
 });
 registerCsvRoutes(app, {
   requireUser, wrap, createDocRow,
