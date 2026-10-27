@@ -36,7 +36,7 @@ const agentChange = (c) => ({
 
 /** What write_doc says when its edit became a suggestion. */
 export const suggestedMessage = (r, publicBase = '') =>
-  `Suggested ${r.changes} changes for ${r.approverName || 'the page owner'} to review: ${publicBase}${r.reviewUrl}`;
+  `Suggested ${r.changes} ${r.changes === 1 ? 'change' : 'changes'} for ${r.approverName || 'the page owner'} to review: ${publicBase}${r.reviewUrl}`;
 
 const ok = (obj) => ({
   content: [{ type: 'text', text: typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2) }],

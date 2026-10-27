@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { writePolicy, resolveApprover } from './approval.js';
+import { writePolicy, resolveApprover, untrusted } from './approval.js';
 
 test('writePolicy: person direct, Ask AI and untrusted agent suggest, trusted agent direct', () => {
   const person = { kind: 'person' }, agent = { kind: 'agent' };
@@ -41,4 +41,17 @@ test('no owner → null; blank requester never hits lookupMember', async () => {
   const d = { ...deps, lookupMember: async () => { called = true; return null; }, ownerOf: async () => null };
   assert.equal(await resolveApprover({ via: 'human', user: agent, onBehalfOf: '  ', docId: 'd', ...d }), null);
   assert.equal(called, false);
+});
+
+test('an agent that owns the page it wrote never approves its own edit', async () => {
+  const own = { ...deps, ownerOf: async () => 'andy' };
+  assert.equal(await resolveApprover({ via: 'human', user: agent, onBehalfOf: undefined, docId: 'd', ...own }), null);
+  assert.equal(await resolveApprover({ via: 'human', user: agent, onBehalfOf: 'andy', docId: 'd', ...own }), null);
+});
+
+test('untrusted: the callers whose writes only become suggestions', () => {
+  assert.equal(untrusted({ user: { kind: 'agent' }, via: 'human', token: { trusted: false } }), true);
+  assert.equal(untrusted({ user: { kind: 'person' }, via: 'ai', token: null }), true);
+  assert.equal(untrusted({ user: { kind: 'agent' }, via: 'human', token: { trusted: true } }), false);
+  assert.equal(untrusted({ user: { kind: 'person' }, via: 'human', token: null }), false);
 });

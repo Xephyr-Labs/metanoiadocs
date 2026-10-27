@@ -78,7 +78,7 @@ import { TRASH_RETENTION_DAYS, startTrashSweeper } from './retention.js';
 import { startReminders } from './reminders.js';
 import { dayIn, isZone, zoneOf } from './timezone.js';
 import { byJoinedFirst } from './spaces.js';
-import { ROLE_RANK, rankOf, canEdit, writePolicy, resolveApprover } from './approval.js';
+import { ROLE_RANK, rankOf, canEdit, writePolicy, resolveApprover, untrusted } from './approval.js';
 import { draftEdit, lossyRefusal, openDraftFor } from './ai-drafts.js';
 import OpenAI from 'openai';
 
@@ -1128,8 +1128,10 @@ async function approverFor(req, docId) {
       `SELECT id, kind FROM users WHERE lower(email) = lower($1) OR lower(username) = lower($1)
         ORDER BY lower(email) = lower($1) DESC LIMIT 1`, [who])).rows[0] ?? null,
     roleOn: grantOn,
+    // An agent that made the page owns it, but never reviews its own kind's edits.
     ownerOf: async (doc) => (await pool.query(
-      "SELECT user_id FROM doc_access WHERE doc_id = $1 AND role = 'owner' LIMIT 1", [doc])).rows[0]?.user_id ?? null,
+      `SELECT a.user_id FROM doc_access a JOIN users u ON u.id = a.user_id
+        WHERE a.doc_id = $1 AND a.role = 'owner' AND u.kind <> 'agent' LIMIT 1`, [doc])).rows[0]?.user_id ?? null,
   });
   if (!id) return null;
   const { rows: [u] } = await pool.query('SELECT name, email FROM users WHERE id = $1', [id]);
@@ -2792,6 +2794,7 @@ async function pruneVersions(docId) {
  * a crash before that debounced save lands.
  */
 app.post('/api/docs/:id/versions/:vid/restore-in-place', requireUser, wrap(async (req, res) => {
+  if (untrusted(req)) return res.status(403).json({ error: 'This needs a person: an AI or agent cannot restore a version over the page.' });
   if (!(await editGrant(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
   const docId = req.params.id;
   const v = await pool.query('SELECT state FROM doc_versions WHERE id = $1 AND doc_id = $2', [req.params.vid, docId]);
@@ -3231,6 +3234,7 @@ app.post('/api/comments/:cid/resolve', requireUser, async (req, res) => {
 app.post('/api/comments/:cid/decision', requireUser, wrap(async (req, res) => {
   const accept = req.body?.decision === 'accept';
   if (!accept && req.body?.decision !== 'reject') return res.status(400).json({ error: 'accept or reject' });
+  if (untrusted(req)) return res.status(403).json({ error: 'This needs a person: an AI or agent cannot accept or reject suggestions.' });
   const { rows: [c] } = await pool.query(
     `SELECT id, doc_id, block_id, quote, quote_occurrence, anchor_start, anchor_end, suggestion, suggestion_status, author_id, kind
        FROM comments WHERE id = $1 AND doc_id IS NOT NULL`,

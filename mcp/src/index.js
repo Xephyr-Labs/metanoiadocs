@@ -64,6 +64,10 @@ const asked = (who) => {
   return w ? { 'X-On-Behalf-Of': w } : undefined;
 };
 
+/** What write_doc says when its edit became a suggestion (kept identical to server/src/mcp-tools.js). */
+const suggestedMessage = (r, publicBase = '') =>
+  `Suggested ${r.changes} ${r.changes === 1 ? 'change' : 'changes'} for ${r.approverName || 'the page owner'} to review: ${publicBase}${r.reviewUrl}`;
+
 const ok = (obj) => ({ content: [{ type: 'text', text: typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2) }] });
 const fail = (e) => ({ isError: true, content: [{ type: 'text', text: `Error: ${e.message || e}` }] });
 
@@ -164,7 +168,7 @@ server.registerTool(
   async ({ id, markdown, mode, onBehalfOf }) => {
     try {
       const r = await api(`/docs/${encodeURIComponent(id)}/content`, { method: 'POST', body: { markdown, mode }, headers: asked(onBehalfOf) });
-      if (r?.suggested) return ok(`Suggested ${r.changes} changes for ${r.approverName || 'the page owner'} to review: ${PUBLIC}${r.reviewUrl}`);
+      if (r?.suggested) return ok(suggestedMessage(r, PUBLIC));
       return ok(r?.unresolvedLinks ? { done: true, unresolvedLinks: r.unresolvedLinks } : 'Done.');
     }
     catch (e) { return fail(e); }

@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { createMetanoiaMcpServer } from './mcp-tools.js';
+import { readFileSync } from 'node:fs';
+import { createMetanoiaMcpServer, suggestedMessage } from './mcp-tools.js';
 
 // A tool handler called directly, with fetch stubbed to answer `data`.
 async function call(name, args, data) {
@@ -41,4 +42,15 @@ test('a suggested write_doc names the reviewer and links to the review', async (
   } finally {
     if (before === undefined) delete process.env.BASE_URL; else process.env.BASE_URL = before;
   }
+});
+
+test('one change is "1 change"', () => {
+  assert.equal(suggestedMessage({ changes: 1, approverName: 'Ada', reviewUrl: '/d/d1?review=s1' }, 'https://h'),
+    'Suggested 1 change for Ada to review: https://h/d/d1?review=s1');
+});
+
+test('the standalone stdio package builds the same message', () => {
+  const line = (file) => readFileSync(new URL(file, import.meta.url), 'utf8').match(/^\s*`Suggested .*$/m)?.[0].trim();
+  assert.ok(line('./mcp-tools.js'));
+  assert.equal(line('../../mcp/src/index.js'), line('./mcp-tools.js'));
 });

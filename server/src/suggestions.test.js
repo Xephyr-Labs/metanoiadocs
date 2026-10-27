@@ -416,3 +416,29 @@ test('applying an AI draft stamps the page as AI-edited by the approver', async 
   if (r.out.applied) assert.ok(calls.some((s) => /updated_via = 'ai'/.test(s)));
   else assert.fail('nothing applied');
 });
+
+test('an AI or untrusted agent cannot decide a draft, even one it may review', async () => {
+  const routes = {};
+  const app = { get() {}, delete() {}, post: (path, ...h) => { routes[path] = h[h.length - 1]; } };
+  let touched = false;
+  registerSuggestionRoutes(app, {
+    requireUser: () => {}, wrap: (fn) => fn,
+    pool: { query: async () => { touched = true; return { rows: [], rowCount: 0 }; } },
+    grantOn: async () => 'owner', canEdit: () => true, canSuggest: () => true,
+    getHocuspocus: () => ({ documents: new Map(), openDirectConnection: async () => { touched = true; } }),
+    notifyUser: async () => {}, recordDocEditors: async () => {},
+  });
+  for (const caller of [
+    { user: { id: 'andy', kind: 'agent' }, via: 'human', token: { id: 't', trusted: false } },
+    { user: { id: 'u1', kind: 'person' }, via: 'ai', token: null },
+  ]) {
+    let code; let out;
+    await routes['/api/suggestions/:sid/decide'](
+      { params: { sid: 's1' }, body: { all: 'accept' }, ...caller },
+      { status(c) { code = c; return this; }, json(v) { out = v; } },
+    );
+    assert.equal(code, 403);
+    assert.equal(out.error, 'Only a person can accept suggestions.');
+  }
+  assert.equal(touched, false, 'refused before reading or writing anything');
+});

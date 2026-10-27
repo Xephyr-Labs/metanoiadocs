@@ -5,6 +5,9 @@ export function writePolicy({ user, via, token }) {
   return 'direct';
 }
 
+/** A caller whose writes only ever become suggestions: it may not decide them, or rewrite a page any other way. */
+export const untrusted = (req) => writePolicy({ user: req.user, via: req.via, token: req.token }) === 'suggest';
+
 // What a grant lets you do, weakest first. Anything unrecognised ranks below viewer.
 export const ROLE_RANK = { viewer: 0, commenter: 1, suggester: 2, editor: 3, owner: 4 };
 export const rankOf = (role) => (role in ROLE_RANK ? ROLE_RANK[role] : -1);
@@ -18,12 +21,15 @@ export const canEdit = (role) => rankOf(role) >= ROLE_RANK.editor;
 export async function resolveApprover({ via, user, onBehalfOf, docId, lookupMember, roleOn, ownerOf }) {
   if (via === 'ai') return user.id;
   const who = typeof onBehalfOf === 'string' ? onBehalfOf.trim() : '';
+  let id = null;
   if (who) {
     const m = await lookupMember(who);
     if (m && m.kind !== 'agent') {
       const role = await roleOn(docId, m.id);
-      if (role && canEdit(role)) return m.id;
+      if (role && canEdit(role)) id = m.id;
     }
   }
-  return (await ownerOf(docId)) ?? null;
+  id ??= (await ownerOf(docId)) ?? null;
+  // A writer never approves its own edit (an agent that owns the page it wrote).
+  return id === user.id ? null : id;
 }
