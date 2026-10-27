@@ -3226,6 +3226,11 @@ app.delete('/api/comments/:cid', requireUser, async (req, res) => {
 registerGuestCommentRoutes(app, { wrap, notify: createCommentNotifications, emit, changed: commentsChanged });
 registerReactionRoutes(app, { requireUser, wrap, grantOn, canComment, changed: commentsChanged });
 
+// Built assets carry a content hash in their name, so a cached copy is never
+// stale: let the browser keep them for a year without asking. index.html, sw.js
+// and the manifest fall through to the default (revalidate) below — they are
+// what points at the new hashes after a deploy.
+app.use('/assets', express.static(path.join(WEB_DIST, 'assets'), { immutable: true, maxAge: '1y' }));
 app.use(express.static(WEB_DIST));
 // Projects/tasks and the home dashboard live in their own modules — this file
 // is long enough. Must register before the SPA catch-all below.
