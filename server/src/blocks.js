@@ -6,7 +6,7 @@ import * as Y from 'yjs';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { cloneValue } from './restore.js';
-import { syncText } from './suggestions.js';
+import { renumberLists, syncText } from './suggestions.js';
 
 // Every name the editor's code block recognises (shiki's id, display name and
 // aliases) → the id it stores. The editor rewrites any other value on first
@@ -1073,15 +1073,26 @@ function copyTree(from, to, id) {
   return newId;
 }
 
-/** Make live block `old` read like scratch block `neu`, keeping its id. */
+// What a block says, as opposed to how the editor lays it out (collapsed,
+// width, xywh, textAlign, meta:*…) — those are only builder defaults in the
+// scratch doc and must survive an edit. prop:order is set by renumberLists.
+const CONTENT_PROPS = new Set(['prop:text', 'prop:type', 'prop:checked', 'prop:language', 'prop:mnSize',
+  'prop:mnPanel', 'prop:caption', 'prop:sourceId', 'prop:latex', 'prop:url', 'prop:emoji']);
+const isContent = (k) => CONTENT_PROPS.has(k) || /^prop:(rows|columns|cells)\./.test(k);
+
+/**
+ * Make live block `old` say what scratch block `neu` says, keeping its id and
+ * its editor state. Content props are matched exactly (a dropped size tag or
+ * table row goes); everything else is left alone. Equal content → no writes.
+ */
 function editInPlace(old, neu) {
   for (const [k, v] of neu) {
-    if (!k.startsWith('prop:')) continue;
+    if (!isContent(k)) continue;
     const cur = old.get(k);
     if (v instanceof Y.Text && cur instanceof Y.Text) syncText(cur, v);
     else if (v instanceof Y.AbstractType || cur !== v) old.set(k, cloneValue(v));
   }
-  for (const k of [...old.keys()]) if (k.startsWith('prop:') && !neu.has(k)) old.delete(k);
+  for (const k of [...old.keys()]) if (isContent(k) && !neu.has(k)) old.delete(k);
 }
 
 /**
@@ -1100,7 +1111,7 @@ function diffChildren(live, scratch, children, newIds) {
   for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) {
     L[i][j] = ok[i] === nk[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
   }
-  let i = 0, j = 0, pos = 0;
+  let i = 0, j = 0, pos = 0, moved = false;
   const flush = (iEnd, jEnd) => {
     // Pair the runs in order while their heads are the same kind of block.
     while (i < iEnd && j < jEnd) {
@@ -1113,11 +1124,13 @@ function diffChildren(live, scratch, children, newIds) {
     }
     if (iEnd > i) {
       children.delete(pos, iEnd - i);
+      moved = true;
       for (; i < iEnd; i++) dropTree(live, oldIds[i]);
     }
     if (jEnd > j) {
       const ids = newIds.slice(j, jEnd).map((id) => copyTree(scratch, live, id));
       children.insert(pos, ids);
+      moved = true;
       pos += ids.length;
       j = jEnd;
     }
@@ -1129,6 +1142,7 @@ function diffChildren(live, scratch, children, newIds) {
     else b++;
   }
   flush(n, m);
+  if (moved) renumberLists(live, children.toArray());
 }
 
 /**

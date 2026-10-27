@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as Y from 'yjs';
 import { buildDocState, docToMarkdown, replaceBodyKeepingIds } from './blocks.js';
-import { computeChanges } from './suggestions.js';
+import { applyChange, computeChanges } from './suggestions.js';
 import { docFromState } from './board-decode.js';
 
 const docOf = (title, md, resolve) => docFromState(buildDocState(title, md, resolve));
@@ -116,4 +116,43 @@ test('a page reference ([[id]]) in an unchanged paragraph is not reported as a c
   const changes = computeChanges(docFromState(baseState), draft, docFromState(baseState));
   assert.equal(changes.length, 1);
   assert.equal(changes[0].after, 'three edited');
+});
+
+const orders = (doc) => body(doc).map(({ id }) => doc.getMap('blocks').get(id).get('prop:order'));
+
+test('inserting or deleting in a numbered list renumbers it, and only the item is a change', () => {
+  for (const [to, kind] of [['1. a\n2. X\n3. b\n4. c', 'added'], ['1. a\n2. c', 'removed']]) {
+    const baseState = buildDocState('T', '1. a\n2. b\n3. c');
+    const draft = docFromState(baseState);
+    replace(draft, 'T', to);
+    assert.deepEqual(orders(draft), [1, 2, 3, 4].slice(0, body(draft).length));
+    const changes = computeChanges(docFromState(baseState), draft, docFromState(baseState));
+    assert.deepEqual(changes.map((c) => c.kind), [kind]);
+    // Accepting it numbers the page the same way.
+    const main = docFromState(baseState);
+    main.transact(() => applyChange(main, draft, docFromState(baseState), changes[0]));
+    assert.deepEqual(orders(main), orders(draft));
+  }
+});
+
+test('editor state survives: a parent paired for its child, an image whose caption changed', () => {
+  const base = docOf('T', '- p\n  - c1\n\n![cap](/api/blob/abc)\n\ntail');
+  const bl = base.getMap('blocks');
+  base.transact(() => {
+    for (const [, b] of bl) {
+      if (String(b.get('prop:text') ?? '') === 'p') { b.set('prop:collapsed', true); b.set('prop:textAlign', 'center'); }
+      if (b.get('sys:flavour') === 'affine:image') { b.set('prop:width', 400); b.set('prop:height', 300); }
+    }
+  });
+  const draft = new Y.Doc();
+  Y.applyUpdate(draft, Y.encodeStateAsUpdate(base));
+  replace(draft, 'T', '- p\n  - c1 edited\n\n![new cap](/api/blob/abc)\n\ntail');
+  const blocks = [...draft.getMap('blocks').values()];
+  const parent = blocks.find((b) => String(b.get('prop:text') ?? '') === 'p');
+  const image = blocks.find((b) => b.get('sys:flavour') === 'affine:image');
+  assert.equal(parent.get('prop:collapsed'), true);
+  assert.equal(parent.get('prop:textAlign'), 'center');
+  assert.deepEqual([image.get('prop:width'), image.get('prop:height'), image.get('prop:caption')], [400, 300, 'new cap']);
+  const changes = computeChanges(base, draft, base).map((c) => `${c.kind}:${c.before}->${c.after}`);
+  assert.deepEqual(changes, ['modified:c1->c1 edited', 'modified:cap->new cap']);
 });

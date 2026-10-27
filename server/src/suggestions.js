@@ -172,7 +172,9 @@ function valueSig(v) {
 function blockSig(block) {
   const parts = [];
   for (const [k, v] of block) {
-    if (k === 'sys:children' || k === 'sys:id' || k === 'sys:version') continue;
+    // A numbered item's order is its position, stored only because the editor
+    // shows the stored value: renumbering after an insert is not an edit.
+    if (k === 'sys:children' || k === 'sys:id' || k === 'sys:version' || k === 'prop:order') continue;
     parts.push([k, valueSig(v)]);
   }
   parts.sort((a, b) => (a[0] < b[0] ? -1 : 1));
@@ -335,6 +337,21 @@ export function syncText(target, source) {
   }
 }
 
+/**
+ * Number each run of numbered list items among `ids` 1, 2, 3… — what the editor
+ * shows is the stored prop:order, so after an insert or delete it must be
+ * rewritten. ponytail: a list started at a custom number restarts at 1.
+ */
+export function renumberLists(blocks, ids) {
+  let n = 0;
+  for (const id of ids) {
+    const b = blocks.get(id);
+    const numbered = b instanceof Y.Map && b.get('sys:flavour') === 'affine:list' && b.get('prop:type') === 'numbered';
+    n = numbered ? n + 1 : 0;
+    if (numbered && b.get('prop:order') !== n) b.set('prop:order', n);
+  }
+}
+
 function parentIn(blocks, id) {
   for (const [pid, b] of blocks) {
     if (childrenOf(b).includes(id)) return pid;
@@ -382,6 +399,7 @@ export function applyChange(mainDoc, draftDoc, baseDoc, change) {
       if (i >= 0) {
         kids.delete(i, 1);
         if (survivors.length) kids.insert(i, survivors);
+        renumberLists(main, kids.toArray());
       }
       main.delete(id);
       // A column with nothing left in it, and a row with no columns left, go
@@ -424,6 +442,9 @@ export function applyChange(mainDoc, draftDoc, baseDoc, change) {
     if (b instanceof Y.Map) {
       for (const [k] of b) if (!d.has(k) && k !== 'sys:children') m.delete(k);
     }
+    // A type change (bullet → numbered) renumbers the run it sits in.
+    const pid = parentIn(main, id);
+    if (pid) renumberLists(main, childrenOf(main.get(pid)));
     return true;
   }
 
@@ -470,6 +491,7 @@ export function applyChange(mainDoc, draftDoc, baseDoc, change) {
     }
   }
   siblings.insert(index, [id]);
+  renumberLists(main, siblings.toArray());
   return true;
 }
 
