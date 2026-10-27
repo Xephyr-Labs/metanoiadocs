@@ -66,6 +66,10 @@ export async function writeToDraft({ pool, hocuspocus, pageState, docId, title, 
     row.decisions || {},
   ).length;
   // Ask AI shows its review link in the panel; only an agent's draft needs a heads-up.
-  if (created && writerVia !== 'ai') await notify({ userId: approverId, kind: 'ai_suggestion', docId, suggestionId: row.id });
+  if (created && writerVia !== 'ai') {
+    // The draft is saved either way; a failed heads-up must not fail the write.
+    await notify({ userId: approverId, kind: 'ai_suggestion', docId, suggestionId: row.id })
+      .catch((e) => console.error('[notify] ai suggestion:', e.message));
+  }
   return { sid: row.id, created, changes };
 }
