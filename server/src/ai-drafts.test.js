@@ -25,11 +25,18 @@ function world(md = 'Intro line.\n') {
         rows.push(row);
         return { rows: [row] };
       }
+      if (/^\s*DELETE/.test(sql)) {
+        const i = rows.findIndex((r) => r.id === p[0]);
+        if (i >= 0) rows.splice(i, 1);
+        return { rows: [], rowCount: i >= 0 ? 1 : 0 };
+      }
       throw new Error(`unexpected query: ${sql}`);
     },
   };
   const hocuspocus = {
+    failNext: false,
     async openDirectConnection(name) {
+      if (this.failNext) { this.failNext = false; throw new Error('sync server down'); }
       const { sid } = parseDraftName(name);
       const row = rows.find((r) => r.id === sid);
       const document = docFromState(row.state);
@@ -47,7 +54,7 @@ function world(md = 'Intro line.\n') {
     pool, hocuspocus, pageState, notify, docId: 'd1', title: 'Plan',
     authorId: 'ai', approverId: 'owner', writerVia: 'agent', mode: 'append', resolve: undefined, ...over,
   });
-  return { page, rows, pool, notes, write };
+  return { page, rows, pool, hocuspocus, notes, write };
 }
 
 test('the first write makes a submitted draft, notifies the approver once, and leaves the page alone', async () => {
@@ -114,4 +121,28 @@ test('a page with no body is refused', async () => {
     }, pageState: async () => Buffer.from(Y.encodeStateAsUpdate(empty)), notify: async () => {}, docId: 'd2', title: 'T', authorId: 'ai', approverId: 'owner', writerVia: 'ai', markdown: 'x\n', mode: 'append' }),
     /no body/,
   );
+  assert.equal(w.rows.length, 0, 'the empty draft is not left open to refuse every later write');
+});
+
+test('a first write that fails leaves no draft behind, so the next one starts fresh and notifies', async () => {
+  const w = world();
+  w.hocuspocus.failNext = true;
+  await assert.rejects(w.write({ markdown: 'AI paragraph.\n' }), /sync server down/);
+  assert.equal(w.rows.length, 0);
+  assert.equal(w.notes.length, 0);
+  const out = await w.write({ markdown: 'AI paragraph.\n' });
+  assert.equal(out.created, true);
+  assert.equal(out.changes, 1);
+  assert.deepEqual(w.notes, [{ userId: 'owner', kind: 'ai_suggestion', docId: 'd1', suggestionId: out.sid }]);
+});
+
+test('a notify that throws synchronously does not fail the saved write', async () => {
+  const w = world();
+  const out = await writeToDraft({
+    pool: w.pool, hocuspocus: w.hocuspocus, pageState: async () => Buffer.from(Y.encodeStateAsUpdate(w.page)),
+    notify: () => { throw new Error('boom'); }, docId: 'd1', title: 'Plan',
+    authorId: 'ai', approverId: 'owner', writerVia: 'agent', mode: 'append', markdown: 'AI paragraph.\n',
+  });
+  assert.equal(out.created, true);
+  assert.equal(w.rows.length, 1);
 });

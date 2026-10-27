@@ -45,20 +45,28 @@ export async function writeToDraft({ pool, hocuspocus, pageState, docId, title, 
   }
 
   const name = draftName(docId, row.id);
-  const conn = await hocuspocus.openDirectConnection(name, { docId: name, user: { id: authorId } });
   let draftState;
   try {
-    let wrote = false;
-    await conn.transact((doc) => {
-      wrote = mode === 'replace'
-        ? replaceBodyKeepingIds(doc, title, markdown, resolve)
-        : appendMarkdownToDoc(doc, markdown, resolve) || replaceBodyKeepingIds(doc, title, markdown, resolve);
-    });
-    if (!wrote) throw new Error('no body');
-    draftState = Y.encodeStateAsUpdate(conn.document);
-  } finally {
-    // Disconnecting saves the draft: the draft `store` hook writes doc_suggestions.state.
-    await conn.disconnect();
+    const conn = await hocuspocus.openDirectConnection(name, { docId: name, user: { id: authorId } });
+    try {
+      let wrote = false;
+      await conn.transact((doc) => {
+        wrote = mode === 'replace'
+          ? replaceBodyKeepingIds(doc, title, markdown, resolve)
+          : appendMarkdownToDoc(doc, markdown, resolve) || replaceBodyKeepingIds(doc, title, markdown, resolve);
+      });
+      if (!wrote) throw new Error('no body');
+      draftState = Y.encodeStateAsUpdate(conn.document);
+    } finally {
+      // Disconnecting saves the draft: the draft `store` hook writes doc_suggestions.state.
+      await conn.disconnect();
+    }
+  } catch (e) {
+    // A draft that never took its first write would be reused forever, so the
+    // approver would never be told and an empty-page draft would refuse every
+    // later write. Drop it; the next write starts afresh.
+    if (created) await pool.query('DELETE FROM doc_suggestions WHERE id = $1', [row.id]);
+    throw e;
   }
 
   const changes = pending(
@@ -68,8 +76,9 @@ export async function writeToDraft({ pool, hocuspocus, pageState, docId, title, 
   // Ask AI shows its review link in the panel; only an agent's draft needs a heads-up.
   if (created && writerVia !== 'ai') {
     // The draft is saved either way; a failed heads-up must not fail the write.
-    await notify({ userId: approverId, kind: 'ai_suggestion', docId, suggestionId: row.id })
-      .catch((e) => console.error('[notify] ai suggestion:', e.message));
+    try {
+      await notify({ userId: approverId, kind: 'ai_suggestion', docId, suggestionId: row.id });
+    } catch (e) { console.error('[notify] ai suggestion:', e.message); }
   }
   return { sid: row.id, created, changes };
 }
