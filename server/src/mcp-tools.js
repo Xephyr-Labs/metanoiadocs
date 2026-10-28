@@ -36,7 +36,7 @@ const agentChange = (c) => ({
 
 /** What write_doc says when its edit became a suggestion. */
 export const suggestedMessage = (r, publicBase = '') =>
-  `Suggested ${r.changes} ${r.changes === 1 ? 'change' : 'changes'} for ${r.approverName || 'the page owner'} to review: ${publicBase}${r.reviewUrl}`;
+  `Suggested ${r.changes} ${r.changes === 1 ? 'change' : 'changes'} for ${r.approverName || 'anyone who can edit the page'} to review: ${publicBase}${r.reviewUrl}`;
 
 const ok = (obj) => ({
   content: [{ type: 'text', text: typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2) }],
@@ -117,9 +117,6 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
 
   // Public origin, for links a person can click.
   const PUBLIC = process.env.BASE_URL || '';
-  // Who asked for an edit; they review it when it comes back as a suggestion.
-  const onBehalfOfInput = z.string().optional().describe('Email or username of the person who asked for this edit; they review it');
-  const asked = (who) => (who ? { 'X-On-Behalf-Of': who } : undefined);
 
   server.registerTool(
     'search_docs',
@@ -207,12 +204,12 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
     {
       title: 'Read a doc',
       description:
-        "Get a doc's title and its body as markdown, by id — the same markdown write_doc and create_doc take, formatting included, with links to other docs as [[Title]] (or [[id|Title]] where two docs share the title). To edit a doc, change this markdown and write it back with mode=replace: text, formatting, lists, tables, panels, images and links you leave as they were come back unchanged. If the result has `lossy`, the page also holds things markdown cannot carry (database, canvas, attachment, equation, embed) and replace is refused — append or comment instead. If you have edits waiting for review on the page, you read your draft (with `pendingSuggestion`), so a further replace builds on it; pass the same onBehalfOf you write with.",
-      inputSchema: { id: z.string().describe('Document id'), onBehalfOf: onBehalfOfInput },
+        "Get a doc's title and its body as markdown, by id — the same markdown write_doc and create_doc take, formatting included, with links to other docs as [[Title]] (or [[id|Title]] where two docs share the title). To edit a doc, change this markdown and write it back with mode=replace: text, formatting, lists, tables, panels, images and links you leave as they were come back unchanged. If the result has `lossy`, the page also holds things markdown cannot carry (database, canvas, attachment, equation, embed) and replace is refused — append or comment instead. If you have edits waiting for review on the page, you read your draft (with `pendingSuggestion`), so a further replace builds on it.",
+      inputSchema: { id: z.string().describe('Document id') },
     },
-    async ({ id, onBehalfOf }) => {
+    async ({ id }) => {
       try {
-        return ok(await api(`/docs/${encodeURIComponent(id)}/markdown`, { headers: asked(onBehalfOf) }));
+        return ok(await api(`/docs/${encodeURIComponent(id)}/markdown`));
       } catch (e) {
         return fail(e);
       }
@@ -250,20 +247,18 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
     {
       title: 'Write to a doc',
       description:
-        "Append or replace a doc's content with markdown. mode=append (default) adds to the end; mode=replace overwrites. Same markdown as create_doc — panels (`> [!NOTE]`), text colour and highlight (`<span style=\"color: red\">`, `<mark>`), `<u>` and `<small>`/`<big>` line sizes included, and `[[Doc title]]` / `[[doc id]]` links to other docs. To edit part of a doc, read_doc it, change that markdown and send all of it back with mode=replace — never rewrite from memory or from plain text, which drops formatting and links. Any [[link]] that matched no doc is listed back in unresolvedLinks. Changes appear when the doc is next opened. An edit to an existing page may come back as a suggestion instead: a person reviews it before it lands, and you get a review link — share it with whoever asked. Pass onBehalfOf so the person who asked is the one who reviews it.",
+        "Append or replace a doc's content with markdown. mode=append (default) adds to the end; mode=replace overwrites. Same markdown as create_doc — panels (`> [!NOTE]`), text colour and highlight (`<span style=\"color: red\">`, `<mark>`), `<u>` and `<small>`/`<big>` line sizes included, and `[[Doc title]]` / `[[doc id]]` links to other docs. To edit part of a doc, read_doc it, change that markdown and send all of it back with mode=replace — never rewrite from memory or from plain text, which drops formatting and links. Any [[link]] that matched no doc is listed back in unresolvedLinks. Changes appear when the doc is next opened. An edit to an existing page may come back as a suggestion instead: a person reviews it before it lands, and you get a review link — share it with whoever asked.",
       inputSchema: {
         id: z.string().describe('Document id'),
         markdown: z.string().describe('Markdown content'),
         mode: z.enum(['append', 'replace']).optional(),
-        onBehalfOf: onBehalfOfInput,
       },
     },
-    async ({ id, markdown, mode, onBehalfOf }) => {
+    async ({ id, markdown, mode }) => {
       try {
         const r = await api(`/docs/${encodeURIComponent(id)}/content`, {
           method: 'POST',
           body: { markdown, mode },
-          headers: asked(onBehalfOf),
         });
         if (r?.suggested) return ok(suggestedMessage(r, PUBLIC));
         return ok(r?.unresolvedLinks ? { done: true, unresolvedLinks: r.unresolvedLinks } : 'Done.');

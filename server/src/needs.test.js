@@ -70,7 +70,7 @@ test('review: submitted, not mine, approver or editor on a plain draft', async (
   await needsQueries(pool, { userId: 'u1', spaceId: null, today: '2026-10-28' });
   const sql = flat(pool.sqlOf('review').sql);
   assert.match(sql, /s\.status = 'submitted'/);
-  assert.match(sql, /s\.approver_id = \$1 OR \(s\.author_id <> \$1 AND s\.approver_id IS NULL AND s\.writer_via IS NULL AND/);
+  assert.match(sql, /s\.approver_id = \$1 OR \(s\.author_id <> \$1 AND s\.approver_id IS NULL AND \(/);
   assert.match(sql, /a\.role IN \('editor', 'owner'\)/);
   assert.match(sql, /d\.is_template/);
   assert.match(sql, /coalesce\(nullif\(u\.name, ''\), u\.email\) AS author_name/);

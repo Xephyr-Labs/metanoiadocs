@@ -14,40 +14,10 @@ test('writePolicy: person direct, Ask AI and untrusted agent suggest, trusted ag
   assert.equal(writePolicy({ user: agent, via: 'ai', token: { trusted: true } }), 'suggest'); // Ask AI never trusted
 });
 
-const members = {
-  'farhanaj@x': { id: 'farhanaj', kind: 'person' }, 'viewer@x': { id: 'viewer', kind: 'person' },
-  'stranger@x': { id: 'stranger', kind: 'person' }, andy: { id: 'andy', kind: 'agent' },
-};
-const roles = { farhanaj: 'editor', viewer: 'viewer', andy: 'owner', owner1: 'owner' };
-const deps = {
-  lookupMember: async (k) => members[k] ?? null,
-  roleOn: async (_d, u) => roles[u] ?? null,
-  ownerOf: async () => 'owner1',
-};
-const agent = { id: 'andy', kind: 'agent' };
-
-test('Ask AI: the signed-in person approves, whatever onBehalfOf says', async () => {
-  assert.equal(await resolveApprover({ via: 'ai', user: { id: 'u1' }, onBehalfOf: 'other@x', ...deps }), 'u1');
-});
-test('agent: a named member who can edit approves (trimmed)', async () => {
-  assert.equal(await resolveApprover({ via: 'human', user: agent, onBehalfOf: ' farhanaj@x ', docId: 'd', ...deps }), 'farhanaj');
-});
-test('agent: unknown, missing, an agent, or someone without edit rights → the owner', async () => {
-  for (const who of ['nobody@x', undefined, '', '   ', 'andy', 'viewer@x', 'stranger@x']) {
-    assert.equal(await resolveApprover({ via: 'human', user: agent, onBehalfOf: who, docId: 'd', ...deps }), 'owner1');
-  }
-});
-test('no owner → null; blank requester never hits lookupMember', async () => {
-  let called = false;
-  const d = { ...deps, lookupMember: async () => { called = true; return null; }, ownerOf: async () => null };
-  assert.equal(await resolveApprover({ via: 'human', user: agent, onBehalfOf: '  ', docId: 'd', ...d }), null);
-  assert.equal(called, false);
-});
-
-test('an agent that owns the page it wrote never approves its own edit', async () => {
-  const own = { ...deps, ownerOf: async () => 'andy' };
-  assert.equal(await resolveApprover({ via: 'human', user: agent, onBehalfOf: undefined, docId: 'd', ...own }), null);
-  assert.equal(await resolveApprover({ via: 'human', user: agent, onBehalfOf: 'andy', docId: 'd', ...own }), null);
+test('resolveApprover: Ask AI goes to the signed-in person; an agent edit to any editor (null)', () => {
+  assert.equal(resolveApprover({ via: 'ai', user: { id: 'u1', kind: 'person' } }), 'u1');
+  assert.equal(resolveApprover({ via: 'ai', user: { id: 'andy', kind: 'agent' } }), null);
+  assert.equal(resolveApprover({ via: 'human', user: { id: 'andy', kind: 'agent' } }), null);
 });
 
 test('untrusted: the callers whose writes only become suggestions', () => {
@@ -101,11 +71,6 @@ test('pageSyncRole: an agent session on a live page reads and comments but never
   assert.equal(pageSyncRole(undefined, agent), undefined);
   assert.equal(pageSyncRole('editor', person), 'editor');
   assert.equal(pageSyncRole('owner', {}), 'owner');
-});
-
-test('Ask AI called with an agent token has no approver (→ 409): no one could use one', async () => {
-  assert.equal(await resolveApprover({ via: 'ai', user: { id: 'andy', kind: 'agent' }, ...deps }), null);
-  assert.equal(await resolveApprover({ via: 'ai', user: { id: 'u1', kind: 'person' }, ...deps }), 'u1');
 });
 
 // An inline admin check (not requireAdmin) must also refuse agents: a

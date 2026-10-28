@@ -394,6 +394,15 @@ test('a non-approver editor can see an AI draft but not review it; a person draf
   assert.equal(p.out.canReview, true);
 });
 
+test('an agent draft with no approver is reviewable by any editor, never by its author', async () => {
+  const { routes } = fakeRoutes([aiRow({ approver_id: null, writer_via: 'agent' })]);
+  const e = res(); const author = res();
+  await routes['GET /api/suggestions/:sid']({ params: { sid: 's1' }, user: { id: 'e1' } }, e);
+  await routes['GET /api/suggestions/:sid']({ params: { sid: 's1' }, user: { id: 'u2' } }, author);
+  assert.equal(e.out.canReview, true);
+  assert.equal(author.out.canReview, false);
+});
+
 test('an Ask-AI draft does not stand in for the author\'s own draft', async () => {
   const rows = [aiRow({ author_id: 'u2', approver_id: 'u2' })];
   const { routes, calls } = fakeRoutes(rows);
@@ -444,15 +453,12 @@ test('an AI or any agent, trusted or not, cannot decide a draft, even one it may
   assert.equal(touched, false, 'refused before reading or writing anything');
 });
 
-test('an AI draft whose approver was deleted is decidable by no one, and leaves editors\' lists', async () => {
+test('an AI draft whose approver was deleted falls to any editor, and stays in editors\' lists', async () => {
   const { routes, calls } = fakeRoutes([aiRow({ approver_id: null })]);
   const g = res();
   await routes['GET /api/suggestions/:sid']({ params: { sid: 's1' }, user: { id: 'e1' } }, g);
-  assert.equal(g.out.canReview, false);
-  const denied = []; const r1 = { status(c) { denied.push(c); return r1; }, json() {} };
-  await routes['POST /api/suggestions/:sid/decide']({ params: { sid: 's1' }, user: { id: 'e1' }, body: { all: 'accept' } }, r1);
-  assert.deepEqual(denied, [403]);
+  assert.equal(g.out.canReview, true);
   await routes['GET /api/docs/:id/suggestions']({ params: { id: 'd1' }, user: { id: 'e1' } }, res());
   const list = calls.find((s) => /ORDER BY s.updated_at DESC/.test(s));
-  assert.match(list, /\$3 AND s\.approver_id IS NULL AND s\.writer_via IS NULL/);
+  assert.match(list, /\(\$3 AND s\.approver_id IS NULL\)/);
 });

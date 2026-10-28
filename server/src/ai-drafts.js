@@ -1,6 +1,6 @@
 // AI and agent edits that need a person's approval land in a draft beside the
-// page (a doc_suggestions row with an approver), never on the page itself. The
-// approver reviews it like any suggestion, block by block.
+// page (a doc_suggestions row), never on the page itself. Its approver, or for
+// an agent's draft anyone who can edit the page, reviews it block by block.
 import crypto from 'node:crypto';
 import * as Y from 'yjs';
 import { appendMarkdownToDoc, lossyBlocks, replaceBodyKeepingIds } from './blocks.js';
@@ -18,9 +18,8 @@ export async function openDraftFor({ pool, docId, authorId, approverId, writerVi
 
 /**
  * The draft a suggesting writer's markdown READ should show: its exact draft
- * for this approver, else its one open AI draft on the page — read_doc and
- * write_doc may name a different onBehalfOf, and the agent should still build
- * on its pending work. Two or more and no exact match: null (the live page).
+ * for this approver, else its one open AI draft on the page — so an agent
+ * still builds on drafts made back when its edits named an approver. Two or more and no exact match: null (the live page).
  * Writes keep the exact key (openDraftFor).
  */
 export async function draftToRead({ pool, docId, authorId, approverId, writerVia }) {
@@ -97,7 +96,7 @@ export async function writeToDraft({ pool, hocuspocus, pageState, docId, title, 
   if (created && writerVia !== 'ai') {
     // The draft is saved either way; a failed heads-up must not fail the write.
     try {
-      await notify({ userId: approverId, kind: 'ai_suggestion', docId, suggestionId: row.id });
+      await notify({ userId: approverId ?? null, kind: 'ai_suggestion', docId, suggestionId: row.id });
     } catch (e) { console.error('[notify] ai suggestion:', e.message); }
   }
   return { sid: row.id, created, changes };
@@ -113,7 +112,7 @@ export const lossyRefusal = (lossy) => ({
  * Where a markdown write from POST /api/docs/:id/content goes. Null: straight
  * onto the page (a trusted writer, a task page, or a page with no body yet).
  * Otherwise the response to send — a refusal, or the draft it landed in.
- * `approver()` resolves who reviews, as `{ id, name }` or null.
+ * `approver()` resolves who reviews, as `{ id, name }`, or null for any editor.
  */
 export async function draftEdit({ policy, kind, via, pageState, approver, pool, hocuspocus, docId, title, authorId, markdown, mode, resolve, notify }) {
   if (policy === 'direct' || kind === 'task') return null;
@@ -122,12 +121,12 @@ export async function draftEdit({ policy, kind, via, pageState, approver, pool, 
   // Before anything else: a refused replace must not leave a draft behind.
   const lossy = mode === 'replace' ? lossyBlocks(state) : [];
   if (lossy.length) return { status: 409, body: lossyRefusal(lossy) };
+  // No approver (an agent's edit): anyone who can edit the page decides it.
   const who = await approver();
-  if (!who) return { status: 409, body: { error: 'No one can approve edits to this page.' } };
   let out;
   try {
     out = await writeToDraft({
-      pool, hocuspocus, pageState, docId, title, authorId, approverId: who.id,
+      pool, hocuspocus, pageState, docId, title, authorId, approverId: who?.id ?? null,
       writerVia: via === 'ai' ? 'ai' : 'agent', markdown, mode, resolve, notify,
     });
   } catch (e) {
@@ -138,6 +137,6 @@ export async function draftEdit({ policy, kind, via, pageState, approver, pool, 
   const { sid, changes } = out;
   return {
     status: 200,
-    body: { ok: true, suggested: true, suggestionId: sid, reviewUrl: `/d/${docId}?review=${sid}`, approverName: who.name, changes },
+    body: { ok: true, suggested: true, suggestionId: sid, reviewUrl: `/d/${docId}?review=${sid}`, approverName: who?.name ?? null, changes },
   };
 }

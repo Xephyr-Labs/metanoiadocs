@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildPrompt, requesterOf } from './prompt.js';
+import { buildPrompt } from './prompt.js';
 
 const task = { title: 'Fix the date picker', project_name: 'Web', status: 'todo', kind: 'bug', due_at: '2026-10-01' };
 
@@ -38,10 +38,7 @@ test('a run with no task at all is still a usable prompt', () => {
   assert.match(p, /## What to do\n\nSummarise this page\./);
 });
 
-test('a run someone queued names them as the reviewer of its page edits', () => {
+test('the prompt never names a reviewer: anyone who can edit the page reviews', () => {
   const p = buildPrompt({ trigger: 'mention', prompt: 'fix it', task, requestedBy: { name: 'Ada', username: 'ada', email: 'ada@x.io' } });
-  assert.match(p, /onBehalfOf: "ada"/);
-  assert.equal(requesterOf({ requestedBy: { username: '', email: 'ada@x.io' } }), 'ada@x.io');
-  assert.equal(requesterOf({}), null);
-  assert.doesNotMatch(buildPrompt({ trigger: 'manual', prompt: 'x', task: null }), /onBehalfOf/);
+  assert.doesNotMatch(p, /onBehalfOf/);
 });
