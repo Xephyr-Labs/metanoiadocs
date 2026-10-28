@@ -1,5 +1,12 @@
 [
   {
+    "date": "2026-10-29",
+    "macrostructure": "Workbench (app chrome — Home), unchanged",
+    "theme": "project tokens (preserved; Onest via --font-display) · Home reads as one calm column: Overview, today's meetings, Jump back in, then My tasks and My documents side by side (minmax(0,1fr) tracks, one column below lg), Activity full width last; the Projects grid is gone (projects live in the sidebar); every section gap is 32px",
+    "enrichment": "none — typography only",
+    "brief": "metanoiadocs · Home had uneven gaps, a stacked tasks/docs column beside a tall Activity card, and a Projects grid duplicating the sidebar"
+  },
+  {
     "date": "2026-09-28",
     "macrostructure": "Workbench (app chrome — phone editing), unchanged",
     "theme": "project tokens (preserved) · editing review under real touch: BlockSuite's keyboard toolbar (insert, text styles, marks, lists, undo) turned on for phones and lifted above the iOS keyboard; Android resizes the page for the keyboard; room under the last line; the slash menu clamps inside the screen",
