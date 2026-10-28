@@ -60,3 +60,8 @@ export function takeCalendarReturn(): string | null {
   if (r) history.replaceState(history.state, '', r.clean);
   return r?.message ?? null;
 }
+
+/** Which Settings section to land on the next time the dialog opens (one-shot). */
+let wantedSection: string | null = null;
+export const wantSettingsSection = (id: string) => { wantedSection = id; };
+export const takeSettingsSection = (): string | null => { const s = wantedSection; wantedSection = null; return s; };

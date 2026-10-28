@@ -37,7 +37,7 @@ import {
   type PushResult,
 } from '../../lib/push';
 import { useAuth } from '../../store/auth';
-import { CALENDAR_CONNECT_URL, calendarApi, type CalendarStatus } from '../../lib/calendar';
+import { CALENDAR_CONNECT_URL, calendarApi, takeSettingsSection, type CalendarStatus } from '../../lib/calendar';
 import { sendInvite } from '../../lib/api';
 import { docsApi, type AdminToken, type UserRow } from '../../lib/docsApi';
 import { setSmallText, smallText } from '../../lib/docPrefs';
@@ -1408,6 +1408,8 @@ export function SettingsDialog() {
   const [calAvailable, setCalAvailable] = useState(false);
   useEffect(() => {
     if (!ws.settingsOpen) return;
+    const want = takeSettingsSection();
+    if (want && want in BODIES) setSection(want as SectionId);
     let alive = true;
     calendarApi.status().then((s) => { if (alive) setCalAvailable(s.available); }).catch(() => {});
     return () => { alive = false; };
