@@ -138,7 +138,7 @@ export function EventCard({ event, zone, canWrite, names, onClose, onChanged, on
                     href={link}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="mn-hit inline-flex h-8 items-center gap-1.5 rounded-md bg-accent-fill px-3 text-base font-medium text-white transition-[filter] duration-120 hover:brightness-[0.94] active:brightness-90"
+                    className="mn-hit inline-flex h-8 items-center gap-1.5 rounded-md bg-accent-fill px-3 text-base font-medium text-white transition-colors duration-120 hover:bg-accent-fill-hover active:bg-accent-fill-active"
                   >
                     <Video size={16} aria-hidden /> Join meeting
                   </a>

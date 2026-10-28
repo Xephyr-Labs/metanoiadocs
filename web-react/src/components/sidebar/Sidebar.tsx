@@ -65,6 +65,7 @@ import { templates } from '../../data/templates';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { useAuth } from '../../store/auth';
 import { useWorkspace } from '../../store/workspace';
+import { isUnseen } from '../../lib/unseen';
 import { IconButton } from '../ui/IconButton';
 import { Menu } from '../ui/Menu';
 import { RowInput } from '../ui/RowInput';
@@ -106,6 +107,15 @@ function NavItem({ icon, label, onClick, trailing, active, alert }: { icon: Reac
 }
 
 /**
+ * Headers are one neutral voice. They used to carry a hue each (the tag
+ * palette, on the dot and the label), and a column of purple, teal and pink
+ * words was the loudest thing in the rail — louder than `alert`, the one place
+ * it spends colour. Muted lettering in caps is enough to tell a header from a
+ * row; telling sections apart is the label's job, not a colour's.
+ */
+const headerText = 'mn-side-label min-w-0 flex-1 truncate text-left text-2xs font-semibold uppercase text-muted';
+
+/**
  * A section label that does not fold.
  *
  * It reserves the chevron's slot anyway. Half the sections in this rail fold
@@ -121,74 +131,13 @@ function NavItem({ icon, label, onClick, trailing, active, alert }: { icon: Reac
  * its label lands in their text column. A header indented to some third
  * position of its own aligns with nothing, which is what a 12px slot did.
  */
-/**
- * A quiet colour per section, carried by the mark in the gutter and nothing
- * else.
- *
- * The rail's own rule is that the accent is spent on `alert` and nowhere else
- * — a column that tints things for decoration has nothing left to say when
- * something genuinely wants attention. So these are not the accent: they are
- * the tag palette, already tuned for both themes, applied to a 12px glyph in
- * the column the labels do not use. Twelve headers in twelve colours would be
- * a rainbow; the assignment below groups what belongs together (your own
- * shelves warm, the places work lives cool) and only guarantees that no two
- * ADJACENT sections share a hue, which is all "tell them apart" needs.
- *
- * The label carries the hue too, at text weight (SECTION_TEXT_TINT below).
- */
-const SECTION_TINT: Record<string, string> = {
-  recent: 'text-blue-500',
-  pinned: 'text-amber-500',
-  favorites: 'text-yellow-600 dark:text-yellow-500',
-  projects: 'text-purple-500',
-  designs: 'text-pink-500',
-  folders: 'text-teal-500',
-  private: 'text-gray-400',
-  public: 'text-green-500',
-  shared: 'text-blue-500',
-  tags: 'text-green-600 dark:text-green-500',
-  templates: 'text-gray-400',
-};
-
-/**
- * The same hue, at the weight text can carry.
- *
- * Two values and not one for the same reason the tag palette has both a `dot`
- * and a `chip`: the 500s are drawn for a glyph beside a label, and measured on
- * the light surface they run under the contrast floor for something you have
- * to READ. 700 in light and 400 in dark are the pairs the chips already use,
- * so a section header is tinted to the same standard as every other coloured
- * word in the app rather than to a new one.
- */
-const SECTION_TEXT_TINT: Record<string, string> = {
-  recent: 'text-blue-700 dark:text-blue-400',
-  pinned: 'text-amber-700 dark:text-amber-400',
-  favorites: 'text-yellow-800 dark:text-yellow-400',
-  projects: 'text-purple-700 dark:text-purple-400',
-  designs: 'text-pink-700 dark:text-pink-400',
-  folders: 'text-teal-800 dark:text-teal-400',
-  private: 'text-gray-700 dark:text-gray-300',
-  public: 'text-green-800 dark:text-green-400',
-  shared: 'text-blue-700 dark:text-blue-400',
-  tags: 'text-green-800 dark:text-green-400',
-  templates: 'text-gray-700 dark:text-gray-300',
-};
-
-const tintOf = (key: string) => SECTION_TINT[key] ?? 'text-faint';
-const textTintOf = (key: string) => SECTION_TEXT_TINT[key] ?? 'text-muted';
-
-export function SectionLabel({ sectionKey, children, action }: { sectionKey: string; children: ReactNode; action?: ReactNode }) {
+export function SectionLabel({ children, action }: { children: ReactNode; action?: ReactNode }) {
   return (
     <div className="mt-3 coarse:mt-1 flex h-6 coarse:h-11 items-center gap-2 px-2 first:mt-0">
-      {/* The slot a folding section puts its chevron in. Here it carries the
-          section's colour instead, so a rail of headers is told apart by the
-          same column whether or not the section folds. */}
-      <span aria-hidden className="flex w-5 shrink-0 items-center justify-center">
-        <span className={cn('h-1.5 w-1.5 rounded-full bg-current', tintOf(sectionKey))} />
-      </span>
-      <span className={cn('mn-side-label min-w-0 flex-1 truncate text-2xs font-semibold uppercase', textTintOf(sectionKey))}>
-        {children}
-      </span>
+      {/* The slot a folding section puts its chevron in, left empty, so every
+          header's label starts in the same column. */}
+      <span aria-hidden className="w-5 shrink-0" />
+      <span className={headerText}>{children}</span>
       {action}
     </div>
   );
@@ -226,12 +175,12 @@ export function CollapsibleSection({ sectionKey, label, collapsed, onToggle, cou
           type="button"
           aria-expanded={open}
           onClick={() => onToggle(sectionKey)}
-          className={cn('mn-side-label group flex h-6 coarse:h-11 min-w-0 flex-1 items-center gap-2 px-2 text-2xs font-semibold uppercase', textTintOf(sectionKey))}
+          className="group flex h-6 coarse:h-11 min-w-0 flex-1 items-center gap-2 rounded-md px-2 transition-colors duration-120 hover:bg-hover"
         >
-          <span aria-hidden className={cn('flex w-5 shrink-0 items-center justify-center', tintOf(sectionKey))}>
+          <span aria-hidden className="flex w-5 shrink-0 items-center justify-center text-faint group-hover:text-muted">
             <ChevronRight size={12} className={cn('transition-transform duration-180', open && 'rotate-90')} />
           </span>
-          <span className="min-w-0 flex-1 truncate text-left">{label}</span>
+          <span className={headerText}>{label}</span>
           {/* Only while folded: an expanded section is already showing them.
               `ml-auto` and not `ml-1`: glued to the label the number landed at
               a different x in every section, and a column of counts that never
@@ -241,7 +190,7 @@ export function CollapsibleSection({ sectionKey, label, collapsed, onToggle, cou
             // `tracking-normal` because .mn-side-label opens the header's
             // letters to 0.07em, which is right for a word in caps and wrong
             // for a number: "12" came out reading as "1 2".
-            <span className="ml-auto shrink-0 pl-2 tabular-nums tracking-normal text-faint">{count}</span>
+            <span className="ml-auto shrink-0 pl-2 text-2xs tabular-nums tracking-normal text-faint">{count}</span>
           ) : null}
         </button>
         {action}
@@ -268,9 +217,15 @@ export function Capped({ limit = SECTION_LIMIT, children }: { limit?: number; ch
       <button
         type="button"
         onClick={() => setAll((v) => !v)}
-        className="flex h-6 coarse:h-11 w-full items-center gap-1 rounded-md px-2 text-2xs text-faint
-                   transition-colors duration-120 hover:bg-hover hover:text-muted"
+        // The same row as the tree's "Show more": icon column, text column,
+        // body size. At 11px with no icon it was the one row in the rail that
+        // started at neither edge.
+        className="flex h-7 coarse:h-11 w-full items-center gap-2 rounded-md px-2 text-sm text-muted
+                   transition-colors duration-120 hover:bg-hover hover:text-ink"
       >
+        <span className="flex h-5 w-5 shrink-0 items-center justify-center">
+          <ChevronDown size={14} className={cn('transition-transform duration-180', all && 'rotate-180')} />
+        </span>
         {all ? 'Show fewer' : `${items.length - limit} more`}
       </button>
     </>
@@ -325,11 +280,13 @@ export function ProjectRows({
         const moveSpace = moveToSpaceItem(ws, 'project', p.id, p.space_id);
         return (
           <div key={p.id}>
-            <div className="group flex items-center">
+            <div className="group flex items-center coarse:gap-2">
               <button
                 type="button"
                 onClick={() => ws.openProject(p.id)}
-                style={{ paddingLeft: 8 + depth * 16 }}
+                // 20: the tree's chevron slot, so every list under a header
+                // shares one icon column whether or not its rows fold.
+                style={{ paddingLeft: 20 + depth * 16 }}
                 className={cn(
                   'flex h-7 coarse:h-11 min-w-0 flex-1 items-center gap-2 rounded-md pr-2 text-sm leading-5 transition-colors duration-120',
                   ws.view === 'project' && ws.activeProjectId === p.id ? 'bg-selected font-medium text-ink' : 'text-ink hover:bg-hover',
@@ -411,7 +368,7 @@ export function ProjectRows({
           icon={<span className="flex h-5 w-5 shrink-0 items-center justify-center text-md leading-none">📋</span>}
           placeholder="Database name…"
           label="New database name"
-          depth={depth}
+          depth={depth + 0.75}
           onCommit={onCommitName}
           onCancel={onCancelName}
         />
@@ -424,7 +381,7 @@ export function ProjectRows({
  *  a folder like a tree row, and carrying the same menu the tree does — these
  *  are the pages reached most often, and they used to be the ones you could do
  *  least with. */
-export function DocRow({ id }: { id: string }) {
+export function DocRow({ id, selectable = true }: { id: string; selectable?: boolean }) {
   const ws = useWorkspace();
   const p = ws.pages[id];
   const menu = useDocMenu(id);
@@ -435,10 +392,20 @@ export function DocRow({ id }: { id: string }) {
         type="button"
         onClick={() => ws.select(id)}
         {...dragSource(DOC_MIME, id)}
-        className={cn('flex h-7 coarse:h-11 w-full items-center gap-1.5 rounded-md px-2 pr-7 text-sm leading-5 transition-colors duration-120', ws.currentId === id ? 'bg-selected font-medium text-ink' : 'text-ink hover:bg-hover')}
+        // Recent and Favorites pass selectable={false}: the open page is
+        // already selected where it lives in the tree, and two grey rows for
+        // one page read as two pages. Designs and Shared are the only place
+        // their pages appear, so they stay selectable.
+        // pl-5 is the tree's chevron slot, so the icon and title land in the
+        // tree's columns. The ⋯ only claims its room while it is showing.
+        className={cn(
+          'flex h-7 coarse:h-11 w-full items-center gap-2 rounded-md pl-5 pr-2 text-sm leading-5 text-ink transition-colors duration-120',
+          selectable && ws.currentId === id ? 'bg-selected font-medium' : 'hover:bg-hover',
+          'group-hover/row:pr-7 group-focus-within/row:pr-7 group-has-[[data-state=open]]/row:pr-7 [@media(hover:none)]:pr-7',
+        )}
       >
-        <PageIcon icon={p.icon} size={16} />
-        <span className="block h-5 min-w-0 flex-1 !self-center truncate leading-5 text-left">{p.title}</span>
+        <span className="flex h-5 w-5 shrink-0 items-center justify-center"><PageIcon icon={p.icon} size={16} /></span>
+        <span className={cn('block h-5 min-w-0 flex-1 !self-center truncate leading-5 text-left', isUnseen(ws.pages, ws.currentId, id) && 'font-semibold')}>{p.title}</span>
         {p.favorite && <Star size={14} className="shrink-0 fill-current text-amber-400" />}
       </button>
       <span className="absolute right-1 opacity-0 transition-opacity duration-120 focus-within:opacity-100 group-hover/row:opacity-100">
@@ -468,9 +435,9 @@ function TagRow({ tag }: { tag: Tag }) {
       <button
         type="button"
         onClick={() => ws.setTagFilter([tag.id])}
-        className="flex h-7 coarse:h-11 w-full items-center gap-2 rounded-md px-2 pr-7 text-sm leading-5 text-ink transition-colors duration-120 hover:bg-hover"
+        className="flex h-7 coarse:h-11 w-full items-center gap-2 rounded-md pl-5 pr-7 text-sm leading-5 text-ink transition-colors duration-120 hover:bg-hover"
       >
-        <span className={cn('h-2.5 w-2.5 shrink-0 rounded-full', swatch(tag.color).dot)} />
+        <span className="flex h-5 w-5 shrink-0 items-center justify-center"><span className={cn('h-2.5 w-2.5 rounded-full', swatch(tag.color).dot)} /></span>
         <span className="block h-5 min-w-0 flex-1 !self-center truncate leading-5 text-left">{tag.name}</span>
         {tag.count ? <span className="text-2xs text-faint">{tag.count}</span> : null}
       </button>
@@ -511,12 +478,11 @@ export function FavoriteFolderRow({ id }: { id: string }) {
     <button
       type="button"
       onClick={() => ws.openFolder(id)}
-      className={cn(
-        'flex h-7 coarse:h-11 w-full items-center gap-1.5 rounded-md px-2 text-sm leading-5 transition-colors duration-120',
-        ws.view === 'folder' && ws.activeFolderId === id ? 'bg-selected font-medium text-ink' : 'text-ink hover:bg-hover',
-      )}
+      // Same columns as DocRow beside it, and likewise never selected: the
+      // folder tree shows where you are.
+      className="flex h-7 coarse:h-11 w-full items-center gap-2 rounded-md pl-5 pr-2 text-sm leading-5 text-ink transition-colors duration-120 hover:bg-hover"
     >
-      <Folder size={16} className="shrink-0" />
+      <span className="flex h-5 w-5 shrink-0 items-center justify-center"><Folder size={16} /></span>
       <span className="block h-5 min-w-0 flex-1 !self-center truncate leading-5 text-left">{f.name}</span>
       <Star size={14} className="shrink-0 fill-current text-amber-400" />
     </button>
@@ -669,7 +635,7 @@ function Rail({
                   always and hidden in CSS rather than branched on in JS: the
                   question is "does this input device hover", which a media
                   query answers and a render pass cannot. */}
-              <span className={cn('mn-rail-label max-w-full truncate text-3xs leading-none', on && 'font-medium')}>{r.label}</span>
+              <span className={cn('mn-rail-label max-w-full truncate text-2xs leading-none', on && 'font-medium text-ink')}>{r.label}</span>
             </button>
           </Tooltip>
         );
@@ -867,7 +833,7 @@ export function Sidebar() {
           <section className="mb-5">
             <CollapsibleSection collapsed={collapsed} onToggle={toggle} sectionKey="recent" label="Recent" count={recentIds.length}>
               <div className="space-y-px">
-                <Capped limit={5}>{recentIds.map((id) => <DocRow key={id} id={id} />)}</Capped>
+                <Capped limit={5}>{recentIds.map((id) => <DocRow key={id} id={id} selectable={false} />)}</Capped>
               </div>
             </CollapsibleSection>
           </section>
@@ -879,7 +845,7 @@ export function Sidebar() {
             <div className="space-y-px">
               <Capped>
                 {[...favoriteFolderIds.map((id) => <FavoriteFolderRow key={`f${id}`} id={id} />),
-                  ...favoriteIds.map((id) => <DocRow key={id} id={id} />)]}
+                  ...favoriteIds.map((id) => <DocRow key={id} id={id} selectable={false} />)]}
               </Capped>
             </div>
             </CollapsibleSection>
@@ -942,7 +908,7 @@ export function Sidebar() {
                 type="button"
                 title={`New page from ${t.title}`}
                 onClick={() => ws.createFromPage(t.id)}
-                className="flex h-7 coarse:h-11 w-full items-center gap-2 rounded-md px-2 text-sm leading-5 text-ink transition-colors duration-120 hover:bg-hover"
+                className="flex h-7 coarse:h-11 w-full items-center gap-2 rounded-md pl-5 pr-2 text-sm leading-5 text-ink transition-colors duration-120 hover:bg-hover"
               >
                 <span className="flex h-5 w-5 shrink-0 items-center justify-center text-md leading-none">{t.icon}</span>
                 <span className="block h-5 min-w-0 flex-1 !self-center truncate leading-5 text-left">{t.title}</span>
@@ -954,7 +920,7 @@ export function Sidebar() {
                 key={t.id}
                 type="button"
                 onClick={() => ws.createFromTemplate(t)}
-                className="flex h-7 coarse:h-11 w-full items-center gap-2 rounded-md px-2 text-sm leading-5 text-ink transition-colors duration-120 hover:bg-hover"
+                className="flex h-7 coarse:h-11 w-full items-center gap-2 rounded-md pl-5 pr-2 text-sm leading-5 text-ink transition-colors duration-120 hover:bg-hover"
               >
                 <span className="flex h-5 w-5 shrink-0 items-center justify-center text-md leading-none">{t.icon}</span>
                 <span className="block h-5 min-w-0 flex-1 !self-center truncate leading-5 text-left">{t.name}</span>

@@ -8,9 +8,10 @@ import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { requestTitleFocus } from '../../lib/titleFocus';
 import type { PageId } from '../../lib/types';
 import { useWorkspace } from '../../store/workspace';
+import { isUnseen, unseenBelow } from '../../lib/unseen';
 import { DocIcon } from '../ui/DocIcon';
 import { Menu } from '../ui/Menu';
-import { rowAction } from '../ui/styles';
+import { rowAction, rowActionsAtRest } from '../ui/styles';
 import { DOC_MIME, dragSource, useRowDrop } from './rowDrag';
 import { ShowMoreRow, useShowMore } from './showMore';
 
@@ -38,6 +39,10 @@ function Row({ id, depth }: { id: PageId; depth: number }) {
   if (!page) return null;
   const selected = ws.currentId === id;
   const hasChildren = page.children.length > 0;
+  // Bold: changed by someone else since you looked. A closed parent carries a
+  // dot for what it hides, so a change never sits out of sight.
+  const unseen = isUnseen(ws.pages, ws.currentId, id);
+  const unseenInside = hasChildren && !page.expanded && unseenBelow(ws.pages, ws.currentId, id);
 
   return (
     <>
@@ -52,6 +57,8 @@ function Row({ id, depth }: { id: PageId; depth: number }) {
         aria-expanded={hasChildren ? !!page.expanded : undefined}
         tabIndex={0}
         onKeyDown={(e) => {
+          // Keys on the chevron, + or ⋯ are theirs: Enter there must not also open the page.
+          if (e.target !== e.currentTarget) return;
           if (e.key === 'Enter') ws.select(id);
           if (e.key === 'ArrowRight' && hasChildren && !page.expanded) ws.toggleExpand(id);
           if (e.key === 'ArrowLeft' && hasChildren && page.expanded) ws.toggleExpand(id);
@@ -61,27 +68,17 @@ function Row({ id, depth }: { id: PageId; depth: number }) {
           selected ? 'bg-selected font-medium text-ink' : 'text-ink hover:bg-hover',
           drop.zone === 'inside' && 'bg-accent-soft text-accent-strong',
         )}
-        style={{ paddingLeft: 8 + depth * 16 }}
+        style={{ paddingLeft: 4 + depth * 16 }}
       >
         {(drop.zone === 'before' || drop.zone === 'after') && (
           <span
             className={cn('pointer-events-none absolute left-1 right-1 h-0.5 rounded-full bg-accent', drop.zone === 'before' ? 'top-0' : 'bottom-0')}
           />
         )}
-        {/* One icon slot shared by the doc icon and the expand chevron — the
-            chevron overlays the icon on hover/select. Keeps every top-level row's
-            icon in the SAME column as the nav + Recent icons above, instead of a
-            reserved chevron slot pushing the whole tree ~20px to the right. */}
-        <span className="relative mr-2 flex h-5 w-5 shrink-0 items-center justify-center">
-          <span
-            className={cn(
-              'flex items-center justify-center transition-opacity',
-              selected ? 'text-ink' : 'text-muted',
-              hasChildren && (hover || selected) && 'opacity-0',
-            )}
-          >
-            <DocIcon hasChildren={hasChildren} size={16} className="" />
-          </span>
+        {/* The chevron has a slot of its own, left of the icon, so a page keeps
+            its face while you point at it. Drawn whenever there is something
+            to open, so a parent reads as one at rest, not only under a pointer. */}
+        <span className="flex h-5 w-4 shrink-0 items-center justify-center">
           {hasChildren && (
             <button
               type="button"
@@ -89,36 +86,32 @@ function Row({ id, depth }: { id: PageId; depth: number }) {
                 e.stopPropagation();
                 ws.toggleExpand(id);
               }}
-              className={cn(
-                'absolute inset-0 flex items-center justify-center rounded text-faint transition-opacity hover:bg-hover',
-                hover || selected ? 'opacity-100' : 'opacity-0',
-              )}
-              aria-label={page.expanded ? 'Collapse' : 'Expand'}
-              tabIndex={-1}
+              className={cn(rowAction, 'w-4')}
+              aria-label={page.expanded ? `Collapse ${page.title}` : `Expand ${page.title}`}
             >
               <ChevronRight
-                size={14}
+                size={12}
                 className={cn('transition-transform duration-180', page.expanded && 'rotate-90')}
               />
             </button>
           )}
         </span>
+        <span className={cn('mr-2 flex h-5 w-5 shrink-0 items-center justify-center', selected ? 'text-ink' : 'text-muted')}>
+          <DocIcon hasChildren={hasChildren} size={16} className="" />
+        </span>
         {/* Rename lives on the name, not the whole row: the chevron and the ⋯
             button are double-click targets too, and neither means "rename". */}
         <span
           onDoubleClick={() => { requestTitleFocus(id); ws.select(id); }}
-          className={cn('block h-5 min-w-0 flex-1 !self-center truncate leading-5', selected && 'font-medium')}
+          className={cn('block h-5 min-w-0 flex-1 !self-center truncate leading-5', selected && 'font-medium', unseen && 'font-semibold')}
         >
           {page.title}
         </span>
+        {unseenInside && <span className="mr-1 h-1.5 w-1.5 shrink-0 rounded-full bg-accent" role="img" aria-label="Changes inside you haven't seen" />}
 
-        {/* hover actions */}
-        <span
-          className={cn(
-            'flex shrink-0 items-center gap-0.5 transition-opacity',
-            hover ? 'opacity-100' : 'opacity-0',
-          )}
-        >
+        {/* hover actions — out of the layout at rest, so the title runs to the
+            row's end instead of stopping short of two invisible buttons. */}
+        <span className={cn('shrink-0 items-center gap-0.5 coarse:gap-2', hover ? 'flex' : rowActionsAtRest)}>
           <Menu
             trigger={
               <button
@@ -136,10 +129,10 @@ function Row({ id, depth }: { id: PageId; depth: number }) {
             type="button"
             onClick={(e) => {
               e.stopPropagation();
-              ws.createPage(null);
+              ws.createChildPage(id);
             }}
             className={rowAction}
-            aria-label="New page"
+            aria-label={`Add a page inside ${page.title}`}
           >
             <Plus size={16} />
           </button>

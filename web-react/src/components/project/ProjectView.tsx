@@ -283,8 +283,8 @@ export function ProjectView() {
                     <button
                       type="button"
                       aria-label="Start from a template"
-                      className="flex h-7 items-center rounded-r border-y border-r border-accent-fill bg-accent-fill pl-0.5 pr-1.5 text-white
-                                 transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                      className="flex h-7 items-center rounded-r border-y border-r border-accent-fill bg-accent-fill pl-0.5 pr-1.5 text-white hover:border-accent-fill-hover
+                                 transition-colors hover:bg-accent-fill-hover active:bg-accent-fill-active focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                     >
                       <ChevronDown size={14} />
                     </button>

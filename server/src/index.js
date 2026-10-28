@@ -717,8 +717,17 @@ app.get('/api/docs', requireUser, async (req, res) => {
             (f.doc_id IS NOT NULL) AS favorite,
             (pin.doc_id IS NOT NULL) AS pinned,
             lk.link_count,
-            tg.tags
+            tg.tags,
+            -- Someone else saved it since I last opened or edited it (or since
+            -- this started counting): bold in my sidebar. A first open's empty
+            -- skeleton save is not a change (as in needs.js).
+            (d.kind <> 'task' AND d.updated_by IS NOT NULL AND d.updated_by <> $1
+             AND d.updated_at > d.created_at + interval '1 minute'
+             AND d.updated_at > greatest(o.opened_at, ed.last_edit_at, since.applied_at)) IS TRUE AS unseen
        FROM docs d
+       LEFT JOIN doc_opens o ON o.doc_id = d.id AND o.user_id = $1
+       LEFT JOIN doc_editors ed ON ed.doc_id = d.id AND ed.user_id = $1
+       LEFT JOIN schema_migrations since ON since.key = 'sidebar-unseen-since'
        LEFT JOIN LATERAL (
          SELECT count(*)::int AS link_count
            FROM doc_links l JOIN docs t ON t.id = l.to_id AND t.deleted_at IS NULL

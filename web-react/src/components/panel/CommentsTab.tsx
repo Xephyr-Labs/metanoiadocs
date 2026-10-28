@@ -234,10 +234,13 @@ export function CommentsTab({ docId }: { docId: string }) {
   );
 
   /** Edit (your own words only) and delete (yours, or anything on a page you own). */
-  const renderActions = (c: CommentRow, reveal: string) => {
+  const renderActions = (c: CommentRow, hoverReveal: string) => {
     const mine = !!c.author_id && c.author_id === me;
+    // A fingertip gets 36px targets that are always there: it has no hover to
+    // reveal them with, and a touch laptop reports a pointer that can hover.
+    const reveal = cn(hoverReveal, 'coarse:h-9 coarse:w-9 coarse:opacity-100');
     return (
-      <span className="flex shrink-0 items-center gap-0.5">
+      <span className="flex shrink-0 items-center gap-0.5 coarse:gap-1">
         {mayComment && <ReactionPicker reactions={c.reactions} onToggle={(e) => void react(c.id, e)} reveal={reveal} />}
         {/* Revealed with the reaction picker, so a thread reads as words until
             you point at it; a 12px glyph was also the whole tap target. */}
@@ -273,7 +276,7 @@ export function CommentsTab({ docId }: { docId: string }) {
             type="button"
             disabled={!!busy}
             onClick={() => run(`dec:${c.id}`, () => docsApi.decideSuggestion(c.id, 'reject'), 'Could not decline')}
-            className="rounded-md px-2 py-1 text-2xs font-medium text-muted hover:bg-hover hover:text-ink"
+            className="h-7 rounded-md px-2.5 text-xs font-medium text-muted transition-colors duration-120 hover:bg-hover hover:text-ink active:bg-selected disabled:pointer-events-none disabled:opacity-40"
           >
             Decline
           </button>
@@ -284,7 +287,7 @@ export function CommentsTab({ docId }: { docId: string }) {
               await docsApi.decideSuggestion(c.id, 'accept');
               toast('Change applied to the page');
             }, 'Could not apply the change')}
-            className="flex items-center gap-1 rounded-md bg-accent-fill px-2 py-1 text-2xs font-medium text-white hover:brightness-95"
+            className="flex h-7 items-center gap-1 rounded-md bg-accent-fill px-2.5 text-xs font-medium text-white transition-colors duration-120 hover:bg-accent-fill-hover active:bg-accent-fill-active disabled:pointer-events-none disabled:opacity-60"
           >
             {busy === `dec:${c.id}` ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />} Accept
           </button>
@@ -351,13 +354,15 @@ export function CommentsTab({ docId }: { docId: string }) {
                 role="tab"
                 aria-selected={filter === f}
                 onClick={() => setFilter(f)}
+                // The current filter is a raised chip, not just a grey fill:
+                // grey is what hover looks like, so the two read the same.
                 className={cn(
-                  'rounded-md px-2 py-1 text-2xs font-medium transition-colors',
-                  filter === f ? 'bg-hover text-ink' : 'text-muted hover:bg-hover',
+                  'flex h-7 items-center rounded-md px-2.5 text-xs font-medium transition-colors duration-120',
+                  filter === f ? 'bg-canvas text-ink ring-1 ring-inset ring-line' : 'text-muted hover:bg-hover hover:text-ink active:bg-selected',
                 )}
               >
                 {f === 'open' ? 'Open' : f === 'suggestions' ? 'Suggestions' : 'Resolved'}
-                <span className="ml-1 tabular-nums text-faint">{counts[f]}</span>
+                <span className={cn('ml-1.5 tabular-nums', filter === f ? 'text-muted' : 'text-faint')}>{counts[f]}</span>
               </button>
             ))}
           </div>
@@ -390,15 +395,19 @@ export function CommentsTab({ docId }: { docId: string }) {
             <div
               key={c.id}
               ref={(el) => { if (el) cardRefs.current.set(c.id, el); else cardRefs.current.delete(c.id); }}
+              // Only the thread you are in wears the highlight's yellow — the
+              // one you clicked to in the page, or the one you are typing in.
+              // Every open card in it said nothing about which.
               className={cn(
-                'group/card rounded-lg border border-line bg-comment p-3 transition-shadow duration-220',
-                c.resolved && 'bg-transparent',
+                'group/card rounded-lg border border-line bg-canvas p-3 transition-[background-color,box-shadow] duration-220',
+                !c.resolved && 'focus-within:bg-comment',
+                !c.resolved && (focusId === c.id || replyTo === c.id) && 'bg-comment',
                 focusId === c.id && 'ring-2 ring-accent',
               )}
             >
-              {/* Name over time, and Resolve as an icon: in a 320px rail the
-                  name was what gave way to everything else on this line, so
-                  a comment's author read as "Farhan…". */}
+              {/* Name over time, and Resolve as an icon at rest: in a 320px
+                  rail the name was what gave way to everything else on this
+                  line, so a comment's author read as "Farhan…". */}
               <div className="flex items-center gap-2">
                 <Avatar name={c.author_name} />
                 <span className="flex min-w-0 flex-1 flex-col">
@@ -412,14 +421,26 @@ export function CommentsTab({ docId }: { docId: string }) {
                 {renderActions(c, 'group-hover/card:opacity-100')}
                 {c.resolved ? (
                   mayResolve ? (
-                    <IconButton size="sm" icon={<RotateCcw size={12} />} label="Reopen" onClick={() => run(`res:${c.id}`, () => docsApi.resolveComment(c.id, false))} />
+                    <IconButton size="sm" icon={<RotateCcw size={12} />} label="Reopen" className="coarse:h-9 coarse:w-9" onClick={() => run(`res:${c.id}`, () => docsApi.resolveComment(c.id, false))} />
                   ) : (
                     <Tooltip label="Resolved">
                       <span className="flex h-6 w-6 shrink-0 items-center justify-center text-faint" role="img" aria-label="Resolved"><Check size={12} /></span>
                     </Tooltip>
                   )
                 ) : mayResolve && !pendingSuggestion(c) ? (
-                  <IconButton size="sm" icon={<Check size={14} />} label="Resolve" onClick={() => run(`res:${c.id}`, () => docsApi.resolveComment(c.id, true))} />
+                  // A bare tick did not say what it does. The word comes in with
+                  // the card's hover or focus (always, on touch), so at rest the
+                  // name keeps the room it needs in a narrow panel.
+                  <button
+                    type="button"
+                    aria-label="Resolve thread"
+                    disabled={busy === `res:${c.id}`}
+                    onClick={() => run(`res:${c.id}`, () => docsApi.resolveComment(c.id, true))}
+                    className="mn-hit flex h-6 coarse:h-9 shrink-0 items-center gap-1 rounded-md px-1.5 text-xs font-medium text-muted transition-colors duration-120 hover:bg-hover hover:text-ink active:bg-selected disabled:pointer-events-none disabled:opacity-40"
+                  >
+                    <Check size={14} />
+                    <span className="hidden group-hover/card:inline group-focus-within/card:inline coarse:inline">Resolve</span>
+                  </button>
                 ) : null}
               </div>
               {c.kind === 'suggestion' ? renderSuggestion(c) : c.quote && (
@@ -432,16 +453,20 @@ export function CommentsTab({ docId }: { docId: string }) {
               <Reactions reactions={c.reactions} onToggle={mayComment ? (e) => void react(c.id, e) : undefined} />
 
               {thread.map((r) => (
-                <div key={r.id} className="group/reply mt-2.5 flex items-start gap-2 border-l-2 border-line pl-2.5">
-                  <Avatar name={r.author_name} size={18} />
+                // An indent, not a rule: the card already draws one edge, and a
+                // left border inside it made two.
+                <div key={r.id} className="group/reply mt-3 flex items-start gap-2 pl-3">
+                  <Avatar name={r.author_name} size={20} />
                   <div className="min-w-0 flex-1">
-                    <p className="flex items-center gap-1.5 text-2xs font-medium text-ink">
-                      <span className="truncate">{r.author_name}</span>
-                      {r.guest && <GuestChip />}
-                      <span className="shrink-0 font-normal text-faint">· {relativeTime(r.created_at)}</span>
+                    <div className="flex min-h-5 items-center gap-1.5">
+                      <span className="flex min-w-0 flex-1 items-center gap-1.5 text-xs">
+                        <span className="truncate font-medium text-ink">{r.author_name}</span>
+                        {r.guest && <GuestChip />}
+                        <span className="shrink-0 text-2xs text-faint">{relativeTime(r.created_at)}</span>
+                      </span>
                       {renderActions(r, 'group-hover/reply:opacity-100')}
-                    </p>
-                    {renderContent(r, 'text-sm text-ink')}
+                    </div>
+                    {renderContent(r, 'mt-0.5 text-sm leading-relaxed text-ink')}
                     <Reactions reactions={r.reactions} onToggle={mayComment ? (e) => void react(r.id, e) : undefined} />
                   </div>
                 </div>
@@ -451,7 +476,15 @@ export function CommentsTab({ docId }: { docId: string }) {
                 replyTo === c.id ? (
                   <>
                   {replyNote && <CommentFiles files={[replyNote]} onRemove={replyVoice.discard} />}
-                  <div className="mt-2.5 flex items-end gap-1.5 rounded-md bg-canvas ring-1 ring-inset ring-line focus-within:ring-2 focus-within:ring-accent">
+                  <div
+                    className="mt-2.5 flex items-end gap-1.5 rounded-md bg-canvas ring-1 ring-inset ring-line focus-within:ring-2 focus-within:ring-accent"
+                    // Walking away from an empty reply closes it, so its card
+                    // stops reading as the thread you are in.
+                    onBlur={(e) => {
+                      if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+                      if (!replyText.trim() && !replyNote && !replyVoice.busy && !busy) setReplyTo(null);
+                    }}
+                  >
                     <CommentBox
                       draftKey={`reply:${c.id}`}
                       value={replyText}
@@ -474,7 +507,7 @@ export function CommentsTab({ docId }: { docId: string }) {
                   <button
                     type="button"
                     onClick={() => { setReplyTo(c.id); setReplyText(savedDraft(`reply:${c.id}`)); replyVoice.discard(); }}
-                    className="mn-hit -ml-1.5 mt-1 flex h-6 items-center rounded-md px-1.5 text-2xs font-medium text-muted transition-colors duration-120 hover:bg-hover hover:text-ink"
+                    className="mn-hit -ml-1.5 mt-1.5 flex h-7 items-center rounded-md px-1.5 text-xs font-medium text-accent-strong transition-colors duration-120 hover:bg-hover active:bg-selected"
                   >
                     Reply
                   </button>
@@ -492,21 +525,25 @@ export function CommentsTab({ docId }: { docId: string }) {
               <div className="flex items-center gap-2">
                 <span className="min-w-0 flex-1 truncate text-2xs italic text-muted">“{anchor.quote}”</span>
                 {maySuggest && anchor.blockId && (
-                  <span className="flex shrink-0 rounded bg-canvas p-px text-2xs">
+                  <span className="flex shrink-0 gap-0.5 rounded-md bg-canvas p-0.5 ring-1 ring-inset ring-line">
                     {(['comment', 'suggest'] as const).map((m) => (
                       <button
                         key={m}
                         type="button"
+                        aria-pressed={(anchor.mode ?? 'comment') === m}
                         onClick={() => setPendingMode(m)}
-                        className={cn('rounded px-1.5 py-px', (anchor.mode ?? 'comment') === m ? 'bg-hover font-medium text-ink' : 'text-muted')}
+                        className={cn(
+                          'h-7 rounded px-2.5 text-xs font-medium transition-colors duration-120',
+                          (anchor.mode ?? 'comment') === m ? 'bg-selected text-ink' : 'text-muted hover:bg-hover hover:text-ink',
+                        )}
                       >
                         {m === 'comment' ? 'Comment' : 'Suggest'}
                       </button>
                     ))}
                   </span>
                 )}
-                <button type="button" onClick={clearPendingAnchor} aria-label="Remove quote" className="shrink-0 text-faint hover:text-ink">
-                  <X size={12} />
+                <button type="button" onClick={clearPendingAnchor} aria-label="Remove quote" className="mn-hit flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-faint transition-colors duration-120 hover:bg-hover hover:text-ink">
+                  <X size={14} />
                 </button>
               </div>
             </div>
@@ -535,7 +572,7 @@ export function CommentsTab({ docId }: { docId: string }) {
               onChange={setDraft}
               onEnter={() => { void add(); }}
               people={members}
-              placeholder={suggesting ? 'Why? (optional)' : anchor ? 'Comment on selection…' : 'Add a comment…  @ to mention'}
+              placeholder={suggesting ? 'Why? (optional)' : anchor ? 'Comment on selection…' : 'Add a comment…'}
               className="px-3 py-2"
             />
             {!suggesting && <VoiceNoteButton onRecorded={voice.set} onBusyChange={voice.setBusy} onError={toast} disabled={!!busy} />}
@@ -543,6 +580,8 @@ export function CommentsTab({ docId }: { docId: string }) {
               icon={busy === 'add' ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
               label={suggesting ? 'Suggest' : 'Send'}
               onClick={() => void add()}
+              // Nothing to send yet; a suggestion's reason is optional.
+              disabled={!suggesting && !draft.trim() && !note}
               className="mb-0.5 mr-0.5"
             />
           </div>

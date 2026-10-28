@@ -67,7 +67,7 @@ export function MonthGrid({ cells, month, events, zone, today, onOpen, onCreate,
                 aria-current={d === today ? 'date' : undefined}
                 className={cn(
                   'mb-0.5 flex h-6 min-w-6 items-center justify-center self-center rounded-full px-1 text-2xs font-semibold tabular-nums transition-colors duration-120',
-                  d === today ? 'bg-accent-fill text-white hover:brightness-95' : outside ? 'text-faint hover:bg-hover' : 'text-ink hover:bg-hover',
+                  d === today ? 'bg-accent-fill text-white hover:bg-accent-fill-hover active:bg-accent-fill-active' : outside ? 'text-faint hover:bg-hover' : 'text-ink hover:bg-hover',
                 )}
               >
                 {Number(d.slice(8))}

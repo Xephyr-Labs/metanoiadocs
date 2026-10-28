@@ -225,6 +225,7 @@ function buildPages(rows: DocRow[]): Record<PageId, Page> {
       shared: !!r.shared,
       favorite: !!r.favorite,
       pinned: !!r.pinned,
+      unseen: !!r.unseen,
       isTemplate: !!r.is_template,
       templateEverywhere: !!r.template_everywhere,
       role: r.role,
@@ -669,8 +670,17 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   // Record arrival, not the click: cold loads, shared links, back/forward and
   // new pages all land here. The server ignores tasks and trashed pages.
+  // Leaving counts as a look too: edits made while you had the page open are
+  // ones you saw, so it must not turn bold behind you.
   useEffect(() => {
-    if (view === 'doc' && currentId) docsApi.markOpened(currentId).catch(() => {});
+    if (view !== 'doc' || !currentId) return;
+    const id = currentId;
+    const seen = () => {
+      docsApi.markOpened(id).catch(() => {});
+      setPages((p) => (p[id]?.unseen ? { ...p, [id]: { ...p[id], unseen: false } } : p));
+    };
+    seen();
+    return seen;
   }, [view, currentId]);
 
   const toggleExpand = useCallback((id: PageId) => {

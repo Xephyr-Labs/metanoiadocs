@@ -74,7 +74,7 @@ function NewProperty({ pageId, onDone }: { pageId: string; onDone: () => void })
         type="button"
         onClick={create}
         disabled={!label.trim() || busy}
-        className="h-7 rounded-md bg-accent-fill px-2.5 text-xs font-medium text-white disabled:opacity-50"
+        className="h-7 rounded-md bg-accent-fill px-2.5 text-xs font-medium text-white transition-colors duration-120 hover:bg-accent-fill-hover active:bg-accent-fill-active disabled:opacity-50"
       >
         Add
       </button>

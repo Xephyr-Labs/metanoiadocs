@@ -181,7 +181,7 @@ export function QuickCapture() {
           onClick={() => void save(false)}
           className={cn(
             'h-7 rounded-md px-3 text-xs font-medium transition-colors',
-            'bg-accent-fill text-white hover:opacity-90',
+            'bg-accent-fill text-white hover:bg-accent-fill-hover active:bg-accent-fill-active',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
             'disabled:pointer-events-none disabled:opacity-40',
           )}
