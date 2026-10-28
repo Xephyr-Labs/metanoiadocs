@@ -23,7 +23,8 @@ function fmt(zone: string) {
   }
   return f;
 }
-function wall(ms: number, zone: string) {
+/** The day and minute-of-day an instant shows on a clock in `zone`. */
+export function wall(ms: number, zone: string) {
   const p = Object.fromEntries(fmt(zone).formatToParts(ms).map((x) => [x.type, x.value]));
   return { day: `${p.year}-${p.month}-${p.day}`, minutes: (Number(p.hour) % 24) * 60 + Number(p.minute) };
 }
@@ -41,6 +42,13 @@ export function startOfDay(day: string, zone: string): number {
   // Where midnight never happens (a spring-forward at 00:00), that lands an hour early, on the
   // day before: move on by the jump to the first instant the day has.
   return dayIn(r, zone) < day ? r + offset(r + 6 * 3600_000) - offset(r) : r;
+}
+
+/** The instant a clock in `zone` reads `minutes` past midnight on `day` (a wall time a DST jump skips lands near it). */
+export function wallInstant(day: string, minutes: number, zone: string): number {
+  const guess = toUTC(day) + minutes * 60_000;
+  const offset = (ms: number) => { const w = wall(ms, zone); return toUTC(w.day) + w.minutes * 60_000 - Math.floor(ms / 60_000) * 60_000; };
+  return guess - offset(guess - offset(guess));
 }
 
 const weekStart = (day: string, weekStartsOn: number) =>

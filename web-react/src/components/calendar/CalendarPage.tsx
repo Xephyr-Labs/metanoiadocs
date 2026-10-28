@@ -7,7 +7,7 @@ import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { calendarApi, wantSettingsSection, type CalendarStatus } from '../../lib/calendar';
 import { calendarPageView, fetchEventsRange, type CalendarEvent, type CalendarEvents } from '../../lib/calendarEvents';
 import { dayIn, daysIn, monthCells, rangeFor, type CalendarView } from '../../lib/calendarLayout';
-import { docsApi } from '../../lib/docsApi';
+import { docsApi, type UserRow } from '../../lib/docsApi';
 import { addDays } from '../../lib/gantt';
 import { useAuth } from '../../store/auth';
 import { useWorkspace } from '../../store/workspace';
@@ -17,6 +17,7 @@ import { SegmentedControl } from '../ui/SegmentedControl';
 import { Tooltip } from '../ui/Tooltip';
 import { CalendarGrid, type Slot } from './CalendarGrid';
 import { EventCard } from './EventCard';
+import { MeetingDialog } from './MeetingDialog';
 import { MonthGrid } from './MonthGrid';
 
 const VIEWS = [
@@ -66,7 +67,9 @@ export function CalendarPage() {
   const [status, setStatus] = useState<CalendarStatus | null | 'failed'>(null);
   const [data, setData] = useState<CalendarEvents | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
-  const [names, setNames] = useState<Map<string, string>>(new Map());
+  const [users, setUsers] = useState<UserRow[]>([]);
+  const names = useMemo(() => new Map(users.map((r) => [r.id, r.name || r.username])), [users]);
+  const [editor, setEditor] = useState<EditorTarget | null>(null);
   const seq = useRef(0);
 
   useEffect(() => {
@@ -74,7 +77,7 @@ export function CalendarPage() {
     return () => clearInterval(t);
   }, []);
   useEffect(() => {
-    docsApi.users().then((u) => setNames(new Map(u.map((r) => [r.id, r.name || r.username])))).catch(() => {});
+    docsApi.users().then(setUsers).catch(() => {});
   }, []);
 
   const { from, to } = rangeFor(view, anchor);
@@ -90,8 +93,8 @@ export function CalendarPage() {
   }, [from, to]);
   useEffect(() => { setData(null); void load(); }, [load]);
 
-  // Where Edit, New meeting and a click on an empty slot lead: the meeting editor plugs in here.
-  const openEditor = useCallback((target: EditorTarget) => { void target; }, []);
+  // Edit, New meeting and a click or drag on an empty slot all open the meeting editor; Edit swaps the card for it.
+  const openEditor = useCallback((target: EditorTarget) => { setOpenId(null); setEditor(target); }, []);
 
   const events = data?.events ?? [];
   const open = useMemo(() => events.find((e) => e.id === openId) ?? null, [events, openId]);
@@ -213,6 +216,7 @@ export function CalendarPage() {
         onChanged={load}
         onEdit={(event) => openEditor({ event })}
       />
+      <MeetingDialog target={editor} zone={zone} users={users} meId={auth.user?.id} onClose={() => setEditor(null)} onSaved={load} />
     </div>
   );
 }

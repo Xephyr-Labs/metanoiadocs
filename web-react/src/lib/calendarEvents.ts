@@ -1,4 +1,6 @@
 import type { CalendarStatus } from './calendar';
+import { wall, wallInstant } from './calendarLayout';
+import { addDays, daysBetween } from './gantt';
 
 export type CalendarResponse = 'accepted' | 'tentative' | 'declined' | 'needsAction';
 export interface CalendarAttendee { email: string; name: string; userId: string | null; self: boolean; response: CalendarResponse | null }
@@ -136,4 +138,100 @@ export const respondToMeeting = (id: string, response: 'accepted' | 'tentative' 
 export function linkParts(text: string): { text: string; href?: string }[] {
   return text.split(/(https?:\/\/[^\s<>"]*[^\s<>".,;:!?)\]'])/i).filter(Boolean)
     .map((t) => (/^https?:\/\//i.test(t) ? { text: t, href: t } : { text: t }));
+}
+
+/** What the meeting dialog holds. Times are wall clock in the person's profile zone. */
+export interface MeetingForm {
+  title: string; allDay: boolean;
+  /** The day it starts; `endDate` (all-day only) is the last day, inclusive. */
+  date: string; endDate: string;
+  /** 'HH:MM'; an end of '00:00' is midnight at the end of `date`. */
+  start: string; end: string;
+  /** Guests other than you, by email: teammates picked and addresses typed alike. */
+  attendees: string[]; description: string; meet: boolean;
+}
+export type MeetingErrors = Partial<Record<'title' | 'date' | 'end' | 'attendees' | 'description', string>>;
+
+// The server's rule, so a bad address is caught at the chip, not after a round trip.
+const EMAIL_RE = /^[^\s@<>()[\]\\,;:"]+@[^\s@<>()[\]\\,;:".]+(\.[^\s@<>()[\]\\,;:".]+)+$/;
+export const isEmail = (s: string): boolean => s.length <= 254 && EMAIL_RE.test(s.trim().toLowerCase());
+
+const hhmm = (min: number) => `${String(Math.floor(min / 60) % 24).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
+const minutesOf = (t: string) => (/^\d{2}:\d{2}$/.test(t) ? Number(t.slice(0, 2)) * 60 + Number(t.slice(3)) : NaN);
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** A new meeting: at the slot clicked or dragged (30 minutes by default), or the next half hour. */
+export function newMeetingForm(slot: { day: string; minutes: number | null; endMinutes?: number } | null, zone: string, now = Date.now()): MeetingForm {
+  const w = wall(now, zone);
+  const day = slot?.day ?? w.day;
+  const at = slot ? slot.minutes : Math.min(23 * 60 + 30, Math.ceil((w.minutes + 1) / 30) * 30);
+  const start = at ?? 9 * 60;
+  return {
+    title: '', allDay: at === null, date: day, endDate: day, start: hhmm(start), end: hhmm(slot?.endMinutes ?? start + 30),
+    attendees: [], description: '', meet: false,
+  };
+}
+
+/** An existing meeting as the dialog opens on it. */
+export function meetingForm(e: CalendarEvent, zone: string): MeetingForm {
+  const at = (s: string | null) => wall(s ? Date.parse(s) : 0, zone);
+  const day = e.allDay ? (e.start ?? '').slice(0, 10) : at(e.start).day;
+  return {
+    title: e.title, allDay: e.allDay, date: day,
+    endDate: e.allDay && e.end ? addDays(e.end.slice(0, 10), -1) : day,
+    start: e.allDay ? '09:00' : hhmm(at(e.start).minutes), end: e.allDay ? '09:30' : hhmm(at(e.end).minutes),
+    attendees: e.attendees.filter((a) => !a.self && a.email).map((a) => a.email.toLowerCase()),
+    description: e.description, meet: !!e.meetLink,
+  };
+}
+
+const sameTimes = (a: MeetingForm, b: MeetingForm) => a.allDay === b.allDay && a.date === b.date
+  && (a.allDay ? a.endDate === b.endDate : a.start === b.start && a.end === b.end);
+
+/**
+ * The form → what the create (no `original`) or edit route takes, or the errors to show by field.
+ * An edit sends only what changed: an untouched description is left out so Google's formatting
+ * survives, and start, end and allDay go together or not at all.
+ */
+export function meetingRequest(f: MeetingForm, zone: string, original?: CalendarEvent):
+  { body: Partial<MeetingBody> } | { errors: MeetingErrors } {
+  const errors: MeetingErrors = {};
+  const was = original && meetingForm(original, zone);
+  const body: Partial<MeetingBody> = {};
+
+  const title = f.title.trim();
+  if (!title) errors.title = 'Give the meeting a title.';
+  else if (title.length > 200) errors.title = 'Keep the title under 200 characters.';
+  else if (title !== was?.title) body.title = title;
+
+  if (!was || !sameTimes(f, was)) {
+    if (!DATE.test(f.date)) errors.date = 'Pick a date.';
+    else if (f.allDay) {
+      const days = DATE.test(f.endDate) ? daysBetween(f.date, f.endDate) + 1 : NaN;
+      if (!(days > 0)) errors.end = 'The end must be after the start.';
+      else if (days > 14) errors.end = 'A meeting can last at most 14 days.';
+      else Object.assign(body, { allDay: true, start: f.date, end: addDays(f.endDate, 1) });
+    } else {
+      const s = minutesOf(f.start);
+      const e = minutesOf(f.end) || (f.end === '00:00' ? 24 * 60 : NaN);
+      if (Number.isNaN(s) || Number.isNaN(e) || e <= s) errors.end = 'The end must be after the start.';
+      else {
+        const iso = (m: number) => new Date(wallInstant(f.date, m, zone)).toISOString();
+        Object.assign(body, { allDay: false, start: iso(s), end: iso(e) });
+      }
+    }
+  }
+
+  const list = [...new Set(f.attendees.map((a) => a.trim().toLowerCase()).filter(Boolean))];
+  const bad = list.find((a) => !isEmail(a));
+  if (bad) errors.attendees = `Not an email address: ${bad}`;
+  else if (list.length > 50) errors.attendees = 'At most 50 guests.';
+  else if (!was || list.length !== was.attendees.length || list.some((a) => !was.attendees.includes(a))) body.attendees = list;
+
+  if (f.description.length > 5000) errors.description = 'Keep the description under 5000 characters.';
+  else if (was ? f.description !== was.description : f.description.trim()) body.description = f.description;
+
+  if (was ? f.meet !== was.meet : f.meet) body.meet = f.meet;
+
+  return Object.keys(errors).length ? { errors } : { body };
 }

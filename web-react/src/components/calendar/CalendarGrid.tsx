@@ -1,15 +1,15 @@
 /* Hallmark · redesign inside Workbench (app chrome) · project tokens preserved
  * states: event button default · hover · focus-visible · active · declined (disabled-look, still opens) · loading (page) · error (page) */
-import { useLayoutEffect, useRef, type MouseEvent } from 'react';
+import { useLayoutEffect, useRef, useState, type PointerEvent } from 'react';
 import { meetingTime, type CalendarEvent } from '../../lib/calendarEvents';
 import { allDayLanes, nowLineTop, positionTimed } from '../../lib/calendarLayout';
 import { cn } from '../../lib/cn';
 
-/** Where a new meeting was asked for: a day, and the minute it starts (null = all day). */
-export interface Slot { day: string; minutes: number | null }
+/** Where a new meeting was asked for: a day, the minute it starts (null = all day) and, from a drag, the minute it ends. */
+export interface Slot { day: string; minutes: number | null; endMinutes?: number }
 
 const HOUR = 48; // px per hour
-const SNAP = 30; // minutes a click rounds down to
+const SNAP = 30; // minutes a click or a drag rounds to
 const MIN_H = 20; // shortest drawn block, px — a 10-minute meeting still needs a line of text
 
 /**
@@ -22,6 +22,8 @@ const indent = (col: number, cols: number) => (col ? `min(${(col / cols) * 100}%
 
 const utc = (day: string) => new Date(`${day}T00:00:00Z`);
 const weekday = new Intl.DateTimeFormat(undefined, { weekday: 'short', timeZone: 'UTC' });
+const timeLabel = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit', timeZone: 'UTC' });
+const hhmm = (min: number) => timeLabel.format(Date.UTC(2000, 0, 1, 0, min));
 const hourLabel = new Intl.DateTimeFormat(undefined, { hour: 'numeric', timeZone: 'UTC' });
 
 /** How an answer reads on a block: confirmed is filled, unanswered is outlined, declined is struck. */
@@ -59,11 +61,32 @@ export function CalendarGrid({ days, events, zone, today, now, onOpen, onCreate 
     el.scrollTop = (at / 60) * HOUR;
   }, [key]); // only when the visible days change, not every minute the now-line moves
 
-  const slotAt = (day: string) => (ev: MouseEvent<HTMLDivElement>) => {
-    if (!onCreate || ev.target !== ev.currentTarget) return; // a click on a meeting opens it instead
+  // Press on an empty slot and drag to size a meeting; a click is half an hour. A touch that
+  // turns into a scroll is cancelled by the browser, so the grid still scrolls on a phone.
+  const [drag, setDrag] = useState<{ day: string; from: number; to: number } | null>(null);
+  const snapAt = (ev: PointerEvent<HTMLDivElement>) => {
     const y = ev.clientY - ev.currentTarget.getBoundingClientRect().top;
-    const minutes = Math.min(24 * 60 - SNAP, Math.max(0, Math.floor((y / HOUR) * 60 / SNAP) * SNAP));
-    onCreate({ day, minutes });
+    return Math.min(24 * 60 - SNAP, Math.max(0, Math.floor((y / HOUR) * 60 / SNAP) * SNAP));
+  };
+  const span = (d: { from: number; to: number }) => ({ start: Math.min(d.from, d.to), end: Math.max(d.from, d.to) + SNAP });
+  const slotHandlers = (day: string) => onCreate && {
+    onPointerDown: (ev: PointerEvent<HTMLDivElement>) => {
+      if (ev.button !== 0 || ev.target !== ev.currentTarget) return; // a press on a meeting opens it instead
+      const m = snapAt(ev);
+      // Mouse and pen only: a captured touch would stop the grid scrolling under the finger.
+      if (ev.pointerType !== 'touch') ev.currentTarget.setPointerCapture(ev.pointerId);
+      setDrag({ day, from: m, to: m });
+    },
+    onPointerMove: (ev: PointerEvent<HTMLDivElement>) => {
+      if (drag?.day === day) { const m = snapAt(ev); if (m !== drag.to) setDrag({ ...drag, to: m }); }
+    },
+    onPointerUp: () => {
+      if (drag?.day !== day) return;
+      const { start, end } = span(drag);
+      setDrag(null);
+      onCreate({ day, minutes: start, endMinutes: end });
+    },
+    onPointerCancel: () => setDrag(null),
   };
 
   return (
@@ -141,8 +164,8 @@ export function CalendarGrid({ days, events, zone, today, now, onOpen, onCreate 
           return (
             <div
               key={d}
-              onClick={slotAt(d)}
-              className={cn('relative min-w-0 border-l border-line', isToday && 'bg-surface-2', onCreate && 'cursor-cell')}
+              {...slotHandlers(d)}
+              className={cn('relative min-w-0 border-l border-line', isToday && 'bg-surface-2', onCreate && 'cursor-cell select-none')}
               style={{ backgroundImage: `repeating-linear-gradient(to bottom, transparent 0 ${HOUR - 1}px, var(--line) ${HOUR - 1}px ${HOUR}px)` }}
             >
               {positionTimed(events, d, zone).map((p) => {
@@ -172,6 +195,18 @@ export function CalendarGrid({ days, events, zone, today, now, onOpen, onCreate 
                   </button>
                 );
               })}
+              {drag?.day === d && (() => {
+                const { start, end } = span(drag);
+                return (
+                  <div
+                    aria-hidden
+                    className="pointer-events-none absolute inset-x-0.5 z-20 rounded bg-accent-soft px-1.5 py-1 text-3xs font-medium text-accent-strong ring-1 ring-inset ring-accent"
+                    style={{ top: (start / 60) * HOUR, height: ((end - start) / 60) * HOUR - 1 }}
+                  >
+                    {hhmm(start)} – {hhmm(end)}
+                  </div>
+                );
+              })()}
               {isToday && (
                 <div className="pointer-events-none absolute inset-x-0 z-30" style={{ top: (nowTop / 60) * HOUR }} aria-hidden>
                   <div className="absolute -left-1 -top-[5px] h-2.5 w-2.5 rounded-full bg-danger" />

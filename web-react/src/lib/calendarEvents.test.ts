@@ -173,3 +173,84 @@ describe('calendarPageView', () => {
     expect(calendarPageView(st, { error: true, events: [] })).toBe('error');
   });
 });
+
+import { meetingForm, meetingRequest, type MeetingForm } from './calendarEvents';
+
+describe('meetingRequest', () => {
+  const base: MeetingForm = {
+    title: ' Planning ', allDay: false, date: '2026-11-02', endDate: '2026-11-02', start: '10:00', end: '10:30',
+    attendees: [], description: '', meet: false,
+  };
+  const zone = 'America/New_York'; // not the test runner's zone
+
+  it('timed: instants for the profile zone, across a DST change', () => {
+    // Nov 2 2026 is after the US fall-back (Nov 1): New York is UTC-5.
+    expect(meetingRequest(base, zone)).toEqual({ body: {
+      title: 'Planning', allDay: false, start: '2026-11-02T15:00:00.000Z', end: '2026-11-02T15:30:00.000Z', attendees: [],
+    } });
+    // Oct 30 is still UTC-4.
+    const r = meetingRequest({ ...base, date: '2026-10-30' }, zone);
+    expect('body' in r && r.body.start).toBe('2026-10-30T14:00:00.000Z');
+    // Dhaka, no DST, UTC+6.
+    const d = meetingRequest(base, 'Asia/Dhaka');
+    expect('body' in d && d.body.start).toBe('2026-11-02T04:00:00.000Z');
+  });
+  it('an end of 00:00 is midnight at the end of the day', () => {
+    const r = meetingRequest({ ...base, start: '23:00', end: '00:00' }, zone);
+    expect('body' in r && r.body.end).toBe('2026-11-03T05:00:00.000Z');
+  });
+  it('all day: dates with an exclusive end', () => {
+    expect(meetingRequest({ ...base, allDay: true }, zone)).toMatchObject({ body: { allDay: true, start: '2026-11-02', end: '2026-11-03' } });
+    expect(meetingRequest({ ...base, allDay: true, endDate: '2026-11-04' }, zone)).toMatchObject({ body: { start: '2026-11-02', end: '2026-11-05' } });
+  });
+  it('attendees lower-cased and deduped; description and Meet only when given', () => {
+    const r = meetingRequest({ ...base, attendees: ['Ann@X.io', ' ann@x.io', 'bo@y.org'], description: 'Agenda', meet: true }, zone);
+    expect(r).toMatchObject({ body: { attendees: ['ann@x.io', 'bo@y.org'], description: 'Agenda', meet: true } });
+  });
+  it('field errors', () => {
+    expect(meetingRequest({ ...base, title: '  ' }, zone)).toEqual({ errors: { title: 'Give the meeting a title.' } });
+    expect(meetingRequest({ ...base, end: '10:00' }, zone)).toEqual({ errors: { end: 'The end must be after the start.' } });
+    expect(meetingRequest({ ...base, end: '09:00' }, zone)).toHaveProperty('errors.end');
+    expect(meetingRequest({ ...base, allDay: true, endDate: '2026-11-01' }, zone)).toHaveProperty('errors.end');
+    expect(meetingRequest({ ...base, allDay: true, endDate: '2026-11-20' }, zone)).toEqual({ errors: { end: 'A meeting can last at most 14 days.' } });
+    expect(meetingRequest({ ...base, attendees: ['ok@x.io', 'nope'] }, zone)).toEqual({ errors: { attendees: 'Not an email address: nope' } });
+    expect(meetingRequest({ ...base, date: '' }, zone)).toHaveProperty('errors.date');
+  });
+
+  describe('edit', () => {
+    const original = ev({
+      id: 'e1', title: 'Planning', start: '2026-11-02T15:00:00Z', end: '2026-11-02T15:30:00Z', organizerSelf: true,
+      description: 'Line one\nLine two', meetLink: 'https://meet.google.com/abc',
+      attendees: [
+        { email: 'me@x.io', name: 'Me', userId: 'u0', self: true, response: 'accepted' },
+        { email: 'ann@x.io', name: 'Ann', userId: 'u1', self: false, response: 'accepted' },
+        { email: 'room-1@resource.calendar.google.com', name: 'Room 1', userId: null, self: false, response: 'accepted' },
+      ],
+    });
+    it('the form an event opens with: your zone, guests other than you, Meet on', () => {
+      expect(meetingForm(original, zone)).toEqual({
+        title: 'Planning', allDay: false, date: '2026-11-02', endDate: '2026-11-02', start: '10:00', end: '10:30',
+        attendees: ['ann@x.io', 'room-1@resource.calendar.google.com'], description: 'Line one\nLine two', meet: true,
+      });
+      const allDay = ev({ allDay: true, start: '2026-11-02', end: '2026-11-04' });
+      expect(meetingForm(allDay, zone)).toMatchObject({ allDay: true, date: '2026-11-02', endDate: '2026-11-03' });
+    });
+    it('sends only what changed; untouched description and times are left out', () => {
+      const f = meetingForm(original, zone);
+      expect(meetingRequest(f, zone, original)).toEqual({ body: {} });
+      expect(meetingRequest({ ...f, title: 'Planning v2' }, zone, original)).toEqual({ body: { title: 'Planning v2' } });
+      expect(meetingRequest({ ...f, end: '11:00' }, zone, original)).toEqual({ body: {
+        allDay: false, start: '2026-11-02T15:00:00.000Z', end: '2026-11-02T16:00:00.000Z',
+      } });
+      expect(meetingRequest({ ...f, attendees: [...f.attendees, 'bo@y.org'] }, zone, original)).toEqual({ body: {
+        attendees: ['ann@x.io', 'room-1@resource.calendar.google.com', 'bo@y.org'],
+      } });
+      expect(meetingRequest({ ...f, meet: false }, zone, original)).toEqual({ body: { meet: false } });
+      expect(meetingRequest({ ...f, description: '' }, zone, original)).toEqual({ body: { description: '' } });
+    });
+    it('a meeting that crosses midnight keeps its times when only the title changes', () => {
+      const late = ev({ title: 'Late', start: '2026-11-02T03:00:00Z', end: '2026-11-02T06:00:00Z' }); // 22:00 → 01:00 New York
+      expect(meetingRequest({ ...meetingForm(late, zone), title: 'Later' }, zone, late)).toEqual({ body: { title: 'Later' } });
+    });
+  });
+});

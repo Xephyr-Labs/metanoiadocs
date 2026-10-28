@@ -1,6 +1,13 @@
 [
   {
     "date": "2026-10-29",
+    "macrostructure": "Workbench (app chrome — Calendar page: meeting dialog for create and edit)",
+    "theme": "project tokens (preserved; Onest via --font-display) · the meeting form is the app's dialog (a bottom sheet on a phone) in the field language the rest of the app uses: Title, an All day switch, Date with Start/End (or Starts/Ends dates), Guests as one chip field — teammates found by name or email, any address typed becomes a chip, rooms and outside guests stay as they came — a plain Description and an Add Google Meet switch; errors sit under the field that caused them with a danger ring; Save reads 'Send invites' when there are guests, toasts 'Invites sent' / 'Meeting updated', and a missing write grant swaps the footer for the Reconnect line; on the grid, press and drag an empty slot to size a meeting (30-minute snap, a click is half an hour) with an accent ghost block showing the range",
+    "enrichment": "none — typography only",
+    "brief": "metanoiadocs · people still went to Google Calendar to book a meeting or move one; the Calendar page could only show and answer them"
+  },
+  {
+    "date": "2026-10-29",
     "macrostructure": "Workbench (app chrome — Calendar page: toolbar + hour grid / month grid + meeting card)",
     "theme": "project tokens (preserved; Onest via --font-display) · a Calendar page in the app's own voice: one toolbar (Today, ‹ ›, the range as the page title, Day/Week/Month, New meeting), an hour rail with today's column on surface-2 and a danger-red now-line, the weekday row and all-day bars pinned inside the scroller so columns line up; overlapping meetings cascade (each later one indented a step and on top, the covered one rising on hover); the toolbar wraps instead of clipping when the column is narrow, and a narrow column opens on Day; meetings read by your answer — accepted filled accent-soft, unanswered outlined, declined struck through on surface; the meeting card is the app's dialog (a bottom sheet on a phone) with Join, guests and their answers, notes, Accept/Maybe/Decline and the organiser's Edit/Cancel",
     "enrichment": "none — typography only",
