@@ -88,7 +88,11 @@ function eventBody(b, zone, { partial, existing, uuid = randomUUID } = {}) {
   if (b.meet === true && !existing?.conferenceData) {
     out.conferenceData = { createRequest: { requestId: uuid(), conferenceSolutionKey: { type: 'hangoutsMeet' } } };
   }
-  if (!Object.keys(out).length) return { error: 'Nothing to change.' };
+  // null clears the conference; only meaningful on an edit of an event that has one.
+  if (b.meet === false && existing?.conferenceData) out.conferenceData = null;
+  // Before the fetch (no `existing`) a meet flag may still turn out to be a change.
+  const meetPending = partial && !existing && typeof b.meet === 'boolean';
+  if (!Object.keys(out).length && !meetPending) return { error: 'Nothing to change.' };
   return { body: out };
 }
 
@@ -133,7 +137,7 @@ export function registerCalendarWriteRoutes(app, {
     if (!(await calendarReady())) return notFound(res);
     const v = eventBody(req.body, zoneOf(req.user), { uuid });
     if (v.error) return res.status(400).json({ error: v.error });
-    const q = v.body.conferenceData ? 'sendUpdates=all&conferenceDataVersion=1' : 'sendUpdates=all';
+    const q = 'conferenceData' in v.body ? 'sendUpdates=all&conferenceDataVersion=1' : 'sendUpdates=all';
     return send(res, req.user.id, 'POST', `${EVENTS}?${q}`, v.body, async (r) => res.status(201).json(await idOf(r)));
   }));
 
@@ -146,7 +150,7 @@ export function registerCalendarWriteRoutes(app, {
     if (!ev) return;
     const v = eventBody(req.body, zoneOf(req.user), { partial: true, existing: ev.event, uuid });
     if (v.error) return res.status(400).json({ error: v.error });
-    const path = v.body.conferenceData ? `${ev.path}&conferenceDataVersion=1` : ev.path;
+    const path = 'conferenceData' in v.body ? `${ev.path}&conferenceDataVersion=1` : ev.path;
     return send(res, req.user.id, 'PATCH', path, v.body, async (r) => res.json(await idOf(r)));
   }));
 
@@ -162,9 +166,10 @@ export function registerCalendarWriteRoutes(app, {
     if (!RESPONSES.includes(response)) return res.status(400).json({ error: 'Response must be accepted, tentative or declined.' });
     const ev = await load(req, res);
     if (!ev) return;
-    const attendees = Array.isArray(ev.event.attendees) ? ev.event.attendees : [];
-    if (!attendees.some((a) => a?.self)) return res.status(409).json({ error: "You're not invited to this one" });
-    const next = attendees.map((a) => (a?.self ? { ...a, responseStatus: response } : a));
-    return send(res, req.user.id, 'PATCH', ev.path, { attendees: next }, async (r) => res.json(await idOf(r)));
+    const me = (Array.isArray(ev.event.attendees) ? ev.event.attendees : []).find((a) => a?.self);
+    if (!me?.email) return res.status(409).json({ error: "You're not invited to this one" });
+    // Only your own entry: attendeesOmitted keeps a guest added meanwhile from being dropped.
+    const body = { attendeesOmitted: true, attendees: [{ email: me.email, responseStatus: response }] };
+    return send(res, req.user.id, 'PATCH', ev.path, body, async (r) => res.json(await idOf(r)));
   }));
 }

@@ -178,6 +178,18 @@ test('edit: attendee list keeps existing answers and your own entry; times switc
   assert.equal((await withMeet.call('PATCH /api/calendar/events/:id', { id: 'abc', body: { meet: true } })).status, 400);
   await withMeet.call('PATCH /api/calendar/events/:id', { id: 'abc', body: { attendees: ['a@x.com'] } });
   assert.deepEqual(withMeet.sent[0].body.attendees, [{ email: 'a@x.com' }]);
+  // meet: false removes an existing Meet; absent leaves it alone; false with none is nothing to change.
+  const r = await withMeet.call('PATCH /api/calendar/events/:id', { id: 'abc', body: { meet: false } });
+  assert.equal(r.status, 200);
+  assert.equal(withMeet.sent[1].path, `${P}/abc?sendUpdates=all&conferenceDataVersion=1`);
+  assert.deepEqual(withMeet.sent[1].body, { conferenceData: null });
+  assert.ok(!('conferenceData' in withMeet.sent[0].body));
+  assert.equal(withMeet.sent[0].path, `${P}/abc?sendUpdates=all`);
+  assert.equal((await h.call('PATCH /api/calendar/events/:id', { id: 'abc', body: { meet: false } })).status, 400);
+  // meet: false on create is simply no Meet.
+  await h.call('POST /api/calendar/events', { body: { ...timed, meet: false } });
+  assert.ok(!('conferenceData' in h.sent.at(-1).body));
+  assert.equal(h.sent.at(-1).path, `${P}?sendUpdates=all`);
 });
 
 test('edit: bad input → 400 (one time without the other, empty body, bad title)', async () => {
@@ -222,7 +234,7 @@ test('cancel: organiser → events.delete with sendUpdates=all → 204', async (
 
 // ── respond ───────────────────────────────────────────────────────────────
 
-test('respond: changes only your answer, leaves others untouched, on an instance id', async () => {
+test('respond: sends only your answer (attendeesOmitted), on an instance id', async () => {
   const invite = {
     id: 'abc_20261102T150000Z', organizer: { email: 'boss@x.com' },
     attendees: [
@@ -236,7 +248,8 @@ test('respond: changes only your answer, leaves others untouched, on an instance
   assert.equal(r.status, 200);
   assert.equal(h.sent[0].method, 'PATCH');
   assert.equal(h.sent[0].path, `${P}/abc_20261102T150000Z?sendUpdates=all`);
-  assert.deepEqual(h.sent[0].body, { attendees: [invite.attendees[0], { ...invite.attendees[1], responseStatus: 'tentative' }, invite.attendees[2]] });
+  // Only your own entry, with patch semantics: a guest added meanwhile cannot be dropped.
+  assert.deepEqual(h.sent[0].body, { attendeesOmitted: true, attendees: [{ email: 'me@x.com', responseStatus: 'tentative' }] });
 });
 
 test('respond: bad answer → 400; not invited → 409; missing → 404; needsWrite → 409', async () => {
