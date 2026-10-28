@@ -56,8 +56,11 @@ import { Menu } from '../ui/Menu';
 import { useMoveToFolder } from '../../hooks/useMoveToFolder';
 import { useMoveToSpace } from '../../hooks/useMoveToSpace';
 import { copyLink } from '../../lib/clipboard';
-import { useReducer, useState } from 'react';
+import { useEffect, useReducer, useState } from 'react';
 import { MakeTasksDialog } from '../editor/MakeTasksDialog';
+import { SuggestTasksDialog } from '../editor/SuggestTasksDialog';
+import { askAiReady } from '../../lib/meetingTasks';
+import { docsApi } from '../../lib/docsApi';
 import * as prefs from '../../lib/docPrefs';
 import { ProjectIcon } from '../ui/ProjectIcon';
 import { SpaceAvatar } from '../spaces/SpaceAvatar';
@@ -200,6 +203,9 @@ export function TopBar() {
   // The bump is only to redraw after a write from here.
   const [, bump] = useReducer((n: number) => n + 1, 0);
   const [makeTasksOpen, setMakeTasksOpen] = useState(false);
+  const [suggestOpen, setSuggestOpen] = useState(false);
+  const [aiReady, setAiReady] = useState(false);
+  useEffect(() => { askAiReady(docsApi.aiConfig).then(setAiReady); }, []);
   const canEditPage = page?.role === 'owner' || page?.role === 'editor';
   const font = prefs.docFont();
   const small = prefs.smallText();
@@ -494,7 +500,10 @@ export function TopBar() {
               { icon: Link2, label: 'Copy link', onSelect: () => { copyLink(location.href); } },
               { icon: History, label: 'Version history', onSelect: () => ws.openHistory(page.id) },
               ...(canEditPage && page.kind !== 'design'
-                ? [{ icon: ListChecks, label: 'Make tasks from to-dos', onSelect: () => setMakeTasksOpen(true) }]
+                ? [
+                  { icon: ListChecks, label: 'Make tasks from to-dos', onSelect: () => setMakeTasksOpen(true) },
+                  ...(aiReady ? [{ icon: Sparkles, label: 'Suggest tasks (Ask AI)', onSelect: () => setSuggestOpen(true) }] : []),
+                ]
                 : []),
               { icon: ArrowUpRight, label: 'Open in new tab', onSelect: () => window.open(location.href, '_blank') },
               // How the page reads. A canvas has no measure and no body text, so
@@ -556,6 +565,7 @@ export function TopBar() {
             trigger={<span><IconButton icon={<MoreHorizontal size={16} />} label="More" /></span>}
           />
           <MakeTasksDialog docId={page.id} open={makeTasksOpen} onOpenChange={setMakeTasksOpen} />
+          <SuggestTasksDialog docId={page.id} open={suggestOpen} onOpenChange={setSuggestOpen} />
         </div>
       )}
     </header>

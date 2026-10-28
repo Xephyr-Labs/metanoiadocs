@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as Y from 'yjs';
 import { buildDocState } from './blocks.js';
-import { openTodos, parseTodo, registerMeetingTaskRoutes } from './meeting-tasks.js';
+import { openTodos, parseProposals, parseTodo, registerMeetingTaskRoutes } from './meeting-tasks.js';
 
 // 2026-10-30 is a Friday.
 const FRI = '2026-10-30';
@@ -83,10 +83,11 @@ const page = (md, resolve) => {
 const todoTexts = (doc) => [...doc.getMap('blocks').values()]
   .filter((b) => b.get('prop:type') === 'todo').map((b) => b.get('prop:text'));
 
-function harness({ doc, project = { mode: 'tasks', archived_at: null }, grant = 'owner', fail } = {}) {
+function harness({ doc, project = { mode: 'tasks', archived_at: null }, grant = 'owner', fail, ai } = {}) {
   const routes = {};
   const made = [];
   const pages = [];
+  const asked = [];
   let n = 0;
   const app = { post: (path, ...h) => { routes[path] = h[h.length - 1]; } };
   registerMeetingTaskRoutes(app, {
@@ -97,6 +98,10 @@ function harness({ doc, project = { mode: 'tasks', archived_at: null }, grant = 
       query: async (sql, args) => {
         if (/FROM docs/.test(sql)) return { rows: [{ '?column?': 1 }] };
         if (/FROM projects/.test(sql)) return { rows: project ? [project] : [] };
+        if (/FROM users/.test(sql) && /id = ANY/.test(sql)) {
+          return { rows: PEOPLE.filter((u) => args[0].includes(u.id)).map((u) => ({ id: u.id })) };
+        }
+        if (/FROM users/.test(sql) && !args) return { rows: PEOPLE };
         if (/FROM users/.test(sql)) {
           const all = [{ id: 'u-far', handle: 'farhanaj' }, { id: 'u-sa', handle: 'sajjad' }];
           return { rows: all.filter((u) => args[0].includes(u.handle)) };
@@ -115,18 +120,24 @@ function harness({ doc, project = { mode: 'tasks', archived_at: null }, grant = 
       return { task: { id: `t${++n}` } };
     },
     taskPage: async (taskId, userId, md) => { pages.push({ taskId, userId, md }); },
+    aiComplete: async (req) => { asked.push(req); return typeof ai === 'function' ? ai(req) : ai; },
   });
-  const call = async (body = { projectId: 'p1' }) => {
+  const call = async (body = { projectId: 'p1' }, path = '/api/docs/:id/make-tasks') => {
     let status = 200;
     let out;
-    await routes['/api/docs/:id/make-tasks'](
+    await routes[path](
       { params: { id: 'd1' }, user: { id: 'me', timezone: 'Asia/Dhaka' }, body },
       { status(s) { status = s; return this; }, json(v) { out = v; } },
     );
     return { status, out };
   };
-  return { call, made, pages };
+  return { call, made, pages, asked };
 }
+
+const PEOPLE = [
+  { id: 'u-far', username: 'farhanaj', name: 'Farhana J', email: 'far@x.com' },
+  { id: 'u-sa', username: 'Sajjad', name: 'Sajjad R', email: 'sa@x.com' },
+];
 
 const NOTES = [
   '## Action items',
@@ -227,4 +238,156 @@ test('make-tasks: needs edit access and a projectId', async () => {
 test('openTodos walks in page order, nested lines included', () => {
   const { todos } = openTodos(page('- [ ] a\n  - [ ] b\n- [ ] c'));
   assert.deepEqual(todos.map((t) => t.text), ['a', 'b', 'c']);
+});
+
+// ── Suggest tasks (Ask AI) ────────────────────────────────────────────────
+
+const MEMBERS = PEOPLE.map((u) => ({ username: u.username, email: u.email }));
+
+test('parseProposals: the first JSON array, fenced or after prose', () => {
+  const one = '[{"title":"Send deck","assignee":"farhanaj","dueAt":"2026-10-30","sourceText":"deck by fri"}]';
+  const want = [{ title: 'Send deck', assignee: 'farhanaj', dueAt: '2026-10-30', sourceText: 'deck by fri' }];
+  assert.deepEqual(parseProposals(one, MEMBERS), want);
+  assert.deepEqual(parseProposals('```json\n' + one + '\n```', MEMBERS), want);
+  assert.deepEqual(parseProposals('<think>is [x] a task?</think>Here you go: ' + one + ' done.', MEMBERS), want);
+  assert.deepEqual(parseProposals('no tasks here', MEMBERS), []);
+  assert.deepEqual(parseProposals('[]', MEMBERS), []);
+});
+
+test('parseProposals: validates and caps', () => {
+  const items = [
+    { title: '  ' }, { title: 'x'.repeat(300) }, { title: 'bad date', dueAt: '2026-02-31' },
+    { title: 'by email', assignee: 'SA@x.com' }, { title: 'stranger', assignee: 'ghost' },
+    { title: 'case', assignee: 'sajjad', dueAt: 'friday', sourceText: 42 }, 'junk', null,
+    ...Array.from({ length: 30 }, (_, i) => ({ title: `t${i}` })),
+  ];
+  const out = parseProposals(JSON.stringify(items), MEMBERS);
+  assert.equal(out.length, 20);
+  assert.equal(out[0].title.length, 200);
+  assert.deepEqual(out.slice(1, 5), [
+    { title: 'bad date', assignee: null, dueAt: null, sourceText: null },
+    { title: 'by email', assignee: 'Sajjad', dueAt: null, sourceText: null },
+    { title: 'stranger', assignee: null, dueAt: null, sourceText: null },
+    { title: 'case', assignee: 'Sajjad', dueAt: null, sourceText: null },
+  ]);
+});
+
+const SUGGEST = '/api/docs/:id/suggest-tasks';
+const FROM = '/api/docs/:id/tasks-from-proposals';
+
+test('suggest-tasks: asks the AI with the notes minus linked lines, creates nothing', async () => {
+  const doc = page('## Notes\nFarhana will send the deck by Friday.\n- [ ] already a task\n- [ ] check numbers');
+  const [linked] = todoTexts(doc);
+  linked.format(0, linked.length, { link: '/db/p1?task=t9' });
+  const reply = '[{"title":"Send the deck","assignee":"farhanaj","dueAt":"2026-10-30","sourceText":"Farhana will send the deck by Friday."}]';
+  const h = harness({ doc, ai: reply });
+  const { status, out } = await h.call({}, SUGGEST);
+  assert.equal(status, 200);
+  assert.deepEqual(out.proposals, [{ title: 'Send the deck', assignee: 'farhanaj', dueAt: '2026-10-30', sourceText: 'Farhana will send the deck by Friday.' }]);
+  const prompt = h.asked[0].messages.map((m) => m.content).join('\n');
+  assert.match(prompt, /check numbers/);
+  assert.match(prompt, /send the deck by Friday/);
+  assert.doesNotMatch(prompt.split('<notes>')[1], /already a task/);
+  assert.match(prompt, /farhanaj/);
+  assert.doesNotMatch(prompt, /far@x\.com|sa@x\.com/);
+  assert.match(prompt, /\d{4}-\d{2}-\d{2}/);
+  assert.equal(h.made.length, 0);
+  assert.equal(h.pages.length, 0);
+  assert.equal(linked.toDelta().length, 1);
+});
+
+test('suggest-tasks: the AI error status comes through (503 not configured, 504 timeout)', async () => {
+  for (const status of [503, 504]) {
+    const h = harness({ doc: page('x'), ai: () => { throw Object.assign(new Error('nope'), { status }); } });
+    const r = await h.call({}, SUGGEST);
+    assert.equal(r.status, status);
+    assert.ok(r.out.error);
+  }
+});
+
+test('suggest-tasks: needs edit access', async () => {
+  const h = harness({ doc: page('x'), grant: null, ai: '[]' });
+  assert.equal((await h.call({}, SUGGEST)).status, 403);
+  assert.equal(h.asked.length, 0);
+});
+
+const headings = (doc) => [...doc.getMap('blocks').values()]
+  .filter((b) => b.get('prop:text')?.toString() === 'Tasks from this meeting');
+
+test('tasks-from-proposals: creates exactly the given items and links them under one heading', async () => {
+  const doc = page('## Notes\nsome text');
+  const h = harness({ doc });
+  const items = [
+    { title: ' Send [the] deck ', assigneeIds: ['u-far'], dueAt: '2026-10-30' },
+    { title: 'Check numbers', assigneeIds: [], dueAt: null },
+  ];
+  const { status, out } = await h.call({ projectId: 'p1', items }, FROM);
+  assert.equal(status, 200);
+  assert.deepEqual(out, { created: [{ taskId: 't1', title: 'Send [the] deck' }, { taskId: 't2', title: 'Check numbers' }] });
+  assert.deepEqual(h.made.map((m) => m.body), [
+    { projectId: 'p1', title: 'Send [the] deck', assigneeIds: ['u-far'], dueAt: '2026-10-30' },
+    { projectId: 'p1', title: 'Check numbers', assigneeIds: [], dueAt: null },
+  ]);
+  assert.deepEqual(h.pages.map((p) => p.md), ['From meeting notes: [[d1]]', 'From meeting notes: [[d1]]']);
+  assert.equal(headings(doc).length, 1);
+  const links = [...doc.getMap('blocks').values()]
+    .filter((b) => b.get('sys:flavour') === 'affine:list')
+    .map((b) => b.get('prop:text').toDelta());
+  assert.deepEqual(links, [
+    [{ insert: 'Send [the] deck', attributes: { link: '/db/p1?task=t1' } }],
+    [{ insert: 'Check numbers', attributes: { link: '/db/p1?task=t2' } }],
+  ]);
+
+  // Again: the heading is reused, the new link lands under it.
+  await h.call({ projectId: 'p1', items: [{ title: 'Third', assigneeIds: [], dueAt: null }] }, FROM);
+  assert.equal(headings(doc).length, 1);
+  assert.match(docText(doc), /Tasks from this meeting\nSend \[the\] deck\nCheck numbers\nThird/);
+});
+
+const docText = (doc) => {
+  const blocks = doc.getMap('blocks');
+  const out = [];
+  const walk = (id) => {
+    const b = blocks.get(id);
+    const t = b.get('prop:text');
+    if (t instanceof Y.Text) out.push(t.toString());
+    for (const c of b.get('sys:children')?.toArray() ?? []) walk(c);
+  };
+  for (const [id, b] of blocks) if (b.get('sys:flavour') === 'affine:page') walk(id);
+  return out.join('\n');
+};
+
+test('tasks-from-proposals: bad items, unknown or agent assignees are refused before anything is made', async () => {
+  const bad = [
+    { projectId: 'p1', items: [] },
+    { projectId: 'p1', items: Array.from({ length: 21 }, () => ({ title: 'x', assigneeIds: [], dueAt: null })) },
+    { projectId: 'p1', items: [{ title: '', assigneeIds: [], dueAt: null }] },
+    { projectId: 'p1', items: [{ title: 'x'.repeat(201), assigneeIds: [], dueAt: null }] },
+    { projectId: 'p1', items: [{ title: 'x', assigneeIds: [], dueAt: '2026-13-01' }] },
+    { projectId: 'p1', items: [{ title: 'x', assigneeIds: ['u-agent'], dueAt: null }] },
+    { projectId: 'p1', items: [{ title: 'x', assigneeIds: 'u-far', dueAt: null }] },
+    { items: [{ title: 'x', assigneeIds: [], dueAt: null }] },
+  ];
+  for (const body of bad) {
+    const h = harness({ doc: page('x') });
+    const { status } = await h.call(body, FROM);
+    assert.equal(status, 400, JSON.stringify(body).slice(0, 80));
+    assert.equal(h.made.length, 0);
+  }
+  assert.equal((await harness({ doc: page('x'), grant: null }).call({ projectId: 'p1', items: [{ title: 'x', assigneeIds: [] }] }, FROM)).status, 403);
+  assert.equal((await harness({ doc: page('x'), project: { mode: 'data', archived_at: null } })
+    .call({ projectId: 'p1', items: [{ title: 'x', assigneeIds: [] }] }, FROM)).status, 400);
+});
+
+test('tasks-from-proposals: a failure partway still links what was made', async () => {
+  const doc = page('x');
+  const h = harness({ doc, fail: 1 });
+  const was = console.error;
+  console.error = () => {};
+  let out;
+  try {
+    ({ out } = await h.call({ projectId: 'p1', items: ['a', 'b', 'c'].map((title) => ({ title, assigneeIds: [] })) }, FROM));
+  } finally { console.error = was; }
+  assert.deepEqual(out, { created: [{ taskId: 't1', title: 'a' }], failed: 2, error: 'nope' });
+  assert.match(docText(doc), /Tasks from this meeting\na$/);
 });

@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { lastDatabase, makeTasks, madeTasksMessage, rememberDatabase, taskDatabases } from './meetingTasks';
+import {
+  acceptedItems, draftsFrom, lastDatabase, makeTasks, madeTasksMessage, rememberDatabase, suggestTasks, taskDatabases, tasksFromProposals,
+} from './meetingTasks';
 import type { ProjectRow } from './tasksApi';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -33,5 +35,41 @@ describe('meetingTasks', () => {
     vi.stubGlobal('localStorage', { getItem: () => { throw new Error('blocked'); }, setItem: () => { throw new Error('blocked'); } });
     expect(() => rememberDatabase('p2')).not.toThrow();
     expect(lastDatabase()).toBeNull();
+  });
+});
+
+describe('suggest tasks', () => {
+  const members = [{ id: 'u1', username: 'Farhanaj' }, { id: 'u2', username: 'sajjad' }];
+  it('turns proposals into editable drafts, accepted by default', () => {
+    expect(draftsFrom([
+      { title: 'Send deck', assignee: 'farhanaj', dueAt: '2026-10-30', sourceText: 'deck by fri' },
+      { title: 'Ghost', assignee: 'ghost', dueAt: null, sourceText: null },
+    ], members)).toEqual([
+      { title: 'Send deck', assigneeId: 'u1', dueAt: '2026-10-30', accept: true, sourceText: 'deck by fri' },
+      { title: 'Ghost', assigneeId: '', dueAt: '', accept: true, sourceText: null },
+    ]);
+  });
+  it('sends only the accepted drafts, trimmed, with no date as null', () => {
+    const d = (o: object) => ({ title: 't', assigneeId: '', dueAt: '', accept: true, sourceText: null, ...o });
+    expect(acceptedItems([d({ title: ' a ', assigneeId: 'u1', dueAt: '2026-10-30' }), d({ accept: false }), d({ title: 'b' })]))
+      .toEqual({ items: [{ title: 'a', assigneeIds: ['u1'], dueAt: '2026-10-30' }, { title: 'b', assigneeIds: [], dueAt: null }] });
+  });
+  it('says what is wrong with the drafts', () => {
+    const d = (o: object) => ({ title: 't', assigneeId: '', dueAt: '', accept: true, sourceText: null, ...o });
+    expect(acceptedItems([d({ accept: false })]).error).toBe('Pick at least one task');
+    expect(acceptedItems([d({ title: '  ' })]).error).toBe('Every task needs a title');
+    expect(acceptedItems([d({ title: 'x'.repeat(201) })]).error).toMatch(/200/);
+    expect(acceptedItems([d({ dueAt: '30/10/2026' })]).error).toMatch(/date/);
+  });
+  it('calls the two routes', async () => {
+    const f = vi.fn(async () => ({ ok: true, json: async () => ({ proposals: [] }) }));
+    vi.stubGlobal('fetch', f);
+    expect(await suggestTasks('d 1')).toEqual([]);
+    expect(f).toHaveBeenCalledWith('/api/docs/d%201/suggest-tasks', expect.objectContaining({ method: 'POST' }));
+    f.mockImplementation(async () => ({ ok: true, json: async () => ({ created: [] }) }) as never);
+    await tasksFromProposals('d', 'p1', [{ title: 'a', assigneeIds: [], dueAt: null }]);
+    expect(f).toHaveBeenLastCalledWith('/api/docs/d/tasks-from-proposals', expect.objectContaining({
+      body: '{"projectId":"p1","items":[{"title":"a","assigneeIds":[],"dueAt":null}]}',
+    }));
   });
 });

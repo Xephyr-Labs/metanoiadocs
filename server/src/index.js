@@ -49,6 +49,7 @@ import { rewriteDoc } from './restore.js';
 import { registerCalendarRoutes } from './calendar.js';
 import { registerMeetingNotesRoutes } from './meeting-notes.js';
 import { registerMeetingTaskRoutes } from './meeting-tasks.js';
+import { aiCompleter } from './ai-complete.js';
 import { ensureTaskPage } from './task-writes.js';
 import { registerDocOpenRoutes } from './doc-opens.js';
 import { applyTextSuggestion, draftName, pageStateFrom, parseDraftName, registerSuggestionRoutes } from './suggestions.js';
@@ -3424,6 +3425,7 @@ registerMeetingTaskRoutes(app, {
   getHocuspocus: () => hocuspocus,
   createTask: (body, user) => createTaskRow(body, user, { createDocRow }),
   taskPage: (taskId, userId, markdown) => ensureTaskPage(taskId, userId, createDocRow, markdown),
+  aiComplete: aiCompleter(getSetting),
 });
 registerDocOpenRoutes(app, { requireUser, wrap, pool, grantOn });
 registerSuggestionRoutes(app, {
