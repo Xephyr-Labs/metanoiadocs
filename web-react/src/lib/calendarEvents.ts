@@ -1,23 +1,33 @@
 import type { CalendarStatus } from './calendar';
 
-export interface CalendarAttendee { email: string; name: string; userId: string | null; self: boolean }
+export type CalendarResponse = 'accepted' | 'tentative' | 'declined' | 'needsAction';
+export interface CalendarAttendee { email: string; name: string; userId: string | null; self: boolean; response: CalendarResponse | null }
 export interface CalendarEvent {
   id: string; title: string; start: string | null; end: string | null; allDay: boolean;
   meetLink: string | null; attendees: CalendarAttendee[]; notesDocId: string | null;
+  /** Plain text (the server strips Google's HTML); render as text only. */
+  description: string; location: string; organizerSelf: boolean; myResponse: CalendarResponse | null;
+  recurringEventId: string | null; htmlLink: string | null;
 }
 /** `connected` is absent when the fetch itself failed: the status decides then. */
 export interface CalendarEvents { connected?: boolean; reconnect?: boolean; error?: boolean; events: CalendarEvent[] }
 
-/** Today's (or the next `days`) meetings; a failure is an error, not "not connected". */
-export async function fetchEvents(days = 1): Promise<CalendarEvents> {
+async function getEvents(query: string): Promise<CalendarEvents> {
   try {
-    const res = await fetch(`/api/calendar/events?days=${days}`, { credentials: 'include' });
+    const res = await fetch(`/api/calendar/events?${query}`, { credentials: 'include' });
     if (!res.ok) return { error: true, events: [] };
     return await res.json();
   } catch {
     return { error: true, events: [] };
   }
 }
+
+/** Today's (or the next `days`) meetings; a failure is an error, not "not connected". */
+export const fetchEvents = (days = 1): Promise<CalendarEvents> => getEvents(`days=${days}`);
+
+/** Events from `from` up to (not including) `to`, YYYY-MM-DD in the person's zone, 1..42 days. */
+export const fetchEventsRange = (from: string, to: string, { declined = false } = {}): Promise<CalendarEvents> =>
+  getEvents(`from=${from}&to=${to}${declined ? '&declined=1' : ''}`);
 
 /** What the Home card shows for this status and events answer. */
 export function meetingsView(status: CalendarStatus | null, data: CalendarEvents | null):

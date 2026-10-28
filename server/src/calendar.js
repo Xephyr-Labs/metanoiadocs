@@ -54,6 +54,38 @@ function emailFromIdToken(idToken) {
   try { return JSON.parse(Buffer.from(String(idToken).split('.')[1], 'base64url').toString('utf8')).email || null; } catch { return null; }
 }
 
+const MAX_EVENTS = 500;
+const RESPONSES = ['accepted', 'tentative', 'declined', 'needsAction'];
+const responseOf = (a) => (RESPONSES.includes(a?.responseStatus) ? a.responseStatus : null);
+const httpOnly = (u) => typeof u === 'string' && /^https?:\/\//i.test(u);
+
+/** Days since epoch of a real 'YYYY-MM-DD', else NaN. */
+function dateIndex(s) {
+  if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return NaN;
+  const ms = Date.parse(`${s}T00:00:00Z`);
+  return Number.isNaN(ms) || new Date(ms).toISOString().slice(0, 10) !== s ? NaN : ms / 86_400_000;
+}
+
+const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', nbsp: '\u00a0' };
+/** Google's description HTML as plain text: shown as text, never as HTML. */
+export function htmlToText(html) {
+  if (typeof html !== 'string') return '';
+  return html
+    .replace(/\r\n?/g, '\n')
+    .replace(/<br\s*\/?>|<\/(p|div|li)\s*>/gi, '\n')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, k) => {
+      if (k[0] === '#') {
+        const n = k[1] === 'x' || k[1] === 'X' ? parseInt(k.slice(2), 16) : parseInt(k.slice(1), 10);
+        try { return String.fromCodePoint(n); } catch { return m; }
+      }
+      return ENTITIES[k.toLowerCase()] ?? m;
+    })
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+    .slice(0, 5000);
+}
+
 export function registerCalendarRoutes(app, {
   requireUser, requireAdmin, needsPerson, wrap, pool,
   baseUrl = process.env.BASE_URL, env = process.env, get = getSetting, set = setSetting,
@@ -284,23 +316,43 @@ export function registerCalendarRoutes(app, {
     const has = await pool.query('SELECT 1 FROM user_calendar_tokens WHERE user_id = $1', [uid]);
     if (!has.rows[0]) return res.json({ connected: false, events: [] });
     const zone = zoneOf(req.user);
-    const startMs = startOfDayIn(zone, dayIn(zone, new Date(now())));
-    // Calendar days vary in length across DST, so the end is the start of day N from now, not +N*24h.
-    const endMs = startOfDayIn(zone, dayIn(zone, new Date(startMs + days * DAY + 12 * 3600_000)));
-    const q = new URLSearchParams({
-      singleEvents: 'true', orderBy: 'startTime', timeMin: new Date(startMs).toISOString(), timeMax: new Date(endMs).toISOString(),
-    });
+    const { from, to } = req.query || {};
+    let startMs, endMs;
+    if (from !== undefined) {
+      // A visible range: [start of `from`, start of `to`) in the person's zone, 1..42 days.
+      const span = dateIndex(to) - dateIndex(from);
+      if (!(span >= 1 && span <= 42)) return res.status(400).json({ error: 'from/to must be dates 1 to 42 days apart.' });
+      startMs = startOfDayIn(zone, from);
+      endMs = startOfDayIn(zone, to);
+    } else {
+      startMs = startOfDayIn(zone, dayIn(zone, new Date(now())));
+      // Calendar days vary in length across DST, so the end is the start of day N from now, not +N*24h.
+      endMs = startOfDayIn(zone, dayIn(zone, new Date(startMs + days * DAY + 12 * 3600_000)));
+    }
+    const base = {
+      singleEvents: 'true', orderBy: 'startTime', timeMin: new Date(startMs).toISOString(), timeMax: new Date(endMs).toISOString(), maxResults: '250',
+    };
     // Still connected when Google fails: the card says it could not load, not "Connect". Google's text stays here.
     const failed = (status) => {
       console.error(`[calendar] Google events failed (${status})`);
       return res.json({ connected: true, error: true, events: [] });
     };
-    let r;
-    try { r = await googleGet(uid, `/calendar/v3/calendars/primary/events?${q}`); } catch { return failed('network or token refresh'); }
-    if (r.reconnect) return res.json({ connected: true, reconnect: true, events: [] });
-    if (!r.ok) return failed(r.status);
-    const items = ((await r.json().catch(() => ({}))).items || []).filter((e) => e && e.status !== 'cancelled'
-      && !(e.attendees || []).some((a) => a.self && a.responseStatus === 'declined'));
+    let raw = [];
+    let pageToken;
+    let pages = 0;
+    do {
+      const q = new URLSearchParams(pageToken ? { ...base, pageToken } : base);
+      let r;
+      try { r = await googleGet(uid, `/calendar/v3/calendars/primary/events?${q}`); } catch { return failed('network or token refresh'); }
+      if (r.reconnect) return res.json({ connected: true, reconnect: true, events: [] });
+      if (!r.ok) return failed(r.status);
+      const body = await r.json().catch(() => ({}));
+      raw = raw.concat(Array.isArray(body.items) ? body.items : []);
+      pageToken = typeof body.nextPageToken === 'string' && body.nextPageToken ? body.nextPageToken : null;
+    } while (pageToken && raw.length < MAX_EVENTS && ++pages < 10); // page cap: a token with empty pages must not loop forever
+    const keepDeclined = req.query?.declined === '1';
+    const items = raw.slice(0, MAX_EVENTS).filter((e) => e && e.status !== 'cancelled'
+      && (keepDeclined || !(e.attendees || []).some((a) => a.self && a.responseStatus === 'declined')));
     const emails = [...new Set(items.flatMap((e) => (e.attendees || []).map((a) => String(a.email || '').toLowerCase()).filter(Boolean)))];
     const byEmail = new Map();
     if (emails.length) {
@@ -314,11 +366,18 @@ export function registerCalendarRoutes(app, {
       start: e.start?.dateTime || e.start?.date || null,
       end: e.end?.dateTime || e.end?.date || null,
       allDay: !e.start?.dateTime && !!e.start?.date,
-      meetLink: [e.hangoutLink, (e.conferenceData?.entryPoints || []).find((p) => p.entryPointType === 'video')?.uri].find((u) => /^https?:\/\//i.test(String(u))) || null, // invitees control these; never pass javascript: etc.
+      meetLink: [e.hangoutLink, (e.conferenceData?.entryPoints || []).find((p) => p.entryPointType === 'video')?.uri].find(httpOnly) || null, // invitees control these; never pass javascript: etc.
       attendees: (e.attendees || []).map((a) => ({
         email: a.email || '', name: a.displayName || '', userId: byEmail.get(String(a.email || '').toLowerCase()) ?? null, self: !!a.self,
+        response: responseOf(a),
       })),
       notesDocId: notes.get(e.id) ?? null,
+      description: htmlToText(e.description),
+      location: typeof e.location === 'string' ? e.location : '',
+      organizerSelf: e.organizer?.self === true,
+      myResponse: responseOf((e.attendees || []).find((a) => a?.self)),
+      recurringEventId: typeof e.recurringEventId === 'string' ? e.recurringEventId : null,
+      htmlLink: httpOnly(e.htmlLink) ? e.htmlLink : null,
     }));
     res.json({ connected: true, events });
   }));

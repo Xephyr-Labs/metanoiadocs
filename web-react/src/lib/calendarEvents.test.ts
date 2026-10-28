@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import { fetchEvents, meetingsView, otherAttendees, type CalendarEvent } from './calendarEvents';
+import { fetchEvents, fetchEventsRange, meetingsView, otherAttendees, type CalendarEvent } from './calendarEvents';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -9,6 +9,16 @@ describe('calendarEvents', () => {
     vi.stubGlobal('fetch', f);
     expect(await fetchEvents(3)).toEqual({ connected: true, events: [] });
     expect(f).toHaveBeenCalledWith('/api/calendar/events?days=3', { credentials: 'include' });
+  });
+  it('fetchEventsRange sends from/to, and declined=1 only when asked', async () => {
+    const f = vi.fn(async (_u: string) => ({ ok: true, json: async () => ({ connected: true, events: [] }) }));
+    vi.stubGlobal('fetch', f);
+    expect(await fetchEventsRange('2026-10-26', '2026-11-02')).toEqual({ connected: true, events: [] });
+    expect(f).toHaveBeenLastCalledWith('/api/calendar/events?from=2026-10-26&to=2026-11-02', { credentials: 'include' });
+    await fetchEventsRange('2026-10-26', '2026-11-02', { declined: true });
+    expect(f).toHaveBeenLastCalledWith('/api/calendar/events?from=2026-10-26&to=2026-11-02&declined=1', { credentials: 'include' });
+    vi.stubGlobal('fetch', async () => ({ ok: false, status: 400 }));
+    expect(await fetchEventsRange('2026-10-26', '2026-10-26')).toEqual({ error: true, events: [] });
   });
   it('a failure is an error that leaves connected to the status', async () => {
     vi.stubGlobal('fetch', async () => ({ ok: false, status: 502 }));
@@ -30,7 +40,7 @@ describe('calendarEvents', () => {
     expect(meetingsView(st(true), { connected: true, events: [] })).toBe('list');
   });
   it('otherAttendees drops self', () => {
-    const e = { attendees: [{ email: 'a', name: '', userId: null, self: true }, { email: 'b', name: '', userId: null, self: false }] } as CalendarEvent;
+    const e = { attendees: [{ email: 'a', name: '', userId: null, self: true, response: null }, { email: 'b', name: '', userId: null, self: false, response: 'accepted' }] } as CalendarEvent;
     expect(otherAttendees(e).map((a) => a.email)).toEqual(['b']);
   });
 });
@@ -38,7 +48,8 @@ describe('calendarEvents', () => {
 import { meetingLabel, meetingTime, nextMeeting, orderMeetings, safeMeetLink, startNotes } from './calendarEvents';
 
 const ev = (o: Partial<CalendarEvent>): CalendarEvent => ({
-  id: 'x', title: 't', start: null, end: null, allDay: false, meetLink: null, attendees: [], notesDocId: null, ...o,
+  id: 'x', title: 't', start: null, end: null, allDay: false, meetLink: null, attendees: [], notesDocId: null,
+  description: '', location: '', organizerSelf: false, myResponse: null, recurringEventId: null, htmlLink: null, ...o,
 });
 
 describe('meeting helpers', () => {
