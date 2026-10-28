@@ -1,6 +1,13 @@
 [
   {
     "date": "2026-10-29",
+    "macrostructure": "Workbench (app chrome — Calendar page: toolbar + hour grid / month grid + meeting card)",
+    "theme": "project tokens (preserved; Onest via --font-display) · a Calendar page in the app's own voice: one toolbar (Today, ‹ ›, the range as the page title, Day/Week/Month, New meeting), an hour rail with today's column on surface-2 and a danger-red now-line, the weekday row and all-day bars pinned inside the scroller so columns line up; meetings read by your answer — accepted filled accent-soft, unanswered outlined, declined struck through on surface; the meeting card is the app's dialog (a bottom sheet on a phone) with Join, guests and their answers, notes, Accept/Maybe/Decline and the organiser's Edit/Cancel",
+    "enrichment": "none — typography only",
+    "brief": "metanoiadocs · people left for Google Calendar to see their week and answer invites; the app only showed today's meetings on Home"
+  },
+  {
+    "date": "2026-10-29",
     "macrostructure": "Workbench (app chrome — Home), unchanged",
     "theme": "project tokens (preserved; Onest via --font-display) · Home reads as one calm column: Overview, today's meetings, Jump back in, then My tasks and My documents side by side (minmax(0,1fr) tracks, one column below lg), Activity full width last; the Projects grid is gone (projects live in the sidebar); every section gap is 32px",
     "enrichment": "none — typography only",

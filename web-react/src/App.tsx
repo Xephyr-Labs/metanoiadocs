@@ -23,6 +23,7 @@ import { TrashDialog } from './components/trash/TrashDialog';
 import { useDesktopNotifications } from './hooks/useDesktopNotifications';
 import { InboxDialog } from './components/inbox/InboxDialog';
 import { TasksView } from './components/tasks/TasksView';
+import { CalendarPage } from './components/calendar/CalendarPage';
 import { TagView } from './components/tags/TagView';
 import { Sidebar, useRailWidth } from './components/sidebar/Sidebar';
 import { TopBar } from './components/topbar/TopBar';
@@ -128,6 +129,7 @@ export default function App() {
             {ws.view === 'home' ? <Home />
               : ws.view === 'docs' ? <AllDocsView />
               : ws.view === 'tasks' ? <TasksView />
+              : ws.view === 'calendar' ? <CalendarPage />
               : ws.view === 'project' ? <ProjectView />
               : ws.view === 'folder' ? <FolderView />
               : ws.view === 'space' ? <SpaceView />

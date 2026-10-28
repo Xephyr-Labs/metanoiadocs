@@ -122,3 +122,9 @@ export const updateMeeting = (id: string, body: Partial<MeetingBody>): Promise<{
 export const cancelMeeting = async (id: string): Promise<void> => { await write(one(id), 'DELETE'); };
 export const respondToMeeting = (id: string, response: 'accepted' | 'tentative' | 'declined'): Promise<{ id: string | null }> =>
   write(`${one(id)}/respond`, 'POST', { response });
+
+/** A description as text and http(s) links, in order; the links go to an href, the rest is shown as text. */
+export function linkParts(text: string): { text: string; href?: string }[] {
+  return text.split(/(https?:\/\/[^\s<>"]*[^\s<>".,;:!?)\]'])/i).filter(Boolean)
+    .map((t) => (/^https?:\/\//i.test(t) ? { text: t, href: t } : { text: t }));
+}

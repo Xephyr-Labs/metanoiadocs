@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import {
   fetchEvents, fetchEventsRange, meetingsView, otherAttendees, type CalendarEvent,
-  createMeeting, updateMeeting, cancelMeeting, respondToMeeting, CalendarWriteError,
+  createMeeting, updateMeeting, cancelMeeting, respondToMeeting, CalendarWriteError, linkParts,
 } from './calendarEvents';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -147,5 +147,15 @@ describe('calendar writes', () => {
     const n = await respondToMeeting('a', 'accepted').catch((x) => x);
     expect(n).toBeInstanceOf(CalendarWriteError);
     expect(n.status).toBe(0);
+  });
+});
+
+describe('linkParts', () => {
+  it('links http(s) only, without trailing punctuation', () => {
+    expect(linkParts('Doc: https://x.test/a?b=1. Call javascript:alert(1) or (http://y.test)')).toEqual([
+      { text: 'Doc: ' }, { text: 'https://x.test/a?b=1', href: 'https://x.test/a?b=1' },
+      { text: '. Call javascript:alert(1) or (' }, { text: 'http://y.test', href: 'http://y.test' }, { text: ')' },
+    ]);
+    expect(linkParts('')).toEqual([]);
   });
 });

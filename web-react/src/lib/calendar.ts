@@ -26,24 +26,27 @@ async function req(path: string, opts: RequestInit = {}): Promise<any> {
   return data;
 }
 
-// One ask per session for the menus that only exist with the calendar on; saving the settings asks again.
-let available: Promise<boolean> | null = null;
+// One ask per session for the menus that only exist with the calendar on; saving the settings
+// or disconnecting asks again.
+let status: Promise<CalendarStatus | null> | null = null;
 
 export const calendarApi = {
   settings: (): Promise<CalendarSettings> => req('/settings/calendar'),
   saveSettings: (body: { enabled: boolean; clientId: string; clientSecret?: string }): Promise<{ ok: true }> => {
-    available = null;
+    status = null;
     return req('/settings/calendar', { method: 'PUT', body: JSON.stringify(body) });
   },
   status: (): Promise<CalendarStatus> => req('/calendar/status'),
-  disconnect: (): Promise<null> => req('/calendar/google', { method: 'DELETE' }),
+  disconnect: (): Promise<null> => { status = null; return req('/calendar/google', { method: 'DELETE' }); },
 };
 
+const statusOnce = () => (status ??= calendarApi.status().catch(() => { status = null; return null; }));
+
 /** Whether the calendar feature is on, asked once (a failure is not remembered). */
-export function calendarAvailable(): Promise<boolean> {
-  available ??= calendarApi.status().then((s) => s.available).catch(() => { available = null; return false; });
-  return available;
-}
+export const calendarAvailable = (): Promise<boolean> => statusOnce().then((s) => !!s?.available);
+
+/** On and connected: whether the Calendar page has a place in the menus. */
+export const calendarConnected = (): Promise<boolean> => statusOnce().then((s) => !!(s?.available && s.connected));
 
 /** A top-level navigation, not a fetch: Google's consent screen needs the whole window. */
 export const CALENDAR_CONNECT_URL = '/api/calendar/google/connect';
