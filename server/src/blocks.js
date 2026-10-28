@@ -970,7 +970,7 @@ function joinParts(parts) {
  * note, any note still beats none: a false return makes the caller rewrite the
  * whole body, which would throw away what the canvas holds.
  */
-function bodyNote(blocks) {
+export function bodyNote(blocks) {
   const isNote = (b) => b instanceof Y.Map && b.get('sys:flavour') === 'affine:note';
   const page = [...blocks.values()].find((b) => b instanceof Y.Map && b.get('sys:flavour') === 'affine:page');
   const kids = page?.get('sys:children');
@@ -1023,7 +1023,7 @@ export function appendPageReference(doc, pageId) {
  * False means the doc has no note block to append into — nobody has ever opened
  * it — which only the caller can resolve, by building a body from scratch.
  */
-export function appendMarkdownToDoc(doc, markdown, resolveLink) {
+export function appendMarkdownToDoc(doc, markdown, resolveLink, afterId) {
   const blocks = doc.getMap('blocks');
   // A doc without a note has no body yet.
   const note = bodyNote(blocks);
@@ -1031,7 +1031,11 @@ export function appendMarkdownToDoc(doc, markdown, resolveLink) {
   const descs = parseMarkdown(markdown);
   const pending = [];
   const children = note.get('sys:children');
-  children.push(makeBlocks(blocks, descs, resolveLink, pending));
+  const ids = makeBlocks(blocks, descs, resolveLink, pending);
+  // `afterId`, a block of the body, puts them right after it instead of at the end.
+  const at = afterId ? children.toArray().indexOf(afterId) : -1;
+  if (at >= 0) children.insert(at + 1, ids);
+  else children.push(ids);
   applyMarks(pending);
   numberLists(blocks);
   return true;

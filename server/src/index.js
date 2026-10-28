@@ -46,6 +46,11 @@ import { deleteUnusedAudio } from './blob-cleanup.js';
 import { docCommentRecipients } from './comment-recipients.js';
 import { buildDocState, appendMarkdownToDoc, appendPageReference, extractText, extractBlocks, docToMarkdown, fixTableOrderKeys, stateWithValidTableKeys, linkResolver, linkLabeler, pageLinksOf, lossyBlocks } from './blocks.js';
 import { rewriteDoc } from './restore.js';
+import { registerCalendarRoutes } from './calendar.js';
+import { registerMeetingNotesRoutes } from './meeting-notes.js';
+import { registerMeetingTaskRoutes } from './meeting-tasks.js';
+import { aiCompleter } from './ai-complete.js';
+import { ensureTaskPage } from './task-writes.js';
 import { registerDocOpenRoutes } from './doc-opens.js';
 import { applyTextSuggestion, draftName, pageStateFrom, parseDraftName, registerSuggestionRoutes } from './suggestions.js';
 import { registerReactionRoutes, withReactions } from './reactions.js';
@@ -56,7 +61,7 @@ import { fileToMarkdown, IMPORT_EXTENSIONS } from './import.js';
 import { registerMcpRoute } from './mcp-http.js';
 import { topTerms, extractSignals, findMentions, simhash, hamming, keyphrases, summarize, tokenize, coalesceByKey, blocksFromText } from './intelligence.js';
 import { docKind } from './props.js';
-import { registerTaskRoutes, kindsFor, isStatus } from './tasks.js';
+import { registerTaskRoutes, kindsFor, isStatus, createTaskRow } from './tasks.js';
 import { insertTaskComment, registerTaskCommentRoutes } from './task-comments.js';
 import { registerPropRoutes } from './props-routes.js';
 import { registerViewRoutes } from './views.js';
@@ -3410,6 +3415,18 @@ registerCsvRoutes(app, {
 startWebhookWorker();
 registerAgentRoutes(app, { requireUser, wrap, createDocRow });
 registerAutomationRoutes(app, { requireUser, wrap });
+const calendar = registerCalendarRoutes(app, { requireUser, requireAdmin, needsPerson, wrap, pool, baseUrl: BASE_URL });
+registerMeetingNotesRoutes(app, {
+  requireUser, needsPerson, wrap, pool, createDocRow, grantOn, baseUrl: BASE_URL,
+  fetchEvent: calendar.fetchEvent, calendarReady: calendar.calendarReady,
+});
+registerMeetingTaskRoutes(app, {
+  requireUser, needsPerson, wrap, pool, editGrant, baseUrl: BASE_URL,
+  getHocuspocus: () => hocuspocus,
+  createTask: (body, user) => createTaskRow(body, user, { createDocRow }),
+  taskPage: (taskId, userId, markdown) => ensureTaskPage(taskId, userId, createDocRow, markdown),
+  aiComplete: aiCompleter(getSetting), calendarReady: calendar.calendarReady,
+});
 registerDocOpenRoutes(app, { requireUser, wrap, pool, grantOn });
 registerSuggestionRoutes(app, {
   requireUser, wrap, pool, grantOn, canEdit, canSuggest, notifyUser, recordDocEditors,

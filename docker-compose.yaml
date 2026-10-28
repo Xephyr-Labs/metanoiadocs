@@ -40,6 +40,8 @@ services:
       SMTP_PASS: ${SMTP_PASS:-}
       SMTP_FROM: ${SMTP_FROM:-MetanoiaDocs <no-reply@example.com>}
       AGENT_RUN_STALE_MIN: ${AGENT_RUN_STALE_MIN:-30}
+      # Google Calendar: unset keeps the feature hidden (docs/GOOGLE-CALENDAR.md).
+      CALENDAR_TOKEN_KEY: ${CALENDAR_TOKEN_KEY:-}
     ports:
       - "8092:3000"
     depends_on:

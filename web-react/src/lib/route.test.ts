@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { APP_PATHS, dbPath, parseRoute } from './route';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { APP_PATHS, dbPath, parseRoute, taskLinkTarget } from './route';
 
 const answers = (path: string) => APP_PATHS.some((re) => re.test(path));
 
@@ -107,5 +107,19 @@ describe('review links', () => {
     expect(parseRoute('/d/abc', '', '?review=s1')).toMatchObject({ docId: 'abc', reviewId: 's1' });
     expect(parseRoute('/d/abc').reviewId).toBeNull();
     expect(parseRoute('/f/x', '', '?review=s1').reviewId).toBeNull();
+  });
+});
+
+describe('task links inside a page', () => {
+  beforeEach(() => { vi.stubGlobal('location', new URL('https://docs.example.com/d/notes')); });
+  afterEach(() => { vi.unstubAllGlobals(); });
+  it('names the database and task for a relative or same-origin link', () => {
+    expect(taskLinkTarget('/db/p1?task=t9')).toEqual({ projectId: 'p1', taskId: 't9' });
+    expect(taskLinkTarget('https://docs.example.com/db/p1?task=t9')).toEqual({ projectId: 'p1', taskId: 't9' });
+  });
+  it('is null for a database without a task, another origin, or a page link', () => {
+    expect(taskLinkTarget('/db/p1')).toBeNull();
+    expect(taskLinkTarget('https://elsewhere.example/db/p1?task=t9')).toBeNull();
+    expect(taskLinkTarget('/d/doc1')).toBeNull();
   });
 });

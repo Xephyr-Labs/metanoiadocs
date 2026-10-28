@@ -383,6 +383,147 @@ const ALL_TASKS_SQL = `
    ORDER BY x.due_at ASC NULLS LAST, x.priority DESC, x.created_at DESC
    LIMIT 1000`;
 
+/**
+ * Make one task the way POST /api/tasks does — template, number, assignees,
+ * rules, webhooks and the assignment notice. `{ task }` with the full row, or
+ * `{ status, error }` for what the request got wrong. Shared so a page that
+ * makes tasks (meeting-tasks.js) gets every side effect, not a copy of some.
+ */
+export async function createTaskRow(body, user, { createDocRow }) {
+  body = body ?? {};
+  const projectId = body.projectId;
+  if (!projectId) return { status: 400, error: 'projectId required' };
+  // A row template fills in what the request left out, and nothing it set.
+  // Resolved first, so every check below — status, kind, repeat rule, the
+  // property coercion — runs against the values that will actually be
+  // written rather than against half of them.
+  let templateBody = null;
+  if (typeof body.templateId === 'string' && body.templateId) {
+    const template = await rowTemplateFor(body.templateId, projectId);
+    if (!template) return { status: 404, error: 'no such template' };
+    body = applyRowTemplate(body, template);
+    templateBody = template.body;
+  }
+  const status = isStatus(body?.status) ? body.status : 'todo';
+  const startAt = readDate(body?.startAt);
+  const dueAt = readDate(body?.dueAt);
+  if (!startAt.ok || !dueAt.ok) {
+    return { status: 400, error: 'startAt/dueAt must be YYYY-MM-DD' };
+  }
+  // Seeds the project's types if this is its first task, so the fallback
+  // below always names a type that exists.
+  const kinds = await kindsFor(projectId);
+  const wanted = String(body?.kind || '');
+  const kind = kinds.some((k) => k.key === wanted)
+    ? wanted
+    : (kinds.find((k) => k.key === 'task') ?? kinds[0])?.key ?? 'task';
+  const sprintId = typeof body?.sprintId === 'string' ? body.sprintId : null;
+  if (sprintId && (await sprintProject(sprintId)) !== projectId) {
+    return { status: 400, error: 'sprint is not in this project' };
+  }
+  // Refused rather than silently dropped, which is what PATCH does with the
+  // same value: an API that ignores half a request is one you debug twice.
+  if (body?.repeatRule && !isRepeatRule(body.repeatRule)) {
+    return { status: 400, error: 'bad repeat rule' };
+  }
+  // Checked before the number is claimed, for the same reason the assignees
+  // are below: a parent that fails the foreign key used to burn a number and
+  // answer "internal error".
+  let parentId = null;
+  if (body?.parentId) {
+    const parent = await checkParent({ projectId, ref: body.parentId });
+    if (parent.error) return { status: 400, error: parent.error };
+    parentId = parent.id;
+  }
+  const id = crypto.randomUUID();
+  // Append to the bottom of its column.
+  const { rows: pos } = await pool.query(
+    `SELECT coalesce(max(position), 0) + 1 AS n FROM tasks
+      WHERE project_id = $1 AND status = $2 AND deleted_at IS NULL`,
+    [projectId, status]
+  );
+  // Property values at creation: the calendar makes a row already carrying
+  // the date of the day it was created on.
+  const checked = propsPatch(await propsFor(projectId), body?.props ?? {});
+  if (!checked.ok) return { status: 400, error: checked.error };
+  // The task's number, claimed before anything is written.
+  //
+  // Reading and bumping in one statement is what makes this safe: the UPDATE
+  // takes a row lock on the project for the instant it runs, so two people
+  // creating a task at the same moment queue behind it and come away with
+  // two different numbers. `max(num) + 1` over the tasks table would hand
+  // both of them the same one.
+  //
+  // A create that fails after this point burns a number, leaving a gap. That
+  // is the deliberate trade, and the one every issue tracker makes: a gap is
+  // invisible, whereas MD-14 meaning two different tasks is not.
+  // Resolved before the number is claimed, because `tasks.assignee_id` has a
+  // foreign key: an id that is not a user fails the INSERT, which answers
+  // "internal error", burns a task number and creates nothing. A template
+  // naming somebody who has since left the workspace is exactly how that
+  // happens, and setAssignees below has always dropped such an id silently —
+  // so the row column trusted what the list did not.
+  const people = await knownUsers(wantedAssignees(body) ?? []);
+  const { rows: claim } = await pool.query(
+    'UPDATE projects SET task_seq = task_seq + 1 WHERE id = $1 RETURNING key, task_seq',
+    [projectId]
+  );
+  if (!claim[0]) return { status: 404, error: 'no such project' };
+  const { rows } = await pool.query(
+    `INSERT INTO tasks (id, project_id, num, title, status, assignee_id, start_at, due_at,
+                        priority, progress, points, milestone, doc_id, parent_id,
+                        kind, sprint_id, position, props, created_by, updated_by,
+                        repeat_rule, estimate_h)
+     VALUES ($1,$2,$19,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$18,$20,$21) RETURNING *`,
+    [
+      id, projectId,
+      withKey(claim[0].key, claim[0].task_seq, String(body?.title || '').slice(0, 500)),
+      status,
+      // The row's own column is filled from the list a moment later, by
+      // setAssignees; this keeps a single-assignee create working unchanged
+      // even if that write fails.
+      people[0] ?? null,
+      startAt.value, dueAt.value,
+      Number(body?.priority) || 0,
+      clampPct(body?.progress),
+      body?.points == null ? null : Number(body.points) || 0,
+      !!body?.milestone,
+      body?.docId || null,
+      parentId,
+      kind, sprintId,
+      pos[0].n, JSON.stringify(checked.value), user.id,
+      claim[0].task_seq,
+      isRepeatRule(body?.repeatRule) ? body.repeatRule : null,
+      readHours(body?.estimateH),
+    ]
+  );
+  emit('task.created', rows[0]);
+  // The template's body becomes the row's page. After the insert, because the
+  // page is a doc that has to point back at a task that exists — and not
+  // inside the transaction above, since createDocRow opens its own.
+  if (templateBody) {
+    await ensureTaskPage(id, user.id, createDocRow, templateBody)
+      .catch((err) => console.error('[template] page:', err.message));
+  }
+  const assignees = people;
+  // Rules that listen for a new row run before the response, so the client
+  // sees the task the rules left behind rather than the one it asked for and
+  // then a different one on the next refresh.
+  await fireTrigger({ task: rows[0], kind: 'created', actorId: user.id });
+  if (!assignees.length) {
+    // A task is created before it has a page, so there is nothing to preview yet.
+    const { rows: made } = await pool.query(`${TASK_SELECT} WHERE t.id = $1`, [id]);
+    return { task: made[0] ?? { ...rows[0], deps: [], assignee_name: null, assignees: [], preview: null } };
+  }
+  const added = await setAssignees(id, assignees);
+  if (added.length) await fireTrigger({ task: rows[0], kind: 'assigned', actorId: user.id });
+  notifyAssignees(rows[0], user, added)
+    .catch((err) => console.error('[notify] assign:', err.message));
+  // Read back rather than guessing the shape: the names come from users.
+  const { rows: full } = await pool.query(`${TASK_SELECT} WHERE t.id = $1`, [id]);
+  return { task: full[0] ?? { ...rows[0], deps: [], assignee_name: null, assignees: [], preview: null } };
+}
+
 export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
   // ── projects ────────────────────────────────────────────────────────────
   app.get('/api/projects', requireUser, wrap(async (req, res) => {
@@ -739,137 +880,9 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
   }));
 
   app.post('/api/tasks', requireUser, wrap(async (req, res) => {
-    const projectId = req.body?.projectId;
-    if (!projectId) return res.status(400).json({ error: 'projectId required' });
-    // A row template fills in what the request left out, and nothing it set.
-    // Resolved first, so every check below — status, kind, repeat rule, the
-    // property coercion — runs against the values that will actually be
-    // written rather than against half of them.
-    let templateBody = null;
-    if (typeof req.body.templateId === 'string' && req.body.templateId) {
-      const template = await rowTemplateFor(req.body.templateId, projectId);
-      if (!template) return res.status(404).json({ error: 'no such template' });
-      req.body = applyRowTemplate(req.body, template);
-      templateBody = template.body;
-    }
-    const status = isStatus(req.body?.status) ? req.body.status : 'todo';
-    const startAt = readDate(req.body?.startAt);
-    const dueAt = readDate(req.body?.dueAt);
-    if (!startAt.ok || !dueAt.ok) {
-      return res.status(400).json({ error: 'startAt/dueAt must be YYYY-MM-DD' });
-    }
-    // Seeds the project's types if this is its first task, so the fallback
-    // below always names a type that exists.
-    const kinds = await kindsFor(projectId);
-    const wanted = String(req.body?.kind || '');
-    const kind = kinds.some((k) => k.key === wanted)
-      ? wanted
-      : (kinds.find((k) => k.key === 'task') ?? kinds[0])?.key ?? 'task';
-    const sprintId = typeof req.body?.sprintId === 'string' ? req.body.sprintId : null;
-    if (sprintId && (await sprintProject(sprintId)) !== projectId) {
-      return res.status(400).json({ error: 'sprint is not in this project' });
-    }
-    // Refused rather than silently dropped, which is what PATCH does with the
-    // same value: an API that ignores half a request is one you debug twice.
-    if (req.body?.repeatRule && !isRepeatRule(req.body.repeatRule)) {
-      return res.status(400).json({ error: 'bad repeat rule' });
-    }
-    // Checked before the number is claimed, for the same reason the assignees
-    // are below: a parent that fails the foreign key used to burn a number and
-    // answer "internal error".
-    let parentId = null;
-    if (req.body?.parentId) {
-      const parent = await checkParent({ projectId, ref: req.body.parentId });
-      if (parent.error) return res.status(400).json({ error: parent.error });
-      parentId = parent.id;
-    }
-    const id = crypto.randomUUID();
-    // Append to the bottom of its column.
-    const { rows: pos } = await pool.query(
-      `SELECT coalesce(max(position), 0) + 1 AS n FROM tasks
-        WHERE project_id = $1 AND status = $2 AND deleted_at IS NULL`,
-      [projectId, status]
-    );
-    // Property values at creation: the calendar makes a row already carrying
-    // the date of the day it was created on.
-    const checked = propsPatch(await propsFor(projectId), req.body?.props ?? {});
-    if (!checked.ok) return res.status(400).json({ error: checked.error });
-    // The task's number, claimed before anything is written.
-    //
-    // Reading and bumping in one statement is what makes this safe: the UPDATE
-    // takes a row lock on the project for the instant it runs, so two people
-    // creating a task at the same moment queue behind it and come away with
-    // two different numbers. `max(num) + 1` over the tasks table would hand
-    // both of them the same one.
-    //
-    // A create that fails after this point burns a number, leaving a gap. That
-    // is the deliberate trade, and the one every issue tracker makes: a gap is
-    // invisible, whereas MD-14 meaning two different tasks is not.
-    // Resolved before the number is claimed, because `tasks.assignee_id` has a
-    // foreign key: an id that is not a user fails the INSERT, which answers
-    // "internal error", burns a task number and creates nothing. A template
-    // naming somebody who has since left the workspace is exactly how that
-    // happens, and setAssignees below has always dropped such an id silently —
-    // so the row column trusted what the list did not.
-    const people = await knownUsers(wantedAssignees(req.body) ?? []);
-    const { rows: claim } = await pool.query(
-      'UPDATE projects SET task_seq = task_seq + 1 WHERE id = $1 RETURNING key, task_seq',
-      [projectId]
-    );
-    if (!claim[0]) return res.status(404).json({ error: 'no such project' });
-    const { rows } = await pool.query(
-      `INSERT INTO tasks (id, project_id, num, title, status, assignee_id, start_at, due_at,
-                          priority, progress, points, milestone, doc_id, parent_id,
-                          kind, sprint_id, position, props, created_by, updated_by,
-                          repeat_rule, estimate_h)
-       VALUES ($1,$2,$19,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$18,$20,$21) RETURNING *`,
-      [
-        id, projectId,
-        withKey(claim[0].key, claim[0].task_seq, String(req.body?.title || '').slice(0, 500)),
-        status,
-        // The row's own column is filled from the list a moment later, by
-        // setAssignees; this keeps a single-assignee create working unchanged
-        // even if that write fails.
-        people[0] ?? null,
-        startAt.value, dueAt.value,
-        Number(req.body?.priority) || 0,
-        clampPct(req.body?.progress),
-        req.body?.points == null ? null : Number(req.body.points) || 0,
-        !!req.body?.milestone,
-        req.body?.docId || null,
-        parentId,
-        kind, sprintId,
-        pos[0].n, JSON.stringify(checked.value), req.user.id,
-        claim[0].task_seq,
-        isRepeatRule(req.body?.repeatRule) ? req.body.repeatRule : null,
-        readHours(req.body?.estimateH),
-      ]
-    );
-    emit('task.created', rows[0]);
-    // The template's body becomes the row's page. After the insert, because the
-    // page is a doc that has to point back at a task that exists — and not
-    // inside the transaction above, since createDocRow opens its own.
-    if (templateBody) {
-      await ensureTaskPage(id, req.user.id, createDocRow, templateBody)
-        .catch((err) => console.error('[template] page:', err.message));
-    }
-    const assignees = people;
-    // Rules that listen for a new row run before the response, so the client
-    // sees the task the rules left behind rather than the one it asked for and
-    // then a different one on the next refresh.
-    await fireTrigger({ task: rows[0], kind: 'created', actorId: req.user.id });
-    if (!assignees.length) {
-      // A task is created before it has a page, so there is nothing to preview yet.
-      const { rows: made } = await pool.query(`${TASK_SELECT} WHERE t.id = $1`, [id]);
-      return res.json(made[0] ?? { ...rows[0], deps: [], assignee_name: null, assignees: [], preview: null });
-    }
-    const added = await setAssignees(id, assignees);
-    if (added.length) await fireTrigger({ task: rows[0], kind: 'assigned', actorId: req.user.id });
-    notifyAssignees(rows[0], req.user, added)
-      .catch((err) => console.error('[notify] assign:', err.message));
-    // Read back rather than guessing the shape: the names come from users.
-    const { rows: full } = await pool.query(`${TASK_SELECT} WHERE t.id = $1`, [id]);
-    res.json(full[0] ?? { ...rows[0], deps: [], assignee_name: null, assignees: [], preview: null });
+    const made = await createTaskRow(req.body, req.user, { createDocRow });
+    if (made.error) return res.status(made.status).json({ error: made.error });
+    res.json(made.task);
   }));
 
   app.patch('/api/tasks/:id', requireUser, wrap(async (req, res) => {

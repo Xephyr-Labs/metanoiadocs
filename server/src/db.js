@@ -1114,6 +1114,26 @@ export async function initSchema() {
       EXECUTE FUNCTION record_task_due_change();
   `);
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_calendar_tokens (
+      user_id           TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      google_email      TEXT,
+      refresh_token_enc TEXT NOT NULL,
+      connected_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+
+  // One private notes page per person per event occurrence ("Start notes").
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS meeting_notes (
+      user_id    TEXT REFERENCES users(id) ON DELETE CASCADE,
+      event_id   TEXT NOT NULL,
+      doc_id     TEXT NOT NULL REFERENCES docs(id) ON DELETE CASCADE,
+      created_at TIMESTAMPTZ DEFAULT now(),
+      PRIMARY KEY (user_id, event_id)
+    );
+  `);
+
   await normalizeLegacyFolderImport();
   await relaxFavoritesKey();
   await seedTaskAssignees();
