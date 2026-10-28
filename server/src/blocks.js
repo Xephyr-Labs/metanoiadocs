@@ -970,7 +970,7 @@ function joinParts(parts) {
  * note, any note still beats none: a false return makes the caller rewrite the
  * whole body, which would throw away what the canvas holds.
  */
-function bodyNote(blocks) {
+export function bodyNote(blocks) {
   const isNote = (b) => b instanceof Y.Map && b.get('sys:flavour') === 'affine:note';
   const page = [...blocks.values()].find((b) => b instanceof Y.Map && b.get('sys:flavour') === 'affine:page');
   const kids = page?.get('sys:children');
