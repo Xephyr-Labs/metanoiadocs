@@ -1,6 +1,6 @@
 /* Hallmark · redesign inside Workbench (app chrome) · project tokens preserved
  * states: event button default · hover · focus-visible · active · declined (disabled-look, still opens) · loading (page) · error (page) */
-import { useLayoutEffect, useRef, useState, type PointerEvent } from 'react';
+import { useLayoutEffect, useRef, useState, type MouseEvent, type PointerEvent } from 'react';
 import { meetingTime, type CalendarEvent } from '../../lib/calendarEvents';
 import { allDayLanes, nowLineTop, positionTimed } from '../../lib/calendarLayout';
 import { cn } from '../../lib/cn';
@@ -61,20 +61,22 @@ export function CalendarGrid({ days, events, zone, today, now, onOpen, onCreate 
     el.scrollTop = (at / 60) * HOUR;
   }, [key]); // only when the visible days change, not every minute the now-line moves
 
-  // Press on an empty slot and drag to size a meeting; a click is half an hour. A touch that
-  // turns into a scroll is cancelled by the browser, so the grid still scrolls on a phone.
+  // Mouse or pen: press on an empty slot and drag to size a meeting; a click is half an hour.
+  // Touch: a tap (a click) is half an hour, and nothing starts on touch-down, so a finger that
+  // scrolls, or stops a momentum scroll, neither flashes a ghost block nor opens the dialog.
   const [drag, setDrag] = useState<{ day: string; from: number; to: number } | null>(null);
-  const snapAt = (ev: PointerEvent<HTMLDivElement>) => {
+  const snapAt = (ev: { clientY: number; currentTarget: HTMLElement }) => {
     const y = ev.clientY - ev.currentTarget.getBoundingClientRect().top;
     return Math.min(24 * 60 - SNAP, Math.max(0, Math.floor((y / HOUR) * 60 / SNAP) * SNAP));
   };
   const span = (d: { from: number; to: number }) => ({ start: Math.min(d.from, d.to), end: Math.max(d.from, d.to) + SNAP });
+  const lastPointer = useRef('');
   const slotHandlers = (day: string) => onCreate && {
     onPointerDown: (ev: PointerEvent<HTMLDivElement>) => {
-      if (ev.button !== 0 || ev.target !== ev.currentTarget) return; // a press on a meeting opens it instead
+      lastPointer.current = ev.pointerType;
+      if (ev.pointerType === 'touch' || ev.button !== 0 || ev.target !== ev.currentTarget) return; // a press on a meeting opens it instead
       const m = snapAt(ev);
-      // Mouse and pen only: a captured touch would stop the grid scrolling under the finger.
-      if (ev.pointerType !== 'touch') ev.currentTarget.setPointerCapture(ev.pointerId);
+      ev.currentTarget.setPointerCapture(ev.pointerId);
       setDrag({ day, from: m, to: m });
     },
     onPointerMove: (ev: PointerEvent<HTMLDivElement>) => {
@@ -87,6 +89,12 @@ export function CalendarGrid({ days, events, zone, today, now, onOpen, onCreate 
       onCreate({ day, minutes: start, endMinutes: end });
     },
     onPointerCancel: () => setDrag(null),
+    onClick: (ev: MouseEvent<HTMLDivElement>) => {
+      // Mouse and pen were handled on pointer-up.
+      if (lastPointer.current !== 'touch' || ev.target !== ev.currentTarget) return;
+      const m = snapAt(ev);
+      onCreate({ day, minutes: m, endMinutes: m + SNAP });
+    },
   };
 
   return (

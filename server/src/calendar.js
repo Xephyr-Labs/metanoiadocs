@@ -368,6 +368,8 @@ export function registerCalendarRoutes(app, {
       end: e.end?.dateTime || e.end?.date || null,
       allDay: !e.start?.dateTime && !!e.start?.date,
       meetLink: [e.hangoutLink, (e.conferenceData?.entryPoints || []).find((p) => p.entryPointType === 'video')?.uri].find(httpOnly) || null, // invitees control these; never pass javascript: etc.
+      // A Google Meet (which the editor may add or remove), as opposed to another app's video link.
+      hasMeet: typeof e.hangoutLink === 'string' || e.conferenceData?.conferenceSolution?.key?.type === 'hangoutsMeet',
       attendees: (e.attendees || []).map((a) => ({
         email: a.email || '', name: a.displayName || '', userId: byEmail.get(String(a.email || '').toLowerCase()) ?? null, self: !!a.self,
         response: responseOf(a),

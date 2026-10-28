@@ -70,6 +70,7 @@ export function CalendarPage() {
   const [users, setUsers] = useState<UserRow[]>([]);
   const names = useMemo(() => new Map(users.map((r) => [r.id, r.name || r.username])), [users]);
   const [editor, setEditor] = useState<EditorTarget | null>(null);
+  const [editorKey, setEditorKey] = useState(0);
   const seq = useRef(0);
 
   useEffect(() => {
@@ -94,7 +95,7 @@ export function CalendarPage() {
   useEffect(() => { setData(null); void load(); }, [load]);
 
   // Edit, New meeting and a click or drag on an empty slot all open the meeting editor; Edit swaps the card for it.
-  const openEditor = useCallback((target: EditorTarget) => { setOpenId(null); setEditor(target); }, []);
+  const openEditor = useCallback((target: EditorTarget) => { setOpenId(null); setEditorKey((k) => k + 1); setEditor(target); }, []);
 
   const events = data?.events ?? [];
   const open = useMemo(() => events.find((e) => e.id === openId) ?? null, [events, openId]);
@@ -216,7 +217,8 @@ export function CalendarPage() {
         onChanged={load}
         onEdit={(event) => openEditor({ event })}
       />
-      <MeetingDialog target={editor} zone={zone} users={users} meId={auth.user?.id} onClose={() => setEditor(null)} onSaved={load} />
+      {/* A new key per opening: the form starts from its target, never from the last one. */}
+      <MeetingDialog key={editorKey} target={editor} zone={zone} users={users} meId={auth.user?.id} onClose={() => setEditor(null)} onSaved={load} />
     </div>
   );
 }

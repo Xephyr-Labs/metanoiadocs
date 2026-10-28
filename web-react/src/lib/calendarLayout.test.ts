@@ -4,7 +4,7 @@ import type { CalendarEvent } from './calendarEvents';
 
 const ev = (id: string, start: string, end: string, allDay = false): CalendarEvent => ({
   id, title: id, start, end, allDay, meetLink: null, attendees: [], notesDocId: null, description: '', location: '',
-  organizerSelf: false, myResponse: null, recurringEventId: null, htmlLink: null,
+  hasMeet: false, organizerSelf: false, myResponse: null, recurringEventId: null, htmlLink: null,
 });
 
 describe('rangeFor', () => {

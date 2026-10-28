@@ -1,7 +1,7 @@
 /* Hallmark · redesign inside Workbench (app chrome) · project tokens preserved · pre-emit critique: P4 H4 E4 S4 R5 V3
  * states: fields default · hover (ring-line-strong) · focus (accent ring) · error (danger ring + line under the field) · disabled (while saving);
  * Save default · hover · focus-visible · active · disabled · loading ("Saving…") · success (toast, dialog closes) · error (alert line / Reconnect line) */
-import { useEffect, useId, useMemo, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useId, useMemo, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { X } from 'lucide-react';
 import {
   CalendarWriteError, createMeeting, isEmail, meetingForm, meetingRequest, newMeetingForm, updateMeeting,
@@ -16,6 +16,8 @@ import { Avatar } from '../ui/Avatar';
 import { Button } from '../ui/Button';
 import { Modal } from '../ui/Modal';
 import { Switch } from '../ui/Switch';
+import { useMediaQuery } from '../../hooks/useMediaQuery';
+import { addDays, daysBetween } from '../../lib/gantt';
 import { field } from '../ui/styles';
 import type { EditorTarget } from './CalendarPage';
 
@@ -47,7 +49,9 @@ function Field({ label, error, id, children, className }: { label: string; error
 export function MeetingDialog({ target, zone, users, meId, onClose, onSaved }: Props) {
   const ws = useWorkspace();
   const original = target && 'event' in target ? target.event : undefined;
-  const [form, setForm] = useState<MeetingForm>(() => newMeetingForm(null, zone));
+  // Mounted afresh for each target (CalendarPage keys it), so the last meeting never flashes.
+  const [form, setForm] = useState<MeetingForm>(() => (target && 'event' in target ? meetingForm(target.event, zone) : newMeetingForm(target?.slot ?? null, zone)));
+  const phone = useMediaQuery('(max-width: 767px)');
   const [errors, setErrors] = useState<MeetingErrors>({});
   const [error, setError] = useState<string | null>(null);
   const [needsWrite, setNeedsWrite] = useState(false);
@@ -55,12 +59,12 @@ export function MeetingDialog({ target, zone, users, meId, onClose, onSaved }: P
   const [query, setQuery] = useState('');
   const id = useId();
 
-  useEffect(() => {
-    if (!target) return;
-    setForm('event' in target ? meetingForm(target.event, zone) : newMeetingForm(target.slot, zone));
-    setErrors({}); setError(null); setNeedsWrite(false); setQuery('');
-  }, [target, zone]);
 
+  // A new start date carries the end date with it, so the meeting keeps its length.
+  const moveStart = (date: string) => {
+    setForm((f) => ({ ...f, date, endDate: date && f.date && f.endDate ? addDays(date, daysBetween(f.date, f.endDate)) : date }));
+    clear('date'); clear('end');
+  };
   const set = <K extends keyof MeetingForm>(k: K, v: MeetingForm[K]) => setForm((f) => ({ ...f, [k]: v }));
   const people = useMemo(() => users.filter((u) => u.kind !== 'agent' && u.id !== meId && u.email), [users, meId]);
   const byEmail = useMemo(() => new Map(people.map((u) => [u.email.toLowerCase(), u.name || u.username])), [people]);
@@ -141,7 +145,8 @@ export function MeetingDialog({ target, zone, users, meId, onClose, onSaved }: P
           <Field label="Title" id={`${id}-title`} error={errors.title}>
             <input
               id={`${id}-title`}
-              autoFocus
+              // On a phone the keyboard would cover the sheet as it rises.
+              autoFocus={!phone}
               value={form.title}
               maxLength={200}
               placeholder="What's it about?"
@@ -156,34 +161,31 @@ export function MeetingDialog({ target, zone, users, meId, onClose, onSaved }: P
               <Switch on={form.allDay} onChange={(v) => { set('allDay', v); clear('end'); }} label="All day" disabled={saving} />
               All day
             </label>
-            {form.allDay ? (
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="Starts" id={`${id}-date`} error={errors.date}>
-                  <input
-                    id={`${id}-date`} type="date" value={form.date} className={input} {...err('date')}
-                    onChange={(e) => setForm((f) => ({ ...f, date: e.target.value, endDate: f.endDate < e.target.value ? e.target.value : f.endDate }))}
-                  />
-                </Field>
-                <Field label="Ends" id={`${id}-end`} error={errors.end}>
-                  <input
-                    id={`${id}-end`} type="date" value={form.endDate} min={form.date} className={input} {...err('end')}
-                    onChange={(e) => { set('endDate', e.target.value); clear('end'); }}
-                  />
-                </Field>
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)]">
-                <Field label="Date" id={`${id}-date`} error={errors.date} className="col-span-2 sm:col-span-1">
-                  <input id={`${id}-date`} type="date" value={form.date} className={input} {...err('date')} onChange={(e) => { set('date', e.target.value); clear('date'); }} />
-                </Field>
-                <Field label="Start" id={`${id}-start`}>
+            {/* Start date · start time, then end date · end time (Google's shape), so a meeting
+                that crosses midnight or lasts days can still be moved. All day drops the times. */}
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Start date" id={`${id}-date`} error={errors.date}>
+                <input id={`${id}-date`} type="date" value={form.date} className={input} {...err('date')} onChange={(e) => moveStart(e.target.value)} />
+              </Field>
+              {!form.allDay && (
+                <Field label="Start time" id={`${id}-start`}>
                   <input id={`${id}-start`} type="time" step={300} value={form.start} className={input} onChange={(e) => { set('start', e.target.value); clear('end'); }} />
                 </Field>
-                <Field label="End" id={`${id}-end`} error={errors.end}>
+              )}
+              {/* All day: the end date carries the error, so it takes the id the error points at. */}
+              <Field label="End date" id={form.allDay ? `${id}-end` : `${id}-enddate`} error={form.allDay ? errors.end : undefined}>
+                <input
+                  id={form.allDay ? `${id}-end` : `${id}-enddate`} type="date" value={form.endDate} min={form.date} className={input}
+                  {...(form.allDay ? err('end') : {})}
+                  onChange={(e) => { set('endDate', e.target.value); clear('end'); }}
+                />
+              </Field>
+              {!form.allDay && (
+                <Field label="End time" id={`${id}-end`} error={errors.end}>
                   <input id={`${id}-end`} type="time" step={300} value={form.end} className={input} {...err('end')} onChange={(e) => { set('end', e.target.value); clear('end'); }} />
                 </Field>
-              </div>
-            )}
+              )}
+            </div>
           </div>
 
           <Field label="Guests" id={`${id}-attendees`} error={errors.attendees}>
@@ -265,10 +267,15 @@ export function MeetingDialog({ target, zone, users, meId, onClose, onSaved }: P
             />
           </Field>
 
-          <label className="flex w-fit cursor-pointer items-center gap-2 text-sm text-ink">
-            <Switch on={form.meet} onChange={(v) => set('meet', v)} label="Add Google Meet" disabled={saving} />
-            Add Google Meet
-          </label>
+          {original?.meetLink && !original.hasMeet ? (
+            // Another app's call (Zoom, Teams): not ours to remove, and Google won't add a Meet beside it.
+            <p className="text-xs text-muted">This meeting has its own video link.</p>
+          ) : (
+            <label className="flex w-fit cursor-pointer items-center gap-2 text-sm text-ink">
+              <Switch on={form.meet} onChange={(v) => set('meet', v)} label="Add Google Meet" disabled={saving} />
+              Add Google Meet
+            </label>
+          )}
         </fieldset>
 
         <div className="shrink-0 space-y-2.5 border-t border-line px-4 py-3">

@@ -52,7 +52,7 @@ import { meetingLabel, meetingTime, nextMeeting, orderMeetings, safeMeetLink, st
 
 const ev = (o: Partial<CalendarEvent>): CalendarEvent => ({
   id: 'x', title: 't', start: null, end: null, allDay: false, meetLink: null, attendees: [], notesDocId: null,
-  description: '', location: '', organizerSelf: false, myResponse: null, recurringEventId: null, htmlLink: null, ...o,
+  description: '', location: '', hasMeet: false, organizerSelf: false, myResponse: null, recurringEventId: null, htmlLink: null, ...o,
 });
 
 describe('meeting helpers', () => {
@@ -195,9 +195,11 @@ describe('meetingRequest', () => {
     const d = meetingRequest(base, 'Asia/Dhaka');
     expect('body' in d && d.body.start).toBe('2026-11-02T04:00:00.000Z');
   });
-  it('an end of 00:00 is midnight at the end of the day', () => {
-    const r = meetingRequest({ ...base, start: '23:00', end: '00:00' }, zone);
+  it('a timed meeting may end on a later day, up to 14 days on', () => {
+    const r = meetingRequest({ ...base, start: '23:00', end: '00:00', endDate: '2026-11-03' }, zone);
     expect('body' in r && r.body.end).toBe('2026-11-03T05:00:00.000Z');
+    expect(meetingRequest({ ...base, start: '23:00', end: '00:00' }, zone)).toHaveProperty('errors.end');
+    expect(meetingRequest({ ...base, endDate: '2026-11-17' }, zone)).toEqual({ errors: { end: 'A meeting can last at most 14 days.' } });
   });
   it('all day: dates with an exclusive end', () => {
     expect(meetingRequest({ ...base, allDay: true }, zone)).toMatchObject({ body: { allDay: true, start: '2026-11-02', end: '2026-11-03' } });
@@ -220,7 +222,7 @@ describe('meetingRequest', () => {
   describe('edit', () => {
     const original = ev({
       id: 'e1', title: 'Planning', start: '2026-11-02T15:00:00Z', end: '2026-11-02T15:30:00Z', organizerSelf: true,
-      description: 'Line one\nLine two', meetLink: 'https://meet.google.com/abc',
+      description: 'Line one\nLine two', meetLink: 'https://meet.google.com/abc', hasMeet: true,
       attendees: [
         { email: 'me@x.io', name: 'Me', userId: 'u0', self: true, response: 'accepted' },
         { email: 'ann@x.io', name: 'Ann', userId: 'u1', self: false, response: 'accepted' },
@@ -248,9 +250,29 @@ describe('meetingRequest', () => {
       expect(meetingRequest({ ...f, meet: false }, zone, original)).toEqual({ body: { meet: false } });
       expect(meetingRequest({ ...f, description: '' }, zone, original)).toEqual({ body: { description: '' } });
     });
-    it('a meeting that crosses midnight keeps its times when only the title changes', () => {
+    it('a meeting that crosses midnight keeps its times when only the title changes, and its times can be edited', () => {
       const late = ev({ title: 'Late', start: '2026-11-02T03:00:00Z', end: '2026-11-02T06:00:00Z' }); // 22:00 → 01:00 New York
-      expect(meetingRequest({ ...meetingForm(late, zone), title: 'Later' }, zone, late)).toEqual({ body: { title: 'Later' } });
+      const f = meetingForm(late, zone);
+      expect(f).toMatchObject({ date: '2026-11-01', endDate: '2026-11-02', start: '22:00', end: '01:00' });
+      expect(meetingRequest({ ...f, title: 'Later' }, zone, late)).toEqual({ body: { title: 'Later' } });
+      expect(meetingRequest({ ...f, end: '02:00' }, zone, late)).toEqual({ body: {
+        allDay: false, start: '2026-11-02T03:00:00.000Z', end: '2026-11-02T07:00:00.000Z',
+      } });
+    });
+    it('a timed meeting over two days round-trips', () => {
+      const two = ev({ title: 'Offsite', start: '2026-11-02T15:00:00Z', end: '2026-11-04T15:00:00Z' });
+      const f = meetingForm(two, zone);
+      expect(f).toMatchObject({ date: '2026-11-02', endDate: '2026-11-04', start: '10:00', end: '10:00' });
+      expect(meetingRequest(f, zone, two)).toEqual({ body: {} });
+      expect(meetingRequest({ ...f, start: '09:00' }, zone, two)).toEqual({ body: {
+        allDay: false, start: '2026-11-02T14:00:00.000Z', end: '2026-11-04T15:00:00.000Z',
+      } });
+    });
+    it('another app\'s video link is not a Meet: nothing to remove', () => {
+      const zoom = ev({ title: 'Zoom call', start: '2026-11-02T15:00:00Z', end: '2026-11-02T16:00:00Z', meetLink: 'https://zoom.us/j/1', hasMeet: false });
+      const f = meetingForm(zoom, zone);
+      expect(f.meet).toBe(false);
+      expect(meetingRequest({ ...f, title: 'Zoom' }, zone, zoom)).toEqual({ body: { title: 'Zoom' } });
     });
   });
 });

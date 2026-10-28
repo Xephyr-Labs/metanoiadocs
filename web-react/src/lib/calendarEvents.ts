@@ -8,7 +8,9 @@ export interface CalendarEvent {
   id: string; title: string; start: string | null; end: string | null; allDay: boolean;
   meetLink: string | null; attendees: CalendarAttendee[]; notesDocId: string | null;
   /** Plain text (the server strips Google's HTML); render as text only. */
-  description: string; location: string; organizerSelf: boolean; myResponse: CalendarResponse | null;
+  description: string; location: string;
+  /** A Google Meet the organiser may remove; `meetLink` without it is another app's video link. */
+  hasMeet: boolean; organizerSelf: boolean; myResponse: CalendarResponse | null;
   recurringEventId: string | null; htmlLink: string | null;
 }
 /** `connected` is absent when the fetch itself failed: the status decides then. */
@@ -143,9 +145,9 @@ export function linkParts(text: string): { text: string; href?: string }[] {
 /** What the meeting dialog holds. Times are wall clock in the person's profile zone. */
 export interface MeetingForm {
   title: string; allDay: boolean;
-  /** The day it starts; `endDate` (all-day only) is the last day, inclusive. */
+  /** The day it starts and the day it ends (all day: the last day, inclusive). */
   date: string; endDate: string;
-  /** 'HH:MM'; an end of '00:00' is midnight at the end of `date`. */
+  /** 'HH:MM' on `date` and on `endDate`. */
   start: string; end: string;
   /** Guests other than you, by email: teammates picked and addresses typed alike. */
   attendees: string[]; description: string; meet: boolean;
@@ -166,8 +168,9 @@ export function newMeetingForm(slot: { day: string; minutes: number | null; endM
   const day = slot?.day ?? w.day;
   const at = slot ? slot.minutes : Math.min(23 * 60 + 30, Math.ceil((w.minutes + 1) / 30) * 30);
   const start = at ?? 9 * 60;
+  const end = slot?.endMinutes ?? start + 30;
   return {
-    title: '', allDay: at === null, date: day, endDate: day, start: hhmm(start), end: hhmm(slot?.endMinutes ?? start + 30),
+    title: '', allDay: at === null, date: day, endDate: end >= 24 * 60 ? addDays(day, 1) : day, start: hhmm(start), end: hhmm(end),
     attendees: [], description: '', meet: false,
   };
 }
@@ -178,15 +181,15 @@ export function meetingForm(e: CalendarEvent, zone: string): MeetingForm {
   const day = e.allDay ? (e.start ?? '').slice(0, 10) : at(e.start).day;
   return {
     title: e.title, allDay: e.allDay, date: day,
-    endDate: e.allDay && e.end ? addDays(e.end.slice(0, 10), -1) : day,
+    endDate: e.allDay ? (e.end ? addDays(e.end.slice(0, 10), -1) : day) : e.end ? at(e.end).day : day,
     start: e.allDay ? '09:00' : hhmm(at(e.start).minutes), end: e.allDay ? '09:30' : hhmm(at(e.end).minutes),
     attendees: e.attendees.filter((a) => !a.self && a.email).map((a) => a.email.toLowerCase()),
-    description: e.description, meet: !!e.meetLink,
+    description: e.description, meet: !!e.hasMeet,
   };
 }
 
-const sameTimes = (a: MeetingForm, b: MeetingForm) => a.allDay === b.allDay && a.date === b.date
-  && (a.allDay ? a.endDate === b.endDate : a.start === b.start && a.end === b.end);
+const sameTimes = (a: MeetingForm, b: MeetingForm) => a.allDay === b.allDay && a.date === b.date && a.endDate === b.endDate
+  && (a.allDay || (a.start === b.start && a.end === b.end));
 
 /**
  * The form → what the create (no `original`) or edit route takes, or the errors to show by field.
@@ -213,12 +216,12 @@ export function meetingRequest(f: MeetingForm, zone: string, original?: Calendar
       else Object.assign(body, { allDay: true, start: f.date, end: addDays(f.endDate, 1) });
     } else {
       const s = minutesOf(f.start);
-      const e = minutesOf(f.end) || (f.end === '00:00' ? 24 * 60 : NaN);
-      if (Number.isNaN(s) || Number.isNaN(e) || e <= s) errors.end = 'The end must be after the start.';
-      else {
-        const iso = (m: number) => new Date(wallInstant(f.date, m, zone)).toISOString();
-        Object.assign(body, { allDay: false, start: iso(s), end: iso(e) });
-      }
+      const e = minutesOf(f.end);
+      const from = wallInstant(f.date, s, zone);
+      const to = DATE.test(f.endDate) ? wallInstant(f.endDate, e, zone) : NaN;
+      if (!(to > from)) errors.end = 'The end must be after the start.';
+      else if (to - from > 14 * 86_400_000) errors.end = 'A meeting can last at most 14 days.';
+      else Object.assign(body, { allDay: false, start: new Date(from).toISOString(), end: new Date(to).toISOString() });
     }
   }
 

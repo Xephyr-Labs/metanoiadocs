@@ -512,6 +512,17 @@ test('events: meetLink keeps only http(s) URLs', async () => {
   assert.deepEqual(out.events.map((e) => e.meetLink), [null, 'https://v/2', null]);
 });
 
+test('events: hasMeet only for a Google Meet, not another app\'s video link', async () => {
+  const items = [
+    ev({ id: 'a', hangoutLink: 'https://meet.google.com/abc' }),
+    ev({ id: 'b', conferenceData: { conferenceSolution: { key: { type: 'hangoutsMeet' } }, entryPoints: [{ entryPointType: 'video', uri: 'https://meet.google.com/x' }] } }),
+    ev({ id: 'c', conferenceData: { conferenceSolution: { key: { type: 'addOn' } }, entryPoints: [{ entryPointType: 'video', uri: 'https://zoom.us/j/1' }] } }),
+    ev({ id: 'd' }),
+  ];
+  const out = await evSetup({ items })({ id: 'u1' });
+  assert.deepEqual(out.events.map((e) => e.hasMeet), [true, true, false, false]);
+});
+
 /* ---- any range ---- */
 const gq = (calls) => calls.filter((c) => c.url.includes('/calendar/v3')).map((c) => new URL(c.url).searchParams);
 
