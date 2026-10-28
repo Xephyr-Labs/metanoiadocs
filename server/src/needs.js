@@ -37,9 +37,9 @@ const REVIEW_SQL = (space) => `
     JOIN users u ON u.id = s.author_id
    WHERE s.status = 'submitted'
      AND d.deleted_at IS NULL AND ${VISIBLE} AND ${IN_SPACE('d.space_id', 2, space)}
-     -- An AI draft is decided by its one approver, even when that is its author
-     -- (Ask AI drafts as me, for me); a person's draft by anyone else who can edit.
-     AND (s.approver_id = $1 OR (s.author_id <> $1 AND s.approver_id IS NULL AND s.writer_via IS NULL AND ${EDITOR}))
+     -- A draft with an approver is theirs, even when that is its author (Ask AI
+     -- drafts as me, for me); any other (a person's, an agent's) anyone else who can edit.
+     AND (s.approver_id = $1 OR (s.author_id <> $1 AND s.approver_id IS NULL AND ${EDITOR}))
    ORDER BY s.submitted_at DESC NULLS LAST
    LIMIT ${LIMIT}`;
 

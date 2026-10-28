@@ -45,7 +45,7 @@ const P4 = 'Fourth paragraph about figs.';
 const P5 = 'Fifth paragraph about limes.';
 const body = (p3) => [P1, P2, p3, P4, P5].join('\n\n');
 const md = async (id) => (await admin.get(`/api/docs/${id}/markdown`)).markdown;
-const write = (c, id, markdown, onBehalfOf) => c.raw('POST', `/api/docs/${id}/content`, { markdown, mode: 'replace' }, onBehalfOf ? { 'X-On-Behalf-Of': onBehalfOf } : {});
+const write = (c, id, markdown) => c.raw('POST', `/api/docs/${id}/content`, { markdown, mode: 'replace' });
 
 let users; let page; let untrustedTok; let trustedTok; let sid; let untrustedId;
 
@@ -75,10 +75,10 @@ await step('seed', async () => {
 
 await step('1 untrusted write is a suggestion', async () => {
   const changed = 'Third paragraph about cherries.';
-  const w = await write(untrustedTok, page, body(changed), 'farhanaj');
+  const w = await write(untrustedTok, page, body(changed));
   sid = w.json.suggestionId;
   check('1 write answers suggested:true with an id and review url', w.status === 200 && w.json.suggested === true && !!sid && /review=/.test(w.json.reviewUrl || ''), `${w.status} ${JSON.stringify(w.json).slice(0, 250)}`);
-  check('1 approver is Farhanaj', /farhanaj/i.test(w.json.approverName || ''), w.json.approverName);
+  check('1 no named approver: any editor reviews', w.json.approverName == null, w.json.approverName);
   check('1 live page unchanged', (await md(page)).includes('plums') && !(await md(page)).includes('cherries'));
   const rv = await farhanaj.get(`/api/suggestions/${sid}`);
   check('1 review shows exactly 1 change, canReview', rv.changes?.length === 1 && rv.canReview === true, JSON.stringify(rv).slice(0, 300));
@@ -129,20 +129,26 @@ await step('4 accept', async () => {
 });
 
 await step('5 trusted token writes directly', async () => {
-  const w = await write(trustedTok, page, body('Third paragraph about dates.'), 'farhanaj');
+  const w = await write(trustedTok, page, body('Third paragraph about dates.'));
   check('5 trusted write applied, no draft', w.status === 200 && !w.json.suggested && (await md(page)).includes('dates'), `${w.status} ${JSON.stringify(w.json)}`);
   check('5 no open draft rows', sql(`SELECT count(*) FROM doc_suggestions WHERE doc_id = '${page}' AND status <> 'closed'`) === '0');
 });
 
-await step('6 onBehalfOf a viewer falls back to the owner', async () => {
-  const w = await write(untrustedTok, page, body('Third paragraph about kiwis.'), 'viewer');
-  check('6 approver is the owner (Maya)', w.json.suggested === true && /maya/i.test(w.json.approverName || ''), `${w.status} ${JSON.stringify(w.json).slice(0, 250)}`);
+await step('6 the page owner can review an agent edit too', async () => {
+  const w = await write(untrustedTok, page, body('Third paragraph about kiwis.'));
+  const rv = await admin.get(`/api/suggestions/${w.json.suggestionId}`);
+  check('6 Maya (owner) canReview', w.json.suggested === true && rv.canReview === true, `${w.status} ${JSON.stringify(rv).slice(0, 200)}`);
 });
 
-await step('7 agent-owned page, no approver', async () => {
-  const own = (await trustedTok.post('/api/docs', { title: 'Andy page', content: 'one\n\ntwo' })).id;
+await step('7 agent-owned page shared with a person', async () => {
+  const own = (await trustedTok.post('/api/docs', { title: 'Andy page', content: 'one\n\ntwo', visibility: 'private' })).id;
+  await trustedTok.post(`/api/docs/${own}/share`, { email: 'farhanaj@example.com', role: 'editor' });
   const w = await write(untrustedTok, own, 'one\n\nthree');
-  check('7 untrusted write to own page with no X-On-Behalf-Of -> 409', w.status === 409, `${w.status} ${JSON.stringify(w.json)}`);
+  check('7 untrusted write to its own page is a suggestion', w.status === 200 && w.json.suggested === true, `${w.status} ${JSON.stringify(w.json)}`);
+  const rv = await farhanaj.get(`/api/suggestions/${w.json.suggestionId}`);
+  check('7 the editor (Farhanaj) can review it', rv.canReview === true, JSON.stringify(rv).slice(0, 200));
+  const inbox = await farhanaj.get('/api/inbox');
+  check('7 Farhanaj was told', inbox.some((n) => n.kind === 'ai_suggestion' && n.suggestion_id === w.json.suggestionId), JSON.stringify(inbox.map((n) => n.kind)));
 });
 
 await step('8 an admin agent cannot switch approval off', async () => {

@@ -201,11 +201,16 @@ test('a lossy replace is refused before an approver is asked or a draft is made'
   assert.equal(w.rows.length, 0);
 });
 
-test('a page nobody can approve refuses the write and makes no draft', async () => {
+test('an agent edit with no approver still lands as a draft, for any editor, and says so', async () => {
   const w = world();
-  const out = await edit(w, { approver: async () => null });
-  assert.deepEqual(out, { status: 409, body: { error: 'No one can approve edits to this page.' } });
-  assert.equal(w.rows.length, 0);
+  const notes = [];
+  const out = await edit(w, { approver: async () => null, notify: async (n) => { notes.push(n); } });
+  assert.equal(out.status, 200);
+  assert.equal(out.body.suggested, true);
+  assert.equal(out.body.approverName, null);
+  assert.equal(w.rows.length, 1);
+  assert.equal(w.rows[0].approver_id, null);
+  assert.deepEqual(notes, [{ userId: null, kind: 'ai_suggestion', docId: 'd1', suggestionId: out.body.suggestionId }]);
 });
 
 test('a page the draft cannot write a body into is refused, not a server error', async () => {
@@ -220,7 +225,7 @@ test('draftToRead: exact draft first; else the single open AI draft by this call
   assert.equal(await draftToRead({ ...key, approverId: 'farhanaj' }), null);
   const { sid } = await w.write({ approverId: 'farhanaj' });
   assert.equal((await draftToRead({ ...key, approverId: 'farhanaj' })).id, sid);
-  // read_doc without onBehalfOf resolves to the owner: still sees the pending work
+  // a draft made for a named approver is still read when the caller now names none
   assert.equal((await draftToRead({ ...key, approverId: 'owner' })).id, sid);
   assert.equal((await draftToRead({ ...key, approverId: null })).id, sid);
   // someone else's draft is never picked

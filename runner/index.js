@@ -10,7 +10,7 @@
 // and a coding CLI already on it should be the whole install.
 import { spawn } from 'node:child_process';
 import process from 'node:process';
-import { buildPrompt, requesterOf } from './prompt.js';
+import { buildPrompt } from './prompt.js';
 
 /**
  * How each supported CLI is started for unattended work. The prompt goes in on
@@ -105,13 +105,10 @@ const api = async (path, init = {}) => {
 
 /** Run the CLI on one prompt. Resolves with what it printed and how it ended —
  *  a non-zero exit is an outcome to report, not an exception to throw. */
-function runCli(prompt, onBehalfOf) {
+function runCli(prompt) {
   return new Promise((resolve) => {
     const [cmd, ...argv] = program();
-    // The metanoiadocs MCP server the CLI starts reads this, so the person who
-    // queued the run reviews the edits it makes.
-    const env = onBehalfOf ? { ...process.env, METANOIA_ON_BEHALF_OF: onBehalfOf } : process.env;
-    const child = spawn(cmd, argv, { cwd: config.cwd, stdio: ['pipe', 'pipe', 'pipe'], env });
+    const child = spawn(cmd, argv, { cwd: config.cwd, stdio: ['pipe', 'pipe', 'pipe'] });
     let out = '';
     let err = '';
     const timer = setTimeout(() => {
@@ -163,7 +160,7 @@ async function main() {
     }
 
     console.log(`\n[runner] run ${run.id} — ${run.task?.title || run.trigger}`);
-    const { ok, out, err } = await runCli(buildPrompt(run), requesterOf(run));
+    const { ok, out, err } = await runCli(buildPrompt(run));
     try {
       await api(`/agent/runs/${run.id}/result`, {
         method: 'POST',

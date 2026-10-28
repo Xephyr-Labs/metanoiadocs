@@ -1100,7 +1100,7 @@ app.get('/api/docs/:id/markdown', requireUser, wrap(async (req, res) => {
   // read-change-replace builds on what it already proposed.
   let pendingSuggestion;
   if (writePolicy({ user: req.user, via: req.via, token: req.token }) === 'suggest') {
-    const who = await approverFor(req, req.params.id);
+    const who = await approverFor(req);
     const draft = await draftToRead({
       pool, docId: req.params.id, authorId: req.user.id, approverId: who?.id, writerVia: req.via === 'ai' ? 'ai' : 'agent',
     });
@@ -1130,22 +1130,22 @@ app.get('/api/docs/:id/markdown', requireUser, wrap(async (req, res) => {
   res.json({ id: req.params.id, title: d.rows[0].title, markdown, ...(lossy.length ? { lossy } : {}), ...(pendingSuggestion ? { pendingSuggestion } : {}), editors });
 }));
 
-/** Who reviews this caller's AI edits on a page, as { id, name }; null when nobody can. */
-async function approverFor(req, docId) {
-  const id = await resolveApprover({
-    via: req.via, user: req.user, onBehalfOf: req.get('X-On-Behalf-Of'), docId,
-    lookupMember: async (who) => (await pool.query(
-      `SELECT id, kind FROM users WHERE lower(email) = lower($1) OR lower(username) = lower($1)
-        ORDER BY lower(email) = lower($1) DESC LIMIT 1`, [who])).rows[0] ?? null,
-    roleOn: grantOn,
-    // An agent that made the page owns it, but never reviews its own kind's edits.
-    ownerOf: async (doc) => (await pool.query(
-      `SELECT a.user_id FROM doc_access a JOIN users u ON u.id = a.user_id
-        WHERE a.doc_id = $1 AND a.role = 'owner' AND u.kind <> 'agent' LIMIT 1`, [doc])).rows[0]?.user_id ?? null,
-  });
+/** Who reviews this caller's AI edits on a page, as { id, name }; null when anyone who can edit may. */
+async function approverFor(req) {
+  const id = resolveApprover({ via: req.via, user: req.user });
   if (!id) return null;
   const { rows: [u] } = await pool.query('SELECT name, email FROM users WHERE id = $1', [id]);
-  return { id, name: u?.name || u?.email || 'the page owner' };
+  return { id, name: u?.name || u?.email || 'you' };
+}
+
+/** The people (not agents) granted edit on a page, but the writer: told when an agent's draft waits for one of them. */
+async function pageEditors(docId, exceptId) {
+  // ponytail: explicit page grants only; workspace/space-wide editors still see it in Home's "Needs you".
+  const { rows } = await pool.query(
+    `SELECT DISTINCT a.user_id FROM doc_access a JOIN users u ON u.id = a.user_id
+      WHERE a.doc_id = $1 AND a.role IN ('owner', 'editor') AND u.kind <> 'agent' AND a.user_id <> $2`,
+    [docId, exceptId]);
+  return rows.map((r) => r.user_id);
 }
 
 // ── export ──────────────────────────────────────────────────────────────────
@@ -1261,9 +1261,11 @@ app.post('/api/docs/:id/content', requireUser, wrap(async (req, res) => {
   // person to review, never on the page (see ai-drafts.js).
   const drafted = await draftEdit({
     policy: writePolicy({ user: req.user, via: req.via, token: req.token }), kind: d.rows[0].kind, via: req.via,
-    pageState: pageStateFrom(pool, () => hocuspocus), approver: () => approverFor(req, docId),
+    pageState: pageStateFrom(pool, () => hocuspocus), approver: () => approverFor(req),
     pool, hocuspocus, docId, title: d.rows[0].title, authorId: req.user.id, markdown, mode, resolve,
-    notify: (n) => notifyUser({ ...n, actor: req.user }),
+    notify: async (n) => {
+      for (const userId of n.userId ? [n.userId] : await pageEditors(docId, req.user.id)) await notifyUser({ ...n, userId, actor: req.user });
+    },
   });
   if (drafted) return res.status(drafted.status).json(drafted.body);
 

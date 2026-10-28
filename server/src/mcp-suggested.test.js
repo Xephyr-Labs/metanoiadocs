@@ -21,15 +21,16 @@ async function call(name, args, data) {
   }
 }
 
-test('write_doc and read_doc say who asked, keeping the caller\'s auth', async () => {
-  const w = await call('write_doc', { id: 'd1', markdown: 'x', onBehalfOf: 'ada@x.io' }, { ok: true });
-  assert.equal(w.seen[0].headers['X-On-Behalf-Of'], 'ada@x.io');
+test('write_doc keeps the caller\'s auth and names no reviewer', async () => {
+  const w = await call('write_doc', { id: 'd1', markdown: 'x' }, { ok: true });
   assert.equal(w.seen[0].headers.Authorization, 'Bearer t');
+  assert.equal('X-On-Behalf-Of' in w.seen[0].headers, false);
   assert.equal(w.text, 'Done.');
-  const r = await call('read_doc', { id: 'd1', onBehalfOf: 'ada' }, { markdown: '' });
-  assert.equal(r.seen[0].headers['X-On-Behalf-Of'], 'ada');
-  const none = await call('read_doc', { id: 'd1' }, { markdown: '' });
-  assert.equal('X-On-Behalf-Of' in none.seen[0].headers, false);
+});
+
+test('a suggestion with no named approver is for anyone who can edit the page', () => {
+  assert.equal(suggestedMessage({ changes: 2, approverName: null, reviewUrl: '/d/d1?review=s1' }, 'https://h'),
+    'Suggested 2 changes for anyone who can edit the page to review: https://h/d/d1?review=s1');
 });
 
 test('a suggested write_doc names the reviewer and links to the review', async () => {

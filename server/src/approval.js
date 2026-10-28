@@ -35,26 +35,10 @@ export const canEdit = (role) => rankOf(role) >= ROLE_RANK.editor;
 export const pageSyncRole = (role, user) => (role && user?.kind === 'agent' && canEdit(role) ? 'commenter' : role);
 
 /**
- * Who reviews an AI/agent edit: the signed-in person for Ask AI; for an agent,
- * the person it names in onBehalfOf if they are a non-agent member who can edit
- * the page, else the page owner. Null when there is no owner (Task 6: no one can approve).
+ * Who reviews an AI/agent edit: the signed-in person for Ask AI (they asked for
+ * it); null for an agent, whose edits wait for anyone who can edit the page.
  */
-export async function resolveApprover({ via, user, onBehalfOf, docId, lookupMember, roleOn, ownerOf }) {
-  // Ask AI reviews go to the signed-in person; an agent there could never use one.
-  if (via === 'ai') return user.kind === 'agent' ? null : user.id;
-  const who = typeof onBehalfOf === 'string' ? onBehalfOf.trim() : '';
-  let id = null;
-  if (who) {
-    const m = await lookupMember(who);
-    if (m && m.kind !== 'agent') {
-      const role = await roleOn(docId, m.id);
-      if (role && canEdit(role)) id = m.id;
-    }
-  }
-  id ??= (await ownerOf(docId)) ?? null;
-  // A writer never approves its own edit (an agent that owns the page it wrote).
-  return id === user.id ? null : id;
-}
+export const resolveApprover = ({ via, user }) => (via === 'ai' && user.kind !== 'agent' ? user.id : null);
 
 /** Admin mints an API token for an agent account. Never for a person: that would be impersonation. */
 export const mintAgentToken = (pool, hash) => async (req, res) => {
