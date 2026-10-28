@@ -11,6 +11,8 @@ export interface CalendarStatus {
   available: boolean;
   connected: boolean;
   email: string | null;
+  /** The grant includes write access (calendar.events); false for read-only grants. */
+  canWrite?: boolean;
 }
 
 async function req(path: string, opts: RequestInit = {}): Promise<any> {

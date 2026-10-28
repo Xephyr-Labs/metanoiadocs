@@ -43,7 +43,9 @@ export async function calendarConfig({ get = getSetting, env = process.env } = {
   };
 }
 
-export const CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar.events.readonly';
+// Asked for on every connect; people may still grant only the read-only one (older grants are read-only).
+export const CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar.events';
+export const READONLY_SCOPE = 'https://www.googleapis.com/auth/calendar.events.readonly';
 export const SCOPES = `openid email ${CALENDAR_SCOPE}`;
 const STATE_TTL = 10 * 60 * 1000;
 
@@ -97,9 +99,9 @@ export function registerCalendarRoutes(app, {
 
   app.get('/api/calendar/status', requireUser, wrap(async (req, res) => {
     const c = await cfg();
-    if (!c.ready) return res.json({ available: false, connected: false, email: null });
-    const { rows } = await pool.query('SELECT google_email FROM user_calendar_tokens WHERE user_id = $1', [req.user.id]);
-    res.json({ available: true, connected: !!rows[0], email: rows[0]?.google_email || null });
+    if (!c.ready) return res.json({ available: false, connected: false, email: null, canWrite: false });
+    const { rows } = await pool.query('SELECT google_email, can_write FROM user_calendar_tokens WHERE user_id = $1', [req.user.id]);
+    res.json({ available: true, connected: !!rows[0], email: rows[0]?.google_email || null, canWrite: !!rows[0]?.can_write });
   }));
 
   // Bumped whenever a user's connection changes, so a refresh that was in flight
@@ -159,13 +161,17 @@ export function registerCalendarRoutes(app, {
     if (!tok) return fail();
     if (!tok.refresh_token) return fail('reconsent');
     // Granular consent lets people untick the calendar box and still get a token.
-    if (!String(tok.scope || '').split(' ').includes(CALENDAR_SCOPE)) return fail('scope');
+    // Exact tokens: `calendar.events.readonly` must not pass for `calendar.events`.
+    const granted = String(tok.scope || '').split(/\s+/);
+    const canWrite = granted.includes(CALENDAR_SCOPE);
+    if (!canWrite && !granted.includes(READONLY_SCOPE)) return fail('scope');
     // No revoke of a replaced token: Google revokes the whole grant, which would kill the new token too.
     try {
       await pool.query(
-        `INSERT INTO user_calendar_tokens (user_id, google_email, refresh_token_enc, connected_at) VALUES ($1, $2, $3, now())
-         ON CONFLICT (user_id) DO UPDATE SET google_email = EXCLUDED.google_email, refresh_token_enc = EXCLUDED.refresh_token_enc, connected_at = now()`,
-        [req.user.id, emailFromIdToken(tok.id_token), encryptToken(tok.refresh_token, tokenKey(env))],
+        `INSERT INTO user_calendar_tokens (user_id, google_email, refresh_token_enc, can_write, connected_at) VALUES ($1, $2, $3, $4, now())
+         ON CONFLICT (user_id) DO UPDATE SET google_email = EXCLUDED.google_email, refresh_token_enc = EXCLUDED.refresh_token_enc,
+           can_write = EXCLUDED.can_write, connected_at = now()`,
+        [req.user.id, emailFromIdToken(tok.id_token), encryptToken(tok.refresh_token, tokenKey(env)), canWrite],
       );
     } catch { return fail(); }
     forget(req.user.id);
@@ -224,19 +230,39 @@ export function registerCalendarRoutes(app, {
     return new Map(rows.map((r) => [r.event_id, r.doc_id]));
   }
 
-  /** GET on the person's Google calendar API: the Response, or { reconnect: true }. One retry on a 401 with a fresh token. */
-  async function googleGet(uid, path) {
+  /** A call on the person's Google calendar API: the Response, or { reconnect: true }. One retry on a 401 with a fresh token. */
+  async function googleCall(uid, path, { method, body } = {}) {
     let r;
     for (let attempt = 0; attempt < 2; attempt++) {
       const tok = await accessTokenFor(uid);
       if (!tok.token) return { reconnect: true };
-      r = await f(`${apiBase()}${path}`, { headers: { Authorization: `Bearer ${tok.token}` } });
+      const headers = { Authorization: `Bearer ${tok.token}` };
+      if (body !== undefined) headers['Content-Type'] = 'application/json';
+      r = await f(`${apiBase()}${path}`, method ? { method, headers, body: body === undefined ? undefined : JSON.stringify(body) } : { headers });
       if (r.status !== 401) return r;
       accessCache.delete(uid);
     }
     // A fresh token refused too: the grant is dead, so Settings must show Connect as well.
     await drop(uid);
     return { reconnect: true };
+  }
+
+  const googleGet = (uid, path) => googleCall(uid, path);
+
+  const SCOPE_REASONS = ['insufficientPermissions', 'ACCESS_TOKEN_SCOPE_INSUFFICIENT'];
+  /**
+   * A write on the person's calendar: the Response, { reconnect: true }, or { needsWrite: true } when the
+   * grant lacks write scope (can_write is then cleared). Other 403s (e.g. not the organiser) come back as-is.
+   */
+  async function googleSend(uid, method, path, body) {
+    const r = await googleCall(uid, path, { method, body });
+    if (r.reconnect || r.status !== 403) return r;
+    const e = (await r.clone().json().catch(() => null))?.error || {};
+    const reasons = [...(e.errors || []), ...(e.details || [])].map((x) => x?.reason).filter(Boolean);
+    // PERMISSION_DENIED alone is also how other refusals look, so it counts only when Google names no reason.
+    if (!reasons.some((x) => SCOPE_REASONS.includes(x)) && !(e.status === 'PERMISSION_DENIED' && !reasons.length)) return r;
+    await pool.query('UPDATE user_calendar_tokens SET can_write = false WHERE user_id = $1', [uid]);
+    return { needsWrite: true };
   }
 
   /** One event on the person's own calendar: { event }, { reconnect: true } or { missing: true } (gone, cancelled, or never theirs). */
@@ -297,5 +323,5 @@ export function registerCalendarRoutes(app, {
     res.json({ connected: true, events });
   }));
 
-  return { accessTokenFor, fetchEvent, calendarReady: async () => (await cfg()).ready };
+  return { accessTokenFor, fetchEvent, googleSend, calendarReady: async () => (await cfg()).ready };
 }
