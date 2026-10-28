@@ -47,6 +47,7 @@ import { docCommentRecipients } from './comment-recipients.js';
 import { buildDocState, appendMarkdownToDoc, appendPageReference, extractText, extractBlocks, docToMarkdown, fixTableOrderKeys, stateWithValidTableKeys, linkResolver, linkLabeler, pageLinksOf, lossyBlocks } from './blocks.js';
 import { rewriteDoc } from './restore.js';
 import { registerCalendarRoutes } from './calendar.js';
+import { registerMeetingNotesRoutes } from './meeting-notes.js';
 import { registerDocOpenRoutes } from './doc-opens.js';
 import { applyTextSuggestion, draftName, pageStateFrom, parseDraftName, registerSuggestionRoutes } from './suggestions.js';
 import { registerReactionRoutes, withReactions } from './reactions.js';
@@ -3411,7 +3412,11 @@ registerCsvRoutes(app, {
 startWebhookWorker();
 registerAgentRoutes(app, { requireUser, wrap, createDocRow });
 registerAutomationRoutes(app, { requireUser, wrap });
-registerCalendarRoutes(app, { requireUser, requireAdmin, needsPerson, wrap, pool, baseUrl: BASE_URL });
+const calendar = registerCalendarRoutes(app, { requireUser, requireAdmin, needsPerson, wrap, pool, baseUrl: BASE_URL });
+registerMeetingNotesRoutes(app, {
+  requireUser, needsPerson, wrap, pool, createDocRow, grantOn, baseUrl: BASE_URL,
+  fetchEvent: calendar.fetchEvent, calendarReady: calendar.calendarReady,
+});
 registerDocOpenRoutes(app, { requireUser, wrap, pool, grantOn });
 registerSuggestionRoutes(app, {
   requireUser, wrap, pool, grantOn, canEdit, canSuggest, notifyUser, recordDocEditors,

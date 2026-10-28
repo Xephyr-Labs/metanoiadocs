@@ -437,3 +437,47 @@ test('events: a 401 refreshes the token once, then reconnect', async () => {
   const out = await evSetup({ eventStatuses: [401] })({ id: 'u1' });
   assert.deepEqual(out, { connected: true, reconnect: true, events: [] });
 });
+
+test('events: notesDocId is the caller\'s own live notes page', async () => {
+  const routes = {}; const seen = [];
+  const app = { get: (p, ...h) => { routes['GET ' + p] = h[h.length - 1]; }, put() {}, delete() {} };
+  const enc = encryptToken('refresh-1', key);
+  const pool = { query: async (sql, args) => {
+    if (/FROM user_calendar_tokens/.test(sql)) return { rows: [{ refresh_token_enc: enc }] };
+    if (/FROM meeting_notes/.test(sql)) { seen.push({ sql, args }); return { rows: [{ event_id: 'e1', doc_id: 'd1' }] }; }
+    return { rows: [] };
+  } };
+  const fetch = async (url) => (String(url).includes('/token')
+    ? { ok: true, status: 200, json: async () => ({ access_token: 'at', expires_in: 3600 }) }
+    : { ok: true, status: 200, json: async () => ({ items: [ev({}), ev({ id: 'e2' })] }) });
+  registerCalendarRoutes(app, {
+    requireUser, requireAdmin, needsPerson, wrap: (f) => f, pool, env: { CALENDAR_TOKEN_KEY: KEY_ENV },
+    get: async () => good, set: async () => {}, fetch, now: () => Date.parse('2026-10-28T20:00:00Z'),
+  });
+  let out; await routes['GET /api/calendar/events']({ user: { id: 'u1' }, query: {} }, { json: (v) => { out = v; } });
+  assert.deepEqual(out.events.map((e) => e.notesDocId), ['d1', null]);
+  assert.deepEqual(seen[0].args, ['u1', ['e1', 'e2']]);
+  assert.match(seen[0].sql, /m\.user_id = \$1/);
+  assert.match(seen[0].sql, /deleted_at IS NULL/);
+});
+
+test('fetchEvent: encoded id; 404/410/cancelled -> missing; no token -> reconnect', async () => {
+  const urls = []; let reply;
+  const enc = encryptToken('refresh-1', key);
+  const fetch = async (url) => { urls.push(String(url)); return String(url).includes('/token')
+    ? { ok: true, status: 200, json: async () => ({ access_token: 'at', expires_in: 3600 }) } : reply; };
+  const mk = (rows) => registerCalendarRoutes({ get() {}, put() {}, delete() {} }, {
+    requireUser, requireAdmin, needsPerson, wrap: (f) => f, pool: { query: async () => ({ rows }) },
+    env: { CALENDAR_TOKEN_KEY: KEY_ENV, GOOGLE_API_URL: 'http://g.test' }, get: async () => good, set: async () => {}, fetch,
+  });
+  const { fetchEvent } = mk([{ refresh_token_enc: enc }]);
+  reply = { ok: true, status: 200, json: async () => ({ id: 'a/b', summary: 'x' }) };
+  assert.equal((await fetchEvent('u1', 'a/b')).event.summary, 'x');
+  assert.equal(urls.at(-1), 'http://g.test/calendar/v3/calendars/primary/events/a%2Fb');
+  for (const st of [404, 410]) { reply = { ok: false, status: st, json: async () => ({}) }; assert.deepEqual(await fetchEvent('u1', 'e'), { missing: true }); }
+  reply = { ok: true, status: 200, json: async () => ({ id: 'e', status: 'cancelled' }) };
+  assert.deepEqual(await fetchEvent('u1', 'e'), { missing: true });
+  reply = { ok: false, status: 500, json: async () => ({}) };
+  await assert.rejects(fetchEvent('u1', 'e'));
+  assert.deepEqual(await mk([]).fetchEvent('u1', 'e'), { reconnect: true });
+});

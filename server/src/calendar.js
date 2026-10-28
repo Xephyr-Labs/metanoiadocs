@@ -213,8 +213,40 @@ export function registerCalendarRoutes(app, {
   const apiBase = () => (env.GOOGLE_API_URL || 'https://www.googleapis.com').replace(/\/+$/, '');
   const DAY = 86_400_000;
 
-  /** Task 4 adds the notes-page join here: event id -> doc id. */
-  async function notesFor(_userId, _events) { return new Map(); }
+  /** Event id -> the caller's own live notes page for it. */
+  async function notesFor(userId, events) {
+    if (!events.length) return new Map();
+    const { rows } = await pool.query(
+      `SELECT m.event_id, m.doc_id FROM meeting_notes m JOIN docs d ON d.id = m.doc_id AND d.deleted_at IS NULL
+        WHERE m.user_id = $1 AND m.event_id = ANY($2)`,
+      [userId, events.map((e) => e.id)],
+    );
+    return new Map(rows.map((r) => [r.event_id, r.doc_id]));
+  }
+
+  /** GET on the person's Google calendar API: the Response, or { reconnect: true }. One retry on a 401 with a fresh token. */
+  async function googleGet(uid, path) {
+    let r;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const tok = await accessTokenFor(uid);
+      if (!tok.token) return { reconnect: true };
+      r = await f(`${apiBase()}${path}`, { headers: { Authorization: `Bearer ${tok.token}` } });
+      if (r.status !== 401) return r;
+      accessCache.delete(uid);
+    }
+    return { reconnect: true };
+  }
+
+  /** One event on the person's own calendar: { event }, { reconnect: true } or { missing: true } (gone, cancelled, or never theirs). */
+  async function fetchEvent(uid, eventId) {
+    const r = await googleGet(uid, `/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}`);
+    if (r.reconnect) return r;
+    if (r.status === 404 || r.status === 410) return { missing: true };
+    if (!r.ok) throw new Error(`Google event failed (${r.status})`);
+    const event = await r.json().catch(() => null);
+    if (!event || event.status === 'cancelled') return { missing: true };
+    return { event };
+  }
 
   app.get('/api/calendar/events', requireUser, wrap(async (req, res) => {
     const days = Math.min(7, Math.max(1, parseInt(req.query?.days, 10) || 1));
@@ -230,16 +262,8 @@ export function registerCalendarRoutes(app, {
     const q = new URLSearchParams({
       singleEvents: 'true', orderBy: 'startTime', timeMin: new Date(startMs).toISOString(), timeMax: new Date(endMs).toISOString(),
     });
-    const gone = { connected: true, reconnect: true, events: [] };
-    let r;
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const tok = await accessTokenFor(uid);
-      if (!tok.token) return res.json(gone);
-      r = await f(`${apiBase()}/calendar/v3/calendars/primary/events?${q}`, { headers: { Authorization: `Bearer ${tok.token}` } });
-      if (r.status !== 401) break;
-      accessCache.delete(uid);
-    }
-    if (r.status === 401) return res.json(gone);
+    const r = await googleGet(uid, `/calendar/v3/calendars/primary/events?${q}`);
+    if (r.reconnect) return res.json({ connected: true, reconnect: true, events: [] });
     if (!r.ok) throw new Error(`Google events failed (${r.status})`);
     const items = ((await r.json().catch(() => ({}))).items || []).filter((e) => e && e.status !== 'cancelled'
       && !(e.attendees || []).some((a) => a.self && a.responseStatus === 'declined'));
@@ -265,5 +289,5 @@ export function registerCalendarRoutes(app, {
     res.json({ connected: true, events });
   }));
 
-  return { accessTokenFor };
+  return { accessTokenFor, fetchEvent, calendarReady: async () => (await cfg()).ready };
 }

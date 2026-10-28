@@ -1123,6 +1123,17 @@ export async function initSchema() {
     );
   `);
 
+  // One private notes page per person per event occurrence ("Start notes").
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS meeting_notes (
+      user_id    TEXT REFERENCES users(id) ON DELETE CASCADE,
+      event_id   TEXT NOT NULL,
+      doc_id     TEXT NOT NULL REFERENCES docs(id) ON DELETE CASCADE,
+      created_at TIMESTAMPTZ DEFAULT now(),
+      PRIMARY KEY (user_id, event_id)
+    );
+  `);
+
   await normalizeLegacyFolderImport();
   await relaxFavoritesKey();
   await seedTaskAssignees();
