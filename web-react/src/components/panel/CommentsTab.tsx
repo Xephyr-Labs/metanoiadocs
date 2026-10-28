@@ -284,7 +284,7 @@ export function CommentsTab({ docId }: { docId: string }) {
               await docsApi.decideSuggestion(c.id, 'accept');
               toast('Change applied to the page');
             }, 'Could not apply the change')}
-            className="flex items-center gap-1 rounded-md bg-accent-fill px-2 py-1 text-2xs font-medium text-white hover:brightness-95"
+            className="flex items-center gap-1 rounded-md bg-accent-fill px-2 py-1 text-2xs font-medium text-white hover:bg-accent-fill-hover active:bg-accent-fill-active"
           >
             {busy === `dec:${c.id}` ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />} Accept
           </button>

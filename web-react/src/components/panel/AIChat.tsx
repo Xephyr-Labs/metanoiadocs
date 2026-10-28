@@ -363,7 +363,7 @@ export function AIChat() {
                 aria-label="Send"
                 className={cn(
                   'flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors duration-120',
-                  input.trim() ? 'bg-accent-fill text-white hover:brightness-[0.94]' : 'bg-surface text-faint',
+                  input.trim() ? 'bg-accent-fill text-white hover:bg-accent-fill-hover active:bg-accent-fill-active' : 'bg-surface text-faint',
                 )}
               >
                 <ArrowUp size={16} />

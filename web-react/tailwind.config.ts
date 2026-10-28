@@ -32,6 +32,8 @@ export default {
         'accent-strong': 'var(--accent-strong)',
         'accent-soft': 'var(--accent-soft)',
         'accent-fill': 'var(--accent-fill)',
+        'accent-fill-hover': 'var(--accent-fill-hover)',
+        'accent-fill-active': 'var(--accent-fill-active)',
         'danger-soft': 'var(--danger-soft)',
         danger: 'var(--danger)',
         'danger-strong': 'var(--danger-strong)',

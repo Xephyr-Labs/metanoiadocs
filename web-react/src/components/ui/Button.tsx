@@ -10,10 +10,10 @@ interface Props extends ButtonHTMLAttributes<HTMLButtonElement> {
   children: ReactNode;
 }
 
-// Flat, single-accent. No gradients — hover shifts brightness only.
+// Flat, single-accent. No gradients — a filled button darkens on hover and press.
 const variants: Record<Variant, string> = {
   primary:
-    'bg-accent-fill text-white hover:brightness-[0.94] active:brightness-90 shadow-[0_1px_2px_rgba(15,15,15,0.08)]',
+    'bg-accent-fill text-white hover:bg-accent-fill-hover active:bg-accent-fill-active shadow-[0_1px_2px_rgba(15,15,15,0.08)]',
   secondary:
     'bg-transparent text-ink ring-1 ring-inset ring-line-strong hover:bg-hover active:bg-selected',
   ghost: 'bg-transparent text-muted hover:bg-hover hover:text-ink active:bg-selected',
@@ -29,7 +29,7 @@ export const Button = forwardRef<HTMLButtonElement, Props>(function Button(
       ref={ref}
       type="button"
       className={cn(
-        'mn-hit inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md font-medium transition-[background-color,filter,box-shadow] duration-120 ease-out',
+        'mn-hit inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md font-medium transition-[background-color,box-shadow] duration-120 ease-out',
         'disabled:pointer-events-none disabled:opacity-50',
         size === 'sm' ? 'h-7 px-2.5 text-sm' : 'h-8 px-3 text-base',
         variants[variant],

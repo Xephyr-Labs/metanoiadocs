@@ -53,6 +53,11 @@
      --accent is lifted so link text reads on the canvas, and white on that
      lifted blue is 2.9:1, so this token is the only blue that may carry white. */
   --accent-fill: #1d74cc;
+  /* Pressing into a filled button goes darker, never paler: an opacity fade
+     washed the blue toward the page and dropped the white label under AA,
+     reading as disabled. 5.8:1 hovered, 7.0:1 held. */
+  --accent-fill-hover: #1866b4;
+  --accent-fill-active: #155a9f;
   /* The danger twin of accent-soft — a late gantt bar had no tint to sit in,
      so it rendered as a hollow outline and read as a rendering fault. */
   --danger-soft: #fbeceb;
@@ -186,6 +191,9 @@ html.dark {
   --accent-strong: var(--accent);
   --accent-soft: #1d3a57;
   --accent-fill: #2276cf;
+  /* Darker here too: a lighter hover would drop white to 3.9:1. */
+  --accent-fill-hover: #1d6bbd;
+  --accent-fill-active: #1a5fa8;
   --danger-soft: #4a2523;
   /* The accent's twin collapses in dark — a lighter blue reads on near-black
    * either way. Danger's does not, and this is the half the split is for: the

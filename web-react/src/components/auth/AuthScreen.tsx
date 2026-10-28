@@ -234,7 +234,7 @@ export function AuthScreen() {
             disabled={busy}
             className={cn(
               'mt-1 flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-accent-fill text-base font-medium text-white',
-              'transition-[filter] duration-120 hover:brightness-[0.94] active:brightness-90 disabled:opacity-70',
+              'transition-colors duration-120 hover:bg-accent-fill-hover active:bg-accent-fill-active disabled:opacity-70',
             )}
           >
             {busy && <Loader2 size={16} className="animate-spin" />}

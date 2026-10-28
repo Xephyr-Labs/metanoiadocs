@@ -350,7 +350,7 @@ export function FormView({ token }: { token: string }) {
           disabled={!title.trim() || state === 'sending'}
           className={cn(
             'flex h-9 items-center gap-2 rounded-lg px-4 text-sm font-medium text-white transition-opacity',
-            'bg-accent-fill hover:opacity-90',
+            'bg-accent-fill hover:bg-accent-fill-hover active:bg-accent-fill-active',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
             'disabled:pointer-events-none disabled:opacity-40',
           )}
