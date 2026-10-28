@@ -670,6 +670,14 @@ test('googleSend: another 403 (not a scope problem) is returned as-is; can_write
   assert.equal(s.db.get('u').can_write, true);
 });
 
+test('googleSend: a 403 whose errors/details are not arrays is returned as-is, no throw', async () => {
+  const s = oauthSetup({ env: ENV_URLS, tokenReply: grant(`openid email ${W}`),
+    apiReplies: [[403, { error: { code: 403, errors: { reason: 'x' }, details: 'nope' } }]] });
+  await s.call('GET /api/calendar/google/callback', { id: 'u' }, { code: 'c', state: await connect(s) });
+  assert.equal((await s.api.googleSend('u', 'PATCH', '/x', {})).status, 403);
+  assert.equal(s.db.get('u').can_write, true);
+});
+
 test('googleSend: a 401 retries once with a fresh token, a second 401 drops the row', async () => {
   const s = oauthSetup({ env: ENV_URLS, tokenReply: grant(`openid email ${W}`), apiReplies: [[401, {}], [200, {}]] });
   await s.call('GET /api/calendar/google/callback', { id: 'u' }, { code: 'c', state: await connect(s) });

@@ -1,5 +1,8 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import { fetchEvents, fetchEventsRange, meetingsView, otherAttendees, type CalendarEvent } from './calendarEvents';
+import {
+  fetchEvents, fetchEventsRange, meetingsView, otherAttendees, type CalendarEvent,
+  createMeeting, updateMeeting, cancelMeeting, respondToMeeting, CalendarWriteError,
+} from './calendarEvents';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -91,5 +94,58 @@ describe('meeting helpers', () => {
   it('startNotes throws the server error', async () => {
     vi.stubGlobal('fetch', async () => ({ ok: false, status: 409, json: async () => ({ error: 'Reconnect' }) }));
     await expect(startNotes('e')).rejects.toThrow('Reconnect');
+  });
+});
+
+describe('calendar writes', () => {
+  const reply = (status: number, body: unknown) => vi.fn(async (_u: string, _o?: RequestInit) => ({
+    ok: status < 300, status, json: async () => body,
+  }));
+  const body = { title: 'Sync', start: '2026-11-02T10:00:00+06:00', end: '2026-11-02T11:00:00+06:00', allDay: false, attendees: ['a@x.com'] };
+
+  it('createMeeting POSTs the body as JSON', async () => {
+    const f = reply(201, { id: 'n1' });
+    vi.stubGlobal('fetch', f);
+    expect(await createMeeting(body)).toEqual({ id: 'n1' });
+    const [url, o] = f.mock.calls[0];
+    expect(url).toBe('/api/calendar/events');
+    expect(o).toMatchObject({ method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' } });
+    expect(JSON.parse(o!.body as string)).toEqual(body);
+  });
+  it('updateMeeting PATCHes the encoded id with only the given fields', async () => {
+    const f = reply(200, { id: 'a_1' });
+    vi.stubGlobal('fetch', f);
+    await updateMeeting('a/1', { title: 'New' });
+    expect(f.mock.calls[0][0]).toBe('/api/calendar/events/a%2F1');
+    expect(f.mock.calls[0][1]!.method).toBe('PATCH');
+    expect(JSON.parse(f.mock.calls[0][1]!.body as string)).toEqual({ title: 'New' });
+  });
+  it('cancelMeeting DELETEs with no body and accepts a 204', async () => {
+    const f = vi.fn(async (_u: string, _o?: RequestInit) => ({ ok: true, status: 204, json: async () => { throw new Error('no body'); } }));
+    vi.stubGlobal('fetch', f);
+    await expect(cancelMeeting('abc_20261102T150000Z')).resolves.toBeUndefined();
+    expect(f.mock.calls[0][0]).toBe('/api/calendar/events/abc_20261102T150000Z');
+    expect(f.mock.calls[0][1]).toMatchObject({ method: 'DELETE', credentials: 'include' });
+    expect(f.mock.calls[0][1]!.body).toBeUndefined();
+  });
+  it('respondToMeeting POSTs the answer to /respond', async () => {
+    const f = reply(200, { id: 'abc' });
+    vi.stubGlobal('fetch', f);
+    await respondToMeeting('abc', 'tentative');
+    expect(f.mock.calls[0][0]).toBe('/api/calendar/events/abc/respond');
+    expect(f.mock.calls[0][1]!.method).toBe('POST');
+    expect(JSON.parse(f.mock.calls[0][1]!.body as string)).toEqual({ response: 'tentative' });
+  });
+  it('failures throw the server message with needsWrite / reconnect flags', async () => {
+    vi.stubGlobal('fetch', reply(409, { needsWrite: true, error: 'Reconnect your calendar to make changes' }));
+    const e = await createMeeting(body).catch((x) => x);
+    expect(e).toBeInstanceOf(CalendarWriteError);
+    expect([e.message, e.needsWrite, e.reconnect, e.status]).toEqual(['Reconnect your calendar to make changes', true, false, 409]);
+    vi.stubGlobal('fetch', reply(409, { reconnect: true }));
+    expect((await cancelMeeting('a').catch((x) => x)).reconnect).toBe(true);
+    vi.stubGlobal('fetch', async () => { throw new Error('offline'); });
+    const n = await respondToMeeting('a', 'accepted').catch((x) => x);
+    expect(n).toBeInstanceOf(CalendarWriteError);
+    expect(n.status).toBe(0);
   });
 });

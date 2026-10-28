@@ -47,6 +47,7 @@ import { docCommentRecipients } from './comment-recipients.js';
 import { buildDocState, appendMarkdownToDoc, appendPageReference, extractText, extractBlocks, docToMarkdown, fixTableOrderKeys, stateWithValidTableKeys, linkResolver, linkLabeler, pageLinksOf, lossyBlocks } from './blocks.js';
 import { rewriteDoc } from './restore.js';
 import { registerCalendarRoutes } from './calendar.js';
+import { registerCalendarWriteRoutes } from './calendar-write.js';
 import { registerMeetingNotesRoutes } from './meeting-notes.js';
 import { registerMeetingTaskRoutes } from './meeting-tasks.js';
 import { aiCompleter } from './ai-complete.js';
@@ -3416,6 +3417,10 @@ startWebhookWorker();
 registerAgentRoutes(app, { requireUser, wrap, createDocRow });
 registerAutomationRoutes(app, { requireUser, wrap });
 const calendar = registerCalendarRoutes(app, { requireUser, requireAdmin, needsPerson, wrap, pool, baseUrl: BASE_URL });
+registerCalendarWriteRoutes(app, {
+  requireUser, needsPerson, wrap,
+  googleSend: calendar.googleSend, fetchEvent: calendar.fetchEvent, calendarReady: calendar.calendarReady,
+});
 registerMeetingNotesRoutes(app, {
   requireUser, needsPerson, wrap, pool, createDocRow, grantOn, baseUrl: BASE_URL,
   fetchEvent: calendar.fetchEvent, calendarReady: calendar.calendarReady,

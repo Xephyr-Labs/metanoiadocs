@@ -83,3 +83,42 @@ export async function startNotes(eventId: string, spaceId?: string): Promise<{ d
 /** Only http(s) links may reach an href; an invite sender controls this value. */
 export const safeMeetLink = (url: string | null | undefined): string | null =>
   url && /^https?:\/\//i.test(url) ? url : null;
+
+/** What the create/edit routes take; on an edit every field is optional and absent ones stay as they are. */
+export interface MeetingBody {
+  title: string; start: string; end: string; allDay: boolean; attendees: string[];
+  description?: string; meet?: boolean;
+}
+
+/** A refused write: `needsWrite` → reconnect with write access; `reconnect` → connect again; status 0 = offline. */
+export class CalendarWriteError extends Error {
+  constructor(message: string, readonly status: number, readonly needsWrite = false, readonly reconnect = false) {
+    super(message);
+  }
+}
+
+async function write<T = { id: string | null }>(path: string, method: string, body?: unknown): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(`/api/calendar/events${path}`, {
+      method,
+      credentials: 'include',
+      ...(body === undefined ? {} : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+    });
+  } catch {
+    throw new CalendarWriteError("Couldn't reach the server. Check your connection.", 0);
+  }
+  const data = res.status === 204 ? null : await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new CalendarWriteError(data?.error || `Could not save the meeting (${res.status})`, res.status, !!data?.needsWrite, !!data?.reconnect);
+  }
+  return data as T;
+}
+
+const one = (id: string) => `/${encodeURIComponent(id)}`;
+
+export const createMeeting = (body: MeetingBody): Promise<{ id: string | null }> => write('', 'POST', body);
+export const updateMeeting = (id: string, body: Partial<MeetingBody>): Promise<{ id: string | null }> => write(one(id), 'PATCH', body);
+export const cancelMeeting = async (id: string): Promise<void> => { await write(one(id), 'DELETE'); };
+export const respondToMeeting = (id: string, response: 'accepted' | 'tentative' | 'declined'): Promise<{ id: string | null }> =>
+  write(`${one(id)}/respond`, 'POST', { response });

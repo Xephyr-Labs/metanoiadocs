@@ -290,7 +290,8 @@ export function registerCalendarRoutes(app, {
     const r = await googleCall(uid, path, { method, body });
     if (r.reconnect || r.status !== 403) return r;
     const e = (await r.clone().json().catch(() => null))?.error || {};
-    const reasons = [...(e.errors || []), ...(e.details || [])].map((x) => x?.reason).filter(Boolean);
+    const list = (x) => (Array.isArray(x) ? x : []);
+    const reasons = [...list(e.errors), ...list(e.details)].map((x) => x?.reason).filter(Boolean);
     // PERMISSION_DENIED alone is also how other refusals look, so it counts only when Google names no reason.
     if (!reasons.some((x) => SCOPE_REASONS.includes(x)) && !(e.status === 'PERMISSION_DENIED' && !reasons.length)) return r;
     await pool.query('UPDATE user_calendar_tokens SET can_write = false WHERE user_id = $1', [uid]);
