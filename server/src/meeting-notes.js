@@ -113,8 +113,13 @@ export function registerMeetingNotesRoutes(app, {
       for (const r of u.rows) teammates.set(r.email, { id: r.id, name: r.name });
     }
 
+    // A grant outlives the trash, so live pages are picked first.
+    const mentioned = docIdsIn(event.description, baseUrl);
+    const live = mentioned.length
+      ? new Set((await pool.query('SELECT id FROM docs WHERE id = ANY($1) AND deleted_at IS NULL', [mentioned])).rows.map((r) => r.id))
+      : new Set();
     const linked = [];
-    for (const id of docIdsIn(event.description, baseUrl)) if (await grantOn(id, uid)) linked.push(id);
+    for (const id of mentioned) if (live.has(id) && await grantOn(id, uid)) linked.push(id);
 
     const tasks = new Map();
     const ids = [...teammates.values()].map((t) => t.id);

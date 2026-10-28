@@ -2,7 +2,9 @@
 
 Lets each person see today's meetings on Home and start private notes for them. Read-only: MetanoiaDocs never writes to Google. Scope requested: `openid email https://www.googleapis.com/auth/calendar.events.readonly`.
 
-The feature stays hidden until both the admin settings (steps 1-5) and the server key (step 6) are in place.
+The feature stays hidden until both the admin settings (steps 1-5) and the server key (step 6) are in place. With `CALENDAR_TOKEN_KEY` unset, nobody sees anything of it: no Home card, no Calendar section, no task entries in the page menu.
+
+`BASE_URL` must be the public `https://` address people use to reach MetanoiaDocs: it forms the OAuth redirect URI, and Google only accepts the exact URI you register.
 
 ## Admin: Google Cloud (once)
 
@@ -14,19 +16,19 @@ The feature stays hidden until both the admin settings (steps 1-5) and the serve
 
 ## Admin: token key (once)
 
-6. Generate a key and set it in your server's environment (the compose file's `environment:` for the server service), then restart the container:
+6. Generate a key and set it in your server's environment (`CALENDAR_TOKEN_KEY` in the `.env` next to `docker-compose.yaml`; the compose file passes it to the server), then recreate the container (`docker compose up -d`):
 
    ```
    openssl rand -base64 32
    ```
 
    ```
-   CALENDAR_TOKEN_KEY: <the output>
+   CALENDAR_TOKEN_KEY=<the output>
    ```
 
    It must be standard padded base64 of exactly 32 bytes (what the command prints). Refresh tokens are stored encrypted with it.
 
-**If the key is lost or changed**, stored tokens can no longer be read: everyone sees "Reconnect your calendar" and must connect again (nothing else is lost). Keep it with your other secrets.
+**If the key is lost or changed**, every stored connection becomes unreadable. Each one is deleted the first time it is used, and everyone has to connect again (notes pages and tasks are kept). Removing the key hides the feature until it is set again. Keep it with your other secrets.
 
 ## Everyone
 

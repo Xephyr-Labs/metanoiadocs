@@ -83,7 +83,7 @@ const page = (md, resolve) => {
 const todoTexts = (doc) => [...doc.getMap('blocks').values()]
   .filter((b) => b.get('prop:type') === 'todo').map((b) => b.get('prop:text'));
 
-function harness({ doc, project = { mode: 'tasks', archived_at: null }, grant = 'owner', fail, ai, stored } = {}) {
+function harness({ doc, project = { mode: 'tasks', archived_at: null }, grant = 'owner', fail, ai, stored, ready = true } = {}) {
   const io = { opened: 0, stores: 0 };
   const routes = {};
   const made = [];
@@ -93,7 +93,7 @@ function harness({ doc, project = { mode: 'tasks', archived_at: null }, grant = 
   const app = { post: (path, ...h) => { routes[path] = h[h.length - 1]; } };
   registerMeetingTaskRoutes(app, {
     requireUser: () => {}, needsPerson: () => {}, wrap: (fn) => fn,
-    baseUrl: 'https://docs.example.com',
+    baseUrl: 'https://docs.example.com', calendarReady: async () => ready,
     editGrant: async () => grant,
     pool: {
       query: async (sql, args) => {
@@ -238,6 +238,18 @@ test('make-tasks: archived, data or missing databases are refused', async () => 
 test('make-tasks: needs edit access and a projectId', async () => {
   assert.equal((await harness({ doc: page(NOTES), grant: null }).call()).status, 403);
   assert.equal((await harness({ doc: page(NOTES) }).call({})).status, 400);
+});
+
+test('all three routes 404 and do nothing when the calendar is not configured', async () => {
+  for (const [path, body] of [
+    ['/api/docs/:id/make-tasks', { projectId: 'p1' }],
+    ['/api/docs/:id/suggest-tasks', {}],
+    ['/api/docs/:id/tasks-from-proposals', { projectId: 'p1', items: [{ title: 'x' }] }],
+  ]) {
+    const h = harness({ doc: page(NOTES), ready: false, ai: '[]' });
+    assert.equal((await h.call(body, path)).status, 404, path);
+    assert.equal(h.made.length + h.asked.length + h.io.opened, 0, path);
+  }
 });
 
 test('openTodos walks in page order, nested lines included', () => {

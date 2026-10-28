@@ -304,10 +304,10 @@ function appendTaskLinks(doc, projectId, created) {
  * `{ task } | { status, error }` (tasks.js createTaskRow); `taskPage(taskId,
  * userId, markdown)` writes the task's own page; `getHocuspocus()`;
  * `aiComplete({ messages, maxTokens })` → text, throwing errors with a `status`
- * (ai-complete.js).
+ * (ai-complete.js); `calendarReady()` → whether the calendar feature is on.
  */
 export function registerMeetingTaskRoutes(app, {
-  requireUser, needsPerson, wrap, pool, editGrant, getHocuspocus, createTask, taskPage, aiComplete,
+  requireUser, needsPerson, wrap, pool, editGrant, getHocuspocus, createTask, taskPage, aiComplete, calendarReady,
   baseUrl = process.env.BASE_URL,
 }) {
   // ponytail: in-process guard against a double click making every task twice;
@@ -318,6 +318,8 @@ export function registerMeetingTaskRoutes(app, {
   /** Sends the refusal and returns true when the page or database won't do. */
   async function refused(req, res, { needProject = true } = {}) {
     const docId = req.params.id;
+    // Part of the calendar feature: absent when it is not configured.
+    if (!(await calendarReady())) return res.status(404).json({ error: 'Not found' }), true;
     if (!(await editGrant(docId, req.user.id))) return res.status(403).json({ error: 'forbidden' }), true;
     const projectId = typeof req.body?.projectId === 'string' ? req.body.projectId : '';
     if (needProject && !projectId) return res.status(400).json({ error: 'projectId required' }), true;

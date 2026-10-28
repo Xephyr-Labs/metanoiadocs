@@ -24,13 +24,24 @@ async function req(path: string, opts: RequestInit = {}): Promise<any> {
   return data;
 }
 
+// One ask per session for the menus that only exist with the calendar on; saving the settings asks again.
+let available: Promise<boolean> | null = null;
+
 export const calendarApi = {
   settings: (): Promise<CalendarSettings> => req('/settings/calendar'),
-  saveSettings: (body: { enabled: boolean; clientId: string; clientSecret?: string }): Promise<{ ok: true }> =>
-    req('/settings/calendar', { method: 'PUT', body: JSON.stringify(body) }),
+  saveSettings: (body: { enabled: boolean; clientId: string; clientSecret?: string }): Promise<{ ok: true }> => {
+    available = null;
+    return req('/settings/calendar', { method: 'PUT', body: JSON.stringify(body) });
+  },
   status: (): Promise<CalendarStatus> => req('/calendar/status'),
   disconnect: (): Promise<null> => req('/calendar/google', { method: 'DELETE' }),
 };
+
+/** Whether the calendar feature is on, asked once (a failure is not remembered). */
+export function calendarAvailable(): Promise<boolean> {
+  available ??= calendarApi.status().then((s) => s.available).catch(() => { available = null; return false; });
+  return available;
+}
 
 /** A top-level navigation, not a fetch: Google's consent screen needs the whole window. */
 export const CALENDAR_CONNECT_URL = '/api/calendar/google/connect';

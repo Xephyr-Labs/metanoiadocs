@@ -328,13 +328,11 @@ test('a 200 refresh without an access token throws and caches nothing', async ()
   await assert.rejects(() => s.api.accessTokenFor('u'));
 });
 
-test('reconnecting revokes the old refresh token first', async () => {
+test('reconnecting overwrites the stored token without revoking (a revoke would kill the new grant)', async () => {
   const s = oauthSetup({ env: ENV_URLS });
   await s.call('GET /api/calendar/google/callback', { id: 'u' }, { code: 'c', state: await connect(s) });
   await s.call('GET /api/calendar/google/callback', { id: 'u' }, { code: 'c', state: await connect(s) });
-  const rv = s.calls.filter((c) => c.url.endsWith('/revoke'));
-  assert.equal(rv.length, 1);
-  assert.equal(rv[0].body.get('token'), 'rt-1');
+  assert.equal(s.calls.filter((c) => c.url.endsWith('/revoke')).length, 0);
   assert.equal(decryptToken(s.db.get('u').refresh_token_enc, key), 'rt-2');
 });
 
@@ -365,7 +363,7 @@ test('startOfDayIn follows the zone and DST', () => {
   assert.equal(new Date(startOfDayIn('America/New_York', '2026-11-02')).toISOString(), '2026-11-02T05:00:00.000Z');
 });
 
-function evSetup({ connected = true, calls = [], items = [], tokenReply, eventStatuses = [200] } = {}) {
+function evSetup({ connected = true, calls = [], items = [], tokenReply, eventStatuses = [200], queries = [] } = {}) {
   const routes = {};
   const app = { get: (p, ...h) => { routes['GET ' + p] = h[h.length - 1]; }, put() {}, delete() {} };
   const enc = encryptToken('refresh-1', key);
@@ -379,6 +377,7 @@ function evSetup({ connected = true, calls = [], items = [], tokenReply, eventSt
     return { ok: st < 300, status: st, json: async () => ({ items }) };
   };
   const pool = { query: async (sql, args) => {
+    queries.push(sql);
     if (/FROM user_calendar_tokens/.test(sql)) return { rows: connected ? [{ refresh_token_enc: enc }] : [] };
     if (/FROM users/.test(sql)) return { rows: [{ id: 'u2', email: 'bob@x.test' }].filter((r) => args[0].includes(r.email)) };
     return { rows: [] };
@@ -434,8 +433,20 @@ test('events: a 401 refreshes the token once, then reconnect', async () => {
   const calls = [];
   assert.equal((await evSetup({ calls, eventStatuses: [401, 200], items: [ev({})] })({ id: 'u1' })).events.length, 1);
   assert.equal(calls.filter((c) => c.url.includes('/token')).length, 2);
-  const out = await evSetup({ eventStatuses: [401] })({ id: 'u1' });
+  const queries = [];
+  const out = await evSetup({ eventStatuses: [401], queries })({ id: 'u1' });
   assert.deepEqual(out, { connected: true, reconnect: true, events: [] });
+});
+
+test('events: a second 401 deletes the token row, as invalid_grant does', async () => {
+  const queries = [];
+  await evSetup({ eventStatuses: [401], queries })({ id: 'u1' });
+  assert.ok(queries.some((q) => /^DELETE FROM user_calendar_tokens/.test(q)));
+});
+
+test('events: a Google error stays connected with error:true and no Google text', async () => {
+  const out = await evSetup({ eventStatuses: [500], items: [ev({})] })({ id: 'u1' });
+  assert.deepEqual(out, { connected: true, error: true, events: [] });
 });
 
 test('events: notesDocId is the caller\'s own live notes page', async () => {

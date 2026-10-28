@@ -1,19 +1,32 @@
+import type { CalendarStatus } from './calendar';
+
 export interface CalendarAttendee { email: string; name: string; userId: string | null; self: boolean }
 export interface CalendarEvent {
   id: string; title: string; start: string | null; end: string | null; allDay: boolean;
   meetLink: string | null; attendees: CalendarAttendee[]; notesDocId: string | null;
 }
-export interface CalendarEvents { connected: boolean; reconnect?: boolean; events: CalendarEvent[] }
+/** `connected` is absent when the fetch itself failed: the status decides then. */
+export interface CalendarEvents { connected?: boolean; reconnect?: boolean; error?: boolean; events: CalendarEvent[] }
 
-/** Today's (or the next `days`) meetings; a failure reads as "not connected" so the UI just hides. */
+/** Today's (or the next `days`) meetings; a failure is an error, not "not connected". */
 export async function fetchEvents(days = 1): Promise<CalendarEvents> {
   try {
     const res = await fetch(`/api/calendar/events?days=${days}`, { credentials: 'include' });
-    if (!res.ok) return { connected: false, events: [] };
+    if (!res.ok) return { error: true, events: [] };
     return await res.json();
   } catch {
-    return { connected: false, events: [] };
+    return { error: true, events: [] };
   }
+}
+
+/** What the Home card shows for this status and events answer. */
+export function meetingsView(status: CalendarStatus | null, data: CalendarEvents | null):
+  'hidden' | 'connect' | 'loading' | 'reconnect' | 'error' | 'list' {
+  if (!status?.available) return 'hidden';
+  if (data?.reconnect) return 'reconnect';
+  if (!(data?.connected ?? status.connected)) return 'connect';
+  if (!data) return 'loading';
+  return data.error ? 'error' : 'list';
 }
 
 /** Attendees other than you, for a "with ..." line. */

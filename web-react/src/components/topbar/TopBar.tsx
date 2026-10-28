@@ -60,6 +60,7 @@ import { useEffect, useReducer, useState } from 'react';
 import { MakeTasksDialog } from '../editor/MakeTasksDialog';
 import { SuggestTasksDialog } from '../editor/SuggestTasksDialog';
 import { askAiReady } from '../../lib/meetingTasks';
+import { calendarAvailable } from '../../lib/calendar';
 import { docsApi } from '../../lib/docsApi';
 import * as prefs from '../../lib/docPrefs';
 import { ProjectIcon } from '../ui/ProjectIcon';
@@ -205,7 +206,9 @@ export function TopBar() {
   const [makeTasksOpen, setMakeTasksOpen] = useState(false);
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [aiReady, setAiReady] = useState(false);
-  useEffect(() => { askAiReady(docsApi.aiConfig).then(setAiReady); }, []);
+  // Both task entries belong to the calendar feature and are absent without it.
+  const [calendarOn, setCalendarOn] = useState(false);
+  useEffect(() => { askAiReady(docsApi.aiConfig).then(setAiReady); calendarAvailable().then(setCalendarOn); }, []);
   const canEditPage = page?.role === 'owner' || page?.role === 'editor';
   const font = prefs.docFont();
   const small = prefs.smallText();
@@ -499,7 +502,7 @@ export function TopBar() {
               { icon: Pin, label: page.pinned ? 'Unpin for everyone' : 'Pin for everyone', separatorBefore: true, onSelect: () => ws.togglePin(page.id) },
               { icon: Link2, label: 'Copy link', onSelect: () => { copyLink(location.href); } },
               { icon: History, label: 'Version history', onSelect: () => ws.openHistory(page.id) },
-              ...(canEditPage && page.kind !== 'design'
+              ...(calendarOn && canEditPage && page.kind !== 'design'
                 ? [
                   { icon: ListChecks, label: 'Make tasks from to-dos', onSelect: () => setMakeTasksOpen(true) },
                   ...(aiReady ? [{ icon: Sparkles, label: 'Suggest tasks (Ask AI)', onSelect: () => setSuggestOpen(true) }] : []),

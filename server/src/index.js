@@ -3425,7 +3425,7 @@ registerMeetingTaskRoutes(app, {
   getHocuspocus: () => hocuspocus,
   createTask: (body, user) => createTaskRow(body, user, { createDocRow }),
   taskPage: (taskId, userId, markdown) => ensureTaskPage(taskId, userId, createDocRow, markdown),
-  aiComplete: aiCompleter(getSetting),
+  aiComplete: aiCompleter(getSetting), calendarReady: calendar.calendarReady,
 });
 registerDocOpenRoutes(app, { requireUser, wrap, pool, grantOn });
 registerSuggestionRoutes(app, {

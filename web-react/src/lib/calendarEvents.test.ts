@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import { fetchEvents, otherAttendees, type CalendarEvent } from './calendarEvents';
+import { fetchEvents, meetingsView, otherAttendees, type CalendarEvent } from './calendarEvents';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -10,11 +10,24 @@ describe('calendarEvents', () => {
     expect(await fetchEvents(3)).toEqual({ connected: true, events: [] });
     expect(f).toHaveBeenCalledWith('/api/calendar/events?days=3', { credentials: 'include' });
   });
-  it('degrades to not connected on failure', async () => {
-    vi.stubGlobal('fetch', async () => ({ ok: false }));
-    expect(await fetchEvents()).toEqual({ connected: false, events: [] });
+  it('a failure is an error that leaves connected to the status', async () => {
+    vi.stubGlobal('fetch', async () => ({ ok: false, status: 502 }));
+    expect(await fetchEvents()).toEqual({ error: true, events: [] });
     vi.stubGlobal('fetch', async () => { throw new Error('x'); });
-    expect(await fetchEvents()).toEqual({ connected: false, events: [] });
+    expect(await fetchEvents()).toEqual({ error: true, events: [] });
+  });
+  it('meetingsView: hidden, connect, reconnect, error, list', () => {
+    const st = (connected: boolean) => ({ available: true, connected, email: null });
+    expect(meetingsView(null, null)).toBe('hidden');
+    expect(meetingsView({ available: false, connected: false, email: null }, null)).toBe('hidden');
+    expect(meetingsView(st(false), { connected: false, events: [] })).toBe('connect');
+    expect(meetingsView(st(true), { connected: true, reconnect: true, events: [] })).toBe('reconnect');
+    // A Google error or a failed fetch never reads as "Connect your calendar" while Settings says Connected.
+    expect(meetingsView(st(true), { connected: true, error: true, events: [] })).toBe('error');
+    expect(meetingsView(st(true), { error: true, events: [] })).toBe('error');
+    expect(meetingsView(st(false), { error: true, events: [] })).toBe('connect');
+    expect(meetingsView(st(true), null)).toBe('loading');
+    expect(meetingsView(st(true), { connected: true, events: [] })).toBe('list');
   });
   it('otherAttendees drops self', () => {
     const e = { attendees: [{ email: 'a', name: '', userId: null, self: true }, { email: 'b', name: '', userId: null, self: false }] } as CalendarEvent;

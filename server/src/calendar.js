@@ -160,8 +160,8 @@ export function registerCalendarRoutes(app, {
     if (!tok.refresh_token) return fail('reconsent');
     // Granular consent lets people untick the calendar box and still get a token.
     if (!String(tok.scope || '').split(' ').includes(CALENDAR_SCOPE)) return fail('scope');
+    // No revoke of a replaced token: Google revokes the whole grant, which would kill the new token too.
     try {
-      await revokeStored(req.user.id);
       await pool.query(
         `INSERT INTO user_calendar_tokens (user_id, google_email, refresh_token_enc, connected_at) VALUES ($1, $2, $3, now())
          ON CONFLICT (user_id) DO UPDATE SET google_email = EXCLUDED.google_email, refresh_token_enc = EXCLUDED.refresh_token_enc, connected_at = now()`,
@@ -234,6 +234,8 @@ export function registerCalendarRoutes(app, {
       if (r.status !== 401) return r;
       accessCache.delete(uid);
     }
+    // A fresh token refused too: the grant is dead, so Settings must show Connect as well.
+    await drop(uid);
     return { reconnect: true };
   }
 
@@ -262,9 +264,15 @@ export function registerCalendarRoutes(app, {
     const q = new URLSearchParams({
       singleEvents: 'true', orderBy: 'startTime', timeMin: new Date(startMs).toISOString(), timeMax: new Date(endMs).toISOString(),
     });
-    const r = await googleGet(uid, `/calendar/v3/calendars/primary/events?${q}`);
+    // Still connected when Google fails: the card says it could not load, not "Connect". Google's text stays here.
+    const failed = (status) => {
+      console.error(`[calendar] Google events failed (${status})`);
+      return res.json({ connected: true, error: true, events: [] });
+    };
+    let r;
+    try { r = await googleGet(uid, `/calendar/v3/calendars/primary/events?${q}`); } catch { return failed('network or token refresh'); }
     if (r.reconnect) return res.json({ connected: true, reconnect: true, events: [] });
-    if (!r.ok) throw new Error(`Google events failed (${r.status})`);
+    if (!r.ok) return failed(r.status);
     const items = ((await r.json().catch(() => ({}))).items || []).filter((e) => e && e.status !== 'cancelled'
       && !(e.attendees || []).some((a) => a.self && a.responseStatus === 'declined'));
     const emails = [...new Set(items.flatMap((e) => (e.attendees || []).map((a) => String(a.email || '').toLowerCase()).filter(Boolean)))];

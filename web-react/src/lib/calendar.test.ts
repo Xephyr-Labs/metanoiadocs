@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { calendarReturn } from './calendar';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { calendarApi, calendarAvailable, calendarReturn } from './calendar';
 
 describe('calendarReturn', () => {
   it('reads ?calendar= and gives the address without it', () => {
@@ -18,5 +18,32 @@ describe('calendarReturn', () => {
 
   it('is null when there is nothing to report', () => {
     expect(calendarReturn('https://x.test/d/abc?review=1')).toBeNull();
+  });
+});
+
+describe('calendarAvailable', () => {
+  afterEach(() => vi.unstubAllGlobals());
+  const status = (available: boolean) => async (url: string) => ({
+    ok: true, json: async () => (url.endsWith('/settings/calendar') ? { ok: true } : { available, connected: false, email: null }),
+  });
+
+  it('asks once, again after a failure, and again after settings are saved', async () => {
+    const f = vi.fn(status(true));
+    vi.stubGlobal('fetch', f);
+    expect(await calendarAvailable()).toBe(true);
+    expect(await calendarAvailable()).toBe(true);
+    expect(f).toHaveBeenCalledTimes(1);
+    await calendarApi.saveSettings({ enabled: false, clientId: 'x' });
+    f.mockImplementation(status(false));
+    expect(await calendarAvailable()).toBe(false);
+    expect(f).toHaveBeenCalledTimes(3);
+  });
+
+  it('a failed ask is not remembered', async () => {
+    await calendarApi.saveSettings({ enabled: false, clientId: 'x' }).catch(() => {});
+    vi.stubGlobal('fetch', async () => { throw new Error('offline'); });
+    expect(await calendarAvailable()).toBe(false);
+    vi.stubGlobal('fetch', status(true));
+    expect(await calendarAvailable()).toBe(true);
   });
 });

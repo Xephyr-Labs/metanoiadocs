@@ -34,8 +34,33 @@ function client() {
 }
 
 const a = client(); const b = client();
+
+/** A browser signed in as Alice. */
+async function aliceBrowser() {
+  const browser = await chromium.launch();
+  const ctx = await browser.newContext({ viewport: { width: 1400, height: 1000 }, timezoneId: 'UTC' });
+  await ctx.addCookies(a.cookie.split('; ').map((c) => { const i = c.indexOf('='); return { name: c.slice(0, i), value: c.slice(i + 1), url: BASE }; }));
+  return { browser, p: await ctx.newPage() };
+}
+/** Open `path` and wait for the calendar status the page asks for. */
+async function openAndAsk(p, path) {
+  const asked = p.waitForResponse((r) => r.url().includes('/api/calendar/status'), { timeout: 20000 });
+  await p.goto(`${BASE}${path}`);
+  await asked;
+  await sleep(300); // let React render what the answer says
+}
+/** The page's ⋯ menu entries for tasks, with Copy link as proof the menu opened. */
+async function pageMenu(p, id) {
+  await openAndAsk(p, `/d/${id}`);
+  await p.getByRole('button', { name: 'More' }).first().click();
+  await p.getByText('Copy link', { exact: true }).waitFor({ timeout: 10000 });
+  const has = async (t) => (await p.getByText(t, { exact: true }).count()) > 0;
+  const out = { make: await has('Make tasks from to-dos'), suggest: await has('Suggest tasks (Ask AI)') };
+  await p.keyboard.press('Escape');
+  return out;
+}
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-let bobId; let aliceId; let docId; let proj;
+let bobId; let aliceId; let docId; let proj; let plainId;
 
 await step('admin setup', async () => {
   await a.post('/api/setup', { name: 'Alice', username: 'alice', email: 'alice@example.com', password: PW });
@@ -47,6 +72,24 @@ await step('admin setup', async () => {
   bobId = (await b.get('/api/me')).id;
 
   check('before setup: feature off', (await a.get('/api/calendar/status')).available === false);
+  // Ask AI points at the stub's OpenAI-compatible endpoint. Set first, so the off check below proves the calendar gate.
+  await a.call('PUT', '/api/settings/ai', { baseUrl: 'http://gstub:8080/v1', apiKey: 'k', model: 'stub', enabled: true });
+  plainId = (await a.post('/api/docs', { title: 'Plain page' })).id;
+  for (const r of [
+    await a.raw('POST', `/api/docs/${plainId}/make-tasks`, { projectId: 'x' }),
+    await a.raw('POST', `/api/docs/${plainId}/suggest-tasks`, {}),
+    await a.raw('POST', `/api/docs/${plainId}/tasks-from-proposals`, { projectId: 'x', items: [{ title: 't' }] }),
+  ]) check('before setup: task routes 404', r.status === 404, String(r.status));
+  const { browser, p } = await aliceBrowser();
+  try {
+    await openAndAsk(p, '/');
+    await p.getByRole('button', { name: 'New page' }).first().waitFor({ timeout: 20000 });
+    check('before setup: Home has no meetings card', await p.getByText("Today's meetings").count() === 0
+      && await p.getByText('Connect your calendar').count() === 0);
+    const m = await pageMenu(p, plainId);
+    check('before setup: page menu has neither task entry', !m.make && !m.suggest, JSON.stringify(m));
+  } finally { await browser.close(); }
+
   const s = await a.get('/api/settings/calendar');
   check('settings show the redirect URI and the key', s.redirectUri === `${BASE}/api/calendar/google/callback` && s.keySet === true, JSON.stringify(s));
   const denied = await b.raw('PUT', '/api/settings/calendar', { enabled: true });
@@ -55,17 +98,12 @@ await step('admin setup', async () => {
   check('after setup: feature available, not connected', JSON.stringify(await a.get('/api/calendar/status')) === JSON.stringify({ available: true, connected: false, email: null }));
   check('before connecting: no events', (await a.get('/api/calendar/events')).connected === false);
 
-  // Ask AI points at the stub's OpenAI-compatible endpoint.
-  await a.call('PUT', '/api/settings/ai', { baseUrl: 'http://gstub:8080/v1', apiKey: 'k', model: 'stub', enabled: true });
   proj = await a.post('/api/projects', { name: 'Launch' });
 });
 
 await step('connect + Home (browser)', async () => {
-  const browser = await chromium.launch();
+  const { browser, p } = await aliceBrowser();
   try {
-    const ctx = await browser.newContext({ viewport: { width: 1400, height: 1000 }, timezoneId: 'UTC' });
-    await ctx.addCookies(a.cookie.split('; ').map((c) => { const i = c.indexOf('='); return { name: c.slice(0, i), value: c.slice(i + 1), url: BASE }; }));
-    const p = await ctx.newPage();
     // connect -> stub auth -> callback -> token -> back to the app
     await p.goto(`${BASE}/api/calendar/google/connect`);
     await p.waitForURL(/calendar=(connected|error)/, { timeout: 20000 });
@@ -84,6 +122,8 @@ await step('connect + Home (browser)', async () => {
     await p.goto(`${BASE}/`);
     await p.getByText('Launch sync').first().waitFor({ timeout: 20000 });
     check('Home shows the meeting card with Start notes', await p.getByRole('button', { name: 'Start notes' }).count() === 1);
+    const m = await pageMenu(p, plainId);
+    check('after setup: page menu has both task entries', m.make && m.suggest, JSON.stringify(m));
   } finally { await browser.close(); }
 });
 

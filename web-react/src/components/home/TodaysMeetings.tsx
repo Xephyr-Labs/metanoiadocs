@@ -3,7 +3,7 @@ import { CalendarDays, Video } from 'lucide-react';
 import { useWorkspace } from '../../store/workspace';
 import { calendarApi, wantSettingsSection, type CalendarStatus } from '../../lib/calendar';
 import {
-  fetchEvents, meetingLabel, meetingTime, nextMeeting, orderMeetings, otherAttendees, safeMeetLink, startNotes,
+  fetchEvents, meetingLabel, meetingsView, meetingTime, nextMeeting, orderMeetings, otherAttendees, safeMeetLink, startNotes,
   type CalendarEvents,
 } from '../../lib/calendarEvents';
 import { toast } from '../../lib/toast';
@@ -35,11 +35,13 @@ export function TodaysMeetings() {
     const d = await fetchEvents(1);
     if (n === seq.current) setData(d);
   }, []);
-  useEffect(() => { load(); }, [load, spaceId]);
+  // Events do not depend on the space; Start notes reads the current one at click time.
+  useEffect(() => { load(); }, [load]);
 
-  if (!status?.available) return null;
+  const view = meetingsView(status, data);
+  if (view === 'hidden') return null;
 
-  if (!data?.reconnect && !(data?.connected ?? status.connected)) {
+  if (view === 'connect') {
     return (
       <div className="mb-6 flex items-center gap-2 text-sm text-muted">
         <CalendarDays size={16} aria-hidden />
@@ -76,12 +78,14 @@ export function TodaysMeetings() {
     <Card
       title="Today's meetings"
       className="mb-6"
-      action={data?.reconnect && (
+      action={view === 'reconnect' && (
         <Button size="sm" onClick={() => { wantSettingsSection('mycalendar'); ws.setSettingsOpen(true); }}>Reconnect your calendar</Button>
       )}
     >
-      {!data ? null : data.reconnect ? (
+      {view === 'loading' ? null : view === 'reconnect' ? (
         <p className="text-sm text-muted">Reconnect your calendar to see today's meetings.</p>
+      ) : view === 'error' ? (
+        <p className="text-sm text-muted">Couldn't load today's meetings</p>
       ) : events.length === 0 ? (
         <p className="text-sm text-muted">No meetings today</p>
       ) : (

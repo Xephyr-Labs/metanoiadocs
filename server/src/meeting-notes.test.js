@@ -12,7 +12,7 @@ const event = (o = {}) => ({
 });
 
 /** A fake pool holding meeting_notes rows for every user, plus docs and tasks. */
-function setup({ ev = event(), fetched = null, tasks = {}, canOpen = ['doc-ok'], race = null } = {}) {
+function setup({ ev = event(), fetched = null, tasks = {}, canOpen = ['doc-ok'], race = null, trashed = [] } = {}) {
   const routes = {};
   const app = { post: (p, ...h) => { routes[p] = h[h.length - 1]; } };
   const db = { notes: [], docs: new Map(), created: [], deleted: [], fetches: 0 };
@@ -22,6 +22,7 @@ function setup({ ev = event(), fetched = null, tasks = {}, canOpen = ['doc-ok'],
       const r = db.notes.find((n) => n.user_id === args[0] && n.event_id === args[1]);
       return { rows: r ? [{ doc_id: r.doc_id, live: !!db.docs.get(r.doc_id)?.live }] : [] };
     }
+    if (/FROM docs WHERE id = ANY/.test(sql)) return { rows: args[0].filter((id) => !trashed.includes(id)).map((id) => ({ id })) };
     if (/FROM users/.test(sql)) return { rows: users.filter((u) => args[0].includes(u.email)).map((u) => ({ ...u })) };
     if (/FROM task_assignees/.test(sql)) return { rows: args[0].flatMap((uid) => (tasks[uid] || []).map((t) => ({ user_id: uid, ...t }))) };
     if (/FROM spaces WHERE id/.test(sql)) return { rowCount: args[0] === 'sp1' ? 1 : 0, rows: [] };
@@ -103,6 +104,14 @@ test('only pages I can open become links, each once', async () => {
   const md = db.created[0].content;
   assert.match(md, /^- \[\[doc-ok\]\]$/m);
   assert.equal(md.match(/doc-ok/g).length, 1);
+  assert.doesNotMatch(md, /doc-secret/);
+});
+
+test('a trashed page I still hold a grant on is not linked', async () => {
+  const { call, db } = setup({ canOpen: ['doc-ok', 'doc-secret'], trashed: ['doc-secret'] });
+  await call();
+  const md = db.created[0].content;
+  assert.match(md, /^- \[\[doc-ok\]\]$/m);
   assert.doesNotMatch(md, /doc-secret/);
 });
 
