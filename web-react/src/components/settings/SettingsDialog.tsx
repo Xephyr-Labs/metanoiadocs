@@ -37,7 +37,7 @@ import {
   type PushResult,
 } from '../../lib/push';
 import { useAuth } from '../../store/auth';
-import { calendarApi } from '../../lib/calendar';
+import { CALENDAR_CONNECT_URL, calendarApi, type CalendarStatus } from '../../lib/calendar';
 import { sendInvite } from '../../lib/api';
 import { docsApi, type AdminToken, type UserRow } from '../../lib/docsApi';
 import { setSmallText, smallText } from '../../lib/docPrefs';
@@ -66,7 +66,7 @@ function Avatar({ name, size = 32 }: { name: string; size?: number }) {
   );
 }
 
-type SectionId = 'account' | 'preferences' | 'tokens' | 'members' | 'ai' | 'transcription' | 'calendar' | 'webhooks' | 'about';
+type SectionId = 'account' | 'preferences' | 'mycalendar' | 'tokens' | 'members' | 'ai' | 'transcription' | 'calendar' | 'webhooks' | 'about';
 
 /** A section only an admin may open at all. Everything else is shown to
  *  everyone — the AI panel, for instance, is readable by all and editable by
@@ -81,6 +81,7 @@ const NAV: { group: string; items: { id: SectionId; label: string; icon: typeof 
     items: [
       { id: 'account', label: 'My account', icon: Users },
       { id: 'preferences', label: 'Preferences', icon: Settings2 },
+      { id: 'mycalendar', label: 'Calendar', icon: CalendarDays },
       { id: 'tokens', label: 'API tokens', icon: KeyRound },
     ],
   },
@@ -1027,6 +1028,62 @@ function TranscriptionSettingsSection() {
 }
 
 /**
+ * Your own Google Calendar (read-only). Connect is a plain link: the consent
+ * screen needs the whole window, and the server sends you back to `/` with
+ * `?calendar=connected|error`, which App turns into a toast.
+ */
+function MyCalendar() {
+  const [st, setSt] = useState<CalendarStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    calendarApi.status()
+      .then((s) => { if (alive) setSt(s); })
+      .catch((e) => { if (alive) setError(e instanceof Error ? e.message : 'Could not load your calendar.'); });
+    return () => { alive = false; };
+  }, []);
+
+  const disconnect = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await calendarApi.disconnect();
+      setSt((s) => (s ? { ...s, connected: false, email: null } : s));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not disconnect.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const button = 'inline-flex h-7 items-center rounded border border-line px-2.5 text-xs font-medium text-ink transition-colors hover:bg-hover disabled:pointer-events-none disabled:opacity-50';
+
+  return (
+    <div>
+      <SectionTitle>Calendar</SectionTitle>
+      <p className="mb-4 text-sm text-muted">See your Google Calendar events here. Read-only: nothing is ever written to your calendar.</p>
+      <div className="divide-y divide-line border-t border-line">
+        <Row
+          title="Google Calendar"
+          desc={error ?? (!st ? 'Checking…' : st.connected ? `Connected as ${st.email ?? 'your Google account'}.` : 'Not connected.')}
+          control={
+            !st ? null : st.connected ? (
+              <button type="button" onClick={() => void disconnect()} disabled={busy} className={button}>
+                {busy ? 'Disconnecting…' : 'Disconnect'}
+              </button>
+            ) : (
+              <a href={CALENDAR_CONNECT_URL} className={button}>Connect</a>
+            )
+          }
+        />
+      </div>
+    </div>
+  );
+}
+
+/**
  * Google Calendar connector (admin only). The client secret is write-only: GET
  * says whether one is stored, and a blank field keeps it. The token key lives in
  * the server environment, not here.
@@ -1330,6 +1387,7 @@ function Tokens() {
 const BODIES: Record<SectionId, () => JSX.Element> = {
   account: Account,
   preferences: Preferences,
+  mycalendar: MyCalendar,
   tokens: Tokens,
   members: Members,
   ai: AiSettings,
@@ -1346,13 +1404,19 @@ export function SettingsDialog() {
   const { user } = useAuth();
   const [section, setSection] = useState<SectionId>('account');
   const isAdmin = user?.role === 'admin';
-  const nav = isAdmin
-    ? NAV
-    : NAV.map((g) => ({ ...g, items: g.items.filter((it) => !ADMIN_ONLY.has(it.id)) }))
-        .filter((g) => g.items.length);
+  // "Calendar" (your own) only exists once an admin has switched the connector on.
+  const [calAvailable, setCalAvailable] = useState(false);
+  useEffect(() => {
+    if (!ws.settingsOpen) return;
+    let alive = true;
+    calendarApi.status().then((s) => { if (alive) setCalAvailable(s.available); }).catch(() => {});
+    return () => { alive = false; };
+  }, [ws.settingsOpen]);
+  const hidden = (id: SectionId) => (!isAdmin && ADMIN_ONLY.has(id)) || (id === 'mycalendar' && !calAvailable);
+  const nav = NAV.map((g) => ({ ...g, items: g.items.filter((it) => !hidden(it.id)) })).filter((g) => g.items.length);
   // Someone demoted while the dialog is open is still looking at the section
   // they had; fall back rather than render a body that can only 403.
-  const current = !isAdmin && ADMIN_ONLY.has(section) ? 'account' : section;
+  const current = hidden(section) ? 'account' : section;
   const Body = BODIES[current];
 
   return (

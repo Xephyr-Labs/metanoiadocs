@@ -42,11 +42,29 @@ export async function calendarConfig({ get = getSetting, env = process.env } = {
   };
 }
 
+export const SCOPES = 'openid email https://www.googleapis.com/auth/calendar.events.readonly';
+const STATE_TTL = 10 * 60 * 1000;
+
+/** The email claim of a JWT, decoded only: it came straight from Google's token endpoint over TLS. */
+function emailFromIdToken(idToken) {
+  try { return JSON.parse(Buffer.from(String(idToken).split('.')[1], 'base64url').toString('utf8')).email || null; } catch { return null; }
+}
+
 export function registerCalendarRoutes(app, {
   requireUser, requireAdmin, needsPerson, wrap, pool,
   baseUrl = process.env.BASE_URL, env = process.env, get = getSetting, set = setSetting,
+  fetch: f = fetch, now = Date.now,
 }) {
   const cfg = () => calendarConfig({ get, env });
+  const redirectUri = () => `${String(baseUrl).replace(/\/+$/, '')}/api/calendar/google/callback`;
+  const authBase = () => (env.GOOGLE_AUTH_URL || 'https://accounts.google.com').replace(/\/+$/, '');
+  const oauthBase = () => (env.GOOGLE_OAUTH_URL || 'https://oauth2.googleapis.com').replace(/\/+$/, '');
+  const post = (path, form) => f(`${oauthBase()}${path}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(form).toString(),
+  });
+  // ponytail: in-process maps; a second server instance would need these in the DB.
+  const states = new Map(); // state -> { userId, exp }
+  const accessCache = new Map(); // userId -> { token, exp }
 
   // Admins see the setup; everyone else learns only whether the feature is on.
   app.get('/api/settings/calendar', requireUser, wrap(async (req, res) => {
@@ -54,7 +72,7 @@ export function registerCalendarRoutes(app, {
     if (req.user?.role !== 'admin' || !isPerson(req)) return res.json({ enabled: c.ready });
     res.json({
       enabled: c.enabled, clientId: c.clientId, secretSet: !!c.clientSecret, keySet: c.keySet,
-      redirectUri: `${String(baseUrl).replace(/\/+$/, '')}/api/calendar/google/callback`,
+      redirectUri: redirectUri(),
     });
   }));
 
@@ -81,4 +99,84 @@ export function registerCalendarRoutes(app, {
     const { rows } = await pool.query('SELECT google_email FROM user_calendar_tokens WHERE user_id = $1', [req.user.id]);
     res.json({ available: true, connected: !!rows[0], email: rows[0]?.google_email || null });
   }));
+
+  app.get('/api/calendar/google/connect', requireUser, needsPerson, wrap(async (req, res) => {
+    const c = await cfg();
+    if (!c.ready) return res.status(404).json({ error: 'Not found' });
+    const t = now();
+    for (const [k, v] of states) if (v.exp < t) states.delete(k);
+    const state = crypto.randomBytes(32).toString('base64url');
+    states.set(state, { userId: req.user.id, exp: t + STATE_TTL });
+    const q = new URLSearchParams({
+      client_id: c.clientId, redirect_uri: redirectUri(), response_type: 'code', scope: SCOPES,
+      access_type: 'offline', prompt: 'consent', state, include_granted_scopes: 'true',
+    });
+    res.redirect(`${authBase()}/o/oauth2/v2/auth?${q}`);
+  }));
+
+  // Every failure lands on the same page: Google's errors and tokens never reach the browser.
+  app.get('/api/calendar/google/callback', requireUser, wrap(async (req, res) => {
+    const c = await cfg();
+    if (!c.ready) return res.status(404).json({ error: 'Not found' });
+    const fail = (reason) => res.redirect(`/?calendar=error${reason ? `&reason=${reason}` : ''}`);
+    const { code, state } = req.query || {};
+    const s = typeof state === 'string' ? states.get(state) : undefined;
+    if (s) states.delete(state); // single use, whatever happens next
+    if (!s || s.exp < now() || s.userId !== req.user.id || typeof code !== 'string' || !code) return fail();
+    let tok;
+    try {
+      const r = await post('/token', {
+        code, client_id: c.clientId, client_secret: c.clientSecret, redirect_uri: redirectUri(), grant_type: 'authorization_code',
+      });
+      tok = r.ok ? await r.json() : null;
+    } catch { tok = null; }
+    if (!tok) return fail();
+    if (!tok.refresh_token) return fail('reconsent');
+    await pool.query(
+      `INSERT INTO user_calendar_tokens (user_id, google_email, refresh_token_enc, connected_at) VALUES ($1, $2, $3, now())
+       ON CONFLICT (user_id) DO UPDATE SET google_email = EXCLUDED.google_email, refresh_token_enc = EXCLUDED.refresh_token_enc, connected_at = now()`,
+      [req.user.id, emailFromIdToken(tok.id_token), encryptToken(tok.refresh_token, tokenKey(env))],
+    );
+    accessCache.delete(req.user.id);
+    res.redirect('/?calendar=connected');
+  }));
+
+  app.delete('/api/calendar/google', requireUser, needsPerson, wrap(async (req, res) => {
+    const c = await cfg();
+    if (!c.ready) return res.status(404).json({ error: 'Not found' });
+    const { rows } = await pool.query('SELECT refresh_token_enc FROM user_calendar_tokens WHERE user_id = $1', [req.user.id]);
+    if (rows[0]) {
+      try { await post('/revoke', { token: decryptToken(rows[0].refresh_token_enc, tokenKey(env)) }); } catch { /* best effort */ }
+    }
+    await pool.query('DELETE FROM user_calendar_tokens WHERE user_id = $1', [req.user.id]);
+    accessCache.delete(req.user.id);
+    res.status(204).end();
+  }));
+
+  /** A live access token for the user ({ token }), or { reconnect: true } when there is none to be had. Throws on transient errors. */
+  async function accessTokenFor(userId) {
+    const c = await cfg();
+    if (!c.ready) return { reconnect: true };
+    const hit = accessCache.get(userId);
+    if (hit && hit.exp > now()) return { token: hit.token };
+    const { rows } = await pool.query('SELECT refresh_token_enc FROM user_calendar_tokens WHERE user_id = $1', [userId]);
+    if (!rows[0]) return { reconnect: true };
+    const r = await post('/token', {
+      refresh_token: decryptToken(rows[0].refresh_token_enc, tokenKey(env)),
+      client_id: c.clientId, client_secret: c.clientSecret, grant_type: 'refresh_token',
+    });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      if (body?.error === 'invalid_grant') {
+        await pool.query('DELETE FROM user_calendar_tokens WHERE user_id = $1', [userId]);
+        accessCache.delete(userId);
+        return { reconnect: true };
+      }
+      throw new Error(`Google token refresh failed (${r.status})`);
+    }
+    accessCache.set(userId, { token: body.access_token, exp: now() + (Number(body.expires_in) || 3600) * 1000 - 60_000 });
+    return { token: body.access_token };
+  }
+
+  return { accessTokenFor };
 }

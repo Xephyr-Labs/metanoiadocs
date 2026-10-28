@@ -32,6 +32,8 @@ import { useGlobalHotkeys } from './hooks/useGlobalHotkeys';
 import { useMediaQuery } from './hooks/useMediaQuery';
 import { usePrefetchEditor } from './editor/LazyEditor';
 import { useWorkspace } from './store/workspace';
+import { takeCalendarReturn } from './lib/calendar';
+import { toast } from './lib/toast';
 
 export default function App() {
   useDesktopNotifications();
@@ -46,6 +48,12 @@ export default function App() {
   useEffect(() => {
     if (isMobile) ws.setSidebarCollapsed(true);
   }, [isMobile]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Back from Google's consent screen: say how it went, once.
+  useEffect(() => {
+    const m = takeCalendarReturn();
+    if (m) toast(m);
+  }, []);
 
   // A database embedded in a page renders in its own React root, outside this
   // tree — "Open database" there has no other way to reach the store. See
