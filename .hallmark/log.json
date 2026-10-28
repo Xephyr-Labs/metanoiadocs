@@ -1,5 +1,12 @@
 [
   {
+    "date": "2026-10-28",
+    "macrostructure": "Workbench (app chrome — sidebar rail + comments panel, redesign inside the existing system)",
+    "theme": "project tokens (preserved; Onest via --font-display) · section headers lose their per-section hues (muted caps, one blue accent left in the rail); tree rows keep their icon and get a chevron slot of their own plus a '+' for a child page, every list under a header shares that icon column, Recent no longer double-selects the open page, action rows ('New design', 'N more') sit in the header columns at body size, rail labels 12px; comment cards are neutral until you are in the thread (the yellow follows focus), Resolve says its name, replies indent instead of a second rule, Reply is accent, filter tabs / Comment-Suggest switch / Decline-Accept are 28px with hover, active and disabled states, and touch gets 36px always-visible actions",
+    "enrichment": "none — typography only",
+    "brief": "metanoiadocs · sidebar + comments punch list S1-S6, C1-C6 and the every-card yellow tint"
+  },
+  {
     "date": "2026-10-29",
     "macrostructure": "Workbench (app chrome — Settings > Calendar and the meeting card)",
     "theme": "project tokens (preserved; Onest via --font-display) · Settings > Calendar tells the truth: 'See your meetings, send invites and answer them. Only your own primary calendar.'; a read-only grant reads 'Connected as … Reconnect to send and answer invites.' with a Reconnect link (same bordered small button as Disconnect, straight to Google's consent screen) beside Disconnect, so every Reconnect in the app ends somewhere; the meeting card hides Accept / Maybe / Decline from the organiser, and its cancel confirmation says what happens: the occurrence for a recurring meeting, 'Delete this meeting?' with no other guests",
