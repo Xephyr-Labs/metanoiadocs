@@ -18,6 +18,7 @@
  */
 import {
   Archive,
+  CalendarDays,
   CheckSquare,
   ChevronDown,
   ChevronsLeft,
@@ -44,7 +45,8 @@ import {
   Trash2,
   Upload,
 } from 'lucide-react';
-import { Children, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { Children, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { calendarConnected } from '../../lib/calendar';
 import { cn } from '../../lib/cn';
 import { MOD_LABEL } from '../../lib/hotkeys';
 import { SECTION_LIMIT, collapsedSections, railSection, setRailSection, toggleSection, type RailSection } from '../../lib/sidebarPrefs';
@@ -713,6 +715,8 @@ export function Sidebar() {
   const av = avatarFor(auth.user?.name || auth.user?.username || 'You');
   const dragging = useRef(false);
   const [, force] = useState(0);
+  const [hasCalendar, setHasCalendar] = useState(false);
+  useEffect(() => { calendarConnected().then(setHasCalendar); }, []);
 
   // Which rail section is showing, and which sections are folded. Both live
   // here rather than in the sections themselves because picking a rail section
@@ -849,6 +853,9 @@ export function Sidebar() {
           ) : undefined}
         />
         <NavItem icon={<CheckSquare size={16} />} label="Tasks" active={ws.view === 'tasks'} onClick={ws.openTasks} />
+        {hasCalendar && (
+          <NavItem icon={<CalendarDays size={16} />} label="Calendar" active={ws.view === 'calendar'} onClick={ws.openCalendar} />
+        )}
         {/* The tree below only draws a page once it has been filed somewhere,
             so the ones easiest to lose are the ones it never shows. */}
         <NavItem icon={<Files size={16} />} label="All documents" active={ws.view === 'docs'} onClick={ws.openAllDocs} />

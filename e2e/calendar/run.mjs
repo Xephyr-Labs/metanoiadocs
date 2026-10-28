@@ -60,6 +60,24 @@ async function pageMenu(p, id) {
   return out;
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const stub = async (path, body) => (await fetch(STUB + path, body ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : {})).json();
+const lastWrite = async () => (await stub('/stats')).writes.at(-1);
+const day = (n) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
+const calendarItem = (p) => p.getByRole('button', { name: 'Calendar', exact: true });
+/** Connect (again) through the stub's consent screen. */
+async function connect(p) {
+  await p.goto(`${BASE}/api/calendar/google/connect`);
+  await p.waitForURL(/calendar=(connected|error)/, { timeout: 20000 });
+  return p.url();
+}
+/** Home, then the Calendar page from the side menu (week view at this width). */
+async function openCalendarPage(p) {
+  await openAndAsk(p, '/');
+  const loaded = p.waitForResponse((r) => r.url().includes('/api/calendar/events?from='), { timeout: 20000 });
+  await calendarItem(p).first().click();
+  await loaded;
+  await sleep(500);
+}
 let bobId; let aliceId; let docId; let proj; let plainId;
 
 await step('admin setup', async () => {
@@ -84,6 +102,7 @@ await step('admin setup', async () => {
   try {
     await openAndAsk(p, '/');
     await p.getByRole('button', { name: 'New page' }).first().waitFor({ timeout: 20000 });
+    check('before setup: no Calendar menu item', await calendarItem(p).count() === 0);
     check('before setup: Home has no meetings card', await p.getByText("Today's meetings").count() === 0
       && await p.getByText('Connect your calendar').count() === 0);
     const m = await pageMenu(p, plainId);
@@ -95,7 +114,7 @@ await step('admin setup', async () => {
   const denied = await b.raw('PUT', '/api/settings/calendar', { enabled: true });
   check('non-admin cannot configure', denied.status === 403, String(denied.status));
   await a.call('PUT', '/api/settings/calendar', { enabled: true, clientId: 'stub-client', clientSecret: 'stub-secret' });
-  check('after setup: feature available, not connected', JSON.stringify(await a.get('/api/calendar/status')) === JSON.stringify({ available: true, connected: false, email: null }));
+  check('after setup: feature available, not connected', JSON.stringify(await a.get('/api/calendar/status')) === JSON.stringify({ available: true, connected: false, email: null, canWrite: false }));
   check('before connecting: no events', (await a.get('/api/calendar/events')).connected === false);
 
   proj = await a.post('/api/projects', { name: 'Launch' });
@@ -122,6 +141,7 @@ await step('connect + Home (browser)', async () => {
     await p.goto(`${BASE}/`);
     await p.getByText('Launch sync').first().waitFor({ timeout: 20000 });
     check('Home shows the meeting card with Start notes', await p.getByRole('button', { name: 'Start notes' }).count() === 1);
+    check('after connecting: Calendar menu item', await calendarItem(p).count() === 1);
     const m = await pageMenu(p, plainId);
     check('after setup: page menu has both task entries', m.make && m.suggest, JSON.stringify(m));
   } finally { await browser.close(); }
@@ -174,6 +194,144 @@ await step('suggest tasks', async () => {
   check('project now has before+1 tasks', tasks.length === before + 1);
   const md = JSON.stringify(await a.get(`/api/docs/${docId}/markdown`));
   check('notes page has the "Tasks from this meeting" link', md.includes('Tasks from this meeting') && md.includes('Share the Q3 numbers'), md.slice(-300));
+});
+
+await step('read-only grant', async () => {
+  await stub('/control', { scope: 'readonly' });
+  const { browser, p } = await aliceBrowser();
+  try {
+    check('read-only consent connects', (await connect(p)).includes('calendar=connected'), p.url());
+    const st = await a.get('/api/calendar/status');
+    check('status: connected, cannot write', st.connected === true && st.canWrite === false, JSON.stringify(st));
+    await openCalendarPage(p);
+    check('Calendar page shows the meetings', await p.getByText('Launch sync').count() > 0);
+    check('Calendar page has the reconnect line', await p.getByText('Reconnect your calendar to send and answer invites').count() === 1);
+    check('New meeting is disabled', await p.getByRole('button', { name: 'New meeting' }).first().isDisabled());
+    // Reconnect from the page opens Settings > Calendar, whose Reconnect goes to Google's consent screen.
+    await p.getByRole('button', { name: 'Reconnect', exact: true }).click();
+    const again = p.getByRole('link', { name: 'Reconnect', exact: true });
+    await again.waitFor({ timeout: 10000 });
+    check('Settings > Calendar says why and tells the truth', await p.getByText('Reconnect to send and answer invites.', { exact: false }).count() === 1
+      && await p.getByText('nothing is ever written', { exact: false }).count() === 0);
+    const tokens = (await stub('/stats')).tokens;
+    const auth = p.waitForRequest((r) => r.url().includes('/o/oauth2/v2/auth'), { timeout: 20000 });
+    await again.click();
+    check('Reconnect reaches the Google consent screen', !!(await auth).url().includes('client_id=stub-client'));
+    await p.waitForURL(/calendar=(connected|error)/, { timeout: 20000 });
+    check('and comes back connected', p.url().includes('calendar=connected') && (await stub('/stats')).tokens === tokens + 1, p.url());
+  } finally { await browser.close(); }
+  const writes = [
+    await a.raw('POST', '/api/calendar/events', { title: 'Nope', start: `${day(2)}T10:00:00Z`, end: `${day(2)}T10:30:00Z`, attendees: [] }),
+    await a.raw('PATCH', '/api/calendar/events/own1', { title: 'Nope' }),
+    await a.raw('POST', '/api/calendar/events/evt1/respond', { response: 'declined' }),
+    await a.raw('DELETE', '/api/calendar/events/own1'),
+  ];
+  check('every write route says 409 needsWrite', writes.every((r) => r.status === 409 && r.json.needsWrite === true), JSON.stringify(writes.map((r) => [r.status, r.json])));
+  check('Google changed nothing', (await stub('/stats')).writes.length === 0);
+  check('status still cannot write', (await a.get('/api/calendar/status')).canWrite === false);
+});
+
+let newId;
+await step('reconnect with write: create, edit, respond', async () => {
+  await stub('/control', { scope: 'write' });
+  const { browser, p } = await aliceBrowser();
+  try {
+    check('write consent connects', (await connect(p)).includes('calendar=connected'), p.url());
+  } finally { await browser.close(); }
+  check('status: can write', (await a.get('/api/calendar/status')).canWrite === true);
+
+  const made = await a.raw('POST', '/api/calendar/events', {
+    title: 'Roadmap review', start: `${day(1)}T15:00:00Z`, end: `${day(1)}T15:30:00Z`,
+    attendees: ['Bob@Example.com', 'guest@partner.org'], meet: true, description: 'Agenda',
+  });
+  newId = made.json.id;
+  check('create 201 with the Google id', made.status === 201 && !!newId, JSON.stringify(made));
+  let w = await lastWrite();
+  check('Google got an insert with sendUpdates=all, Meet and the attendee emails', w?.method === 'POST' && w.query.sendUpdates === 'all'
+    && w.query.conferenceDataVersion === '1' && JSON.stringify(w.body.attendees) === JSON.stringify([{ email: 'bob@example.com' }, { email: 'guest@partner.org' }])
+    && !!w.body.conferenceData?.createRequest, JSON.stringify(w));
+
+  const week = async (extra = '') => (await a.get(`/api/calendar/events?from=${day(0)}&to=${day(7)}${extra}`)).events;
+  let ev = await week();
+  const ids = ev.map((e) => e.id);
+  check('range lists every page (stub pages by 3)', ['evt1', 'own1', newId].every((x) => ids.includes(x)) && ids.some((x) => x.startsWith('standup_'))
+    && (await stub('/stats')).lists >= 2, JSON.stringify(ids));
+  check('range hides declined unless asked', !ids.includes('declined1')
+    && (await week('&declined=1')).find((e) => e.id === 'declined1')?.myResponse === 'declined');
+  const mine = ev.find((e) => e.id === newId);
+  check('the new meeting is Alice\'s, with a Meet link', mine?.organizerSelf === true && mine.hasMeet === true && /^https:/.test(mine.meetLink || ''), JSON.stringify(mine));
+  check('a recurring instance carries its series', ev.find((e) => e.id.startsWith('standup_'))?.recurringEventId === 'standup');
+
+  const edited = await a.raw('PATCH', `/api/calendar/events/${newId}`, { title: 'Roadmap review (moved)', start: `${day(1)}T16:00:00Z`, end: `${day(1)}T16:45:00Z` });
+  w = await lastWrite();
+  check('edit 200, sent with sendUpdates=all', edited.status === 200 && w?.method === 'PATCH' && w.path.endsWith(`/${newId}`)
+    && w.query.sendUpdates === 'all' && w.body.summary === 'Roadmap review (moved)', JSON.stringify([edited, w]));
+  check('the edit shows in the range', (await week()).find((e) => e.id === newId)?.title === 'Roadmap review (moved)');
+
+  const ans = await a.raw('POST', '/api/calendar/events/evt1/respond', { response: 'tentative' });
+  w = await lastWrite();
+  check('respond 200: only your own answer, attendeesOmitted', ans.status === 200 && w?.method === 'PATCH' && w.path.endsWith('/evt1') && w.query.sendUpdates === 'all'
+    && JSON.stringify(w.body) === JSON.stringify({ attendeesOmitted: true, attendees: [{ email: 'alice@example.com', responseStatus: 'tentative' }] }), JSON.stringify([ans, w]));
+  const evt1 = (await week()).find((e) => e.id === 'evt1');
+  check('only Alice\'s response changed', evt1?.myResponse === 'tentative'
+    && JSON.stringify(evt1.attendees.map((x) => x.response)) === JSON.stringify(['tentative', 'accepted', 'needsAction']), JSON.stringify(evt1?.attendees));
+  const standup = ev.find((e) => e.id.startsWith('standup_')).id;
+  check('respond works on a recurring instance', (await a.raw('POST', `/api/calendar/events/${standup}/respond`, { response: 'accepted' })).status === 200);
+
+  const before = (await stub('/stats')).writes.length;
+  const hijack = [await a.raw('PATCH', '/api/calendar/events/evt1', { title: 'Mine now' }), await a.raw('DELETE', '/api/calendar/events/evt1')];
+  check("non-organiser edit and cancel: 403", hijack.every((r) => r.status === 403), JSON.stringify(hijack.map((r) => r.status)));
+  check('Google got no write for them', (await stub('/stats')).writes.length === before);
+});
+
+await step('Calendar page and Home with write access (browser)', async () => {
+  const { browser, p } = await aliceBrowser();
+  try {
+    await openCalendarPage(p);
+    check('no reconnect line', await p.getByText('Reconnect your calendar to send and answer invites').count() === 0);
+    check('New meeting is enabled', !(await p.getByRole('button', { name: 'New meeting' }).first().isDisabled()));
+    await p.getByRole('button', { name: 'New meeting' }).first().click();
+    await p.getByLabel('Title').fill('Hiring sync');
+    const guests = p.getByPlaceholder('Name or email');
+    await guests.fill('newguest@partner.org');
+    await guests.press('Enter');
+    const sent = p.waitForResponse((r) => r.url().endsWith('/api/calendar/events') && r.request().method() === 'POST', { timeout: 20000 });
+    await p.getByRole('button', { name: 'Send invites' }).click();
+    const res = await sent;
+    const ins = await lastWrite();
+    check('New meeting > Send invites: Google got the insert, sendUpdates=all, with the guest', res.status() === 201 && ins?.method === 'POST'
+      && ins.query.sendUpdates === 'all' && ins.body.summary === 'Hiring sync'
+      && JSON.stringify(ins.body.attendees) === JSON.stringify([{ email: 'newguest@partner.org' }]), JSON.stringify(ins));
+    const declined = p.getByText('Budget review').first();
+    await declined.waitFor({ timeout: 10000 });
+    check('declined meeting is on the Calendar page, struck through', await declined.evaluate((el) => {
+      for (let n = el; n; n = n.parentElement) if (getComputedStyle(n).textDecorationLine.includes('line-through')) return true;
+      return false;
+    }));
+
+    await openAndAsk(p, '/');
+    await p.getByText('Launch sync').first().waitFor({ timeout: 20000 });
+    check('declined meeting is not on the Home card', await p.getByText('Budget review').count() === 0);
+    await p.getByRole('heading', { name: 'Activity' }).waitFor({ timeout: 20000 });
+    const order = await p.evaluate(() => {
+      const overview = [...document.querySelectorAll('p')].find((x) => /^(You have|You're all caught up)/.test(x.textContent.trim()));
+      const nodes = [...document.querySelectorAll('h2')].concat(overview ? [overview] : [])
+        .sort((x, y) => (x.compareDocumentPosition(y) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
+      return nodes.map((x) => (x === overview ? 'Overview' : x.textContent.trim()));
+    });
+    const want = ['Overview', "Today's meetings", 'Jump back in', 'My tasks', 'My documents', 'Activity'];
+    check('Home order: Overview, meetings, Jump back in, tasks | documents, Activity', JSON.stringify(order.filter((x) => want.includes(x))) === JSON.stringify(want), JSON.stringify(order));
+    check('Home has no Projects heading', !order.includes('Projects'), JSON.stringify(order));
+    const [t, d] = await Promise.all(['My tasks', 'My documents'].map(async (n) => p.getByRole('heading', { name: n }).boundingBox()));
+    check('My tasks and My documents side by side', !!t && !!d && Math.abs(t.y - d.y) < 4 && d.x > t.x, JSON.stringify([t, d]));
+  } finally { await browser.close(); }
+});
+
+await step('cancel', async () => {
+  const r = await a.raw('DELETE', `/api/calendar/events/${newId}`);
+  const w = await lastWrite();
+  check('cancel 204, sent with sendUpdates=all', r.status === 204 && w?.method === 'DELETE' && w.path.endsWith(`/${newId}`) && w.query.sendUpdates === 'all', JSON.stringify([r.status, w]));
+  check('the cancelled meeting is gone from the range', !(await a.get(`/api/calendar/events?from=${day(0)}&to=${day(7)}`)).events.some((e) => e.id === newId));
 });
 
 await step('disconnect', async () => {

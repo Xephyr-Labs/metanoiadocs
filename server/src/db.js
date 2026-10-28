@@ -1121,6 +1121,8 @@ export async function initSchema() {
       refresh_token_enc TEXT NOT NULL,
       connected_at      TIMESTAMPTZ NOT NULL DEFAULT now()
     );
+    -- Whether the grant includes calendar.events (write). Rows from before stay read-only until a reconnect.
+    ALTER TABLE user_calendar_tokens ADD COLUMN IF NOT EXISTS can_write BOOLEAN NOT NULL DEFAULT false;
   `);
 
   // One private notes page per person per event occurrence ("Start notes").

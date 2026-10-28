@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, useRef } from 'react';
-import { ArrowRight, ChevronDown, ChevronLeft, ChevronRight, FileText, MoreHorizontal, Plus, RefreshCw, Upload } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, FileText, MoreHorizontal, Plus, RefreshCw, Upload } from 'lucide-react';
 import { useDocMenu } from '../../hooks/useDocMenu';
 import { useAuth } from '../../store/auth';
 import { useWorkspace } from '../../store/workspace';
@@ -14,7 +14,7 @@ import { IconButton } from '../ui/IconButton';
 import { Menu } from '../ui/Menu';
 import { Skeleton } from '../ui/Skeleton';
 import { inCurrentSpace } from '../../lib/spaceTree';
-import { ActivityLine, Card, DocCard, ProjectCard, TaskBucket } from './cards';
+import { ActivityLine, Card, DocCard, TaskBucket } from './cards';
 import { NeedsYou } from './NeedsYou';
 import { TodaysMeetings } from './TodaysMeetings';
 
@@ -205,7 +205,7 @@ export function Home() {
         </header>
 
         {error && (
-          <div className="mb-6 rounded-lg bg-surface px-4 py-3 text-sm text-danger-strong shadow-subtle">{error}</div>
+          <div className="mb-8 rounded-lg bg-surface px-4 py-3 text-sm text-danger-strong shadow-subtle">{error}</div>
         )}
 
         {needs && <NeedsYou needs={needs} onChanged={reload} />}
@@ -232,74 +232,73 @@ export function Home() {
               </section>
             )}
 
-            {/* Two independent stacks, not grid rows: cards pack downward in
-                each column, so a short card never strands empty space beside
-                a tall neighbor. */}
-            <div className="mb-6 grid items-start gap-4 lg:grid-cols-2">
-              <div className="grid min-w-0 gap-4">
-                {(() => {
-                  // Only projects this person actually has tasks in, so every
-                  // option in the list leads somewhere.
-                  const mine = BUCKETS.flatMap((b) => data.myTasks[b]);
-                  const projects = [...new Map(mine.map((t) => [t.project_id, t])).values()]
-                    .sort((a, b) => a.project_name.localeCompare(b.project_name));
-                  // A remembered project whose tasks are all done would leave the
-                  // select showing a blank value, so fall back to everything.
-                  const active = projects.some((p) => p.project_id === scope) ? scope : 'all';
-                  const shown = (b: MyTask['bucket']) =>
-                    active === 'all' ? data.myTasks[b] : data.myTasks[b].filter((t) => t.project_id === active);
-                  return (
-                    <Card
-                      title="My tasks"
-                      action={projects.length > 1 && (
-                        // A label drawn in the card's own type with the native
-                        // select laid invisibly over it. The select has to stay
-                        // 16px on touch screens or iOS zooms the page when it
-                        // opens, and a 16px control under a 14px heading read
-                        // as the loudest thing on the card. Drawn this way the
-                        // phone still gets its own picker, and the visible text
-                        // matches the desktop at 13px. `mn-stay-hidden` keeps
-                        // the select invisible when a keyboard focuses it; the
-                        // wrapper draws the focus ring instead.
-                        <div className="relative flex h-6 max-w-[11rem] items-center gap-0.5 rounded px-1.5 text-xs text-muted hover:bg-hover focus-within:outline focus-within:outline-2 focus-within:outline-accent">
-                          <span className="truncate">
-                            {active === 'all' ? 'All projects' : projects.find((p) => p.project_id === active)?.project_name}
-                          </span>
-                          <ChevronDown size={12} className="shrink-0" aria-hidden />
-                          <select
-                            aria-label="Filter tasks by project"
-                            value={active}
-                            onChange={(e) => pickScope(e.target.value)}
-                            className="mn-stay-hidden absolute inset-0 w-full cursor-pointer opacity-0 coarse:-inset-y-2.5"
-                          >
-                            <option value="all">All projects</option>
-                            {projects.map((p) => (
-                              <option key={p.project_id} value={p.project_id}>{p.project_name}</option>
-                            ))}
-                          </select>
-                        </div>
-                      )}
-                    >
-                      {BUCKETS.some((b) => shown(b).length) ? (
-                        BUCKETS.map((b) => (
-                          <TaskBucket key={b} bucket={b} tasks={shown(b)} onOpen={openTask} />
-                        ))
-                      ) : (
-                        <EmptyState
-                          compact
-                          icon={FileText}
-                          title={active === 'all' ? 'Nothing assigned to you' : 'Nothing here in this project'}
-                          hint={active === 'all' ? 'Tasks you own show up here.' : 'Switch back to all projects to see the rest.'}
-                        />
-                      )}
-                    </Card>
-                  );
-                })()}
+            {/* My tasks and My documents side by side; each card is its own
+                grid item, so a short one never strands space beside a tall one
+                on the same row. minmax(0,1fr) keeps long titles from widening
+                a track. */}
+            <div className="mb-8 grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+              {(() => {
+                // Only projects this person actually has tasks in, so every
+                // option in the list leads somewhere.
+                const mine = BUCKETS.flatMap((b) => data.myTasks[b]);
+                const projects = [...new Map(mine.map((t) => [t.project_id, t])).values()]
+                  .sort((a, b) => a.project_name.localeCompare(b.project_name));
+                // A remembered project whose tasks are all done would leave the
+                // select showing a blank value, so fall back to everything.
+                const active = projects.some((p) => p.project_id === scope) ? scope : 'all';
+                const shown = (b: MyTask['bucket']) =>
+                  active === 'all' ? data.myTasks[b] : data.myTasks[b].filter((t) => t.project_id === active);
+                return (
+                  <Card
+                    title="My tasks"
+                    action={projects.length > 1 && (
+                      // A label drawn in the card's own type with the native
+                      // select laid invisibly over it. The select has to stay
+                      // 16px on touch screens or iOS zooms the page when it
+                      // opens, and a 16px control under a 14px heading read
+                      // as the loudest thing on the card. Drawn this way the
+                      // phone still gets its own picker, and the visible text
+                      // matches the desktop at 13px. `mn-stay-hidden` keeps
+                      // the select invisible when a keyboard focuses it; the
+                      // wrapper draws the focus ring instead.
+                      <div className="relative flex h-6 max-w-[11rem] items-center gap-0.5 rounded px-1.5 text-xs text-muted hover:bg-hover focus-within:outline focus-within:outline-2 focus-within:outline-accent">
+                        <span className="truncate">
+                          {active === 'all' ? 'All projects' : projects.find((p) => p.project_id === active)?.project_name}
+                        </span>
+                        <ChevronDown size={12} className="shrink-0" aria-hidden />
+                        <select
+                          aria-label="Filter tasks by project"
+                          value={active}
+                          onChange={(e) => pickScope(e.target.value)}
+                          className="mn-stay-hidden absolute inset-0 w-full cursor-pointer opacity-0 coarse:-inset-y-2.5"
+                        >
+                          <option value="all">All projects</option>
+                          {projects.map((p) => (
+                            <option key={p.project_id} value={p.project_id}>{p.project_name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                  >
+                    {BUCKETS.some((b) => shown(b).length) ? (
+                      BUCKETS.map((b) => (
+                        <TaskBucket key={b} bucket={b} tasks={shown(b)} onOpen={openTask} />
+                      ))
+                    ) : (
+                      <EmptyState
+                        compact
+                        icon={FileText}
+                        title={active === 'all' ? 'Nothing assigned to you' : 'Nothing here in this project'}
+                        hint={active === 'all' ? 'Tasks you own show up here.' : 'Switch back to all projects to see the rest.'}
+                      />
+                    )}
+                  </Card>
+                );
+              })()}
+              <MyDocsCard onOpen={(id) => ws.select(id)} spaceId={spaceId} />
+            </div>
 
-                <MyDocsCard onOpen={(id) => ws.select(id)} spaceId={spaceId} />
-              </div>
-
-              <Card title="Activity">
+            <Card title="Activity">
                 {data.activity.length ? (
                   <div className="scrollarea max-h-[640px] space-y-px overflow-y-auto">
                     {data.activity.map((row, i) => (
@@ -316,35 +315,7 @@ export function Home() {
                 ) : (
                   <EmptyState compact icon={FileText} title="No activity yet" hint="Edits and comments land here." />
                 )}
-              </Card>
-            </div>
-
-            <section>
-              {/* Page-level section heads read sentence-case like "Jump back in";
-                  the uppercase eyebrow is reserved for labels inside cards. */}
-              <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-ink">
-                Projects
-                {data.projects.length > 0 && (
-                  <ArrowRight size={14} className="text-faint" />
-                )}
-              </h2>
-              {data.projects.length ? (
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {data.projects.map((p) => (
-                    <ProjectCard key={p.id} project={p} onOpen={() => ws.openProject(p.id)} />
-                  ))}
-                </div>
-              ) : (
-                <Card>
-                  <EmptyState
-                    compact
-                    icon={FileText}
-                    title="No projects yet"
-                    hint="A project holds tasks with a board, table, gantt and calendar."
-                  />
-                </Card>
-              )}
-            </section>
+            </Card>
           </>
         )}
       </div>

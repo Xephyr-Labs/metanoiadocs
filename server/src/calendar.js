@@ -43,13 +43,47 @@ export async function calendarConfig({ get = getSetting, env = process.env } = {
   };
 }
 
-export const CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar.events.readonly';
+// Asked for on every connect; people may still grant only the read-only one (older grants are read-only).
+export const CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar.events';
+export const READONLY_SCOPE = 'https://www.googleapis.com/auth/calendar.events.readonly';
 export const SCOPES = `openid email ${CALENDAR_SCOPE}`;
 const STATE_TTL = 10 * 60 * 1000;
 
 /** The email claim of a JWT, decoded only: it came straight from Google's token endpoint over TLS. */
 function emailFromIdToken(idToken) {
   try { return JSON.parse(Buffer.from(String(idToken).split('.')[1], 'base64url').toString('utf8')).email || null; } catch { return null; }
+}
+
+const MAX_EVENTS = 500;
+const RESPONSES = ['accepted', 'tentative', 'declined', 'needsAction'];
+const responseOf = (a) => (RESPONSES.includes(a?.responseStatus) ? a.responseStatus : null);
+const httpOnly = (u) => typeof u === 'string' && /^https?:\/\//i.test(u);
+
+/** Days since epoch of a real 'YYYY-MM-DD', else NaN. */
+function dateIndex(s) {
+  if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return NaN;
+  const ms = Date.parse(`${s}T00:00:00Z`);
+  return Number.isNaN(ms) || new Date(ms).toISOString().slice(0, 10) !== s ? NaN : ms / 86_400_000;
+}
+
+const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', nbsp: '\u00a0' };
+/** Google's description HTML as plain text: shown as text, never as HTML. */
+export function htmlToText(html) {
+  if (typeof html !== 'string') return '';
+  return html
+    .replace(/\r\n?/g, '\n')
+    .replace(/<br\s*\/?>|<\/(p|div|li)\s*>/gi, '\n')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, k) => {
+      if (k[0] === '#') {
+        const n = k[1] === 'x' || k[1] === 'X' ? parseInt(k.slice(2), 16) : parseInt(k.slice(1), 10);
+        try { return String.fromCodePoint(n); } catch { return m; }
+      }
+      return ENTITIES[k.toLowerCase()] ?? m;
+    })
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+    .slice(0, 5000);
 }
 
 export function registerCalendarRoutes(app, {
@@ -97,9 +131,9 @@ export function registerCalendarRoutes(app, {
 
   app.get('/api/calendar/status', requireUser, wrap(async (req, res) => {
     const c = await cfg();
-    if (!c.ready) return res.json({ available: false, connected: false, email: null });
-    const { rows } = await pool.query('SELECT google_email FROM user_calendar_tokens WHERE user_id = $1', [req.user.id]);
-    res.json({ available: true, connected: !!rows[0], email: rows[0]?.google_email || null });
+    if (!c.ready) return res.json({ available: false, connected: false, email: null, canWrite: false });
+    const { rows } = await pool.query('SELECT google_email, can_write FROM user_calendar_tokens WHERE user_id = $1', [req.user.id]);
+    res.json({ available: true, connected: !!rows[0], email: rows[0]?.google_email || null, canWrite: !!rows[0]?.can_write });
   }));
 
   // Bumped whenever a user's connection changes, so a refresh that was in flight
@@ -159,13 +193,17 @@ export function registerCalendarRoutes(app, {
     if (!tok) return fail();
     if (!tok.refresh_token) return fail('reconsent');
     // Granular consent lets people untick the calendar box and still get a token.
-    if (!String(tok.scope || '').split(' ').includes(CALENDAR_SCOPE)) return fail('scope');
+    // Exact tokens: `calendar.events.readonly` must not pass for `calendar.events`.
+    const granted = String(tok.scope || '').split(/\s+/);
+    const canWrite = granted.includes(CALENDAR_SCOPE);
+    if (!canWrite && !granted.includes(READONLY_SCOPE)) return fail('scope');
     // No revoke of a replaced token: Google revokes the whole grant, which would kill the new token too.
     try {
       await pool.query(
-        `INSERT INTO user_calendar_tokens (user_id, google_email, refresh_token_enc, connected_at) VALUES ($1, $2, $3, now())
-         ON CONFLICT (user_id) DO UPDATE SET google_email = EXCLUDED.google_email, refresh_token_enc = EXCLUDED.refresh_token_enc, connected_at = now()`,
-        [req.user.id, emailFromIdToken(tok.id_token), encryptToken(tok.refresh_token, tokenKey(env))],
+        `INSERT INTO user_calendar_tokens (user_id, google_email, refresh_token_enc, can_write, connected_at) VALUES ($1, $2, $3, $4, now())
+         ON CONFLICT (user_id) DO UPDATE SET google_email = EXCLUDED.google_email, refresh_token_enc = EXCLUDED.refresh_token_enc,
+           can_write = EXCLUDED.can_write, connected_at = now()`,
+        [req.user.id, emailFromIdToken(tok.id_token), encryptToken(tok.refresh_token, tokenKey(env)), canWrite],
       );
     } catch { return fail(); }
     forget(req.user.id);
@@ -224,19 +262,40 @@ export function registerCalendarRoutes(app, {
     return new Map(rows.map((r) => [r.event_id, r.doc_id]));
   }
 
-  /** GET on the person's Google calendar API: the Response, or { reconnect: true }. One retry on a 401 with a fresh token. */
-  async function googleGet(uid, path) {
+  /** A call on the person's Google calendar API: the Response, or { reconnect: true }. One retry on a 401 with a fresh token. */
+  async function googleCall(uid, path, { method, body } = {}) {
     let r;
     for (let attempt = 0; attempt < 2; attempt++) {
       const tok = await accessTokenFor(uid);
       if (!tok.token) return { reconnect: true };
-      r = await f(`${apiBase()}${path}`, { headers: { Authorization: `Bearer ${tok.token}` } });
+      const headers = { Authorization: `Bearer ${tok.token}` };
+      if (body !== undefined) headers['Content-Type'] = 'application/json';
+      r = await f(`${apiBase()}${path}`, method ? { method, headers, body: body === undefined ? undefined : JSON.stringify(body) } : { headers });
       if (r.status !== 401) return r;
       accessCache.delete(uid);
     }
     // A fresh token refused too: the grant is dead, so Settings must show Connect as well.
     await drop(uid);
     return { reconnect: true };
+  }
+
+  const googleGet = (uid, path) => googleCall(uid, path);
+
+  const SCOPE_REASONS = ['insufficientPermissions', 'ACCESS_TOKEN_SCOPE_INSUFFICIENT'];
+  /**
+   * A write on the person's calendar: the Response, { reconnect: true }, or { needsWrite: true } when the
+   * grant lacks write scope (can_write is then cleared). Other 403s (e.g. not the organiser) come back as-is.
+   */
+  async function googleSend(uid, method, path, body) {
+    const r = await googleCall(uid, path, { method, body });
+    if (r.reconnect || r.status !== 403) return r;
+    const e = (await r.clone().json().catch(() => null))?.error || {};
+    const list = (x) => (Array.isArray(x) ? x : []);
+    const reasons = [...list(e.errors), ...list(e.details)].map((x) => x?.reason).filter(Boolean);
+    // PERMISSION_DENIED alone is also how other refusals look, so it counts only when Google names no reason.
+    if (!reasons.some((x) => SCOPE_REASONS.includes(x)) && !(e.status === 'PERMISSION_DENIED' && !reasons.length)) return r;
+    await pool.query('UPDATE user_calendar_tokens SET can_write = false WHERE user_id = $1', [uid]);
+    return { needsWrite: true };
   }
 
   /** One event on the person's own calendar: { event }, { reconnect: true } or { missing: true } (gone, cancelled, or never theirs). */
@@ -258,23 +317,43 @@ export function registerCalendarRoutes(app, {
     const has = await pool.query('SELECT 1 FROM user_calendar_tokens WHERE user_id = $1', [uid]);
     if (!has.rows[0]) return res.json({ connected: false, events: [] });
     const zone = zoneOf(req.user);
-    const startMs = startOfDayIn(zone, dayIn(zone, new Date(now())));
-    // Calendar days vary in length across DST, so the end is the start of day N from now, not +N*24h.
-    const endMs = startOfDayIn(zone, dayIn(zone, new Date(startMs + days * DAY + 12 * 3600_000)));
-    const q = new URLSearchParams({
-      singleEvents: 'true', orderBy: 'startTime', timeMin: new Date(startMs).toISOString(), timeMax: new Date(endMs).toISOString(),
-    });
+    const { from, to } = req.query || {};
+    let startMs, endMs;
+    if (from !== undefined) {
+      // A visible range: [start of `from`, start of `to`) in the person's zone, 1..42 days.
+      const span = dateIndex(to) - dateIndex(from);
+      if (!(span >= 1 && span <= 42)) return res.status(400).json({ error: 'from/to must be dates 1 to 42 days apart.' });
+      startMs = startOfDayIn(zone, from);
+      endMs = startOfDayIn(zone, to);
+    } else {
+      startMs = startOfDayIn(zone, dayIn(zone, new Date(now())));
+      // Calendar days vary in length across DST, so the end is the start of day N from now, not +N*24h.
+      endMs = startOfDayIn(zone, dayIn(zone, new Date(startMs + days * DAY + 12 * 3600_000)));
+    }
+    const base = {
+      singleEvents: 'true', orderBy: 'startTime', timeMin: new Date(startMs).toISOString(), timeMax: new Date(endMs).toISOString(), maxResults: '250',
+    };
     // Still connected when Google fails: the card says it could not load, not "Connect". Google's text stays here.
     const failed = (status) => {
       console.error(`[calendar] Google events failed (${status})`);
       return res.json({ connected: true, error: true, events: [] });
     };
-    let r;
-    try { r = await googleGet(uid, `/calendar/v3/calendars/primary/events?${q}`); } catch { return failed('network or token refresh'); }
-    if (r.reconnect) return res.json({ connected: true, reconnect: true, events: [] });
-    if (!r.ok) return failed(r.status);
-    const items = ((await r.json().catch(() => ({}))).items || []).filter((e) => e && e.status !== 'cancelled'
-      && !(e.attendees || []).some((a) => a.self && a.responseStatus === 'declined'));
+    let raw = [];
+    let pageToken;
+    let pages = 0;
+    do {
+      const q = new URLSearchParams(pageToken ? { ...base, pageToken } : base);
+      let r;
+      try { r = await googleGet(uid, `/calendar/v3/calendars/primary/events?${q}`); } catch { return failed('network or token refresh'); }
+      if (r.reconnect) return res.json({ connected: true, reconnect: true, events: [] });
+      if (!r.ok) return failed(r.status);
+      const body = await r.json().catch(() => ({}));
+      raw = raw.concat(Array.isArray(body.items) ? body.items : []);
+      pageToken = typeof body.nextPageToken === 'string' && body.nextPageToken ? body.nextPageToken : null;
+    } while (pageToken && raw.length < MAX_EVENTS && ++pages < 10); // page cap: a token with empty pages must not loop forever
+    const keepDeclined = req.query?.declined === '1';
+    const items = raw.slice(0, MAX_EVENTS).filter((e) => e && e.status !== 'cancelled'
+      && (keepDeclined || !(e.attendees || []).some((a) => a.self && a.responseStatus === 'declined')));
     const emails = [...new Set(items.flatMap((e) => (e.attendees || []).map((a) => String(a.email || '').toLowerCase()).filter(Boolean)))];
     const byEmail = new Map();
     if (emails.length) {
@@ -288,14 +367,23 @@ export function registerCalendarRoutes(app, {
       start: e.start?.dateTime || e.start?.date || null,
       end: e.end?.dateTime || e.end?.date || null,
       allDay: !e.start?.dateTime && !!e.start?.date,
-      meetLink: [e.hangoutLink, (e.conferenceData?.entryPoints || []).find((p) => p.entryPointType === 'video')?.uri].find((u) => /^https?:\/\//i.test(String(u))) || null, // invitees control these; never pass javascript: etc.
+      meetLink: [e.hangoutLink, (e.conferenceData?.entryPoints || []).find((p) => p.entryPointType === 'video')?.uri].find(httpOnly) || null, // invitees control these; never pass javascript: etc.
+      // A Google Meet (which the editor may add or remove), as opposed to another app's video link.
+      hasMeet: typeof e.hangoutLink === 'string' || e.conferenceData?.conferenceSolution?.key?.type === 'hangoutsMeet',
       attendees: (e.attendees || []).map((a) => ({
         email: a.email || '', name: a.displayName || '', userId: byEmail.get(String(a.email || '').toLowerCase()) ?? null, self: !!a.self,
+        response: responseOf(a),
       })),
       notesDocId: notes.get(e.id) ?? null,
+      description: htmlToText(e.description),
+      location: typeof e.location === 'string' ? e.location : '',
+      organizerSelf: e.organizer?.self === true,
+      myResponse: responseOf((e.attendees || []).find((a) => a?.self)),
+      recurringEventId: typeof e.recurringEventId === 'string' ? e.recurringEventId : null,
+      htmlLink: httpOnly(e.htmlLink) ? e.htmlLink : null,
     }));
     res.json({ connected: true, events });
   }));
 
-  return { accessTokenFor, fetchEvent, calendarReady: async () => (await cfg()).ready };
+  return { accessTokenFor, fetchEvent, googleSend, calendarReady: async () => (await cfg()).ready };
 }

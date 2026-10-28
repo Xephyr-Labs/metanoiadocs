@@ -8,11 +8,12 @@
  *       so it is never empty.
  */
 import {
-  ArrowRight, Clock, Database, FilePlus2, Files, History, Home, Inbox, ListTodo,
+  ArrowRight, CalendarDays, Clock, Database, FilePlus2, Files, History, Home, Inbox, ListTodo,
   Keyboard, Loader2, Moon, PanelRight, PenLine, Search, Settings, Share2, Sparkles, Sun, Trash2, Upload,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '../../lib/cn';
+import { calendarConnected } from '../../lib/calendar';
 import { docsApi, type SearchRow } from '../../lib/docsApi';
 import { pickImportFiles } from '../../lib/docFiles';
 import { splitKey } from '../../lib/taskKey';
@@ -51,6 +52,8 @@ export function CommandPalette() {
   // The palette answered instantly before there were tasks in it, and a search
   // that takes 300ms with no sign of it reads as a palette that ignored you.
   const [busy, setBusy] = useState(false);
+  const [hasCalendar, setHasCalendar] = useState(false);
+  useEffect(() => { calendarConnected().then(setHasCalendar); }, []);
   const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -90,6 +93,9 @@ export function CommandPalette() {
       { kind: 'command', id: 'capture', title: 'Quick capture — jot a task down without leaving this page', icon: PenLine, run: () => ws.setCaptureOpen(true) },
       { kind: 'command', id: 'home', title: 'Go to Home', icon: Home, run: ws.openHome },
       { kind: 'command', id: 'mytasks', title: 'My tasks — every database in one list', icon: ListTodo, run: ws.openTasks },
+      ...(hasCalendar
+        ? [{ kind: 'command' as const, id: 'calendar', title: 'Calendar — your week of meetings', icon: CalendarDays, run: ws.openCalendar }]
+        : []),
       { kind: 'command', id: 'inbox', title: 'Open Inbox', icon: Inbox, run: () => ws.setInboxOpen(true) },
       {
         kind: 'command',
@@ -109,7 +115,7 @@ export function CommandPalette() {
       { kind: 'command', id: 'trash', title: 'Open Trash', icon: Trash2, run: () => ws.setTrashOpen(true) },
       { kind: 'command', id: 'settings', title: 'Open settings', icon: Settings, run: () => ws.setSettingsOpen(true) },
     ];
-  }, [ws]);
+  }, [ws, hasCalendar]);
 
   const query = q.trim().toLowerCase();
 

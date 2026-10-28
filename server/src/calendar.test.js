@@ -83,11 +83,13 @@ test('settings PUT keeps the stored secret when blank, replaces when given', asy
 
 test('status reports availability and connection without tokens', async () => {
   const { call } = setup(good, undefined, [{ google_email: 'me@g.com' }]);
-  assert.deepEqual(await call('GET /api/calendar/status', { id: 'u' }), { available: true, connected: true, email: 'me@g.com' });
+  assert.deepEqual(await call('GET /api/calendar/status', { id: 'u' }), { available: true, connected: true, email: 'me@g.com', canWrite: false });
+  const writer = await setup(good, undefined, [{ google_email: 'me@g.com', can_write: true }]).call('GET /api/calendar/status', { id: 'u' });
+  assert.equal(writer.canWrite, true);
   const none = await setup(good).call('GET /api/calendar/status', { id: 'u' });
-  assert.deepEqual(none, { available: true, connected: false, email: null });
+  assert.deepEqual(none, { available: true, connected: false, email: null, canWrite: false });
   const off = await setup(good, {}).call('GET /api/calendar/status', { id: 'u' });
-  assert.deepEqual(off, { available: false, connected: false, email: null });
+  assert.deepEqual(off, { available: false, connected: false, email: null, canWrite: false });
 });
 
 test('settings PUT is guarded by requireUser, requireAdmin and needsPerson', () => {
@@ -108,7 +110,7 @@ test('settings PUT rejects oversized or non-string fields', async () => {
 
 const jwt = (payload) => ['h', Buffer.from(JSON.stringify(payload)).toString('base64url'), 's'].join('.');
 
-function oauthSetup({ stored = good, tokenReply, refreshReply, env = { CALENDAR_TOKEN_KEY: KEY_ENV } } = {}) {
+function oauthSetup({ stored = good, tokenReply, refreshReply, apiReplies = [], env = { CALENDAR_TOKEN_KEY: KEY_ENV } } = {}) {
   const routes = {}; const chains = {};
   const reg = (m) => (p, ...h) => { routes[m + ' ' + p] = h[h.length - 1]; chains[m + ' ' + p] = h; };
   const app = { get: reg('GET'), put: reg('PUT'), delete: reg('DELETE') };
@@ -116,19 +118,21 @@ function oauthSetup({ stored = good, tokenReply, refreshReply, env = { CALENDAR_
   const pool = {
     query: async (sql, p) => {
       queries.push(sql);
-      if (/^INSERT/.test(sql)) { db.set(p[0], { google_email: p[1], refresh_token_enc: p[2] }); return { rows: [] }; }
+      if (/^INSERT/.test(sql)) { db.set(p[0], { google_email: p[1], refresh_token_enc: p[2], can_write: p[3] }); return { rows: [] }; }
+      if (/^UPDATE user_calendar_tokens SET can_write = false/.test(sql)) { if (db.get(p[0])) db.get(p[0]).can_write = false; return { rows: [] }; }
       if (/^DELETE/.test(sql)) { db.delete(p[0]); return { rows: [] }; }
       const r = db.get(p[0]); return { rows: r ? [r] : [] };
     },
   };
-  const reply = (status, body) => ({ ok: status < 300, status, json: async () => body });
+  const reply = (status, body) => ({ ok: status < 300, status, json: async () => body, clone() { return this; } });
   const fetch = async (url, opts = {}) => {
     if (hooks.beforeFetch) await hooks.beforeFetch(url);
     const body = new URLSearchParams(opts.body || '');
-    calls.push({ url, body });
+    calls.push({ url, body, opts });
     if (url.endsWith('/revoke')) return reply(200, {});
     if (body.get('grant_type') === 'authorization_code') return tokenReply ? reply(...tokenReply) : reply(200, { access_token: 'at', expires_in: 3600, refresh_token: 'rt-' + (++n), scope: 'openid https://www.googleapis.com/auth/calendar.events.readonly email', id_token: jwt({ email: 'me@g.com' }) });
     if (body.get('grant_type') === 'refresh_token') return refreshReply ? reply(...refreshReply) : reply(200, { access_token: 'at-' + calls.length, expires_in: 3600 });
+    if (url.startsWith('https://api.fake/') && apiReplies.length) return reply(...(apiReplies.length > 1 ? apiReplies.shift() : apiReplies[0]));
     return reply(404, {});
   };
   let clock = 1_000_000; const hooks = {};
@@ -154,7 +158,7 @@ function oauthSetup({ stored = good, tokenReply, refreshReply, env = { CALENDAR_
   return { call, db, calls, chains, api, queries, hooks, authUser, tick: (ms) => { clock += ms; } };
 }
 
-const ENV_URLS = { CALENDAR_TOKEN_KEY: KEY_ENV, GOOGLE_AUTH_URL: 'https://auth.fake', GOOGLE_OAUTH_URL: 'https://oauth.fake' };
+const ENV_URLS = { CALENDAR_TOKEN_KEY: KEY_ENV, GOOGLE_AUTH_URL: 'https://auth.fake', GOOGLE_OAUTH_URL: 'https://oauth.fake', GOOGLE_API_URL: 'https://api.fake' };
 
 async function connect(s, user = { id: 'u' }) {
   const r = await s.call('GET /api/calendar/google/connect', user);
@@ -174,7 +178,7 @@ test('connect redirects to Google consent with the right parameters', async () =
   assert.equal(q.access_type, 'offline');
   assert.equal(q.prompt, 'consent');
   assert.equal(q.include_granted_scopes, 'true');
-  assert.deepEqual(q.scope.split(' ').sort(), ['email', 'https://www.googleapis.com/auth/calendar.events.readonly', 'openid']);
+  assert.deepEqual(q.scope.split(' ').sort(), ['email', 'https://www.googleapis.com/auth/calendar.events', 'openid']);
   assert.equal(Buffer.from(q.state, 'base64url').length, 32);
   for (const g of [s.authUser, needsPerson]) assert.ok(s.chains['GET /api/calendar/google/connect'].includes(g));
   for (const g of [s.authUser, needsPerson]) assert.ok(s.chains['DELETE /api/calendar/google'].includes(g));
@@ -363,7 +367,7 @@ test('startOfDayIn follows the zone and DST', () => {
   assert.equal(new Date(startOfDayIn('America/New_York', '2026-11-02')).toISOString(), '2026-11-02T05:00:00.000Z');
 });
 
-function evSetup({ connected = true, calls = [], items = [], tokenReply, eventStatuses = [200], queries = [] } = {}) {
+function evSetup({ connected = true, calls = [], items = [], pages, tokenReply, eventStatuses = [200], queries = [] } = {}) {
   const routes = {};
   const app = { get: (p, ...h) => { routes['GET ' + p] = h[h.length - 1]; }, put() {}, delete() {} };
   const enc = encryptToken('refresh-1', key);
@@ -373,8 +377,10 @@ function evSetup({ connected = true, calls = [], items = [], tokenReply, eventSt
     if (String(url).includes('/token')) {
       return tokenReply ? tokenReply() : { ok: true, status: 200, json: async () => ({ access_token: 'at' + calls.length, expires_in: 3600 }) };
     }
-    const st = eventStatuses[Math.min(ei++, eventStatuses.length - 1)];
-    return { ok: st < 300, status: st, json: async () => ({ items }) };
+    const i = ei++;
+    const st = eventStatuses[Math.min(i, eventStatuses.length - 1)];
+    const body = pages ? pages[Math.min(i, pages.length - 1)] : { items };
+    return { ok: st < 300, status: st, json: async () => body };
   };
   const pool = { query: async (sql, args) => {
     queries.push(sql);
@@ -386,7 +392,10 @@ function evSetup({ connected = true, calls = [], items = [], tokenReply, eventSt
     requireUser, requireAdmin, needsPerson, wrap: (f) => f, pool, baseUrl: 'https://x.test', env: { CALENDAR_TOKEN_KEY: KEY_ENV, GOOGLE_API_URL: 'http://g.test/' },
     get: async () => good, set: async () => {}, fetch: fakeFetch, now: () => Date.parse('2026-10-28T20:00:00Z'),
   });
-  return async (user, query = {}) => { let out; await routes['GET /api/calendar/events']({ user, query }, { json: (v) => { out = v; } }); return out; };
+  return async (user, query = {}) => {
+    let out; const res = { statusCode: 200, status(c) { this.statusCode = c; return this; }, json(v) { out = this.statusCode === 200 ? v : { status: this.statusCode, ...v }; } };
+    await routes['GET /api/calendar/events']({ user, query }, res); return out;
+  };
 }
 
 const ev = (o) => ({ id: 'e1', summary: 'Standup', start: { dateTime: '2026-10-29T10:00:00+06:00' }, end: { dateTime: '2026-10-29T10:30:00+06:00' }, ...o });
@@ -501,4 +510,191 @@ test('events: meetLink keeps only http(s) URLs', async () => {
   ];
   const out = await evSetup({ items })({ id: 'u1' });
   assert.deepEqual(out.events.map((e) => e.meetLink), [null, 'https://v/2', null]);
+});
+
+test('events: hasMeet only for a Google Meet, not another app\'s video link', async () => {
+  const items = [
+    ev({ id: 'a', hangoutLink: 'https://meet.google.com/abc' }),
+    ev({ id: 'b', conferenceData: { conferenceSolution: { key: { type: 'hangoutsMeet' } }, entryPoints: [{ entryPointType: 'video', uri: 'https://meet.google.com/x' }] } }),
+    ev({ id: 'c', conferenceData: { conferenceSolution: { key: { type: 'addOn' } }, entryPoints: [{ entryPointType: 'video', uri: 'https://zoom.us/j/1' }] } }),
+    ev({ id: 'd' }),
+  ];
+  const out = await evSetup({ items })({ id: 'u1' });
+  assert.deepEqual(out.events.map((e) => e.hasMeet), [true, true, false, false]);
+});
+
+/* ---- any range ---- */
+const gq = (calls) => calls.filter((c) => c.url.includes('/calendar/v3')).map((c) => new URL(c.url).searchParams);
+
+test('events range: bad dates, to <= from and more than 42 days are 400 without calling Google', async () => {
+  for (const query of [
+    { from: '2026-13-01', to: '2026-13-02' }, { from: '2026-02-30', to: '2026-03-02' }, { from: 'x', to: '2026-11-01' },
+    { from: '2026-11-01' }, { from: '2026-11-01', to: '2026-11-01' }, { from: '2026-11-02', to: '2026-11-01' },
+    { from: '2026-11-01', to: '2026-12-14' }, { from: ['2026-11-01'], to: '2026-11-02' },
+  ]) {
+    const calls = [];
+    const out = await evSetup({ calls })({ id: 'u1' }, query);
+    assert.equal(out.status, 400, JSON.stringify(query));
+    assert.equal(gq(calls).length, 0);
+  }
+  const calls = [];
+  assert.equal((await evSetup({ calls })({ id: 'u1' }, { from: '2026-11-01', to: '2026-12-13' })).connected, true); // 42 days
+});
+
+test('events range: a DST week is [start of from, start of to) in the person\'s zone', async () => {
+  const calls = [];
+  await evSetup({ calls })({ id: 'u1', timezone: 'America/New_York' }, { from: '2026-10-26', to: '2026-11-02' });
+  const [q] = gq(calls);
+  assert.equal(q.get('timeMin'), new Date(startOfDayIn('America/New_York', '2026-10-26')).toISOString());
+  assert.equal(q.get('timeMin'), '2026-10-26T04:00:00.000Z');
+  assert.equal(q.get('timeMax'), '2026-11-02T05:00:00.000Z');
+  assert.equal(q.get('maxResults'), '250');
+});
+
+test('events: declined kept only with declined=1, with myResponse', async () => {
+  const items = [ev({ id: 'd', attendees: [{ email: 'me@x.test', self: true, responseStatus: 'declined' }] })];
+  assert.deepEqual((await evSetup({ items })({ id: 'u1' }, { from: '2026-11-01', to: '2026-11-02' })).events, []);
+  const out = await evSetup({ items })({ id: 'u1' }, { from: '2026-11-01', to: '2026-11-02', declined: '1' });
+  assert.deepEqual(out.events.map((e) => [e.id, e.myResponse]), [['d', 'declined']]);
+  assert.deepEqual((await evSetup({ items })({ id: 'u1' }, { declined: '0' })).events, []);
+});
+
+test('events: description HTML becomes text; new fields; unknown response and bad htmlLink are null', async () => {
+  const items = [ev({
+    description: '<p>Hi &amp; welcome</p><div>Line<br/>two &lt;b&gt; &quot;q&quot; &#39;s&#39; a&nbsp;b &#8212; &#x41;</div><ul><li>one</li><li>two</li></ul><br><br><br><br>end<script>x</script>',
+    location: 'Room 1', organizer: { email: 'me@x.test', self: true }, recurringEventId: 'r1', htmlLink: 'https://cal/e1',
+    attendees: [{ email: 'me@x.test', self: true, responseStatus: 'tentative' }, { email: 'b@x.test', responseStatus: 'weird' }, { email: 'c@x.test', responseStatus: 'needsAction' }],
+  }), ev({ id: 'e2', htmlLink: 'javascript:alert(1)', description: 'x'.repeat(6000) })];
+  const [a, b] = (await evSetup({ items })({ id: 'u1' })).events;
+  assert.equal(a.description, 'Hi & welcome\nLine\ntwo <b> "q" \'s\' a\u00a0b \u2014 A\none\ntwo\n\nendx');
+  assert.equal('descriptionRaw' in a, false);
+  assert.equal(a.location, 'Room 1');
+  assert.equal(a.organizerSelf, true);
+  assert.equal(a.myResponse, 'tentative');
+  assert.deepEqual(a.attendees.map((x) => x.response), ['tentative', null, 'needsAction']);
+  assert.equal(a.recurringEventId, 'r1');
+  assert.equal(a.htmlLink, 'https://cal/e1');
+  assert.equal(b.htmlLink, null);
+  assert.equal(b.organizerSelf, false);
+  assert.equal(b.myResponse, null);
+  assert.equal(b.recurringEventId, null);
+  assert.equal(b.location, '');
+  assert.equal(b.description.length, 5000);
+});
+
+test('events: pagination follows nextPageToken, stops at 500 events', async () => {
+  const calls = [];
+  const many = (p, n) => Array.from({ length: n }, (_, i) => ev({ id: `${p}${i}` }));
+  const pages = [{ items: many('a', 250), nextPageToken: 't2' }, { items: many('b', 200), nextPageToken: 't3' }, { items: many('c', 250), nextPageToken: 't4' }];
+  const out = await evSetup({ calls, pages })({ id: 'u1' }, { from: '2026-11-01', to: '2026-12-01' });
+  const qs = gq(calls);
+  assert.deepEqual(qs.map((q) => q.get('pageToken')), [null, 't2', 't3']);
+  assert.equal(qs[1].get('timeMin'), qs[0].get('timeMin'));
+  assert.equal(out.events.length, 500);
+  const loop = [];
+  await evSetup({ calls: loop, pages: [{ items: [], nextPageToken: 'same' }] })({ id: 'u1' });
+  assert.equal(gq(loop).length, 10);
+  // A failure on a later page is a failure, not half a calendar.
+  const bad = await evSetup({ pages: [{ items: many('a', 2), nextPageToken: 't2' }], eventStatuses: [200, 500] })({ id: 'u1' });
+  assert.deepEqual(bad, { connected: true, error: true, events: [] });
+});
+
+test('events: Home call (no from) keeps today + days window', async () => {
+  const calls = [];
+  const out = await evSetup({ calls, items: [ev({})] })({ id: 'u1', timezone: 'Asia/Dhaka' }, { days: '9' });
+  const [q] = gq(calls);
+  assert.equal(q.get('timeMin'), '2026-10-28T18:00:00.000Z');
+  assert.equal(q.get('timeMax'), '2026-11-04T18:00:00.000Z');
+  assert.equal(out.connected, true);
+  assert.equal(out.events.length, 1);
+});
+
+/* ---- write scope ---- */
+
+const W = 'https://www.googleapis.com/auth/calendar.events';
+const grant = (scope) => [200, { access_token: 'at', expires_in: 3600, refresh_token: 'rt', scope, id_token: jwt({ email: 'me@g.com' }) }];
+
+test('callback: a calendar.events grant stores can_write=true; readonly only connects with can_write=false', async () => {
+  const w = oauthSetup({ env: ENV_URLS, tokenReply: grant(`openid email ${W}`) });
+  assert.equal((await w.call('GET /api/calendar/google/callback', { id: 'u' }, { code: 'c', state: await connect(w) })).location, '/?calendar=connected');
+  assert.equal(w.db.get('u').can_write, true);
+  const r = oauthSetup({ env: ENV_URLS, tokenReply: grant(`openid email ${W}.readonly`) });
+  assert.equal((await r.call('GET /api/calendar/google/callback', { id: 'u' }, { code: 'c', state: await connect(r) })).location, '/?calendar=connected');
+  assert.equal(r.db.get('u').can_write, false);
+  // Exact tokens: a look-alike scope is neither read nor write.
+  const x = oauthSetup({ env: ENV_URLS, tokenReply: grant(`openid email ${W}.readonlyx ${W}x`) });
+  assert.equal((await x.call('GET /api/calendar/google/callback', { id: 'u' }, { code: 'c', state: await connect(x) })).location, '/?calendar=error&reason=scope');
+  assert.equal(x.db.size, 0);
+});
+
+test('reconnecting with write after a readonly grant flips can_write on, without revoking', async () => {
+  const s = oauthSetup({ env: ENV_URLS });
+  await s.call('GET /api/calendar/google/callback', { id: 'u' }, { code: 'c', state: await connect(s) });
+  assert.equal(s.db.get('u').can_write, false);
+  const w = oauthSetup({ env: ENV_URLS, tokenReply: grant(`openid email ${W}`) });
+  w.db.set('u', { ...s.db.get('u') });
+  await w.call('GET /api/calendar/google/callback', { id: 'u' }, { code: 'c', state: await connect(w) });
+  assert.equal(w.db.get('u').can_write, true);
+  assert.equal(w.calls.filter((c) => c.url.endsWith('/revoke')).length, 0);
+});
+
+const scope403 = [403, { error: { code: 403, status: 'PERMISSION_DENIED', errors: [{ reason: 'insufficientPermissions' }], details: [{ reason: 'ACCESS_TOKEN_SCOPE_INSUFFICIENT' }] } }];
+
+test('googleSend: sends method + JSON body with the bearer token and returns the Response', async () => {
+  const s = oauthSetup({ env: ENV_URLS, tokenReply: grant(`openid email ${W}`), apiReplies: [[200, { id: 'e' }]] });
+  await s.call('GET /api/calendar/google/callback', { id: 'u' }, { code: 'c', state: await connect(s) });
+  const r = await s.api.googleSend('u', 'PATCH', '/calendar/v3/calendars/primary/events/e?sendUpdates=all', { summary: 'x' });
+  assert.equal(r.status, 200);
+  const sent = s.calls.at(-1);
+  assert.equal(sent.url, 'https://api.fake/calendar/v3/calendars/primary/events/e?sendUpdates=all');
+  assert.equal(sent.opts.method, 'PATCH');
+  assert.equal(sent.opts.body, JSON.stringify({ summary: 'x' }));
+  assert.equal(sent.opts.headers['Content-Type'], 'application/json');
+  assert.match(sent.opts.headers.Authorization, /^Bearer at-/);
+  const d = oauthSetup({ env: ENV_URLS, apiReplies: [[204, {}]] });
+  await d.call('GET /api/calendar/google/callback', { id: 'u' }, { code: 'c', state: await connect(d) });
+  assert.equal((await d.api.googleSend('u', 'DELETE', '/x')).status, 204);
+  assert.equal(d.calls.at(-1).opts.body, undefined);
+});
+
+test('googleSend: an insufficient-scope 403 -> needsWrite and can_write flips to false', async () => {
+  const s = oauthSetup({ env: ENV_URLS, tokenReply: grant(`openid email ${W}`), apiReplies: [scope403] });
+  await s.call('GET /api/calendar/google/callback', { id: 'u' }, { code: 'c', state: await connect(s) });
+  assert.deepEqual(await s.api.googleSend('u', 'POST', '/x', {}), { needsWrite: true });
+  assert.equal(s.db.get('u').can_write, false);
+  assert.equal(s.db.size, 1); // still connected for reading
+});
+
+test('googleSend: a bare PERMISSION_DENIED 403 with no reason also means needsWrite', async () => {
+  const s = oauthSetup({ env: ENV_URLS, tokenReply: grant(`openid email ${W}`), apiReplies: [[403, { error: { code: 403, status: 'PERMISSION_DENIED' } }]] });
+  await s.call('GET /api/calendar/google/callback', { id: 'u' }, { code: 'c', state: await connect(s) });
+  assert.deepEqual(await s.api.googleSend('u', 'POST', '/x', {}), { needsWrite: true });
+  assert.equal(s.db.get('u').can_write, false);
+});
+
+test('googleSend: another 403 (not a scope problem) is returned as-is; can_write untouched', async () => {
+  const s = oauthSetup({ env: ENV_URLS, tokenReply: grant(`openid email ${W}`),
+    apiReplies: [[403, { error: { code: 403, status: 'PERMISSION_DENIED', errors: [{ reason: 'forbiddenForNonOrganizer' }] } }]] });
+  await s.call('GET /api/calendar/google/callback', { id: 'u' }, { code: 'c', state: await connect(s) });
+  const r = await s.api.googleSend('u', 'PATCH', '/x', {});
+  assert.equal(r.status, 403);
+  assert.equal(s.db.get('u').can_write, true);
+});
+
+test('googleSend: a 403 whose errors/details are not arrays is returned as-is, no throw', async () => {
+  const s = oauthSetup({ env: ENV_URLS, tokenReply: grant(`openid email ${W}`),
+    apiReplies: [[403, { error: { code: 403, errors: { reason: 'x' }, details: 'nope' } }]] });
+  await s.call('GET /api/calendar/google/callback', { id: 'u' }, { code: 'c', state: await connect(s) });
+  assert.equal((await s.api.googleSend('u', 'PATCH', '/x', {})).status, 403);
+  assert.equal(s.db.get('u').can_write, true);
+});
+
+test('googleSend: a 401 retries once with a fresh token, a second 401 drops the row', async () => {
+  const s = oauthSetup({ env: ENV_URLS, tokenReply: grant(`openid email ${W}`), apiReplies: [[401, {}], [200, {}]] });
+  await s.call('GET /api/calendar/google/callback', { id: 'u' }, { code: 'c', state: await connect(s) });
+  assert.equal((await s.api.googleSend('u', 'POST', '/x', {})).status, 200);
+  const d = oauthSetup({ env: ENV_URLS, apiReplies: [[401, {}]] });
+  await d.call('GET /api/calendar/google/callback', { id: 'u' }, { code: 'c', state: await connect(d) });
+  assert.deepEqual(await d.api.googleSend('u', 'POST', '/x', {}), { reconnect: true });
+  assert.equal(d.db.size, 0);
 });

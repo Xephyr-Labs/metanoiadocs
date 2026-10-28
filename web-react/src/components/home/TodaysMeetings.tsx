@@ -43,7 +43,7 @@ export function TodaysMeetings() {
 
   if (view === 'connect') {
     return (
-      <div className="mb-6 flex items-center gap-2 text-sm text-muted">
+      <div className="mb-8 flex items-center gap-2 text-sm text-muted">
         <CalendarDays size={16} aria-hidden />
         <button
           type="button"
@@ -77,7 +77,7 @@ export function TodaysMeetings() {
   return (
     <Card
       title="Today's meetings"
-      className="mb-6"
+      className="mb-8"
       action={view === 'reconnect' && (
         <Button size="sm" onClick={() => { wantSettingsSection('mycalendar'); ws.setSettingsOpen(true); }}>Reconnect your calendar</Button>
       )}

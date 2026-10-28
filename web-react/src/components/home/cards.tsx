@@ -3,12 +3,11 @@ import type { ReactNode } from 'react';
 import { cn } from '../../lib/cn';
 import { relativeTime } from '../../lib/time';
 import { avatarFor } from '../../lib/avatar';
-import type { ActivityRow, MyTask, ProjectRow } from '../../lib/tasksApi';
+import type { ActivityRow, MyTask } from '../../lib/tasksApi';
 import { ActorMark } from '../ui/ActorMark';
 import { useDocMenu } from '../../hooks/useDocMenu';
 import { IconButton } from '../ui/IconButton';
 import { Menu } from '../ui/Menu';
-import { ProjectIcon } from '../ui/ProjectIcon';
 
 /** Panel shell every home card sits in. Hairline + soft, matching the app. */
 export function Card({ title, action, children, className }: {
@@ -30,55 +29,6 @@ export function Card({ title, action, children, className }: {
       )}
       {children}
     </section>
-  );
-}
-
-/** Donut showing done/total. Pure SVG — no chart library for one ring. */
-export function ProgressRing({ pct, size = 34 }: { pct: number; size?: number }) {
-  const r = (size - 4) / 2;
-  const c = 2 * Math.PI * r;
-  return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="shrink-0" aria-hidden>
-      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--line)" strokeWidth={3} />
-      <circle
-        cx={size / 2}
-        cy={size / 2}
-        r={r}
-        fill="none"
-        stroke="var(--accent)"
-        strokeWidth={3}
-        strokeLinecap="round"
-        strokeDasharray={`${(c * pct) / 100} ${c}`}
-        transform={`rotate(-90 ${size / 2} ${size / 2})`}
-      />
-      <text x="50%" y="50%" dominantBaseline="central" textAnchor="middle" className="fill-muted text-3xs">
-        {pct}
-      </text>
-    </svg>
-  );
-}
-
-export function ProjectCard({ project, onOpen }: { project: ProjectRow; onOpen: () => void }) {
-  const total = Number(project.total);
-  const done = Number(project.done);
-  const overdue = Number(project.overdue);
-  const pct = total ? Math.round((done / total) * 100) : 0;
-  return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className="flex items-center gap-3 rounded-lg border border-line bg-canvas p-4 text-left transition-colors duration-120 hover:border-line-strong hover:bg-hover"
-    >
-      <ProjectIcon project={project} size={24} />
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium text-ink">{project.name}</span>
-        <span className="mt-0.5 block text-xs text-muted">
-          {done}/{total} done
-          {overdue > 0 && <span className="text-danger-strong"> · {overdue} overdue</span>}
-        </span>
-      </span>
-      <ProgressRing pct={pct} />
-    </button>
   );
 }
 
