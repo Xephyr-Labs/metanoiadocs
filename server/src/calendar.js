@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { isPerson } from './approval.js';
 import { getSetting, setSetting } from './db.js';
+import { zoneOf, dayIn, startOfDayIn } from './timezone.js';
 
 export const SETTING_KEY = 'google_calendar';
 
@@ -208,6 +209,61 @@ export function registerCalendarRoutes(app, {
     accessCache.set(userId, { token: body.access_token, exp: now() + (Number(body.expires_in) || 3600) * 1000 - 60_000 });
     return { token: body.access_token };
   }
+
+  const apiBase = () => (env.GOOGLE_API_URL || 'https://www.googleapis.com').replace(/\/+$/, '');
+  const DAY = 86_400_000;
+
+  /** Task 4 adds the notes-page join here: event id -> doc id. */
+  async function notesFor(_userId, _events) { return new Map(); }
+
+  app.get('/api/calendar/events', requireUser, wrap(async (req, res) => {
+    const days = Math.min(7, Math.max(1, parseInt(req.query?.days, 10) || 1));
+    const c = await cfg();
+    if (!c.ready) return res.json({ connected: false, events: [] });
+    const uid = req.user.id;
+    const has = await pool.query('SELECT 1 FROM user_calendar_tokens WHERE user_id = $1', [uid]);
+    if (!has.rows[0]) return res.json({ connected: false, events: [] });
+    const zone = zoneOf(req.user);
+    const startMs = startOfDayIn(zone, dayIn(zone, new Date(now())));
+    // Calendar days vary in length across DST, so the end is the start of day N from now, not +N*24h.
+    const endMs = startOfDayIn(zone, dayIn(zone, new Date(startMs + days * DAY + 12 * 3600_000)));
+    const q = new URLSearchParams({
+      singleEvents: 'true', orderBy: 'startTime', timeMin: new Date(startMs).toISOString(), timeMax: new Date(endMs).toISOString(),
+    });
+    const gone = { connected: true, reconnect: true, events: [] };
+    let r;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const tok = await accessTokenFor(uid);
+      if (!tok.token) return res.json(gone);
+      r = await f(`${apiBase()}/calendar/v3/calendars/primary/events?${q}`, { headers: { Authorization: `Bearer ${tok.token}` } });
+      if (r.status !== 401) break;
+      accessCache.delete(uid);
+    }
+    if (r.status === 401) return res.json(gone);
+    if (!r.ok) throw new Error(`Google events failed (${r.status})`);
+    const items = ((await r.json().catch(() => ({}))).items || []).filter((e) => e && e.status !== 'cancelled'
+      && !(e.attendees || []).some((a) => a.self && a.responseStatus === 'declined'));
+    const emails = [...new Set(items.flatMap((e) => (e.attendees || []).map((a) => String(a.email || '').toLowerCase()).filter(Boolean)))];
+    const byEmail = new Map();
+    if (emails.length) {
+      const u = await pool.query("SELECT id, lower(email) AS email FROM users WHERE kind <> 'agent' AND lower(email) = ANY($1)", [emails]);
+      for (const row of u.rows) byEmail.set(row.email, row.id);
+    }
+    const notes = await notesFor(uid, items);
+    const events = items.map((e) => ({
+      id: e.id,
+      title: e.summary || '(No title)',
+      start: e.start?.dateTime || e.start?.date || null,
+      end: e.end?.dateTime || e.end?.date || null,
+      allDay: !e.start?.dateTime && !!e.start?.date,
+      meetLink: e.hangoutLink || (e.conferenceData?.entryPoints || []).find((p) => p.entryPointType === 'video')?.uri || null,
+      attendees: (e.attendees || []).map((a) => ({
+        email: a.email || '', name: a.displayName || '', userId: byEmail.get(String(a.email || '').toLowerCase()) ?? null, self: !!a.self,
+      })),
+      notesDocId: notes.get(e.id) ?? null,
+    }));
+    res.json({ connected: true, events });
+  }));
 
   return { accessTokenFor };
 }

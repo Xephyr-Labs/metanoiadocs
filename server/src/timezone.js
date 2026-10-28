@@ -87,3 +87,18 @@ export function isoDate(v) {
   const s = String(v).slice(0, 10);
   return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
 }
+
+/** Minutes-from-UTC style offset (ms) of a zone at an instant. */
+function offsetMs(zone, ms) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+    timeZone: zone, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric',
+  }).formatToParts(new Date(ms)).map((x) => [x.type, x.value]));
+  return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - Math.floor(ms / 1000) * 1000;
+}
+
+/** The instant (ms) at which calendar day 'YYYY-MM-DD' begins in a zone. Two passes settle DST changes. */
+export function startOfDayIn(zone, day) {
+  const [y, m, d] = day.split('-').map(Number);
+  const utc = Date.UTC(y, m - 1, d);
+  return utc - offsetMs(zone, utc - offsetMs(zone, utc));
+}

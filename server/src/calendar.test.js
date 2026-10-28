@@ -355,3 +355,85 @@ test('callback with no session, a DB error, an array state or no code goes to th
   assert.equal((await broken.call('GET /api/calendar/google/callback', { id: 'u' }, { code: 'c', state: st3 })).location, '/?calendar=error');
   broken.db.set = q;
 });
+
+// ---- events ----
+import { startOfDayIn } from './timezone.js';
+
+test('startOfDayIn follows the zone and DST', () => {
+  assert.equal(new Date(startOfDayIn('Asia/Dhaka', '2026-10-28')).toISOString(), '2026-10-27T18:00:00.000Z');
+  assert.equal(new Date(startOfDayIn('America/New_York', '2026-10-28')).toISOString(), '2026-10-28T04:00:00.000Z');
+  assert.equal(new Date(startOfDayIn('America/New_York', '2026-11-02')).toISOString(), '2026-11-02T05:00:00.000Z');
+});
+
+function evSetup({ connected = true, calls = [], items = [], tokenReply, eventStatuses = [200] } = {}) {
+  const routes = {};
+  const app = { get: (p, ...h) => { routes['GET ' + p] = h[h.length - 1]; }, put() {}, delete() {} };
+  const enc = encryptToken('refresh-1', key);
+  let ei = 0;
+  const fakeFetch = async (url, opts = {}) => {
+    calls.push({ url: String(url), opts });
+    if (String(url).includes('/token')) {
+      return tokenReply ? tokenReply() : { ok: true, status: 200, json: async () => ({ access_token: 'at' + calls.length, expires_in: 3600 }) };
+    }
+    const st = eventStatuses[Math.min(ei++, eventStatuses.length - 1)];
+    return { ok: st < 300, status: st, json: async () => ({ items }) };
+  };
+  const pool = { query: async (sql, args) => {
+    if (/FROM user_calendar_tokens/.test(sql)) return { rows: connected ? [{ refresh_token_enc: enc }] : [] };
+    if (/FROM users/.test(sql)) return { rows: [{ id: 'u2', email: 'bob@x.test' }].filter((r) => args[0].includes(r.email)) };
+    return { rows: [] };
+  } };
+  registerCalendarRoutes(app, {
+    requireUser, requireAdmin, needsPerson, wrap: (f) => f, pool, baseUrl: 'https://x.test', env: { CALENDAR_TOKEN_KEY: KEY_ENV, GOOGLE_API_URL: 'http://g.test/' },
+    get: async () => good, set: async () => {}, fetch: fakeFetch, now: () => Date.parse('2026-10-28T20:00:00Z'),
+  });
+  return async (user, query = {}) => { let out; await routes['GET /api/calendar/events']({ user, query }, { json: (v) => { out = v; } }); return out; };
+}
+
+const ev = (o) => ({ id: 'e1', summary: 'Standup', start: { dateTime: '2026-10-29T10:00:00+06:00' }, end: { dateTime: '2026-10-29T10:30:00+06:00' }, ...o });
+
+test('events: window starts at the start of the person\'s today in their zone', async () => {
+  const calls = [];
+  const call = evSetup({ calls });
+  // 20:00Z is already Oct 29 02:00 in Dhaka.
+  await call({ id: 'u1', timezone: 'Asia/Dhaka' }, { days: '2' });
+  const u = new URL(calls.find((c) => c.url.includes('/calendar/v3')).url);
+  assert.equal(u.origin + u.pathname, 'http://g.test/calendar/v3/calendars/primary/events');
+  assert.equal(u.searchParams.get('timeMin'), '2026-10-28T18:00:00.000Z');
+  assert.equal(u.searchParams.get('timeMax'), '2026-10-30T18:00:00.000Z');
+  assert.equal(u.searchParams.get('singleEvents'), 'true');
+  assert.match(calls.find((c) => c.url.includes('/calendar/v3')).opts.headers.Authorization, /^Bearer at/);
+});
+
+test('events: cancelled and self-declined skipped; attendees matched; shape', async () => {
+  const items = [
+    ev({ id: 'ok', hangoutLink: 'https://meet/x', attendees: [{ email: 'Me@x.test', self: true, responseStatus: 'accepted' }, { email: 'BOB@x.test', displayName: 'Bob' }, { email: 'out@z.test' }] }),
+    ev({ id: 'c', status: 'cancelled' }),
+    ev({ id: 'd', attendees: [{ email: 'me@x.test', self: true, responseStatus: 'declined' }] }),
+    ev({ id: 'ad', start: { date: '2026-10-29' }, end: { date: '2026-10-30' }, conferenceData: { entryPoints: [{ entryPointType: 'video', uri: 'https://v/1' }] } }),
+  ];
+  const out = await evSetup({ items })({ id: 'u1' });
+  assert.deepEqual(out.events.map((e) => e.id), ['ok', 'ad']);
+  assert.equal(out.events[0].meetLink, 'https://meet/x');
+  assert.deepEqual(out.events[0].attendees.map((a) => [a.userId, a.self]), [[null, true], ['u2', false], [null, false]]);
+  assert.equal(out.events[0].notesDocId, null);
+  assert.equal(out.events[1].allDay, true);
+  assert.equal(out.events[1].meetLink, 'https://v/1');
+});
+
+test('events: not connected -> connected:false', async () => {
+  assert.deepEqual(await evSetup({ connected: false })({ id: 'u1' }), { connected: false, events: [] });
+});
+
+test('events: invalid_grant -> reconnect', async () => {
+  const call = evSetup({ tokenReply: () => ({ ok: false, status: 400, json: async () => ({ error: 'invalid_grant' }) }) });
+  assert.deepEqual(await call({ id: 'u1' }), { connected: true, reconnect: true, events: [] });
+});
+
+test('events: a 401 refreshes the token once, then reconnect', async () => {
+  const calls = [];
+  assert.equal((await evSetup({ calls, eventStatuses: [401, 200], items: [ev({})] })({ id: 'u1' })).events.length, 1);
+  assert.equal(calls.filter((c) => c.url.includes('/token')).length, 2);
+  const out = await evSetup({ eventStatuses: [401] })({ id: 'u1' });
+  assert.deepEqual(out, { connected: true, reconnect: true, events: [] });
+});
