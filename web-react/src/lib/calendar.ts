@@ -46,9 +46,11 @@ export function calendarReturn(href: string): { message: string; clean: string }
   url.searchParams.delete('reason');
   const message = v === 'connected'
     ? 'Google Calendar connected.'
-    : reason === 'reconsent'
-      ? 'Google did not grant offline access. Remove this app in your Google account permissions, then connect again.'
-      : 'Could not connect Google Calendar. Try again.';
+    : reason === 'scope'
+      ? "Calendar access wasn't granted — try again and keep the calendar box ticked."
+      : reason === 'reconsent'
+        ? 'Google did not grant offline access. Remove this app in your Google account permissions, then connect again.'
+        : 'Could not connect Google Calendar. Try again.';
   return { message, clean: url.pathname + url.search + url.hash };
 }
 

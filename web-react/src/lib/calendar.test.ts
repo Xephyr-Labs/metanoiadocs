@@ -13,6 +13,7 @@ describe('calendarReturn', () => {
     expect(r?.message).toMatch(/connect again/);
     expect(r?.clean).toBe('/');
     expect(calendarReturn('https://x.test/?calendar=error')?.message).toMatch(/Could not connect/);
+    expect(calendarReturn('https://x.test/?calendar=error&reason=scope')?.message).toMatch(/keep the calendar box ticked/);
   });
 
   it('is null when there is nothing to report', () => {

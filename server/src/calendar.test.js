@@ -112,7 +112,7 @@ function oauthSetup({ stored = good, tokenReply, refreshReply, env = { CALENDAR_
   const routes = {}; const chains = {};
   const reg = (m) => (p, ...h) => { routes[m + ' ' + p] = h[h.length - 1]; chains[m + ' ' + p] = h; };
   const app = { get: reg('GET'), put: reg('PUT'), delete: reg('DELETE') };
-  const db = new Map(); const calls = []; const queries = [];
+  const db = new Map(); const calls = []; const queries = []; let n = 0;
   const pool = {
     query: async (sql, p) => {
       queries.push(sql);
@@ -123,25 +123,35 @@ function oauthSetup({ stored = good, tokenReply, refreshReply, env = { CALENDAR_
   };
   const reply = (status, body) => ({ ok: status < 300, status, json: async () => body });
   const fetch = async (url, opts = {}) => {
+    if (hooks.beforeFetch) await hooks.beforeFetch(url);
     const body = new URLSearchParams(opts.body || '');
     calls.push({ url, body });
     if (url.endsWith('/revoke')) return reply(200, {});
-    if (body.get('grant_type') === 'authorization_code') return tokenReply ? reply(...tokenReply) : reply(200, { access_token: 'at', expires_in: 3600, refresh_token: 'rt-1', id_token: jwt({ email: 'me@g.com' }) });
+    if (body.get('grant_type') === 'authorization_code') return tokenReply ? reply(...tokenReply) : reply(200, { access_token: 'at', expires_in: 3600, refresh_token: 'rt-' + (++n), scope: 'openid https://www.googleapis.com/auth/calendar.events.readonly email', id_token: jwt({ email: 'me@g.com' }) });
     if (body.get('grant_type') === 'refresh_token') return refreshReply ? reply(...refreshReply) : reply(200, { access_token: 'at-' + calls.length, expires_in: 3600 });
     return reply(404, {});
   };
-  let clock = 1_000_000;
+  let clock = 1_000_000; const hooks = {};
+  // Behaves like the real one: 401 JSON without a session.
+  const authUser = (req, res, next) => (req.user ? next() : res.status(401).json({ error: 'unauthorized' }));
   const api = registerCalendarRoutes(app, {
-    requireUser, requireAdmin, needsPerson, wrap: (f) => f, pool, baseUrl: 'https://x.test', env,
+    requireUser: authUser, requireAdmin, needsPerson, wrap: (f) => f, pool, baseUrl: 'https://x.test', env,
     get: async () => stored, set: async () => {}, fetch, now: () => clock,
   });
   const call = async (r, user, query = {}) => {
+    const chain = chains[r];
     const res = { code: 200, status(c) { this.code = c; return this; }, json(v) { this.body = v; return this; },
       redirect(u) { this.location = u; this.code = 302; return this; }, end() { return this; }, sendStatus(c) { this.code = c; return this; } };
-    await routes[r]({ user, query, body: {} }, res);
+    const req = { user, query, body: {} };
+    // Run any real (non-fake) middleware in the chain, then the handler.
+    for (const h of chain.slice(0, -1)) {
+      if ([requireAdmin, needsPerson].includes(h)) continue;
+      let go = false; await h(req, res, () => { go = true; }); if (!go) return res;
+    }
+    await routes[r](req, res);
     return res;
   };
-  return { call, db, calls, chains, api, queries, tick: (ms) => { clock += ms; } };
+  return { call, db, calls, chains, api, queries, hooks, authUser, tick: (ms) => { clock += ms; } };
 }
 
 const ENV_URLS = { CALENDAR_TOKEN_KEY: KEY_ENV, GOOGLE_AUTH_URL: 'https://auth.fake', GOOGLE_OAUTH_URL: 'https://oauth.fake' };
@@ -166,9 +176,8 @@ test('connect redirects to Google consent with the right parameters', async () =
   assert.equal(q.include_granted_scopes, 'true');
   assert.deepEqual(q.scope.split(' ').sort(), ['email', 'https://www.googleapis.com/auth/calendar.events.readonly', 'openid']);
   assert.equal(Buffer.from(q.state, 'base64url').length, 32);
-  for (const g of [requireUser, needsPerson]) assert.ok(s.chains['GET /api/calendar/google/connect'].includes(g));
-  for (const g of [requireUser, needsPerson]) assert.ok(s.chains['DELETE /api/calendar/google'].includes(g));
-  assert.ok(s.chains['GET /api/calendar/google/callback'].includes(requireUser));
+  for (const g of [s.authUser, needsPerson]) assert.ok(s.chains['GET /api/calendar/google/connect'].includes(g));
+  for (const g of [s.authUser, needsPerson]) assert.ok(s.chains['DELETE /api/calendar/google'].includes(g));
 });
 
 test('every OAuth route 404s when the connector is not ready', async () => {
@@ -272,4 +281,77 @@ test('accessTokenFor on a transient failure keeps the row and throws', async () 
   await s.call('GET /api/calendar/google/callback', { id: 'u' }, { code: 'c', state: await connect(s) });
   await assert.rejects(() => s.api.accessTokenFor('u'));
   assert.equal(s.db.size, 1);
+});
+
+test('callback refuses a grant without calendar scope', async () => {
+  const s = oauthSetup({ env: ENV_URLS, tokenReply: [200, { access_token: 'at', expires_in: 3600, refresh_token: 'rt', scope: 'openid email', id_token: jwt({ email: 'me@g.com' }) }] });
+  const r = await s.call('GET /api/calendar/google/callback', { id: 'u' }, { code: 'c', state: await connect(s) });
+  assert.equal(r.location, '/?calendar=error&reason=scope');
+  assert.equal(s.db.size, 0);
+});
+
+test('accessTokenFor on an undecryptable row deletes it and asks to reconnect', async () => {
+  const s = oauthSetup({ env: ENV_URLS });
+  s.db.set('u', { google_email: 'x', refresh_token_enc: 'garbage' });
+  assert.deepEqual(await s.api.accessTokenFor('u'), { reconnect: true });
+  assert.equal(s.db.size, 0);
+});
+
+test('only the latest connect state per user stays live', async () => {
+  const s = oauthSetup({ env: ENV_URLS });
+  const first = await connect(s);
+  const second = await connect(s);
+  const other = await connect(s, { id: 'v' });
+  const cb = (user, state) => s.call('GET /api/calendar/google/callback', user, { code: 'c', state });
+  assert.equal((await cb({ id: 'u' }, first)).location, '/?calendar=error');
+  assert.equal((await cb({ id: 'u' }, second)).location, '/?calendar=connected');
+  assert.equal((await cb({ id: 'v' }, other)).location, '/?calendar=connected');
+});
+
+test('a refresh in flight during disconnect does not re-cache a token', async () => {
+  const s = oauthSetup({ env: ENV_URLS });
+  await s.call('GET /api/calendar/google/callback', { id: 'u' }, { code: 'c', state: await connect(s) });
+  let release; const gate = new Promise((r) => { release = r; });
+  s.hooks.beforeFetch = async (url) => { if (url.endsWith('/token')) { s.hooks.beforeFetch = null; await gate; } };
+  const pending = s.api.accessTokenFor('u');
+  await new Promise((r) => setImmediate(r));
+  await s.call('DELETE /api/calendar/google', { id: 'u' });
+  release();
+  await pending;
+  assert.deepEqual(await s.api.accessTokenFor('u'), { reconnect: true });
+});
+
+test('a 200 refresh without an access token throws and caches nothing', async () => {
+  const s = oauthSetup({ env: ENV_URLS, refreshReply: [200, { expires_in: 3600 }] });
+  await s.call('GET /api/calendar/google/callback', { id: 'u' }, { code: 'c', state: await connect(s) });
+  await assert.rejects(() => s.api.accessTokenFor('u'));
+  await assert.rejects(() => s.api.accessTokenFor('u'));
+});
+
+test('reconnecting revokes the old refresh token first', async () => {
+  const s = oauthSetup({ env: ENV_URLS });
+  await s.call('GET /api/calendar/google/callback', { id: 'u' }, { code: 'c', state: await connect(s) });
+  await s.call('GET /api/calendar/google/callback', { id: 'u' }, { code: 'c', state: await connect(s) });
+  const rv = s.calls.filter((c) => c.url.endsWith('/revoke'));
+  assert.equal(rv.length, 1);
+  assert.equal(rv[0].body.get('token'), 'rt-1');
+  assert.equal(decryptToken(s.db.get('u').refresh_token_enc, key), 'rt-2');
+});
+
+test('callback with no session, a DB error, an array state or no code goes to the error page', async () => {
+  const s = oauthSetup({ env: ENV_URLS });
+  // No session: requireUser would answer 401 JSON; the callback sends the browser to the error page.
+  const anon = await s.call('GET /api/calendar/google/callback', undefined, { code: 'c', state: 'x' });
+  assert.equal(anon.location, '/?calendar=error');
+  assert.equal(s.calls.length, 0);
+  const st = await connect(s);
+  assert.equal((await s.call('GET /api/calendar/google/callback', { id: 'u' }, { code: 'c', state: [st] })).location, '/?calendar=error');
+  const st2 = await connect(s);
+  assert.equal((await s.call('GET /api/calendar/google/callback', { id: 'u' }, { state: st2 })).location, '/?calendar=error');
+  const broken = oauthSetup({ env: ENV_URLS });
+  const st3 = await connect(broken);
+  const q = broken.db.set.bind(broken.db);
+  broken.db.set = () => { throw new Error('db down'); };
+  assert.equal((await broken.call('GET /api/calendar/google/callback', { id: 'u' }, { code: 'c', state: st3 })).location, '/?calendar=error');
+  broken.db.set = q;
 });
