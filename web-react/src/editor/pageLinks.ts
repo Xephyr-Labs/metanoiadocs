@@ -14,7 +14,8 @@
 import { ActionPlacement, DocDisplayMetaProvider, ToolbarModuleExtension } from '@blocksuite/affine/shared/services';
 import { BlockFlavourIdentifier } from '@blocksuite/affine/std';
 import { OpenInNewIcon } from '@blocksuite/icons/lit';
-import { docUrl, pageLinkTarget } from '../lib/route';
+import { docUrl, pageLinkTarget, taskLinkTarget } from '../lib/route';
+import { requestOpenProject } from '../lib/navSignal';
 import { insertLinkedNode, RefNodeSlotsProvider } from '@blocksuite/affine/inlines/reference';
 import { LinkedWidgetConfigExtension } from '@blocksuite/affine/widgets/linked-doc';
 import { computed, signal } from '@preact/signals-core';
@@ -393,6 +394,14 @@ export function attachRefClicks(editor: Element, onOpen: (docId: string) => void
     const a = e.composedPath().find((n): n is HTMLAnchorElement => n instanceof HTMLAnchorElement);
     if (!a?.closest('affine-link')) return;
     const target = pageLinkTarget(a.href);
+    // A to-do turned into a task links to it; open the task here, not in a new tab.
+    const task = target ? null : taskLinkTarget(a.href);
+    if (task && !e.metaKey && !e.ctrlKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      requestOpenProject(task.projectId, task.taskId);
+      return;
+    }
     if (!target) return;
     e.preventDefault();
     e.stopPropagation();

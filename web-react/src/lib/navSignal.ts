@@ -7,15 +7,15 @@
 // knows which project to open and has no way to say so.
 //
 // One wire, the same shape as docSignal's.
-const listeners = new Set<(projectId: string) => void>();
+const listeners = new Set<(projectId: string, taskId?: string) => void>();
 
-/** Ask the app to open a project. No-ops if nothing is listening. */
-export function requestOpenProject(projectId: string): void {
-  for (const l of listeners) l(projectId);
+/** Ask the app to open a project, at one of its tasks. No-ops if nothing is listening. */
+export function requestOpenProject(projectId: string, taskId?: string): void {
+  for (const l of listeners) l(projectId, taskId);
 }
 
 /** Subscribe. Returns the unsubscribe, for an effect's cleanup. */
-export function onOpenProjectRequest(fn: (projectId: string) => void): () => void {
+export function onOpenProjectRequest(fn: (projectId: string, taskId?: string) => void): () => void {
   listeners.add(fn);
   return () => { listeners.delete(fn); };
 }

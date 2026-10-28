@@ -14,6 +14,7 @@ import {
   Globe,
   History,
   Link2,
+  ListChecks,
   Lock,
   Maximize2,
   MessageSquareText,
@@ -55,7 +56,8 @@ import { Menu } from '../ui/Menu';
 import { useMoveToFolder } from '../../hooks/useMoveToFolder';
 import { useMoveToSpace } from '../../hooks/useMoveToSpace';
 import { copyLink } from '../../lib/clipboard';
-import { useReducer } from 'react';
+import { useReducer, useState } from 'react';
+import { MakeTasksDialog } from '../editor/MakeTasksDialog';
 import * as prefs from '../../lib/docPrefs';
 import { ProjectIcon } from '../ui/ProjectIcon';
 import { SpaceAvatar } from '../spaces/SpaceAvatar';
@@ -197,6 +199,8 @@ export function TopBar() {
   // opposite of what the document is actually doing until the bar remounted.
   // The bump is only to redraw after a write from here.
   const [, bump] = useReducer((n: number) => n + 1, 0);
+  const [makeTasksOpen, setMakeTasksOpen] = useState(false);
+  const canEditPage = page?.role === 'owner' || page?.role === 'editor';
   const font = prefs.docFont();
   const small = prefs.smallText();
   const chooseFont = (f: prefs.DocFont) => { prefs.setDocFont(f); bump(); };
@@ -489,6 +493,9 @@ export function TopBar() {
               { icon: Pin, label: page.pinned ? 'Unpin for everyone' : 'Pin for everyone', separatorBefore: true, onSelect: () => ws.togglePin(page.id) },
               { icon: Link2, label: 'Copy link', onSelect: () => { copyLink(location.href); } },
               { icon: History, label: 'Version history', onSelect: () => ws.openHistory(page.id) },
+              ...(canEditPage && page.kind !== 'design'
+                ? [{ icon: ListChecks, label: 'Make tasks from to-dos', onSelect: () => setMakeTasksOpen(true) }]
+                : []),
               { icon: ArrowUpRight, label: 'Open in new tab', onSelect: () => window.open(location.href, '_blank') },
               // How the page reads. A canvas has no measure and no body text, so
               // the three reading controls are page-mode only.
@@ -548,6 +555,7 @@ export function TopBar() {
             ]}
             trigger={<span><IconButton icon={<MoreHorizontal size={16} />} label="More" /></span>}
           />
+          <MakeTasksDialog docId={page.id} open={makeTasksOpen} onOpenChange={setMakeTasksOpen} />
         </div>
       )}
     </header>

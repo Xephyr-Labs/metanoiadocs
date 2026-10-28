@@ -116,6 +116,16 @@ export function pageLinkTarget(href: string): { docId: string; blockId: string |
   return docId ? { docId, blockId } : null;
 }
 
+/** The database and task a link points at (`/db/<id>?task=<task>`), on this
+ *  origin; null for anything else. */
+export function taskLinkTarget(href: string): { projectId: string; taskId: string } | null {
+  let url: URL;
+  try { url = new URL(href, location.origin); } catch { return null; }
+  if (url.origin !== location.origin) return null;
+  const { projectId, taskId } = parseRoute(url.pathname, url.hash, url.search);
+  return projectId && taskId ? { projectId, taskId } : null;
+}
+
 /** An AFFiNE-era address in the bar is rewritten to ours before the app reads
  *  it, so everything downstream — the open page, the block reveal, the back
  *  button — sees one shape. */
