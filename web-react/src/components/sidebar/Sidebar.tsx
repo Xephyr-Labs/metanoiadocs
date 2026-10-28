@@ -65,6 +65,7 @@ import { templates } from '../../data/templates';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { useAuth } from '../../store/auth';
 import { useWorkspace } from '../../store/workspace';
+import { isUnseen } from '../../lib/unseen';
 import { IconButton } from '../ui/IconButton';
 import { Menu } from '../ui/Menu';
 import { RowInput } from '../ui/RowInput';
@@ -404,7 +405,7 @@ export function DocRow({ id, selectable = true }: { id: string; selectable?: boo
         )}
       >
         <span className="flex h-5 w-5 shrink-0 items-center justify-center"><PageIcon icon={p.icon} size={16} /></span>
-        <span className="block h-5 min-w-0 flex-1 !self-center truncate leading-5 text-left">{p.title}</span>
+        <span className={cn('block h-5 min-w-0 flex-1 !self-center truncate leading-5 text-left', isUnseen(ws.pages, ws.currentId, id) && 'font-semibold')}>{p.title}</span>
         {p.favorite && <Star size={14} className="shrink-0 fill-current text-amber-400" />}
       </button>
       <span className="absolute right-1 opacity-0 transition-opacity duration-120 focus-within:opacity-100 group-hover/row:opacity-100">

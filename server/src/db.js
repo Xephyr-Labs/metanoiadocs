@@ -171,6 +171,9 @@ export async function initSchema() {
       opened_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       PRIMARY KEY (user_id, doc_id)
     );
+    -- The sidebar's bold "changed since you looked" counts from here, so the
+    -- day it ships every page someone once edited doesn't light up at once.
+    INSERT INTO schema_migrations (key) VALUES ('sidebar-unseen-since') ON CONFLICT (key) DO NOTHING;
     -- Per-doc emoji shown in the sidebar/header.
     ALTER TABLE docs ADD COLUMN IF NOT EXISTS icon TEXT NOT NULL DEFAULT '📄';
     -- Visibility: 'team' = every workspace member can see/edit it (no explicit

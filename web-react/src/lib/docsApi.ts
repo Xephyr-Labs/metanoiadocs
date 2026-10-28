@@ -64,6 +64,8 @@ export interface DocRow {
   favorite: boolean;
   /** Pinned for everyone. Distinct from `favorite`, which is per person. */
   pinned: boolean;
+  /** Someone else saved it since you last opened or edited it. */
+  unseen?: boolean;
   /** How many pages this one @-references. 0 = no disclosure arrow in the sidebar. */
   link_count: number;
   tags: TagRow[];

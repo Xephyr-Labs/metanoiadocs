@@ -9,6 +9,7 @@ import { pickImportFiles } from '../../lib/docFiles';
 import { TAG_COLORS, folderTint, swatch } from '../../lib/tagColors';
 import type { PageId } from '../../lib/types';
 import { useWorkspace } from '../../store/workspace';
+import { isUnseen, unseenBelow, unseenInFolder } from '../../lib/unseen';
 import { PageIcon } from '../ui/PageIcon';
 import { Menu } from '../ui/Menu';
 import { RowInput } from '../ui/RowInput';
@@ -74,6 +75,8 @@ function DocumentRow({ id, depth }: { id: PageId; depth: number }) {
   // too, which is what lets a drop open its new parent.
   const nested = page.children;
   const canExpand = nested.length > 0;
+  const unseen = isUnseen(ws.pages, ws.currentId, id);
+  const unseenInside = canExpand && !page.expanded && unseenBelow(ws.pages, ws.currentId, id);
   return (
     <div>
     <div
@@ -121,10 +124,11 @@ function DocumentRow({ id, depth }: { id: PageId; depth: number }) {
           button are double-click targets too, and neither means "rename". */}
       <span
         onDoubleClick={() => { requestTitleFocus(id); ws.select(id); }}
-        className={cn('block h-5 min-w-0 flex-1 truncate leading-5', selected && 'font-medium')}
+        className={cn('block h-5 min-w-0 flex-1 truncate leading-5', selected && 'font-medium', unseen && 'font-semibold')}
       >
         {page.title}
       </span>
+      {unseenInside && <span className="mr-1 h-1.5 w-1.5 shrink-0 rounded-full bg-accent" role="img" aria-label="Changes inside you haven't seen" />}
       {/* A space is open to everyone in it, so a page only you can see says so. */}
       {page.visibility === 'private' && <Lock size={12} role="img" aria-label="Private" className="mr-1 shrink-0 text-faint" />}
       <span className={cn('shrink-0 items-center gap-0.5 coarse:gap-2', hover ? 'flex' : rowActionsAtRest)}>
@@ -190,6 +194,8 @@ function FolderRow({ id, depth }: { id: string; depth: number }) {
   const hasChildren = folder.children.length > 0 || folder.documentIds.length > 0;
   const tint = folderTint(folder.color);
   const active = ws.view === 'folder' && ws.activeFolderId === id;
+  // A closed folder dots what it holds that you have not seen.
+  const unseenInside = !folder.expanded && unseenInFolder(ws.folders, ws.pages, ws.currentId, id);
   const children = folder.expanded && (
     <div role="group">
       {docs.shown.map((docId) => <DocumentRow key={docId} id={docId} depth={depth + 1} />)}
@@ -270,6 +276,7 @@ function FolderRow({ id, depth }: { id: string; depth: number }) {
         >
           <span className={cn('truncate', active && 'font-medium')}>{folder.name}</span>
         </button>
+        {unseenInside && <span className="mr-1 h-1.5 w-1.5 shrink-0 rounded-full bg-accent" role="img" aria-label="Changes inside you haven't seen" />}
         <span className={cn('shrink-0 items-center gap-0.5 coarse:gap-2', hover ? 'flex' : rowActionsAtRest)}>
           <Menu
             trigger={<button type="button" onClick={(e) => e.stopPropagation()} className={rowAction} aria-label="Folder actions"><MoreHorizontal size={16} /></button>}

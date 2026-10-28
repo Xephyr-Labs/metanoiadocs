@@ -8,6 +8,7 @@ import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { requestTitleFocus } from '../../lib/titleFocus';
 import type { PageId } from '../../lib/types';
 import { useWorkspace } from '../../store/workspace';
+import { isUnseen, unseenBelow } from '../../lib/unseen';
 import { DocIcon } from '../ui/DocIcon';
 import { Menu } from '../ui/Menu';
 import { rowAction, rowActionsAtRest } from '../ui/styles';
@@ -38,6 +39,10 @@ function Row({ id, depth }: { id: PageId; depth: number }) {
   if (!page) return null;
   const selected = ws.currentId === id;
   const hasChildren = page.children.length > 0;
+  // Bold: changed by someone else since you looked. A closed parent carries a
+  // dot for what it hides, so a change never sits out of sight.
+  const unseen = isUnseen(ws.pages, ws.currentId, id);
+  const unseenInside = hasChildren && !page.expanded && unseenBelow(ws.pages, ws.currentId, id);
 
   return (
     <>
@@ -98,10 +103,11 @@ function Row({ id, depth }: { id: PageId; depth: number }) {
             button are double-click targets too, and neither means "rename". */}
         <span
           onDoubleClick={() => { requestTitleFocus(id); ws.select(id); }}
-          className={cn('block h-5 min-w-0 flex-1 !self-center truncate leading-5', selected && 'font-medium')}
+          className={cn('block h-5 min-w-0 flex-1 !self-center truncate leading-5', selected && 'font-medium', unseen && 'font-semibold')}
         >
           {page.title}
         </span>
+        {unseenInside && <span className="mr-1 h-1.5 w-1.5 shrink-0 rounded-full bg-accent" role="img" aria-label="Changes inside you haven't seen" />}
 
         {/* hover actions — out of the layout at rest, so the title runs to the
             row's end instead of stopping short of two invisible buttons. */}
