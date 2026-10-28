@@ -276,3 +276,19 @@ describe('meetingRequest', () => {
     });
   });
 });
+
+import { canAnswer, cancelPrompt } from './calendarEvents';
+
+describe('organiser controls', () => {
+  const guest = { email: 'g@x', name: 'G', userId: null, self: false, response: 'needsAction' as const };
+  it('the organiser is never asked to answer their own meeting', () => {
+    expect(canAnswer(ev({ myResponse: 'accepted', organizerSelf: true }))).toBe(false);
+    expect(canAnswer(ev({ myResponse: 'needsAction' }))).toBe(true);
+    expect(canAnswer(ev({ myResponse: null }))).toBe(false);
+  });
+  it('the cancel prompt says what it does', () => {
+    expect(cancelPrompt(ev({ recurringEventId: 'r', attendees: [guest] }))).toBe('Cancel this occurrence for everyone?');
+    expect(cancelPrompt(ev({ attendees: [{ ...guest, self: true }] }))).toBe('Delete this meeting?');
+    expect(cancelPrompt(ev({ attendees: [guest] }))).toBe('Cancel this meeting for everyone?');
+  });
+});

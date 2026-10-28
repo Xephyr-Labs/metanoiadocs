@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Check, CircleHelp, Clock, ExternalLink, MapPin, Repeat, Video, X } from 'lucide-react';
 import {
-  CalendarWriteError, cancelMeeting, linkParts, meetingTime, respondToMeeting, safeMeetLink, startNotes,
+  CalendarWriteError, canAnswer, cancelMeeting, cancelPrompt, linkParts, meetingTime, respondToMeeting, safeMeetLink, startNotes,
   type CalendarEvent, type CalendarResponse,
 } from '../../lib/calendarEvents';
 import { wantSettingsSection } from '../../lib/calendar';
@@ -97,8 +97,8 @@ export function EventCard({ event, zone, canWrite, names, onClose, onChanged, on
 
   const link = e ? safeMeetLink(e.meetLink) : null;
   const google = e ? safeMeetLink(e.htmlLink) : null;
-  const canAnswer = !!e && e.myResponse !== null;
-  const writeControls = !!e && (canAnswer || e.organizerSelf);
+  const answerable = !!e && canAnswer(e);
+  const writeControls = !!e && (answerable || e.organizerSelf);
   const showWrite = canWrite && !needsWrite;
 
   return (
@@ -198,7 +198,7 @@ export function EventCard({ event, zone, canWrite, names, onClose, onChanged, on
                 <Button size="sm" onClick={reconnect}>Reconnect</Button>
               </div>
             )}
-            {canAnswer && showWrite && (
+            {answerable && showWrite && (
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs text-muted">Going?</span>
                 <div role="group" aria-label="Your answer" className="inline-flex rounded-md ring-1 ring-inset ring-line-strong">
@@ -237,7 +237,7 @@ export function EventCard({ event, zone, canWrite, names, onClose, onChanged, on
                     className="ml-auto text-danger-strong hover:bg-danger-soft hover:text-danger-strong"
                     disabled={busy !== null}
                     onClick={() => {
-                      if (window.confirm('Cancel this meeting for everyone?')) void run('cancel', () => cancelMeeting(e.id), onClose);
+                      if (window.confirm(cancelPrompt(e))) void run('cancel', () => cancelMeeting(e.id), onClose);
                     }}
                   >
                     {busy === 'cancel' ? 'Cancelling…' : 'Cancel meeting'}

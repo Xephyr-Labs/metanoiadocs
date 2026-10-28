@@ -10,6 +10,8 @@ The feature stays hidden until both the admin settings (steps 1-6) and the serve
 
 Our mail is not Google Workspace, so the app is an **External** one and must be **published**.
 
+While unverified, an External app asking for `calendar.events` (a sensitive scope) is capped by Google at 100 users over its lifetime; past that, submit it for verification.
+
 1. In the [Google Cloud console](https://console.cloud.google.com/) create or pick a project. Use this one project for every step below.
 2. **APIs & Services > Library**: enable **Google Calendar API** in that same project. (If it is enabled in another project, every calendar call fails with a 403.)
 3. **Google Auth Platform > Branding** (older consoles: **OAuth consent screen**): user type **External**; fill in the app name and support email.

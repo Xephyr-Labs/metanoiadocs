@@ -1,6 +1,13 @@
 [
   {
     "date": "2026-10-29",
+    "macrostructure": "Workbench (app chrome — Settings > Calendar and the meeting card)",
+    "theme": "project tokens (preserved; Onest via --font-display) · Settings > Calendar tells the truth: 'See your meetings, send invites and answer them. Only your own primary calendar.'; a read-only grant reads 'Connected as … Reconnect to send and answer invites.' with a Reconnect link (same bordered small button as Disconnect, straight to Google's consent screen) beside Disconnect, so every Reconnect in the app ends somewhere; the meeting card hides Accept / Maybe / Decline from the organiser, and its cancel confirmation says what happens: the occurrence for a recurring meeting, 'Delete this meeting?' with no other guests",
+    "enrichment": "none — typography only",
+    "brief": "metanoiadocs · Reconnect opened a Settings section that had no Reconnect and still said the calendar was read-only"
+  },
+  {
+    "date": "2026-10-29",
     "macrostructure": "Workbench (app chrome — Calendar page: meeting dialog for create and edit)",
     "theme": "project tokens (preserved; Onest via --font-display) · the meeting form is the app's dialog (a bottom sheet on a phone) in the field language the rest of the app uses: Title, an All day switch, start date · time over end date · time (Google's shape, so a meeting past midnight or over days can be moved; all day drops the times), Guests as one chip field — teammates found by name or email, any address typed becomes a chip, rooms and outside guests stay as they came — a plain Description and an Add Google Meet switch (a note instead when the meeting carries another app's video link); errors sit under the field that caused them with a danger ring; Save reads 'Send invites' when there are guests, toasts 'Invites sent' / 'Meeting updated', and a missing write grant swaps the footer for the Reconnect line; on the grid, press and drag an empty slot to size a meeting (30-minute snap, a click is half an hour) with an accent ghost block showing the range",
     "enrichment": "none — typography only",

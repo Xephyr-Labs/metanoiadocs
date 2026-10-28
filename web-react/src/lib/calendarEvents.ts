@@ -55,6 +55,15 @@ export function calendarPageView(status: CalendarStatus | null | 'failed', data:
 /** Attendees other than you, for a "with ..." line. */
 export const otherAttendees = (e: CalendarEvent): CalendarAttendee[] => e.attendees.filter((a) => !a.self);
 
+/** Accept / Maybe / Decline: only on an invite you got, never on your own meeting. */
+export const canAnswer = (e: CalendarEvent): boolean => e.myResponse !== null && !e.organizerSelf;
+
+/** The organiser's cancel confirmation, worded for what it actually does. */
+export const cancelPrompt = (e: CalendarEvent): string =>
+  e.recurringEventId ? 'Cancel this occurrence for everyone?'
+    : otherAttendees(e).length === 0 ? 'Delete this meeting?'
+      : 'Cancel this meeting for everyone?';
+
 const startMs = (e: CalendarEvent) => (e.start ? Date.parse(e.start) : 0);
 
 /** All-day first, then by start time. */

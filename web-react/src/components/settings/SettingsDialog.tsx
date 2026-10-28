@@ -1028,7 +1028,7 @@ function TranscriptionSettingsSection() {
 }
 
 /**
- * Your own Google Calendar (read-only). Connect is a plain link: the consent
+ * Your own Google Calendar. Connect (and Reconnect, which overwrites a read-only grant) is a plain link: the consent
  * screen needs the whole window, and the server sends you back to `/` with
  * `?calendar=connected|error`, which App turns into a toast.
  */
@@ -1063,16 +1063,20 @@ function MyCalendar() {
   return (
     <div>
       <SectionTitle>Calendar</SectionTitle>
-      <p className="mb-4 text-sm text-muted">See your Google Calendar events here. Read-only: nothing is ever written to your calendar.</p>
+      <p className="mb-4 text-sm text-muted">See your meetings, send invites and answer them. Only your own primary calendar.</p>
       <div className="divide-y divide-line border-t border-line">
         <Row
           title="Google Calendar"
-          desc={error ?? (!st ? 'Checking…' : st.connected ? `Connected as ${st.email ?? 'your Google account'}.` : 'Not connected.')}
+          desc={error ?? (!st ? 'Checking…' : !st.connected ? 'Not connected.'
+            : `Connected as ${st.email ?? 'your Google account'}.${st.canWrite ? '' : ' Reconnect to send and answer invites.'}`)}
           control={
             !st ? null : st.connected ? (
-              <button type="button" onClick={() => void disconnect()} disabled={busy} className={button}>
-                {busy ? 'Disconnecting…' : 'Disconnect'}
-              </button>
+              <div className="flex shrink-0 items-center gap-2">
+                {!st.canWrite && <a href={CALENDAR_CONNECT_URL} className={button}>Reconnect</a>}
+                <button type="button" onClick={() => void disconnect()} disabled={busy} className={button}>
+                  {busy ? 'Disconnecting…' : 'Disconnect'}
+                </button>
+              </div>
             ) : (
               <a href={CALENDAR_CONNECT_URL} className={button}>Connect</a>
             )
@@ -1137,7 +1141,7 @@ function CalendarSettingsSection() {
     <div>
       <SectionTitle>Google Calendar</SectionTitle>
       <p className="mb-5 text-sm text-muted">
-        Lets people connect their own Google Calendar (read-only) and see their events here. Create an OAuth client in
+        Lets people connect their own Google Calendar: see their meetings, send invites and answer them. Only their own primary calendar. Create an OAuth client in
         Google Cloud, then paste its details below.
       </p>
 

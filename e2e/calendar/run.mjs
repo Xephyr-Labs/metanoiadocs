@@ -207,6 +207,18 @@ await step('read-only grant', async () => {
     check('Calendar page shows the meetings', await p.getByText('Launch sync').count() > 0);
     check('Calendar page has the reconnect line', await p.getByText('Reconnect your calendar to send and answer invites').count() === 1);
     check('New meeting is disabled', await p.getByRole('button', { name: 'New meeting' }).first().isDisabled());
+    // Reconnect from the page opens Settings > Calendar, whose Reconnect goes to Google's consent screen.
+    await p.getByRole('button', { name: 'Reconnect', exact: true }).click();
+    const again = p.getByRole('link', { name: 'Reconnect', exact: true });
+    await again.waitFor({ timeout: 10000 });
+    check('Settings > Calendar says why and tells the truth', await p.getByText('Reconnect to send and answer invites.', { exact: false }).count() === 1
+      && await p.getByText('nothing is ever written', { exact: false }).count() === 0);
+    const tokens = (await stub('/stats')).tokens;
+    const auth = p.waitForRequest((r) => r.url().includes('/o/oauth2/v2/auth'), { timeout: 20000 });
+    await again.click();
+    check('Reconnect reaches the Google consent screen', !!(await auth).url().includes('client_id=stub-client'));
+    await p.waitForURL(/calendar=(connected|error)/, { timeout: 20000 });
+    check('and comes back connected', p.url().includes('calendar=connected') && (await stub('/stats')).tokens === tokens + 1, p.url());
   } finally { await browser.close(); }
   const writes = [
     await a.raw('POST', '/api/calendar/events', { title: 'Nope', start: `${day(2)}T10:00:00Z`, end: `${day(2)}T10:30:00Z`, attendees: [] }),
@@ -278,6 +290,18 @@ await step('Calendar page and Home with write access (browser)', async () => {
     await openCalendarPage(p);
     check('no reconnect line', await p.getByText('Reconnect your calendar to send and answer invites').count() === 0);
     check('New meeting is enabled', !(await p.getByRole('button', { name: 'New meeting' }).first().isDisabled()));
+    await p.getByRole('button', { name: 'New meeting' }).first().click();
+    await p.getByLabel('Title').fill('Hiring sync');
+    const guests = p.getByPlaceholder('Name or email');
+    await guests.fill('newguest@partner.org');
+    await guests.press('Enter');
+    const sent = p.waitForResponse((r) => r.url().endsWith('/api/calendar/events') && r.request().method() === 'POST', { timeout: 20000 });
+    await p.getByRole('button', { name: 'Send invites' }).click();
+    const res = await sent;
+    const ins = await lastWrite();
+    check('New meeting > Send invites: Google got the insert, sendUpdates=all, with the guest', res.status() === 201 && ins?.method === 'POST'
+      && ins.query.sendUpdates === 'all' && ins.body.summary === 'Hiring sync'
+      && JSON.stringify(ins.body.attendees) === JSON.stringify([{ email: 'newguest@partner.org' }]), JSON.stringify(ins));
     const declined = p.getByText('Budget review').first();
     await declined.waitFor({ timeout: 10000 });
     check('declined meeting is on the Calendar page, struck through', await declined.evaluate((el) => {
