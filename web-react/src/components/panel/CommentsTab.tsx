@@ -476,7 +476,15 @@ export function CommentsTab({ docId }: { docId: string }) {
                 replyTo === c.id ? (
                   <>
                   {replyNote && <CommentFiles files={[replyNote]} onRemove={replyVoice.discard} />}
-                  <div className="mt-2.5 flex items-end gap-1.5 rounded-md bg-canvas ring-1 ring-inset ring-line focus-within:ring-2 focus-within:ring-accent">
+                  <div
+                    className="mt-2.5 flex items-end gap-1.5 rounded-md bg-canvas ring-1 ring-inset ring-line focus-within:ring-2 focus-within:ring-accent"
+                    // Walking away from an empty reply closes it, so its card
+                    // stops reading as the thread you are in.
+                    onBlur={(e) => {
+                      if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+                      if (!replyText.trim() && !replyNote && !replyVoice.busy && !busy) setReplyTo(null);
+                    }}
+                  >
                     <CommentBox
                       draftKey={`reply:${c.id}`}
                       value={replyText}

@@ -380,7 +380,7 @@ export function ProjectRows({
  *  a folder like a tree row, and carrying the same menu the tree does — these
  *  are the pages reached most often, and they used to be the ones you could do
  *  least with. */
-export function DocRow({ id }: { id: string }) {
+export function DocRow({ id, selectable = true }: { id: string; selectable?: boolean }) {
   const ws = useWorkspace();
   const p = ws.pages[id];
   const menu = useDocMenu(id);
@@ -391,12 +391,15 @@ export function DocRow({ id }: { id: string }) {
         type="button"
         onClick={() => ws.select(id)}
         {...dragSource(DOC_MIME, id)}
-        // Never drawn selected: the open page is already selected where it
-        // lives in the tree, and two grey rows for one page read as two pages.
+        // Recent and Favorites pass selectable={false}: the open page is
+        // already selected where it lives in the tree, and two grey rows for
+        // one page read as two pages. Designs and Shared are the only place
+        // their pages appear, so they stay selectable.
         // pl-5 is the tree's chevron slot, so the icon and title land in the
         // tree's columns. The ⋯ only claims its room while it is showing.
         className={cn(
-          'flex h-7 coarse:h-11 w-full items-center gap-2 rounded-md pl-5 pr-2 text-sm leading-5 text-ink transition-colors duration-120 hover:bg-hover',
+          'flex h-7 coarse:h-11 w-full items-center gap-2 rounded-md pl-5 pr-2 text-sm leading-5 text-ink transition-colors duration-120',
+          selectable && ws.currentId === id ? 'bg-selected font-medium' : 'hover:bg-hover',
           'group-hover/row:pr-7 group-focus-within/row:pr-7 group-has-[[data-state=open]]/row:pr-7 [@media(hover:none)]:pr-7',
         )}
       >
@@ -829,7 +832,7 @@ export function Sidebar() {
           <section className="mb-5">
             <CollapsibleSection collapsed={collapsed} onToggle={toggle} sectionKey="recent" label="Recent" count={recentIds.length}>
               <div className="space-y-px">
-                <Capped limit={5}>{recentIds.map((id) => <DocRow key={id} id={id} />)}</Capped>
+                <Capped limit={5}>{recentIds.map((id) => <DocRow key={id} id={id} selectable={false} />)}</Capped>
               </div>
             </CollapsibleSection>
           </section>
@@ -841,7 +844,7 @@ export function Sidebar() {
             <div className="space-y-px">
               <Capped>
                 {[...favoriteFolderIds.map((id) => <FavoriteFolderRow key={`f${id}`} id={id} />),
-                  ...favoriteIds.map((id) => <DocRow key={id} id={id} />)]}
+                  ...favoriteIds.map((id) => <DocRow key={id} id={id} selectable={false} />)]}
               </Capped>
             </div>
             </CollapsibleSection>

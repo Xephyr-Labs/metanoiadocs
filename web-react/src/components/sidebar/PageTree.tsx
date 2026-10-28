@@ -52,6 +52,8 @@ function Row({ id, depth }: { id: PageId; depth: number }) {
         aria-expanded={hasChildren ? !!page.expanded : undefined}
         tabIndex={0}
         onKeyDown={(e) => {
+          // Keys on the chevron, + or ⋯ are theirs: Enter there must not also open the page.
+          if (e.target !== e.currentTarget) return;
           if (e.key === 'Enter') ws.select(id);
           if (e.key === 'ArrowRight' && hasChildren && !page.expanded) ws.toggleExpand(id);
           if (e.key === 'ArrowLeft' && hasChildren && page.expanded) ws.toggleExpand(id);

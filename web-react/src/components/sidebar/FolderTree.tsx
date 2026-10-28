@@ -92,7 +92,7 @@ function DocumentRow({ id, depth }: { id: PageId; depth: number }) {
       aria-selected={selected}
       aria-expanded={canExpand ? !!page.expanded : undefined}
       tabIndex={0}
-      onKeyDown={(e) => { if (e.key === 'Enter') ws.select(id); }}
+      onKeyDown={(e) => { if (e.target === e.currentTarget && e.key === 'Enter') ws.select(id); }}
     >
       {(drop.zone === 'before' || drop.zone === 'after') && (
         <span
@@ -248,12 +248,20 @@ function FolderRow({ id, depth }: { id: string; depth: number }) {
             </button>
           )}
         </span>
-        <span className="mr-2 flex h-5 w-5 shrink-0 items-center justify-center">
+        <button
+          type="button"
+          tabIndex={-1}
+          onClick={() => ws.toggleFolder(id)}
+          className="mr-2 flex h-5 w-5 shrink-0 items-center justify-center"
+          aria-label={folder.expanded ? `Collapse ${folder.name}` : `Expand ${folder.name}`}
+        >
           {folder.expanded ? <FolderOpen size={16} className={cn('shrink-0', tint)} /> : <Folder size={16} className={cn('shrink-0', tint)} />}
-        </span>
+        </button>
         {/* The name opens the folder's page — that is where its link lands and
-            what a folder now has to show. Expanding stays on the icon beside it,
-            so both readings of a folder row are still one click. */}
+            what a folder now has to show. Expanding stays on the chevron and
+            the folder icon beside it, so both readings of a folder row are
+            still one click. (The icon is out of the tab order: the chevron is
+            the keyboard's way in.) */}
         <button
           type="button"
           onClick={() => ws.openFolder(id)}
