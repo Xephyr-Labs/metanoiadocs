@@ -6,7 +6,7 @@
 
 **The docs and project workspace you run yourself.**
 
-Real-time collaborative pages · boards, tables, gantt and calendars · comments that reach people ·<br/>an API and an agent queue for the machines. **Free, unlimited members, forever.**
+Real-time collaborative pages · boards, tables, gantt and calendars · your Google Calendar and meeting notes ·<br/>comments that reach people · an API and an agent queue whose edits a person approves. **Free, unlimited members, forever.**
 
 <a href="https://github.com/Xephyr-Labs/metanoiadocs/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Xephyr-Labs/metanoiadocs/actions/workflows/ci.yml/badge.svg"></a> <a href="https://hub.docker.com/r/hmsajjad/metanoiadocs"><img alt="Docker pulls" src="https://img.shields.io/docker/pulls/hmsajjad/metanoiadocs?logo=docker&label=docker%20pulls"></a> <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a> <img alt="Self-hosted" src="https://img.shields.io/badge/self--hosted-one%20container-brightgreen.svg"> <img alt="Seat limits: none" src="https://img.shields.io/badge/seat%20limits-none-blueviolet.svg">
 
@@ -39,7 +39,7 @@ One image, one Postgres, one port. `docker compose up -d` and invite the team.
   <tr>
     <td width="50%" valign="top">
       <img src="assets/screenshots/home.png" alt="Home dashboard with recent pages, task counts, my tasks and team activity" />
-      <p align="center"><sub><b>Home</b> — what you were doing, what's due, what the team just did.</sub></p>
+      <p align="center"><sub><b>Home</b> — what needs you, today's meetings, where you left off, your tasks and documents, what the team just did.</sub></p>
     </td>
     <td width="50%" valign="top">
       <img src="assets/screenshots/board.png" alt="Kanban board with epics, stories and bugs across four columns" />
@@ -85,11 +85,12 @@ One image, one Postgres, one port. `docker compose up -d` and invite the team.
 
 | Area | What you get |
 |---|---|
-| **Write together** | Live multi-cursor pages over Yjs · a full block editor · threaded comments and @-mentions, editable by the person who wrote them · version history you can restore from · page templates, including your own · a design canvas that files and searches like a document |
+| **Write together** | Live multi-cursor pages over Yjs · a full block editor · threaded comments and @-mentions, editable by the person who wrote them · Suggesting mode with block-by-block review · voice notes with transcripts · version history you can restore from · page templates, including your own · a design canvas that files and searches like a document |
 | **Plan the work** | Kanban, backlog, table, gantt, calendar and gallery over one set of tasks · sprints, points, estimates, dependencies, milestones · tasks that repeat when you finish them · row templates that start a task already filled in · every project is a database and every row is a page · automations and quick actions · a public intake form that asks for whatever the database holds |
-| **Find and organise** | Nested pages, folders, tags, favorites, loves and pins · hybrid full-text and fuzzy search over pages **and tasks** behind ⌘K · keyboard shortcuts for everything, `?` for the list · related pages and extracted tasks computed in Postgres, with no LLM and no external calls |
-| **Let the machines in** | An MCP server · a REST API with an OpenAPI description · signed webhooks · an agent run queue your own machine works · provenance on every write, so you can see which edits a machine made |
-| **Run it yourself** | One container and one Postgres · a schema that migrates itself on boot · invite-only auth · Web Push · import and export, including CSV in and out · a calendar feed your phone subscribes to · public read-only share links · works offline enough to read |
+| **Meet** | Your own Google Calendar in day, week and month views · create meetings and send invites, accept or decline, edit or cancel what you organised · private notes per meeting, turned into tasks · today's meetings on Home |
+| **Find and organise** | Spaces for teams and areas · nested pages, folders, tags, favorites, loves and pins · hybrid full-text and fuzzy search over pages **and tasks** behind ⌘K · keyboard shortcuts for everything, `?` for the list · related pages and extracted tasks computed in Postgres, with no LLM and no external calls |
+| **Let the machines in** | An MCP server · a REST API with an OpenAPI description · signed webhooks · an agent run queue your own machine works · AI and agent edits land as suggestions a person approves · provenance on every write, so you can see which edits a machine made |
+| **Run it yourself** | One container and one Postgres · a schema that migrates itself on boot · invite-only auth · Web Push and an Android app · import and export, including CSV in and out · a calendar feed your phone subscribes to · public read-only share links · works offline enough to read |
 
 <details>
 <summary><b>Write together</b> — the full list</summary>
@@ -100,6 +101,9 @@ One image, one Postgres, one port. `docker compose up -d` and invite the team.
 - **Rich block editor** — headings, lists, to-dos, tables, databases, code, LaTeX, images, embeds, toggles, columns, callouts, mermaid.
 - **Reading controls** — Serif or Mono, smaller text, full width — per person, from the page menu.
 - **Comments & @-mentions** — threaded, block-anchored; tag a teammate for an in-app, email, and push notification. Tag yourself to leave a reminder.
+- **Suggesting mode** — switch a page to Suggesting and your edits become a draft beside it, not changes to it. Whoever can edit the page reviews the draft block by block and accepts or declines each change, like tracked changes in a word processor.
+- **Page roles and guest links** — per page, choose whether the team can view, comment, suggest or edit. A public link can let a guest read, or comment under a name, without an account.
+- **Voice notes** — record straight into a page (`/voice`) or a comment. With a Deepgram key set per workspace, each note gets a transcript.
 - **Version history** — automatic snapshots as you write; browse them rendered, restore in place (the restore is itself undoable), or open any version as a copy.
 - **Page templates** — mark any page as a template and it joins the Templates list beside the built-in ones. Starting from it copies the page as it is drawn — tables, images, columns, embedded databases and all — because the copy is of the document itself, not of a rendering of it. A template is an ordinary page: it stays in search and in the sidebar, and is edited like anything else.
 - **Designs** — a canvas beside the docs: shapes, connectors, frames, freehand, images, PNG export. A design *is* a document, so it shares, files, searches and versions like one.
@@ -127,9 +131,24 @@ One image, one Postgres, one port. `docker compose up -d` and invite the team.
 </details>
 
 <details>
+<summary><b>Meet</b> — the full list</summary>
+
+<br/>
+
+- **Your Google Calendar** — each person connects their own calendar; nobody sees anyone else's. Off until an admin adds a Google OAuth client and the server has `CALENDAR_TOKEN_KEY` — see [docs/GOOGLE-CALENDAR.md](docs/GOOGLE-CALENDAR.md).
+- **Calendar page** — day, week and month views of your primary calendar, in your profile's time zone, with a current-time line. Declined meetings stay visible, struck through, so you can change your answer.
+- **Invites** — click or drag an empty slot to make a meeting: teammates or any email address, a description, and a Google Meet link if you want one. Google sends the invites. Edit or cancel a meeting you organised (one occurrence of a repeating one); accept, decline or say maybe to one you were invited to.
+- **Meeting notes** — Start notes on any meeting makes a private page for it. Make tasks turns its to-do lines into tasks; Suggest tasks asks Ask AI and creates only the ones you accept.
+- **Today on Home** — today's meetings, with Join and Start notes, between what needs you and where you left off.
+
+</details>
+
+<details>
 <summary><b>Find and organise</b> — the full list</summary>
 
 <br/>
+
+- **Spaces** — separate areas for teams or subjects, Notion-style. Each has its own sidebar, members and Home; move a page, folder or database between them and what belongs to it moves too.
 
 - **Sidebar** — nested pages, folders (each with its own page and link), colored tags, favorites, and team-wide pins.
 - **Search** — hybrid full-text + fuzzy search over pages, and tasks by name or by key: typing `MD-14` into ⌘K lands on that task. The palette also jumps to databases and runs commands.
@@ -153,6 +172,7 @@ One image, one Postgres, one port. `docker compose up -d` and invite the team.
 - **Agents that take tasks** — assign a task to an agent account, or `@mention` one in a comment, and the work goes on a queue. [`runner/`](runner/) polls that queue on *your* machine and hands each run to Claude Code, Codex, opencode, Copilot CLI or any command of yours; the reply comes back as a comment. Nothing here reaches into your machine — the runner reaches out.
 - **Webhooks** — POST every workspace event to a URL you control, signed with HMAC-SHA256 over a timestamped payload, retried, with a delivery log that says whether a hook quietly stopped working.
 - **REST API** — the whole surface above, described in [`server/openapi.yaml`](server/openapi.yaml) and served by a running instance at `/api/openapi.yaml`.
+- **AI edits need approval** — an edit from Ask AI or an agent account becomes a suggestion, never a change to the page. Ask AI's go to the person who asked; an agent's wait for anyone who can edit the page, who reviews it like any suggestion. An admin can trust an agent's token to let it write directly.
 - **AI governance** — every change records whether a person, an agent account, or the copilot made it, and the workspace shows which. See [AI governance](#-ai-governance).
 - **AI assist** — optional OpenAI-compatible copilot with page context and tools, configured in Settings. Bring your own key; it is off by default.
 
@@ -167,6 +187,7 @@ One image, one Postgres, one port. `docker compose up -d` and invite the team.
 - **One container** — serves the UI, the REST API and the `/sync` WebSocket from one origin. Postgres is the only dependency.
 - **Idempotent schema** — created and migrated on every boot; there are no migration steps.
 - **Web Push** — VAPID keys generate themselves on first use and live in the database.
+- **Android app** — a small Capacitor wrapper with native push, pointed at your own server. See [`mobile/`](mobile/).
 
 </details>
 
@@ -184,6 +205,13 @@ worth protecting.
 **Which hand.** Ask AI forwards *your* cookie and calls the same routes you do,
 so there is no second account to mark: the edit is yours either way. Every write
 therefore records whether you typed it or the copilot made it for you.
+
+**Who approves.** A machine never edits a page directly unless an admin says so.
+Its edit lands in a draft beside the page and shows up in Home's *Needs you* and in
+the inbox; a person accepts or declines it change by change. Ask AI's drafts are
+for the person who asked. An agent's are for anyone who can edit the page — except
+the agent itself, which never decides on its own work. An admin can mark one of an
+agent's API tokens as trusted, and that token writes directly.
 
 That flag is never taken from the client. A bare header would let any caller
 stamp their edits "human", or blame the copilot for something it did not do — so
@@ -305,6 +333,7 @@ Everything is an environment variable (see [`.env.example`](.env.example)):
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | generated | Bring your own Web Push keys; otherwise a pair is made on first use and stored in the database. |
 | `SMTP_HOST` … `SMTP_FROM` | — | SMTP for real emails, needed once `AUTH_DEV_MODE=false`. |
 | `AGENT_RUN_STALE_MIN` | `30` | Minutes before a claimed agent run nobody reported on goes back on the queue. |
+| `CALENDAR_TOKEN_KEY` | — | Encrypts people's Google Calendar connections (`openssl rand -base64 32`). Unset keeps the calendar hidden; changing it disconnects everyone. |
 
 ## 🧱 Architecture
 
@@ -322,6 +351,7 @@ Browser ── HTTPS ─┤  Express — REST API  ·  Hocuspocus /sync (Yjs)  �
 | `web-react/` | React 18 + Vite + TypeScript + Tailwind + Radix; BlockSuite 0.22.4 editor; PWA with a push-capable service worker. |
 | `server/` | Express + Postgres + Hocuspocus (Yjs) sync; magic-link/password auth; the intelligence layer (`intelligence.js`), search, exports, notifications and Web Push. |
 | `mcp/` | Stdio MCP server exposing the workspace to AI agents via personal API tokens. The same tools are served over HTTP at `/mcp`. |
+| `mobile/` | The Android app (Capacitor). |
 | `runner/` | Zero-dependency CLI that runs an agent account's queued work on your own machine. `npx metanoiadocs-runner`. |
 | `charts/` | Helm chart — one Deployment, one Service, optionally one Postgres. |
 | `docker-compose.yaml` | `db` + `server`, building the image from source. |
@@ -342,8 +372,10 @@ cd server && npm install && DATABASE_URL=postgres://… npm start   # :8092
 cd web-react && npm install && npm run dev                        # :5173
 ```
 
-Tests: `npm test` in `web-react/` (vitest) and `node --test src/*.test.js` in
-`server/`. CI runs both and publishes the image on every merge to `main`.
+Tests: `npm test` in `web-react/` (vitest), `node --test` in `server/` and
+`runner/`, and end-to-end suites in [`e2e/`](e2e/) that run against a throwaway
+compose stack (`e2e/<suite>/run.sh`). CI runs the unit tests on Node 22 and
+publishes the image, tagged `sha-<commit>`, on every merge to `main`.
 
 Design work in this repo follows a small written system — one type family, a
 neutral chrome with the accent reserved for meaning, every control designed for
@@ -352,9 +384,10 @@ all its states. The tokens live in `web-react/src/index.css`.
 ## 📱 Mobile
 
 MetanoiaDocs is a responsive web app. Add it to your home screen as a **PWA** —
-the shell works offline and push notifications arrive with the app closed. The
-same build can be wrapped with Capacitor for the app stores. (The editor core is
-web-only, so a React Native port isn't practical.)
+the shell works offline and push notifications arrive with the app closed. There is
+also an **Android app** in [`mobile/`](mobile/): a Capacitor wrapper that asks for
+your server's address, then adds native push and the back button. (The editor core
+is web-only, so a React Native port isn't practical.)
 
 ## 🤝 Contributing
 
