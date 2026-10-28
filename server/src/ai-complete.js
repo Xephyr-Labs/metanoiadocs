@@ -18,7 +18,11 @@ export function aiCompleter(
     if (!cfg.enabled || !cfg.baseUrl || !cfg.apiKey || !cfg.model) {
       throw fail(503, 'Ask AI is not configured — set it up in Settings');
     }
-    const signal = AbortSignal.timeout(timeoutMs);
+    // Not AbortSignal.timeout: its timer is unref'd, which Node 22's test runner
+    // treats as a promise that can never settle.
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    const { signal } = ctrl;
     try {
       const r = await makeClient(cfg).chat.completions.create(
         { model: cfg.model, max_tokens: maxTokens, messages }, { signal });
@@ -28,6 +32,8 @@ export function aiCompleter(
       if (signal.aborted) throw fail(504, 'Ask AI took too long to answer — try again');
       console.error('[ai-complete]', err.message);
       throw fail(502, 'Ask AI could not answer — try again');
+    } finally {
+      clearTimeout(timer);
     }
   };
 }
