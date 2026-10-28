@@ -564,7 +564,7 @@ export function CommentsTab({ docId }: { docId: string }) {
               onChange={setDraft}
               onEnter={() => { void add(); }}
               people={members}
-              placeholder={suggesting ? 'Why? (optional)' : anchor ? 'Comment on selection…' : 'Add a comment…  @ to mention'}
+              placeholder={suggesting ? 'Why? (optional)' : anchor ? 'Comment on selection…' : 'Add a comment…'}
               className="px-3 py-2"
             />
             {!suggesting && <VoiceNoteButton onRecorded={voice.set} onBusyChange={voice.setBusy} onError={toast} disabled={!!busy} />}
@@ -572,6 +572,8 @@ export function CommentsTab({ docId }: { docId: string }) {
               icon={busy === 'add' ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
               label={suggesting ? 'Suggest' : 'Send'}
               onClick={() => void add()}
+              // Nothing to send yet; a suggestion's reason is optional.
+              disabled={!suggesting && !draft.trim() && !note}
               className="mb-0.5 mr-0.5"
             />
           </div>

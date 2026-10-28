@@ -210,7 +210,7 @@ export const CommentBox = forwardRef<CommentBoxHandle, Props>(function CommentBo
         role="listbox"
         aria-label="Mention someone"
         className={cn(
-          'absolute left-0 right-0 z-10 overflow-hidden rounded-lg border border-line bg-canvas py-1 shadow-pop',
+          'absolute left-0 right-0 z-10 max-h-48 overflow-y-auto rounded-lg border border-line bg-canvas py-1 shadow-pop',
           below ? 'top-full mt-2' : 'bottom-full mb-2',
         )}
       >
