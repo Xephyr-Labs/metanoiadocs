@@ -16,7 +16,7 @@ import { requestTitleFocus } from '../../lib/titleFocus';
 import { useDocMenu } from '../../hooks/useDocMenu';
 import { okToCross, useMoveToSpace } from '../../hooks/useMoveToSpace';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
-import { rowAction } from '../ui/styles';
+import { rowAction, rowActionsAtRest } from '../ui/styles';
 import { ShowMoreRow, useShowMore } from './showMore';
 
 const ColorDot = (color: string) =>
@@ -87,7 +87,7 @@ function DocumentRow({ id, depth }: { id: PageId; depth: number }) {
         selected ? 'bg-selected font-medium text-ink' : 'text-ink hover:bg-hover',
         drop.zone === 'inside' && 'bg-accent-soft text-accent-strong',
       )}
-      style={{ paddingLeft: 8 + depth * 16 }}
+      style={{ paddingLeft: 4 + depth * 16 }}
       role="treeitem"
       aria-selected={selected}
       aria-expanded={canExpand ? !!page.expanded : undefined}
@@ -99,22 +99,24 @@ function DocumentRow({ id, depth }: { id: PageId; depth: number }) {
           className={cn('pointer-events-none absolute left-1 right-1 h-0.5 rounded-full bg-accent', drop.zone === 'before' ? 'top-0' : 'bottom-0')}
         />
       )}
-      {/* One w-5 slot: the page icon at rest, a disclosure chevron while
-          hovering a page that links somewhere — same trade the folder rows make. */}
-      {canExpand && hover ? (
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); ws.toggleExpand(id); }}
-          className={cn('mr-2 flex h-5 w-5 shrink-0 items-center justify-center rounded hover:bg-hover', selected ? 'text-ink' : 'text-muted')}
-          aria-label={page.expanded ? `Collapse ${page.title}` : `Expand ${page.title}`}
-        >
-          <ChevronRight size={14} className={cn('text-muted transition-transform duration-180', page.expanded && 'rotate-90')} />
-        </button>
-      ) : (
-        <span className={cn('mr-2 flex h-5 w-5 shrink-0 items-center justify-center', selected ? 'text-ink' : 'text-muted')}>
-          <PageIcon icon={page.icon} size={16} className={selected ? 'shrink-0 text-ink' : 'shrink-0 text-muted'} />
-        </span>
-      )}
+      {/* Chevron in its own slot left of the icon, as in the page tree: the
+          page keeps its icon under the pointer, and a page with pages inside
+          shows the way in at rest. */}
+      <span className="flex h-5 w-4 shrink-0 items-center justify-center">
+        {canExpand && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); ws.toggleExpand(id); }}
+            className={cn(rowAction, 'w-4')}
+            aria-label={page.expanded ? `Collapse ${page.title}` : `Expand ${page.title}`}
+          >
+            <ChevronRight size={12} className={cn('transition-transform duration-180', page.expanded && 'rotate-90')} />
+          </button>
+        )}
+      </span>
+      <span className={cn('mr-2 flex h-5 w-5 shrink-0 items-center justify-center', selected ? 'text-ink' : 'text-muted')}>
+        <PageIcon icon={page.icon} size={16} className={selected ? 'shrink-0 text-ink' : 'shrink-0 text-muted'} />
+      </span>
       {/* Rename lives on the name, not the whole row: the chevron and the ⋯
           button are double-click targets too, and neither means "rename". */}
       <span
@@ -125,11 +127,19 @@ function DocumentRow({ id, depth }: { id: PageId; depth: number }) {
       </span>
       {/* A space is open to everyone in it, so a page only you can see says so. */}
       {page.visibility === 'private' && <Lock size={12} role="img" aria-label="Private" className="mr-1 shrink-0 text-faint" />}
-      <span className={cn('flex shrink-0 items-center gap-0.5 transition-opacity', hover ? 'opacity-100' : 'opacity-0')}>
+      <span className={cn('shrink-0 items-center gap-0.5 coarse:gap-2', hover ? 'flex' : rowActionsAtRest)}>
         <Menu
           trigger={<button type="button" onClick={(e) => e.stopPropagation()} className={rowAction} aria-label="Document actions"><MoreHorizontal size={16} /></button>}
           items={menu}
         />
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); void ws.createChildPage(id); }}
+          className={rowAction}
+          aria-label={`Add a page inside ${page.title}`}
+        >
+          <Plus size={16} />
+        </button>
       </span>
     </div>
     {canExpand && page.expanded && (
@@ -195,7 +205,9 @@ function FolderRow({ id, depth }: { id: string; depth: number }) {
       <div>
         <RowInput
           icon={<Folder size={16} className={cn('shrink-0', tint)} />}
-          depth={depth}
+          // +0.75 of a level is the 12px the chevron slot moves the icon by,
+          // so the folder stays put while its name is being typed.
+          depth={depth + 0.75}
           defaultValue={folder.name}
           label={`Rename ${folder.name}`}
           onCommit={async (name) => { await ws.renameFolder(id, name); setRenaming(false); }}
@@ -218,7 +230,7 @@ function FolderRow({ id, depth }: { id: string; depth: number }) {
           active && 'bg-selected font-medium',
           drop.zone === 'inside' && 'bg-accent-soft text-accent-strong',
         )}
-        style={{ paddingLeft: 8 + depth * 16 }}
+        style={{ paddingLeft: 4 + depth * 16 }}
         role="treeitem"
         aria-expanded={hasChildren ? !!folder.expanded : undefined}
       >
@@ -227,17 +239,18 @@ function FolderRow({ id, depth }: { id: string; depth: number }) {
             className={cn('pointer-events-none absolute left-1 right-1 h-0.5 rounded-full bg-accent', drop.zone === 'before' ? 'top-0' : 'bottom-0')}
           />
         )}
-        {/* One w-5 slot shared with doc rows so names line up: folder icon at
-            rest, chevron while hovering the row. */}
-        <button type="button" onClick={() => ws.toggleFolder(id)} className="mn-hit mr-2 flex h-5 w-5 shrink-0 items-center justify-center rounded hover:bg-hover" aria-label={folder.expanded ? 'Collapse folder' : 'Expand folder'}>
-          {hover && hasChildren ? (
-            <ChevronRight size={14} className={cn('text-muted transition-transform duration-180', folder.expanded && 'rotate-90')} />
-          ) : folder.expanded ? (
-            <FolderOpen size={16} className={cn('shrink-0', tint)} />
-          ) : (
-            <Folder size={16} className={cn('shrink-0', tint)} />
+        {/* Same two slots as a page row: the chevron, then the folder, which
+            no longer turns into the chevron under the pointer. */}
+        <span className="flex h-5 w-4 shrink-0 items-center justify-center">
+          {hasChildren && (
+            <button type="button" onClick={() => ws.toggleFolder(id)} className={cn(rowAction, 'w-4')} aria-label={folder.expanded ? `Collapse ${folder.name}` : `Expand ${folder.name}`}>
+              <ChevronRight size={12} className={cn('transition-transform duration-180', folder.expanded && 'rotate-90')} />
+            </button>
           )}
-        </button>
+        </span>
+        <span className="mr-2 flex h-5 w-5 shrink-0 items-center justify-center">
+          {folder.expanded ? <FolderOpen size={16} className={cn('shrink-0', tint)} /> : <Folder size={16} className={cn('shrink-0', tint)} />}
+        </span>
         {/* The name opens the folder's page — that is where its link lands and
             what a folder now has to show. Expanding stays on the icon beside it,
             so both readings of a folder row are still one click. */}
@@ -249,7 +262,7 @@ function FolderRow({ id, depth }: { id: string; depth: number }) {
         >
           <span className={cn('truncate', active && 'font-medium')}>{folder.name}</span>
         </button>
-        <span className={cn('flex shrink-0 items-center gap-0.5 transition-opacity', hover ? 'opacity-100' : 'opacity-0')}>
+        <span className={cn('shrink-0 items-center gap-0.5 coarse:gap-2', hover ? 'flex' : rowActionsAtRest)}>
           <Menu
             trigger={<button type="button" onClick={(e) => e.stopPropagation()} className={rowAction} aria-label="Folder actions"><MoreHorizontal size={16} /></button>}
             items={[

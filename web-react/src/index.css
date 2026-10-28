@@ -862,7 +862,9 @@ html.dark .mn-toc .outline-viewer-indicator {
     height: 52px;
     flex-direction: column;
     gap: 3px;
-    padding-inline: 6px;
+    /* 2px, not 6: at 12px "Everything" and "Documents" need the 68 this
+       leaves, and an ellipsis in a one-word label leaves no word. */
+    padding-inline: 2px;
   }
   .mn-rail-label {
     display: block;

@@ -39,3 +39,11 @@ export const cellField =
 export const rowAction =
   'mn-hit flex h-5 w-5 shrink-0 items-center justify-center rounded text-faint ' +
   'transition-colors duration-120 hover:bg-hover hover:text-muted';
+
+/** A tree row's hover actions while nobody is pointing at the row: out of the
+ * layout, so the title truncates at the row's end rather than short of two
+ * invisible buttons. They come back for keyboard focus inside the row and while
+ * their menu is open (the pointer has left for the menu, the trigger has to
+ * stay put for it to hang from). Pair with `group/row` on the row. */
+export const rowActionsAtRest =
+  'hidden group-focus-within/row:flex group-has-[[data-state=open]]/row:flex';

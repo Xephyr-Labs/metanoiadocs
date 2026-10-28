@@ -12,7 +12,7 @@ import { FolderTree } from './FolderTree';
 import { Capped, CollapsibleSection, DocRow, FavoriteFolderRow, ProjectRows, SectionLabel } from './Sidebar';
 
 const emptyRow =
-  'mt-0.5 flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-faint hover:bg-hover hover:text-muted coarse:min-h-11';
+  'mt-0.5 flex h-7 coarse:h-11 w-full items-center gap-2 rounded-md px-2 text-sm text-muted transition-colors duration-120 hover:bg-hover hover:text-ink';
 
 /**
  * The space you are in, as the sidebar draws it: the same Pinned, Projects,
@@ -116,7 +116,6 @@ export function SpaceSection({ space, shows, collapsed, onToggle }: {
           {shows('projects') && (
             <div className="mb-3">
               <SectionLabel
-                sectionKey="projects"
                 action={
                   <Menu
                     align="end"
@@ -147,7 +146,7 @@ export function SpaceSection({ space, shows, collapsed, onToggle }: {
                 </div>
               ) : (
                 <button onClick={() => startNaming(null, 'tasks')} className={emptyRow}>
-                  <Plus size={14} /> New project
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center"><Plus size={14} /></span> New project
                 </button>
               )}
             </div>
@@ -156,7 +155,6 @@ export function SpaceSection({ space, shows, collapsed, onToggle }: {
           {shows('docs') && tree && (
             <div className="mb-3">
               <SectionLabel
-                sectionKey="folders"
                 action={
                   <button type="button" onClick={() => ws.createFolder(null, sid)} className={rowAction} aria-label={`New folder in ${space.name}`}>
                     <Plus size={14} />
@@ -169,7 +167,7 @@ export function SpaceSection({ space, shows, collapsed, onToggle }: {
                 <FolderTree roots={tree.folderRootIds} unfiled={tree.unfiledIds} />
               ) : (
                 <button onClick={() => ws.createFolder(null, sid)} className={emptyRow}>
-                  <Plus size={14} /> New folder
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center"><Plus size={14} /></span> New folder
                 </button>
               )}
             </div>
@@ -180,7 +178,6 @@ export function SpaceSection({ space, shows, collapsed, onToggle }: {
           {shows('designs') && tree && (
             <div>
               <SectionLabel
-                sectionKey="designs"
                 action={
                   <button type="button" onClick={() => { ws.createDesign(sid); }} className={rowAction} aria-label={`New design in ${space.name}`}>
                     <Plus size={14} />
@@ -193,7 +190,7 @@ export function SpaceSection({ space, shows, collapsed, onToggle }: {
                 <div className="space-y-px">{tree.designIds.map((id) => <DocRow key={id} id={id} />)}</div>
               ) : (
                 <button onClick={() => { ws.createDesign(sid); }} className={emptyRow}>
-                  <Plus size={14} /> New design
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center"><Plus size={14} /></span> New design
                 </button>
               )}
             </div>
