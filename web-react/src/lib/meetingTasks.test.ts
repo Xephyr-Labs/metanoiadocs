@@ -18,6 +18,8 @@ describe('meetingTasks', () => {
   it('says what happened', () => {
     expect(madeTasksMessage({ created: [{ taskId: 't', title: 'a' }], skipped: 0 })).toBe('Created 1 task');
     expect(madeTasksMessage({ created: [], skipped: 2 })).toBe('Created 0 tasks (2 skipped)');
+    expect(madeTasksMessage({ created: [{ taskId: 't', title: 'a' }], skipped: 0, failed: 1, error: 'x' }))
+      .toBe('Created 1 task, 1 failed — try again');
   });
   it('lists only task databases', () => {
     const rows = [{ id: 'a', mode: 'tasks' }, { id: 'b', mode: 'data' }] as ProjectRow[];

@@ -4,6 +4,9 @@ import type { ProjectRow } from './tasksApi';
 export interface MadeTasks {
   created: { taskId: string; title: string }[];
   skipped: number;
+  /** Lines left unmade after a failure partway through; the rest were made and linked. */
+  failed?: number;
+  error?: string;
 }
 
 export async function makeTasks(docId: string, projectId: string): Promise<MadeTasks> {
@@ -21,9 +24,10 @@ export async function makeTasks(docId: string, projectId: string): Promise<MadeT
 /** The databases a task can go into: boards, not plain data tables. */
 export const taskDatabases = (rows: ProjectRow[]) => rows.filter((p) => p.mode !== 'data');
 
-export function madeTasksMessage({ created, skipped }: MadeTasks): string {
+export function madeTasksMessage({ created, skipped, failed }: MadeTasks): string {
   const n = created.length;
   const head = `Created ${n} task${n === 1 ? '' : 's'}`;
+  if (failed) return `${head}, ${failed} failed — try again`;
   return skipped ? `${head} (${skipped} skipped)` : head;
 }
 

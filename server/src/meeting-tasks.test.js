@@ -53,6 +53,17 @@ test('parseTodo: handles leave the title; unknown ones stay when `known` is give
   assert.equal(parseTodo('ask @ana.', { ...at(FRI), known: new Set(['ana']) }).title, 'ask.');
 });
 
+test('parseTodo: an email address is not a handle', () => {
+  const r = parseTodo('mail ana@example.com and @bob', at(FRI));
+  assert.deepEqual(r.handles, ['bob']);
+  assert.equal(r.title, 'mail ana@example.com and');
+});
+
+test("parseTodo: a possessive handle keeps the name, not a stray 's", () => {
+  const r = parseTodo("fix @ana's deck", { ...at(FRI), known: new Set(['ana']) });
+  assert.deepEqual([r.title, r.handles], ["fix ana's deck", ['ana']]);
+});
+
 test('parseTodo: whitespace collapsed; only the first date phrase is taken', () => {
   const r = parseTodo('   send   the   deck  by friday   then monday ', at(FRI));
   assert.deepEqual([r.title, r.dueAt], ['send the deck then monday', FRI]);
@@ -64,9 +75,9 @@ test('parseTodo: today defaults to the zone\'s own date', () => {
 
 // ── the route ─────────────────────────────────────────────────────────────
 
-const page = (md) => {
+const page = (md, resolve) => {
   const doc = new Y.Doc();
-  Y.applyUpdate(doc, buildDocState('Standup', md));
+  Y.applyUpdate(doc, buildDocState('Standup', md, resolve));
   return doc;
 };
 const todoTexts = (doc) => [...doc.getMap('blocks').values()]
@@ -161,13 +172,42 @@ test('make-tasks: a line linked by absolute URL counts as linked', async () => {
   assert.equal(made.length, 1);
 });
 
-test('make-tasks: a failure mid-run still links what was made', async () => {
+test('make-tasks: a failure mid-run still links what was made, and says so', async () => {
   const doc = page('- [ ] one\n- [ ] two\n- [ ] three');
   const { call } = harness({ doc, fail: 1 });
-  const { out } = await call();
-  assert.deepEqual(out, { created: [{ taskId: 't1', title: 'one' }], skipped: 2 });
+  const logged = [];
+  const was = console.error;
+  console.error = (...a) => logged.push(a.join(' '));
+  let out;
+  try { ({ out } = await call()); } finally { console.error = was; }
+  assert.deepEqual(out, { created: [{ taskId: 't1', title: 'one' }], skipped: 0, failed: 2, error: 'nope' });
+  assert.deepEqual(logged, ['[make-tasks] nope']);
   assert.equal(todoTexts(doc)[0].toDelta()[0].attributes.link, '/db/p1?task=t1');
   assert.equal(todoTexts(doc)[1].toDelta()[0].attributes, undefined);
+});
+
+test('make-tasks: links only plain runs, keeping an external link and a page reference', async () => {
+  const doc = page('- [ ] review [PR #12](https://github.com/x/y/pull/12) with [[Spec]]', (k) => (k === 'Spec' ? 'pg1' : null));
+  const h = harness({ doc });
+  await h.call();
+  const ops = todoTexts(doc)[0].toDelta();
+  assert.ok(ops.some((o) => o.insert === 'PR #12' && o.attributes.link === 'https://github.com/x/y/pull/12'));
+  const ref = ops.find((o) => o.attributes?.reference);
+  assert.equal(ref.attributes.reference.pageId, 'pg1');
+  assert.equal(ref.attributes.link, undefined);
+  assert.ok(ops.filter((o) => !o.attributes?.reference && o.insert !== 'PR #12')
+    .every((o) => o.attributes.link === '/db/p1?task=t1'));
+  assert.deepEqual((await h.call()).out, { created: [], skipped: 1 });
+});
+
+test('make-tasks: a line that is all links still gets a task link', async () => {
+  const doc = page('- [ ] [PR](https://github.com/x)');
+  const h = harness({ doc });
+  await h.call();
+  const ops = todoTexts(doc)[0].toDelta();
+  assert.equal(ops[0].attributes.link, 'https://github.com/x');
+  assert.ok(ops.some((o) => o.attributes?.link === '/db/p1?task=t1'));
+  assert.deepEqual((await h.call()).out, { created: [], skipped: 1 });
 });
 
 test('make-tasks: archived, data or missing databases are refused', async () => {

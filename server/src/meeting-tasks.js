@@ -5,7 +5,6 @@
  * run skip it.
  */
 import * as Y from 'yjs';
-import { mentionHandles } from './mentions.js';
 import { dayIn, zoneOf } from './timezone.js';
 
 const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
@@ -15,7 +14,10 @@ const DUE_RE = new RegExp(
   `(?<![\\w@'’-])(?:(?:by|on|due)\\s+)?(\\d{4}-\\d{2}-\\d{2}|today|tomorrow|${WEEKDAYS.join('|')})(?![\\w'’-])`,
   'gi',
 );
-const HANDLE_RE = /@([a-z0-9][a-z0-9._-]*)/gi;
+// mentions.js's handle, minus email addresses: an @ after a word char or dot
+// (ana@example.com) is not a mention here.
+const HANDLE_RE = /(?<![\w.])@([a-z0-9][a-z0-9._-]*)/gi;
+const handleOf = (h) => h.replace(/[.]+$/, '').toLowerCase();
 
 const addDays = (day, n) => {
   const [y, m, d] = day.split('-').map(Number);
@@ -56,10 +58,12 @@ export function parseTodo(text, { today, zone, known } = {}) {
     title = title.slice(0, m.index) + ' ' + title.slice(m.index + m[0].length);
     break;
   }
-  const handles = mentionHandles(title);
-  title = title.replace(HANDLE_RE, (whole, h) => {
-    const handle = h.replace(/[.]+$/, '').toLowerCase();
+  const handles = [...new Set([...title.matchAll(HANDLE_RE)].map((m) => handleOf(m[1])).filter(Boolean))];
+  title = title.replace(HANDLE_RE, (whole, h, at, all) => {
+    const handle = handleOf(h);
     if (known && !known.has(handle)) return whole;
+    // "@ana's deck" reads as "ana's deck", not "'s deck".
+    if (/['’]/.test(all[at + whole.length] ?? '')) return h;
     return h.slice(handle.length); // keeps a sentence's full stop
   });
   title = title.replace(/\s+/g, ' ').replace(/\s+([.,;:!?])/g, '$1').trim();
@@ -108,6 +112,25 @@ export function openTodos(doc, baseUrl) {
 }
 
 /**
+ * Link a line to its task without touching what it already links: runs that
+ * carry a link or a page reference keep theirs, the rest get the task's. A line
+ * with no plain run left gets a short linked marker, so it still reads as linked.
+ */
+function linkLine(text, link) {
+  let at = 0;
+  let done = false;
+  for (const op of text.toDelta()) {
+    const len = typeof op.insert === 'string' ? op.insert.length : 1;
+    if (!op.attributes?.link && !op.attributes?.reference) {
+      text.format(at, len, { link });
+      done = true;
+    }
+    at += len;
+  }
+  if (!done) text.insert(text.length, ' ↗', { link });
+}
+
+/**
  * Deps: `editGrant(docId, userId)` → role|null; `createTask(body, user)` →
  * `{ task } | { status, error }` (tasks.js createTaskRow); `taskPage(taskId,
  * userId, markdown)` writes the task's own page; `getHocuspocus()`.
@@ -142,7 +165,7 @@ export function registerMeetingTaskRoutes(app, {
     }
     try {
       let { todos, skipped } = openTodos(conn.document, baseUrl);
-      const wanted = [...new Set(todos.flatMap((t) => mentionHandles(t.text)))];
+      const wanted = [...new Set(todos.flatMap((t) => parseTodo(t.text, { today: '2000-01-01' }).handles))];
       const { rows: people } = wanted.length
         ? await pool.query(
           `SELECT id, lower(username) AS handle FROM users
@@ -183,7 +206,7 @@ export function registerMeetingTaskRoutes(app, {
           const blocks = doc.getMap('blocks');
           for (const { blockId, link } of links) {
             const text = blocks.get(blockId)?.get('prop:text');
-            if (text instanceof Y.Text && text.length) text.format(0, text.length, { link });
+            if (text instanceof Y.Text) linkLine(text, link);
           }
         });
       }
@@ -191,8 +214,10 @@ export function registerMeetingTaskRoutes(app, {
         if (failure.thrown) throw failure.thrown;
         return res.status(failure.status).json({ error: failure.error });
       }
-      if (failure) skipped += todos.length - tried; // the lines never reached
-      res.json({ created, skipped });
+      if (!failure) return res.json({ created, skipped });
+      const error = failure.thrown?.message ?? failure.error;
+      console.error('[make-tasks]', error);
+      res.json({ created, skipped, failed: todos.length - tried, error });
     } finally {
       running.delete(docId);
       await conn.disconnect().catch(() => {});
