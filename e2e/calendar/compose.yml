@@ -1,0 +1,22 @@
+# A throwaway stack for the Google Calendar connector checks, beside any other local stack.
+services:
+  server:
+    ports: !override
+      - "8095:3000"
+    environment:
+      BASE_URL: http://localhost:8095
+      # The server reaches the stub by service name; the browser is sent to it on the host port (GOOGLE_AUTH_URL).
+      GOOGLE_AUTH_URL: http://localhost:8101
+      GOOGLE_OAUTH_URL: http://gstub:8080
+      GOOGLE_API_URL: http://gstub:8080
+      # 32 bytes, base64: the test key only.
+      CALENDAR_TOKEN_KEY: Y2FsZW5kYXItZTJlLWtleS0wMTIzNDU2Nzg5YWJjZGU=
+  # Stands in for Google (OAuth, Calendar API) and for the Ask AI provider (run.mjs).
+  gstub:
+    image: node:22-alpine
+    command: ["node", "/stub/google-stub.mjs"]
+    volumes:
+      # Relative to the project directory (the repo root), not this file.
+      - ./e2e/calendar/google-stub.mjs:/stub/google-stub.mjs:ro
+    ports:
+      - "8101:8080"
