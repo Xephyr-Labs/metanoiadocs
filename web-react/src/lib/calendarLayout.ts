@@ -37,7 +37,10 @@ export function startOfDay(day: string, zone: string): number {
   // Wall clock read as if it were UTC, minus the instant: the zone's offset then.
   const offset = (ms: number) => { const w = wall(ms, zone); return toUTC(w.day) + w.minutes * 60_000 - Math.floor(ms / 60_000) * 60_000; };
   const first = guess - offset(guess);
-  return guess - offset(first);
+  const r = guess - offset(first);
+  // Where midnight never happens (a spring-forward at 00:00), that lands an hour early, on the
+  // day before: move on by the jump to the first instant the day has.
+  return dayIn(r, zone) < day ? r + offset(r + 6 * 3600_000) - offset(r) : r;
 }
 
 const weekStart = (day: string, weekStartsOn: number) =>

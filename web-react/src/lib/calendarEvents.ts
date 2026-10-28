@@ -39,6 +39,15 @@ export function meetingsView(status: CalendarStatus | null, data: CalendarEvents
   return data.error ? 'error' : 'list';
 }
 
+/** The Calendar page's state: like the Home card, but a status ask that failed is an error
+ *  (the page was opened on purpose) and one still on its way is loading, not hidden. */
+export function calendarPageView(status: CalendarStatus | null | 'failed', data: CalendarEvents | null):
+  ReturnType<typeof meetingsView> {
+  if (status === 'failed') return 'error';
+  if (!status) return 'loading';
+  return meetingsView(status, data);
+}
+
 /** Attendees other than you, for a "with ..." line. */
 export const otherAttendees = (e: CalendarEvent): CalendarAttendee[] => e.attendees.filter((a) => !a.self);
 

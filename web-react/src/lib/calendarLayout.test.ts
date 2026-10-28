@@ -49,6 +49,12 @@ describe('positionTimed', () => {
     const [w] = positionTimed([ev('w', '2026-11-01T04:00:00Z', '2026-11-02T05:00:00Z')], '2026-11-01', ny);
     expect(w).toMatchObject({ top: 0, height: 24 * 60 });
   });
+  it('a day whose midnight is skipped starts at the first instant that exists', () => {
+    // Chile springs forward at 00:00 on 2026-09-06: the day begins at 01:00 -03.
+    const s = startOfDay('2026-09-06', 'America/Santiago');
+    expect(new Date(s).toISOString()).toBe('2026-09-06T04:00:00.000Z');
+    expect(startOfDay('2026-09-07', 'America/Santiago') - s).toBe(23 * 3600_000);
+  });
   it('a 23-hour day: an evening meeting keeps its wall-clock place', () => {
     const [p] = positionTimed([ev('a', '2026-03-09T01:00:00Z', '2026-03-09T02:30:00Z')], '2026-03-08', 'America/New_York');
     expect(p).toMatchObject({ top: 21 * 60, height: 90 });

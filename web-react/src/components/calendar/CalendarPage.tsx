@@ -1,11 +1,11 @@
 /* Hallmark · redesign inside Workbench (app chrome) · project tokens preserved · pre-emit critique: P4 H4 E4 S4 R5 V3
  * states: toolbar buttons default · hover · focus-visible · active · disabled (New meeting without write access, tooltip) ·
  * loading (aria-live "Loading…") · error ("Couldn't load" + Try again) · reconnect / connect lines */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { CalendarDays, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { calendarApi, wantSettingsSection, type CalendarStatus } from '../../lib/calendar';
-import { fetchEventsRange, meetingsView, type CalendarEvent, type CalendarEvents } from '../../lib/calendarEvents';
+import { calendarPageView, fetchEventsRange, type CalendarEvent, type CalendarEvents } from '../../lib/calendarEvents';
 import { dayIn, daysIn, monthCells, rangeFor, type CalendarView } from '../../lib/calendarLayout';
 import { docsApi } from '../../lib/docsApi';
 import { addDays } from '../../lib/gantt';
@@ -54,11 +54,16 @@ export function CalendarPage() {
   const auth = useAuth();
   const zone = auth.user?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
   const phone = useMediaQuery('(max-width: 767px)');
-  const [view, setView] = useState<CalendarView>(() => (window.matchMedia('(max-width: 767px)').matches ? 'day' : 'week'));
+  const [view, setView] = useState<CalendarView>('week');
+  // Day when the column is too narrow for seven readable days — a phone, or a laptop with the
+  // sidebar and side panel open. Decided once, on arrival; the switch is yours after that.
+  const page = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => { if ((page.current?.clientWidth ?? 1000) < 640) setView('day'); }, []);
   const [now, setNow] = useState(() => Date.now());
   const today = dayIn(now, zone);
   const [anchor, setAnchor] = useState(today);
-  const [status, setStatus] = useState<CalendarStatus | null>(null);
+  // null while the first ask is on its way; 'failed' when it could not be asked.
+  const [status, setStatus] = useState<CalendarStatus | null | 'failed'>(null);
   const [data, setData] = useState<CalendarEvents | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
   const [names, setNames] = useState<Map<string, string>>(new Map());
@@ -75,10 +80,10 @@ export function CalendarPage() {
   const { from, to } = rangeFor(view, anchor);
   const load = useCallback(async () => {
     const n = ++seq.current;
-    const s = await calendarApi.status().catch(() => null);
+    const s = await calendarApi.status().catch(() => 'failed' as const);
     if (n !== seq.current) return;
     setStatus(s);
-    if (!s?.available) { setData(null); return; }
+    if (s === 'failed' || !s.available) { setData(null); return; }
     // Asked even when status says not connected: events knows if a dead token was dropped.
     const d = await fetchEventsRange(from, to, { declined: true });
     if (n === seq.current) setData(d);
@@ -90,13 +95,15 @@ export function CalendarPage() {
 
   const events = data?.events ?? [];
   const open = useMemo(() => events.find((e) => e.id === openId) ?? null, [events, openId]);
-  const shown = meetingsView(status, data);
+  const shown = calendarPageView(status, data);
+  const known = status && status !== 'failed' ? status : null;
   // A load that failed or is under way does not stop a write; a dead token does.
-  const canWrite = !!status?.canWrite && shown !== 'reconnect';
+  const canWrite = !!known?.canWrite && shown !== 'reconnect';
   const settings = () => { wantSettingsSection('mycalendar'); ws.setSettingsOpen(true); };
   const label = rangeLabel(view, anchor, from, to, phone);
 
-  const newButton = canWrite ? (
+  // Not drawn until the status says whether you may write: no flash of a disabled button.
+  const newButton = !known ? null : canWrite ? (
     phone
       ? <IconButton icon={<Plus size={18} />} label="New meeting" className="h-8 w-8" onClick={() => openEditor({ slot: null })} />
       : <Button size="sm" variant="primary" leftIcon={<Plus size={14} />} onClick={() => openEditor({ slot: null })}>New meeting</Button>
@@ -120,7 +127,7 @@ export function CalendarPage() {
   const views = <SegmentedControl aria-label="Calendar view" segments={VIEWS} value={view} onChange={(v) => setView(v as CalendarView)} />;
   const loading = <span aria-live="polite" className="text-xs text-faint">{shown === 'loading' ? 'Loading…' : ''}</span>;
 
-  if (shown === 'hidden' && status) {
+  if (shown === 'hidden') {
     return <p className="p-6 text-sm text-muted">Google Calendar isn't set up on this workspace.</p>;
   }
   if (shown === 'connect') {
@@ -134,7 +141,7 @@ export function CalendarPage() {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div ref={page} className="flex h-full min-h-0 flex-col">
       <div className="shrink-0 border-b border-line px-4 py-2.5">
         {phone ? (
           <div className="space-y-2">
@@ -146,11 +153,13 @@ export function CalendarPage() {
             <div className="flex items-center justify-between gap-2">{nav}{views}</div>
           </div>
         ) : (
-          <div className="flex items-center gap-3">
+          // Wraps rather than clips: with the sidebar or the side panel open the column can be
+          // phone-narrow on a desktop, and the view switch and New meeting drop to a second row.
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
             {nav}
-            <h1 className="min-w-0 truncate text-lg font-semibold text-ink">{label}</h1>
+            <h1 className="min-w-0 grow truncate text-lg font-semibold text-ink">{label}</h1>
             {loading}
-            <div className="ml-auto flex items-center gap-2">{views}{newButton}</div>
+            <div className="ml-auto flex min-w-0 flex-wrap items-center gap-2">{views}{newButton}</div>
           </div>
         )}
       </div>
@@ -165,7 +174,7 @@ export function CalendarPage() {
             : <Button size="sm" onClick={() => void load()}>Try again</Button>}
         </div>
       )}
-      {shown === 'list' && !status?.canWrite && (
+      {shown === 'list' && !known?.canWrite && (
         <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-4 py-2 text-xs text-muted">
           <span className="min-w-0 flex-1 basis-56">Reconnect your calendar to send and answer invites</span>
           <Button size="sm" onClick={settings}>Reconnect</Button>
@@ -198,7 +207,7 @@ export function CalendarPage() {
       <EventCard
         event={open}
         zone={zone}
-        canWrite={!!status?.canWrite}
+        canWrite={!!known?.canWrite}
         names={names}
         onClose={() => setOpenId(null)}
         onChanged={load}

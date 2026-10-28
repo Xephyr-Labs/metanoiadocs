@@ -20,9 +20,9 @@ const ANSWERS: { value: 'accepted' | 'tentative' | 'declined'; label: string }[]
 ];
 
 function ResponseMark({ response }: { response: CalendarResponse | null }) {
-  if (response === 'accepted') return <Check size={14} className="text-ok" aria-label="Going" />;
-  if (response === 'declined') return <X size={14} className="text-danger-strong" aria-label="Not going" />;
-  if (response === 'tentative') return <CircleHelp size={14} className="text-muted" aria-label="Maybe" />;
+  if (response === 'accepted') return <Check size={14} className="text-ok" role="img" aria-label="Going" />;
+  if (response === 'declined') return <X size={14} className="text-danger-strong" role="img" aria-label="Not going" />;
+  if (response === 'tentative') return <CircleHelp size={14} className="text-muted" role="img" aria-label="Maybe" />;
   return <span className="text-3xs text-faint">No answer</span>;
 }
 
@@ -69,7 +69,10 @@ export function EventCard({ event, zone, canWrite, names, onClose, onChanged, on
       await onChanged();
       after?.();
     } catch (err) {
-      if (err instanceof CalendarWriteError && (err.needsWrite || err.reconnect)) setNeedsWrite(true);
+      if (err instanceof CalendarWriteError && (err.needsWrite || err.reconnect)) {
+        setNeedsWrite(true);
+        void onChanged(); // the page's bar and New meeting learn it too
+      }
       else setError(err instanceof Error ? err.message : 'Something went wrong. Try again.');
     } finally {
       setBusy(null);
@@ -211,7 +214,7 @@ export function EventCard({ event, zone, canWrite, names, onClose, onChanged, on
                         className={cn(
                           'mn-hit h-7 px-2.5 text-sm font-medium transition-colors duration-120 disabled:opacity-50',
                           i === 0 && 'rounded-l-md', i === ANSWERS.length - 1 && 'rounded-r-md', i > 0 && 'border-l border-line-strong',
-                          on ? 'bg-selected text-ink' : 'text-muted hover:bg-hover hover:text-ink active:bg-selected',
+                          on ? 'relative z-10 bg-accent-soft font-semibold text-accent-strong ring-1 ring-inset ring-accent' : 'text-muted hover:bg-hover hover:text-ink active:bg-selected',
                         )}
                       >
                         {busy === a.value ? 'Saving…' : a.label}

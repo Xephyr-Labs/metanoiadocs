@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import {
   fetchEvents, fetchEventsRange, meetingsView, otherAttendees, type CalendarEvent,
-  createMeeting, updateMeeting, cancelMeeting, respondToMeeting, CalendarWriteError, linkParts,
+  createMeeting, updateMeeting, cancelMeeting, respondToMeeting, CalendarWriteError, linkParts, calendarPageView,
 } from './calendarEvents';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -157,5 +157,19 @@ describe('linkParts', () => {
       { text: '. Call javascript:alert(1) or (' }, { text: 'http://y.test', href: 'http://y.test' }, { text: ')' },
     ]);
     expect(linkParts('')).toEqual([]);
+  });
+});
+
+describe('calendarPageView', () => {
+  const st = { available: true, connected: true, email: null };
+  it('a failed status ask is an error, a pending one is loading', () => {
+    expect(calendarPageView('failed', null)).toBe('error');
+    expect(calendarPageView(null, null)).toBe('loading');
+  });
+  it('otherwise reads like the Home card', () => {
+    expect(calendarPageView({ ...st, available: false }, null)).toBe('hidden');
+    expect(calendarPageView(st, null)).toBe('loading');
+    expect(calendarPageView(st, { connected: true, events: [] })).toBe('list');
+    expect(calendarPageView(st, { error: true, events: [] })).toBe('error');
   });
 });
