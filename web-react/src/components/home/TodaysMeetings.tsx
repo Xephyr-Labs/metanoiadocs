@@ -3,7 +3,7 @@ import { CalendarDays, Video } from 'lucide-react';
 import { useWorkspace } from '../../store/workspace';
 import { calendarApi, wantSettingsSection, type CalendarStatus } from '../../lib/calendar';
 import {
-  fetchEvents, meetingLabel, meetingTime, nextMeeting, orderMeetings, otherAttendees, startNotes,
+  fetchEvents, meetingLabel, meetingTime, nextMeeting, orderMeetings, otherAttendees, safeMeetLink, startNotes,
   type CalendarEvents,
 } from '../../lib/calendarEvents';
 import { toast } from '../../lib/toast';
@@ -18,13 +18,20 @@ export function TodaysMeetings() {
   const [data, setData] = useState<CalendarEvents | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const seq = useRef(0);
+  // Re-render each minute so Now/Next stay fresh.
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => tick((n) => n + 1), 60_000);
+    return () => clearInterval(t);
+  }, []);
 
   const load = useCallback(async () => {
     const n = ++seq.current;
     const s = await calendarApi.status().catch(() => null);
     if (n !== seq.current) return;
     setStatus(s);
-    if (!s?.available || !s.connected) { setData(null); return; }
+    if (!s?.available) { setData(null); return; }
+    // Asked even when status says not connected: events knows if a dead token was dropped.
     const d = await fetchEvents(1);
     if (n === seq.current) setData(d);
   }, []);
@@ -32,7 +39,7 @@ export function TodaysMeetings() {
 
   if (!status?.available) return null;
 
-  if (!status.connected) {
+  if (!data?.reconnect && !(data?.connected ?? status.connected)) {
     return (
       <div className="mb-6 flex items-center gap-2 text-sm text-muted">
         <CalendarDays size={16} aria-hidden />
@@ -56,8 +63,8 @@ export function TodaysMeetings() {
     setBusy(id);
     try {
       const { docId } = await startNotes(id, spaceId);
-      await load();
       ws.select(docId);
+      void load(); // refresh in the background; navigation does not wait
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Could not start notes.');
     } finally {
@@ -70,15 +77,18 @@ export function TodaysMeetings() {
       title="Today's meetings"
       className="mb-6"
       action={data?.reconnect && (
-        <Button size="sm" onClick={() => { wantSettingsSection('mycalendar'); ws.setSettingsOpen(true); }}>Reconnect</Button>
+        <Button size="sm" onClick={() => { wantSettingsSection('mycalendar'); ws.setSettingsOpen(true); }}>Reconnect your calendar</Button>
       )}
     >
-      {!data ? null : events.length === 0 ? (
-        <p className="text-sm text-muted">{data.reconnect ? 'Reconnect your calendar to see meetings.' : 'No meetings today'}</p>
+      {!data ? null : data.reconnect ? (
+        <p className="text-sm text-muted">Reconnect your calendar to see today's meetings.</p>
+      ) : events.length === 0 ? (
+        <p className="text-sm text-muted">No meetings today</p>
       ) : (
         <ul className="divide-y divide-line">
           {events.map((e) => {
             const label = meetingLabel(e, now, next);
+            const link = safeMeetLink(e.meetLink);
             const others = otherAttendees(e).length;
             return (
               <li key={e.id} className="flex flex-wrap items-center gap-x-3 gap-y-1.5 py-2">
@@ -91,9 +101,9 @@ export function TodaysMeetings() {
                   {others > 0 && <span className="text-2xs text-faint">{others} {others === 1 ? 'other' : 'others'}</span>}
                 </span>
                 <span className="flex items-center gap-2">
-                  {e.meetLink && (
+                  {link && (
                     <a
-                      href={e.meetLink}
+                      href={link}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-1 text-xs text-accent hover:underline"

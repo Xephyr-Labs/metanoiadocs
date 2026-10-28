@@ -280,7 +280,7 @@ export function registerCalendarRoutes(app, {
       start: e.start?.dateTime || e.start?.date || null,
       end: e.end?.dateTime || e.end?.date || null,
       allDay: !e.start?.dateTime && !!e.start?.date,
-      meetLink: e.hangoutLink || (e.conferenceData?.entryPoints || []).find((p) => p.entryPointType === 'video')?.uri || null,
+      meetLink: [e.hangoutLink, (e.conferenceData?.entryPoints || []).find((p) => p.entryPointType === 'video')?.uri].find((u) => /^https?:\/\//i.test(String(u))) || null, // invitees control these; never pass javascript: etc.
       attendees: (e.attendees || []).map((a) => ({
         email: a.email || '', name: a.displayName || '', userId: byEmail.get(String(a.email || '').toLowerCase()) ?? null, self: !!a.self,
       })),

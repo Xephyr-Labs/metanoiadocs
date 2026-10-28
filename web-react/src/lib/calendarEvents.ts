@@ -56,3 +56,7 @@ export async function startNotes(eventId: string, spaceId?: string): Promise<{ d
   if (!res.ok) throw new Error(data?.error || `Could not start notes (${res.status})`);
   return data;
 }
+
+/** Only http(s) links may reach an href; an invite sender controls this value. */
+export const safeMeetLink = (url: string | null | undefined): string | null =>
+  url && /^https?:\/\//i.test(url) ? url : null;

@@ -22,7 +22,7 @@ describe('calendarEvents', () => {
   });
 });
 
-import { meetingLabel, meetingTime, orderMeetings, startNotes } from './calendarEvents';
+import { meetingLabel, meetingTime, nextMeeting, orderMeetings, safeMeetLink, startNotes } from './calendarEvents';
 
 const ev = (o: Partial<CalendarEvent>): CalendarEvent => ({
   id: 'x', title: 't', start: null, end: null, allDay: false, meetLink: null, attendees: [], notesDocId: null, ...o,
@@ -43,9 +43,15 @@ describe('meeting helpers', () => {
     expect(meetingLabel(c, now, b)).toBeNull();
     expect(meetingLabel(d, now, b)).toBeNull();
   });
-  it('picks the next as the first future timed event', () => {
-    const list = orderMeetings([c, a, d, b]);
-    expect(list.find((e) => !e.allDay && Date.parse(e.start!) > now)?.id).toBe('b');
+  it('nextMeeting is the first future timed event', () => {
+    expect(nextMeeting([c, a, d, b], now)?.id).toBe('b');
+    expect(nextMeeting([a, d], now)).toBeUndefined();
+  });
+  it('safeMeetLink allows only http(s)', () => {
+    expect(safeMeetLink('https://meet.google.com/x')).toBe('https://meet.google.com/x');
+    expect(safeMeetLink('javascript:alert(1)')).toBeNull();
+    expect(safeMeetLink('data:text/html,x')).toBeNull();
+    expect(safeMeetLink(null)).toBeNull();
   });
   it('formats time in the given zone, and all-day as such', () => {
     expect(meetingTime(a, 'en-US', 'UTC')).toBe('10:00 AM – 11:00 AM');
@@ -56,6 +62,7 @@ describe('meeting helpers', () => {
     vi.stubGlobal('fetch', f);
     expect(await startNotes('e/1', 's1')).toEqual({ docId: 'd1', created: true });
     expect(f.mock.calls[0][0]).toBe('/api/calendar/events/e%2F1/notes');
+    expect(JSON.parse((f.mock.calls[0][1] as { body: string }).body)).toEqual({ spaceId: 's1' });
   });
   it('startNotes throws the server error', async () => {
     vi.stubGlobal('fetch', async () => ({ ok: false, status: 409, json: async () => ({ error: 'Reconnect' }) }));

@@ -481,3 +481,13 @@ test('fetchEvent: encoded id; 404/410/cancelled -> missing; no token -> reconnec
   await assert.rejects(fetchEvent('u1', 'e'));
   assert.deepEqual(await mk([]).fetchEvent('u1', 'e'), { reconnect: true });
 });
+
+test('events: meetLink keeps only http(s) URLs', async () => {
+  const items = [
+    ev({ id: 'a', hangoutLink: 'javascript:alert(1)' }),
+    ev({ id: 'b', hangoutLink: 'javascript:x', conferenceData: { entryPoints: [{ entryPointType: 'video', uri: 'https://v/2' }] } }),
+    ev({ id: 'c', conferenceData: { entryPoints: [{ entryPointType: 'video', uri: 'data:text/html,hi' }] } }),
+  ];
+  const out = await evSetup({ items })({ id: 'u1' });
+  assert.deepEqual(out.events.map((e) => e.meetLink), [null, 'https://v/2', null]);
+});
