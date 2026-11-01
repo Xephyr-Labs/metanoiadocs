@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Comment card -> passage, edited-passage diff, and inbox paging (API + browser) against a fresh stack.
+# Comment card -> passage, edited-passage diff, inbox paging, and the Approved/Discarded
+# task statuses (API + browser) against a fresh stack.
 #   e2e/comments-inbox/run.sh          build, run every check, tear down
 #   KEEP=1 e2e/comments-inbox/run.sh   leave the stack up afterwards
 set -euo pipefail
@@ -16,5 +17,6 @@ for i in $(seq 1 90); do
 done
 status=0
 (cd e2e && node comments-inbox/run.mjs) || status=1
+(cd e2e && node comments-inbox/statuses.mjs) || status=1
 [ "$status" = 0 ] || $STACK logs server | tail -60
 exit $status

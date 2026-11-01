@@ -14,7 +14,7 @@ import { CalendarRange } from 'lucide-react';
 import {
   burndown, linePoints, statusMix, throughput, velocity, workload,
 } from '../../lib/charts';
-import { STATUS_LABEL, type SprintRow, type TaskRow, type TaskStatus } from '../../lib/tasksApi';
+import { isComplete, STATUS_LABEL, type SprintRow, type TaskRow, type TaskStatus } from '../../lib/tasksApi';
 import { STATUS_COLOR } from '../../lib/builtinProps';
 import { swatch } from '../../lib/tagColors';
 import { cn } from '../../lib/cn';
@@ -210,9 +210,10 @@ function Throughput({ tasks }: { tasks: TaskRow[] }) {
  *  question is what share is done, and four bars make that a subtraction. */
 function StatusMix({ tasks, statusColors }: { tasks: TaskRow[]; statusColors: Record<string, string> }) {
   const mix = useMemo(() => statusMix(tasks), [tasks]);
-  const total = tasks.length;
+  // Discarded work is neither done nor to do: out of the share both ways.
+  const total = tasks.filter((t) => t.status !== 'discarded').length;
   if (!total) return <Nothing>No tasks match this view.</Nothing>;
-  const done = mix.find((m) => m.status === 'done')?.count ?? 0;
+  const done = mix.filter((m) => isComplete(m.status)).reduce((n, m) => n + m.count, 0);
 
   return (
     <>

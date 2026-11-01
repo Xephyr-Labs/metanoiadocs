@@ -9,7 +9,7 @@ import { Link2 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { isImageFile, isVideoFile, type StoredFile } from '../../lib/uploads';
 import type { TaskLinks } from '../../lib/taskTree';
-import type { PropRow, TaskRow } from '../../lib/tasksApi';
+import { isClosed, type PropRow, type TaskRow } from '../../lib/tasksApi';
 import type { UserRow } from '../../lib/docsApi';
 import { isOverdue, KindIcon } from './TaskBadges';
 import { PropChips } from './props/PropChips';
@@ -60,7 +60,7 @@ export function TaskChip({ task, onOpen, compact, flush, cover, cardProps, users
           overdue ? 'text-danger-strong' : 'text-ink',
         )}
       >
-        <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', overdue ? 'bg-danger-strong' : task.status === 'done' ? 'bg-line-strong' : 'bg-accent')} />
+        <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', overdue ? 'bg-danger-strong' : isClosed(task.status) ? 'bg-line-strong' : 'bg-accent')} />
         <span className="truncate font-medium">{task.title || 'Untitled'}</span>
       </button>
     );
@@ -79,7 +79,7 @@ export function TaskChip({ task, onOpen, compact, flush, cover, cardProps, users
       <div className="flex items-start gap-1.5">
         {/* A milestone is drawn by its own property chip now, so the title row
             is just the title — one less thing competing with it. */}
-        <span className={cn('flex-1 text-sm font-semibold leading-5 text-ink', task.status === 'done' && 'line-through text-muted')}>
+        <span className={cn('flex-1 text-sm font-semibold leading-5 text-ink', isClosed(task.status) && 'line-through text-muted')}>
           {task.title || 'Untitled'}
         </span>
       </div>
@@ -92,7 +92,7 @@ export function TaskChip({ task, onOpen, compact, flush, cover, cardProps, users
         <div className="mt-2 flex"><KindIcon kind={task.kind} /></div>
       ) : null}
 
-      {task.progress > 0 && task.status !== 'done' && (
+      {task.progress > 0 && !isClosed(task.status) && (
         <div className="mt-2.5 h-1 overflow-hidden rounded-full bg-line">
           <div className="h-full rounded-full bg-accent" style={{ width: `${task.progress}%` }} />
         </div>

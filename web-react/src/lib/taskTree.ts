@@ -11,7 +11,7 @@
  * request to find out what it is looking at. Pure functions: the views call
  * them inside a memo, and the tests call them with plain objects.
  */
-import type { TaskRow } from './tasksApi';
+import { isClosed, isComplete, type TaskRow } from './tasksApi';
 
 export interface TaskNode {
   task: TaskRow;
@@ -36,8 +36,9 @@ export interface TaskLinks {
 
 export const NO_LINKS: TaskLinks = { blockedBy: [], met: 0, unknown: 0, blocking: [] };
 
-/** Whether this row's own state stops anything waiting on it. */
-const isDone = (t: TaskRow) => t.status === 'done';
+/** Whether this row's own state stops anything waiting on it: a discarded
+ *  blocker is not going to happen, so nothing waits on it any more. */
+const isDone = (t: TaskRow) => isClosed(t.status);
 
 /**
  * Every row's dependency state, in one pass over the list.
@@ -133,8 +134,9 @@ export function flattenTree(nodes: TaskNode[]): TaskRow[] {
 /** Done and total for everything under a row — an epic's real progress, which
  *  is its stories *and* their tasks, not only the children one level down. */
 export function subtreeProgress(node: TaskNode): { done: number; total: number } {
-  const rows = flattenTree(node.children);
-  return { done: rows.filter(isDone).length, total: rows.length };
+  // Discarded rows leave the count: they were neither done nor still to do.
+  const rows = flattenTree(node.children).filter((r) => r.status !== 'discarded');
+  return { done: rows.filter((r) => isComplete(r.status)).length, total: rows.length };
 }
 
 /**
@@ -152,8 +154,9 @@ export function subtreeIndex(rows: TaskRow[]): Map<string, { done: number; total
     let total = 0;
     for (const child of node.children) {
       const under = walk(child);
-      total += under.total + 1;
-      done += under.done + (isDone(child.task) ? 1 : 0);
+      const counted = child.task.status !== 'discarded';
+      total += under.total + (counted ? 1 : 0);
+      done += under.done + (isComplete(child.task.status) ? 1 : 0);
     }
     index.set(node.task.id, { done, total });
     return { done, total };

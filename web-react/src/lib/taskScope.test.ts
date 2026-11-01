@@ -28,4 +28,13 @@ describe('taskScope', () => {
     ];
     expect(dropLegacyOpenChip(f).map((x) => x.field + x.op)).toEqual(['statusis_any_of', 'assignee_idis']);
   });
+
+  it('treats approved and discarded as closed: never overdue, under Done', () => {
+    const late = [
+      { status: 'approved', due_at: '2026-09-01' },
+      { status: 'discarded', due_at: '2026-09-01' },
+    ];
+    expect(late.filter((t) => inScope(t, 'overdue', today))).toEqual([]);
+    expect(scopeCounts(late, today)).toEqual({ open: 0, overdue: 0, done: 2, all: 2 });
+  });
 });

@@ -29,7 +29,9 @@ export const STATUS_DOT: Record<string, string> = {
   todo: 'bg-line-strong',
   doing: 'bg-accent',
   review: 'bg-amber-400',
+  approved: 'bg-teal-500',
   done: 'bg-emerald-500',
+  discarded: 'bg-red-400',
 };
 
 /** Fields a board can be grouped by. A date has no natural set of columns

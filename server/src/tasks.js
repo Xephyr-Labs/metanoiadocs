@@ -6,7 +6,7 @@ import { coerceFiles, propsPatch } from './props.js';
 import { rowTemplateFor, applyRowTemplate } from './templates.js';
 import { propsFor } from './props-routes.js';
 import { wouldProjectCycle } from './project-tree.js';
-import { MAX_ASSIGNEES, ensureTaskPage, knownUsers, setAssignees } from './task-writes.js';
+import { MAX_ASSIGNEES, ensureTaskPage, knownUsers, setAssignees, STATUSES, COMPLETE, CLOSED } from './task-writes.js';
 import { notifyAssignees } from './assignees.js';
 import { dayIn, isoDate, zoneOf } from './timezone.js';
 import { applyAutomations, fireTrigger } from './automations.js';
@@ -17,7 +17,7 @@ import { checkParent } from './task-parent.js';
 import { spaceOf, spaceForNew, reparentInto } from './space-move.js';
 import { tasksInAllSpaces } from './spaces.js';
 
-export const STATUSES = ['todo', 'doing', 'review', 'done'];
+export { STATUSES, COMPLETE, CLOSED };
 
 /**
  * The assignee list a request is asking for, or undefined when it asks for no
@@ -533,9 +533,9 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
       // server is. The same count is a different number either side of
       // midnight, and the sidebar badge has to agree with the board.
       `SELECT p.*,
-              count(t.id) FILTER (WHERE t.deleted_at IS NULL) AS total,
-              count(t.id) FILTER (WHERE t.deleted_at IS NULL AND t.status = 'done') AS done,
-              count(t.id) FILTER (WHERE t.deleted_at IS NULL AND t.status <> 'done'
+              count(t.id) FILTER (WHERE t.deleted_at IS NULL AND t.status <> 'discarded') AS total,
+              count(t.id) FILTER (WHERE t.deleted_at IS NULL AND t.status IN ('done', 'approved')) AS done,
+              count(t.id) FILTER (WHERE t.deleted_at IS NULL AND t.status NOT IN ('done', 'approved', 'discarded')
                                     AND t.due_at < $1::date) AS overdue
          FROM projects p
          LEFT JOIN tasks t ON t.project_id = p.id
@@ -861,14 +861,14 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
       vals.push(req.query.status);
       where.push(`t.status = $${vals.length}`);
     }
-    if (req.query.open === '1') where.push(`t.status <> 'done'`);
+    if (req.query.open === '1') where.push(`t.status NOT IN ('done', 'approved', 'discarded')`);
     // "This week" and "overdue" are asked from a calendar, and the caller's is
     // the only one that matters — see the projects count above.
     if (req.query.due === 'week' || req.query.due === 'overdue') {
       vals.push(dayIn(zoneOf(req.user)));
       where.push(req.query.due === 'week'
         ? `t.due_at <= $${vals.length}::date + 7`
-        : `t.due_at < $${vals.length}::date AND t.status <> 'done'`);
+        : `t.due_at < $${vals.length}::date AND t.status NOT IN ('done', 'approved', 'discarded')`);
     }
     const { rows } = await pool.query(
       `${TASK_SELECT} JOIN projects p ON p.id = t.project_id
@@ -900,7 +900,7 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
       set('status', b.status);
       // done_at tracks the transition both ways, so burndown-style reporting and
       // "recently completed" stay honest when a task is reopened.
-      sets.push(b.status === 'done' ? 'done_at = coalesce(done_at, now())' : 'done_at = NULL');
+      sets.push(COMPLETE.includes(b.status) ? 'done_at = coalesce(done_at, now())' : 'done_at = NULL');
     }
     // Assignees are rows in their own table now, so they are written after the
     // UPDATE rather than as one of its columns — setAssignees keeps the older
@@ -1055,7 +1055,8 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
     // for a task already in Done must not make a second copy, and that guard is
     // also what keeps two simultaneous patches from both spawning — only one of
     // them reads a previous status that was not Done.
-    if (entered === 'done' && rows[0].repeat_rule) {
+    // Approved counts as finished too; moving between the two is not a second finish.
+    if (COMPLETE.includes(entered) && !COMPLETE.includes(prevStatus) && rows[0].repeat_rule) {
       await repeatTask(rows[0], req.user).catch((e) => console.error('[repeat]', e.message));
     }
     const applied = entered
@@ -1144,10 +1145,10 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
   app.get('/api/projects/:id/sprints', requireUser, wrap(async (req, res) => {
     const { rows } = await pool.query(
       `SELECT s.*,
-              count(t.id) FILTER (WHERE t.deleted_at IS NULL) AS total,
-              count(t.id) FILTER (WHERE t.deleted_at IS NULL AND t.status = 'done') AS done,
-              coalesce(sum(t.points) FILTER (WHERE t.deleted_at IS NULL), 0) AS points,
-              coalesce(sum(t.points) FILTER (WHERE t.deleted_at IS NULL AND t.status = 'done'), 0) AS points_done
+              count(t.id) FILTER (WHERE t.deleted_at IS NULL AND t.status <> 'discarded') AS total,
+              count(t.id) FILTER (WHERE t.deleted_at IS NULL AND t.status IN ('done', 'approved')) AS done,
+              coalesce(sum(t.points) FILTER (WHERE t.deleted_at IS NULL AND t.status <> 'discarded'), 0) AS points,
+              coalesce(sum(t.points) FILTER (WHERE t.deleted_at IS NULL AND t.status IN ('done', 'approved')), 0) AS points_done
          FROM sprints s
          LEFT JOIN tasks t ON t.sprint_id = s.id
         WHERE s.project_id = $1
@@ -1202,7 +1203,7 @@ export function registerTaskRoutes(app, { requireUser, wrap, createDocRow }) {
       if (b.state === 'done') {
         // Completing a sprint returns unfinished work to the backlog.
         await client.query(
-          `UPDATE tasks SET sprint_id = NULL WHERE sprint_id = $1 AND status <> 'done' AND deleted_at IS NULL`,
+          `UPDATE tasks SET sprint_id = NULL WHERE sprint_id = $1 AND status NOT IN ('done', 'approved', 'discarded') AND deleted_at IS NULL`,
           [req.params.id]
         );
       }

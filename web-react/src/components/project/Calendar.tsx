@@ -12,7 +12,7 @@ import { addDays, daysBetween, todayISO, toUTC, weekSegments } from '../../lib/g
 import { agendaFor, monthDays } from '../../lib/agenda';
 import { splitKey } from '../../lib/taskKey';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
-import type { PropRow, TaskRow } from '../../lib/tasksApi';
+import { isClosed, type PropRow, type TaskRow } from '../../lib/tasksApi';
 import type { UserRow } from '../../lib/docsApi';
 import { IconButton } from '../ui/IconButton';
 import { SearchSelect } from '../ui/SearchSelect';
@@ -406,7 +406,7 @@ function AgendaCard({ task, note, cardProps, users, onOpen }: {
   onOpen: () => void;
 }) {
   const overdue = isOverdue(task);
-  const done = task.status === 'done';
+  const done = isClosed(task.status);
   const { key, text } = splitKey(task.title);
   const { showKind, rest } = splitKindProp(cardProps);
   return (
@@ -681,7 +681,7 @@ function Card({
 }) {
   const t = seg.task;
   const overdue = isOverdue(t);
-  const done = t.status === 'done';
+  const done = isClosed(t.status);
   const { showKind, rest } = splitKindProp(cardProps);
 
   return (

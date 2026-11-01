@@ -16,6 +16,7 @@ import { cn } from '../../lib/cn';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { branchIds, buildLinkIndex, buildTaskTree, canDropOnParent, sectionRoots, subtreeIndex, NO_LINKS, type TaskLinks, type TaskNode } from '../../lib/taskTree';
 import {
+  isClosed,
   STATUS_LABEL,
   type SprintRow,
   type SprintState,
@@ -119,7 +120,7 @@ function TaskLine({ node, links, progress, parent, isGroup, expanded, depsOpen, 
           className={cn(
             'min-w-0 truncate text-sm',
             isGroup && 'font-semibold',
-            task.status === 'done' ? 'text-muted line-through' : 'text-ink',
+            isClosed(task.status) ? 'text-muted line-through' : 'text-ink',
           )}
         >
           {task.title || 'Untitled'}

@@ -7,7 +7,7 @@
 // want to run by itself are the same thing twice.
 import crypto from 'node:crypto';
 import { pool } from './db.js';
-import { setAssignees, MAX_ASSIGNEES } from './task-writes.js';
+import { setAssignees, MAX_ASSIGNEES, STATUSES, COMPLETE } from './task-writes.js';
 import { notifyAssigneesById } from './assignees.js';
 
 /**
@@ -78,7 +78,7 @@ export function cleanActions(value) {
 export function triggerValue(kind, raw) {
   if (kind === 'status') {
     const v = String(raw || 'done');
-    return ['todo', 'doing', 'review', 'done'].includes(v) ? v : 'done';
+    return STATUSES.includes(v) ? v : 'done';
   }
   if (kind === 'due') {
     const v = String(raw || 'overdue');
@@ -236,11 +236,11 @@ export async function runActions(task, actions, actorId) {
       continue;
     }
     if (a.type === 'status') {
-      // Guarded against a rule naming a status that no longer exists; the four
-      // are fixed today, so this is cheap insurance rather than live logic.
-      if (!['todo', 'doing', 'review', 'done'].includes(a.value)) continue;
+      // Guarded against a rule naming a status that no longer exists; the set
+      // is fixed today, so this is cheap insurance rather than live logic.
+      if (!STATUSES.includes(a.value)) continue;
       set('status', a.value);
-      sets.push(a.value === 'done' ? 'done_at = coalesce(done_at, now())' : 'done_at = NULL');
+      sets.push(COMPLETE.includes(a.value) ? 'done_at = coalesce(done_at, now())' : 'done_at = NULL');
       applied.push({ type: 'status', value: a.value });
       continue;
     }
@@ -336,7 +336,7 @@ async function tasksFor(rule, today) {
     const cmp = rule.trigger_value === 'today' ? '=' : '<';
     const { rows } = await pool.query(
       `SELECT * FROM tasks
-        WHERE project_id = $1 AND deleted_at IS NULL AND status <> 'done'
+        WHERE project_id = $1 AND deleted_at IS NULL AND status NOT IN ('done', 'approved', 'discarded')
           AND due_at IS NOT NULL AND due_at ${cmp} $2::date
         LIMIT 500`,
       [rule.project_id, today]
@@ -347,7 +347,7 @@ async function tasksFor(rule, today) {
     const days = Number(rule.trigger_value) || DEFAULT_STALE_DAYS;
     const { rows } = await pool.query(
       `SELECT * FROM tasks
-        WHERE project_id = $1 AND deleted_at IS NULL AND status <> 'done'
+        WHERE project_id = $1 AND deleted_at IS NULL AND status NOT IN ('done', 'approved', 'discarded')
           AND updated_at < now() - ($2 || ' days')::interval
         LIMIT 500`,
       [rule.project_id, String(days)]

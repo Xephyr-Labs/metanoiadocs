@@ -36,7 +36,7 @@ const ASSIGNED = `
       SELECT id AS task_id, assignee_id AS user_id FROM tasks WHERE assignee_id IS NOT NULL
     ) e ON e.task_id = t.id
     JOIN users u ON u.id = e.user_id AND u.kind <> 'agent'
-   WHERE t.deleted_at IS NULL AND t.status <> 'done'`;
+   WHERE t.deleted_at IS NULL AND t.status NOT IN ('done', 'approved', 'discarded')`;
 
 /** The same work, seen from the person who handed it over. `created_by` is who
  *  the app records as having made the task — the closest thing it holds to an
@@ -47,7 +47,7 @@ const CREATED = `
     FROM tasks t
     JOIN projects p ON p.id = t.project_id AND p.archived_at IS NULL AND p.mode <> 'data'
     JOIN users u ON u.id = t.created_by AND u.kind <> 'agent'
-   WHERE t.deleted_at IS NULL AND t.status <> 'done'`;
+   WHERE t.deleted_at IS NULL AND t.status NOT IN ('done', 'approved', 'discarded')`;
 
 /**
  * Everyone with open work, and what each of them is carrying.

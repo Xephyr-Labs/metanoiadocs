@@ -12,6 +12,15 @@ import { pool } from './db.js';
  *  and a bound on what one request can write. */
 export const MAX_ASSIGNEES = 20;
 
+// A task's statuses, kept here (not in tasks.js) so automations.js can read
+// them without importing the routes that import it.
+export const STATUSES = ['todo', 'doing', 'review', 'approved', 'done', 'discarded'];
+/** Finished as done: counted as completed, stamped with done_at. */
+export const COMPLETE = ['done', 'approved'];
+/** No longer open: off overdue lists, reminders and open counts. A discarded
+ *  task is closed without being completed — it leaves totals altogether. */
+export const CLOSED = [...COMPLETE, 'discarded'];
+
 /**
  * Make task_assignees match `ids`, and keep `tasks.assignee_id` pointing at the
  * first of them — every older query, filter and importer still reads that

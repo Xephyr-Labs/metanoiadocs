@@ -110,7 +110,8 @@ describe('statusMix', () => {
     const mix = statusMix([task({ status: 'todo' }), task({ status: 'done' })]);
     expect(mix).toEqual([
       { status: 'todo', count: 1 }, { status: 'doing', count: 0 },
-      { status: 'review', count: 0 }, { status: 'done', count: 1 },
+      { status: 'review', count: 0 }, { status: 'approved', count: 0 },
+      { status: 'done', count: 1 }, { status: 'discarded', count: 0 },
     ]);
   });
 });

@@ -14,6 +14,7 @@ import { useAuth } from '../../store/auth';
 import { useWorkspace } from '../../store/workspace';
 import { builtinProps, isAuditProp, visibleProps } from '../../lib/builtinProps';
 import {
+  isClosed,
   tasksApi, STATUS_LABEL,
   type ProjectMode, type PropOption, type PropRow, type RelatedRow, type SprintRow, type TaskDetail, type TaskPatch, type TaskRow, type BuiltinOverride, type DueChange,
 } from '../../lib/tasksApi';
@@ -123,7 +124,7 @@ function EdgeLink({ task, onOpen }: { task: TaskRow; onOpen: () => void }) {
       className="flex w-full items-center gap-2 rounded-md border border-line px-2 py-1 text-left text-sm transition-colors duration-120 hover:bg-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
     >
       <KindIcon kind={task.kind} />
-      <span className={cn('min-w-0 flex-1 truncate', task.status === 'done' ? 'text-muted line-through' : 'text-ink')}>
+      <span className={cn('min-w-0 flex-1 truncate', isClosed(task.status) ? 'text-muted line-through' : 'text-ink')}>
         {task.title || 'Untitled'}
       </span>
       <span title={STATUS_LABEL[task.status]} className={cn('h-1.5 w-1.5 shrink-0 rounded-full', STATUS_DOT[task.status] ?? 'bg-line-strong')} />

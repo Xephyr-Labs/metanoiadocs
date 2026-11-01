@@ -48,7 +48,7 @@ test('four queries run, each scoped to access and space', async () => {
   const o = pool.sqlOf('overdue');
   assert.deepEqual(o.params, ['u1', '2026-10-28', 's1']);
   assert.match(o.sql, /t\.due_at <= \$2::date/);
-  assert.match(o.sql, /t\.status <> 'done'/);
+  assert.match(o.sql, /t\.status NOT IN \('done', 'approved', 'discarded'\)/);
   assert.match(o.sql, /task_assignees ta WHERE ta\.task_id = t\.id AND ta\.user_id = \$1/);
   assert.match(o.sql, /p\.archived_at IS NULL AND p\.mode <> 'data'/);
   assert.match(o.sql, /p\.space_id = \$3/);

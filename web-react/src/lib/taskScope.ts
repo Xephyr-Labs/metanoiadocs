@@ -7,15 +7,18 @@ export type TaskScope = 'open' | 'overdue' | 'done' | 'all';
 
 export const TASK_SCOPES: TaskScope[] = ['open', 'overdue', 'done', 'all'];
 
+import { isClosed } from './tasksApi';
+
 interface Scoped { status: string; due_at?: string | null }
 
-/** Same rule the list uses to paint a date red: due before today, not done. */
+/** Same rule the list uses to paint a date red: due before today, still open. */
 export const isOverdue = (t: Scoped, today: string) =>
-  !!t.due_at && t.status !== 'done' && t.due_at.slice(0, 10) < today;
+  !!t.due_at && !isClosed(t.status) && t.due_at.slice(0, 10) < today;
 
 export function inScope(t: Scoped, scope: TaskScope, today: string): boolean {
-  if (scope === 'open') return t.status !== 'done';
-  if (scope === 'done') return t.status === 'done';
+  // "Done" is every closed task: approved and discarded are finished with too.
+  if (scope === 'open') return !isClosed(t.status);
+  if (scope === 'done') return isClosed(t.status);
   if (scope === 'overdue') return isOverdue(t, today);
   return true;
 }
@@ -23,7 +26,7 @@ export function inScope(t: Scoped, scope: TaskScope, today: string): boolean {
 export function scopeCounts(tasks: Scoped[], today: string): Record<TaskScope, number> {
   const out = { open: 0, overdue: 0, done: 0, all: tasks.length };
   for (const t of tasks) {
-    if (t.status === 'done') out.done++;
+    if (isClosed(t.status)) out.done++;
     else out.open++;
     if (isOverdue(t, today)) out.overdue++;
   }
