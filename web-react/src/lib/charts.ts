@@ -16,7 +16,7 @@
  */
 
 import { addDays, daysBetween, todayISO } from './gantt';
-import { STATUSES, type SprintRow, type TaskRow, type TaskStatus } from './tasksApi';
+import { isClosed, STATUSES, type SprintRow, type TaskRow, type TaskStatus } from './tasksApi';
 
 /** A task counts as its points, or as 1 when the team does not size work.
  *  Zero would make an unsized backlog burn down to nothing on day one. */
@@ -168,7 +168,7 @@ export interface WorkloadRow {
 export function workload(tasks: TaskRow[]): WorkloadRow[] {
   const by = new Map<string, WorkloadRow>();
   for (const t of tasks) {
-    if (t.status === 'done') continue;
+    if (isClosed(t.status)) continue;
     const people = t.assignees?.length
       ? t.assignees.map((a) => ({ id: a.id, name: a.name || 'Someone' }))
       : [{ id: '', name: 'Unassigned' }];

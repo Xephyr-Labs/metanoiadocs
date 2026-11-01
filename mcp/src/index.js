@@ -403,7 +403,9 @@ const PUBLIC = BASE;
 // Everything here goes through the same REST routes the app uses, so a tool
 // can never reach further than the caller's own token already does.
 
-const STATUSES = ['todo', 'doing', 'review', 'done'];
+const STATUSES = ['todo', 'doing', 'review', 'approved', 'done', 'discarded'];
+/** Statuses a task is no longer open in (server/src/task-writes.js CLOSED). */
+const CLOSED = ['done', 'approved', 'discarded'];
 const SPRINT_STATES = ['planned', 'active', 'done'];
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -619,7 +621,7 @@ server.registerTool(
       assignee: z.string().optional().describe('Name, username or email — or "unassigned"'),
       board: z.string().optional().describe('Board name or id'),
       status: z.enum(STATUSES).optional(),
-      includeDone: z.boolean().optional().describe('Default false — done work is left out'),
+      includeDone: z.boolean().optional().describe('Default false — done, approved and discarded work is left out'),
       overdue: z.boolean().optional().describe('Only tasks whose due date has passed'),
       dueWithinDays: z.number().optional().describe('Only tasks due within this many days; late ones count'),
       search: z.string().optional().describe('Match against the title'),
@@ -649,7 +651,7 @@ server.registerTool(
         rows = rows.filter((t) => t.project_id === found.id);
       }
       if (status) rows = rows.filter((t) => t.status === status);
-      else if (!includeDone) rows = rows.filter((t) => t.status !== 'done');
+      else if (!includeDone) rows = rows.filter((t) => !CLOSED.includes(t.status));
 
       if (search) {
         const q = search.toLowerCase();
@@ -730,7 +732,7 @@ server.registerTool(
   {
     title: 'Update a task',
     description:
-      'Change a task: move it between todo/doing/review/done, retitle it, reassign it, set or clear a date, record progress, move it into a sprint. Only the fields you pass change. Pass assignees: [] to unassign everyone, dueAt: null to clear the date, sprintId: null to send it back to the backlog.',
+      'Change a task: move it between todo/doing/review/approved/done/discarded, retitle it, reassign it, set or clear a date, record progress, move it into a sprint. Only the fields you pass change. Pass assignees: [] to unassign everyone, dueAt: null to clear the date, sprintId: null to send it back to the backlog.',
     inputSchema: {
       id: z.string().describe('Task id from list_tasks'),
       title: z.string().optional(),

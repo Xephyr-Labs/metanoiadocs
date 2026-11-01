@@ -439,7 +439,8 @@ export const docsApi = {
   clearDocProp: (id: string, propId: string) =>
     req(`/docs/${id}/props/${propId}`, { method: 'DELETE' }),
 
-  inbox: (): Promise<InboxRow[]> => req('/inbox'),
+  /** Newest first, 50 at a time; `before` (a row's id) asks for the page after it. */
+  inbox: (before?: string): Promise<InboxRow[]> => req(`/inbox${before ? `?before=${encodeURIComponent(before)}` : ''}`),
   unreadCount: (): Promise<{ count: number }> => req('/notifications/unread-count'),
   markNotificationsRead: () => req('/notifications/read', { method: 'POST' }),
 

@@ -14,6 +14,7 @@ import { z } from 'zod';
 import { DEFAULT_ZONE, dayIn } from './timezone.js';
 import { REPEAT_RULES } from './repeat.js';
 import { commentText } from './comment-input.js';
+import { CLOSED, STATUSES } from './task-writes.js';
 
 /** A comment's files as an agent can use them: what each is, and where to
  *  fetch it with the same token. A voice note is not transcribed. */
@@ -578,7 +579,6 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
   // Everything here goes through the same REST routes the app uses, so a tool
   // can never reach further than the caller's own token already does.
 
-  const STATUSES = ['todo', 'doing', 'review', 'done'];
   const SPRINT_STATES = ['planned', 'active', 'done'];
   const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -884,7 +884,7 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
         assignee: z.string().optional().describe('Name, username or email — or "unassigned"'),
         board: z.string().optional().describe('Board name or id'),
         status: z.enum(STATUSES).optional(),
-        includeDone: z.boolean().optional().describe('Default false — done work is left out'),
+        includeDone: z.boolean().optional().describe('Default false — done, approved and discarded work is left out'),
         overdue: z.boolean().optional().describe('Only tasks whose due date has passed'),
         dueWithinDays: z.number().optional().describe('Only tasks due within this many days; late ones count'),
         search: z.string().optional().describe('Match against the title'),
@@ -914,7 +914,7 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
           rows = rows.filter((t) => t.project_id === found.id);
         }
         if (status) rows = rows.filter((t) => t.status === status);
-        else if (!includeDone) rows = rows.filter((t) => t.status !== 'done');
+        else if (!includeDone) rows = rows.filter((t) => !CLOSED.includes(t.status));
 
         if (search) {
           const q = search.toLowerCase();
@@ -1013,7 +1013,7 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
     {
       title: 'Update a task',
       description:
-        'Change a task: move it between todo/doing/review/done, retitle it, reassign it, set or clear a date, record progress, move it into a sprint, or set the board\'s own columns (e.g. several Reviewers) through `fields`. Only the fields you pass change. Pass assignees: [] to unassign everyone, dueAt: null to clear the date, sprintId: null to send it back to the backlog.',
+        'Change a task: move it between todo/doing/review/approved/done/discarded, retitle it, reassign it, set or clear a date, record progress, move it into a sprint, or set the board\'s own columns (e.g. several Reviewers) through `fields`. Only the fields you pass change. Pass assignees: [] to unassign everyone, dueAt: null to clear the date, sprintId: null to send it back to the backlog.',
       inputSchema: {
         id: z.string().describe('Task id from list_tasks'),
         title: z.string().optional(),

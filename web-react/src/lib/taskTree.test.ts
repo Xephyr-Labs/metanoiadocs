@@ -62,6 +62,17 @@ describe('subtreeProgress', () => {
     ];
     expect(subtreeProgress(buildTaskTree(rows)[0])).toEqual({ done: 1, total: 3 });
   });
+
+  it('counts approved as done and leaves discarded out', () => {
+    const rows = [
+      task({ id: 'epic', kind: 'epic' }),
+      task({ id: 'a', parent_id: 'epic', status: 'approved' }),
+      task({ id: 'b', parent_id: 'epic', status: 'discarded' }),
+      task({ id: 'c', parent_id: 'epic' }),
+    ];
+    expect(subtreeProgress(buildTaskTree(rows)[0])).toEqual({ done: 1, total: 2 });
+    expect(subtreeIndex(rows).get('epic')).toEqual({ done: 1, total: 2 });
+  });
 });
 
 describe('subtreeIndex', () => {

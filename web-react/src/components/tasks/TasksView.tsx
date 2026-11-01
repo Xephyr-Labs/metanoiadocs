@@ -5,7 +5,7 @@ import { docsApi, type UserRow } from '../../lib/docsApi';
 import { todayISO } from '../../lib/gantt';
 import { swatch } from '../../lib/tagColors';
 import { applyFilters, fieldsFor, pruneUnresolvable, type Filter } from '../../lib/taskFilter';
-import { STATUS_LABEL, tasksApi, type AnyTaskRow, type TaskKindRow } from '../../lib/tasksApi';
+import { isClosed, STATUS_LABEL, tasksApi, type AnyTaskRow, type TaskKindRow } from '../../lib/tasksApi';
 import { useAuth } from '../../store/auth';
 import { useWorkspace } from '../../store/workspace';
 import { EmptyState } from '../ui/EmptyState';
@@ -221,7 +221,7 @@ export function TasksView() {
   const cardProps = useMemo(() => defaultCardProps('board', 'tasks', kinds), [kinds]);
   const boardGroups = useMemo(
     () => (statusField ? groupsFor(statusField) : [])
-      .filter((g) => scope !== 'done' || g.value === 'done'),
+      .filter((g) => scope !== 'done' || isClosed(g.value)),
     [statusField, scope],
   );
 
@@ -349,7 +349,7 @@ export function TasksView() {
                       className={cn('h-2 w-2 shrink-0 rounded-full', DOT[t.status])}
                     />
                     <KindIcon kind={t.kind} />
-                    <span className={cn('min-w-0 flex-1 basis-[14rem] truncate text-sm', t.status === 'done' ? 'text-muted line-through' : 'text-ink')}>
+                    <span className={cn('min-w-0 flex-1 basis-[14rem] truncate text-sm', isClosed(t.status) ? 'text-muted line-through' : 'text-ink')}>
                       {t.title || 'Untitled task'}
                     </span>
                     <TagChips names={t.tags ?? []} colorOf={tagColor} />

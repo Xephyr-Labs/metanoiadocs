@@ -131,7 +131,7 @@ export function registerMeetingNotesRoutes(app, {
              FROM task_assignees ta
              JOIN tasks t ON t.id = ta.task_id
              JOIN projects p ON p.id = t.project_id
-            WHERE ta.user_id = ANY($1) AND t.status <> 'done' AND t.deleted_at IS NULL
+            WHERE ta.user_id = ANY($1) AND t.status NOT IN ('done', 'approved', 'discarded') AND t.deleted_at IS NULL
               AND p.archived_at IS NULL AND p.mode <> 'data'
          ) x WHERE rn <= ${TASKS_PER_ATTENDEE} ORDER BY user_id, rn`,
         [ids],

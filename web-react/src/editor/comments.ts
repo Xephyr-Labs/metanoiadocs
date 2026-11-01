@@ -10,7 +10,7 @@ import { BlockFlavourIdentifier, TextSelection } from '@blocksuite/affine/std';
 import { CommentIcon, EditIcon } from '@blocksuite/icons/lit';
 import * as Y from 'yjs';
 import { docsApi } from '../lib/docsApi';
-import { anchoredOccurrence, encodeAnchor, findQuote, normalizeQuote } from '../lib/textMatch';
+import { anchoredOccurrence, anchoredText, encodeAnchor, findQuote, normalizeQuote } from '../lib/textMatch';
 
 export interface CommentAnchor {
   quote: string;
@@ -30,6 +30,8 @@ export interface CommentAnchor {
 
 const HL_NAME = 'mn-comment';
 const HL_SUGGESTION = 'mn-suggestion';
+/** The passage a card was just clicked to, flashed so the eye lands on it. */
+const HL_ACTIVE = 'mn-comment-active';
 const supported = typeof CSS !== 'undefined' && 'highlights' in CSS;
 
 // ---- pending-anchor store (editor -> RightPanel bridge, presence.ts pattern)
@@ -223,9 +225,23 @@ interface HighlightRow {
   anchor_end?: string | null;
 }
 
-/** Open threads whose text is no longer on the page. */
-let detached = new Set<string>();
+/** Open threads whose text is no longer on the page, each with what its
+ *  passage says now ('' once deleted) — null when there is nothing to show. */
+let detached = new Map<string, string | null>();
 export const isDetached = (id: string) => detached.has(id);
+/** What a detached thread's passage says now; undefined while it is attached. */
+export const detachedText = (id: string) => detached.get(id);
+
+/** What a detached thread's passage became: the characters its anchors hold
+ *  when they still hold, else its block's whole text; null once the block is
+ *  gone. */
+function readsNow(root: Element, c: HighlightRow): string | null {
+  const el = c.block_id ? root.querySelector(`[data-block-id="${CSS.escape(c.block_id)}"]`) : null;
+  const t = yTextOf(el);
+  if (!t) return null;
+  const s = c.anchor_start && c.anchor_end ? anchoredText(t, c.anchor_start, c.anchor_end) : undefined;
+  return s ?? t.toString();
+}
 let lastRows: HighlightRow[] = [];
 
 export function applyCommentHighlights(rows: HighlightRow[]) {
@@ -235,7 +251,7 @@ export function applyCommentHighlights(rows: HighlightRow[]) {
   setOpenCount(rows.filter((c) => !c.resolved && !c.parent_id).length);
   if (!supported || !hlRoot) return;
   applied = [];
-  const nextDetached = new Set<string>();
+  const nextDetached = new Map<string, string | null>();
   const suggestionRanges: Range[] = [];
   authors = new Map(rows.map((c) => [c.id, c.author_name ?? '']));
   hlRoot.querySelectorAll(`[${MARK_ATTR}]`).forEach((el) => el.removeAttribute(MARK_ATTR));
@@ -254,12 +270,12 @@ export function applyCommentHighlights(rows: HighlightRow[]) {
     // An image's thread whose image is not on the page (deleted, or not drawn
     // in this mode): its label is not text to look for, and searching for it
     // would mark the first "Image" anywhere in the prose.
-    if (!whole && IMAGE_LABEL.test(c.quote)) { nextDetached.add(c.id); continue; }
+    if (!whole && IMAGE_LABEL.test(c.quote)) { nextDetached.set(c.id, null); continue; }
     const quote = normalizeQuote(c.quote);
     if (!quote) continue;
     const r = rangeForThread(hlRoot, c.block_id, quote, c.quote_occurrence ?? 0,
       c.anchor_start && c.anchor_end ? { start: c.anchor_start, end: c.anchor_end } : null);
-    if (!r) { nextDetached.add(c.id); continue; }
+    if (!r) { nextDetached.set(c.id, readsNow(hlRoot, c)); continue; }
     applied.push({ range: r, id: c.id });
     if (c.kind === 'suggestion' && !c.suggestion_status) suggestionRanges.push(r);
   }
@@ -311,6 +327,53 @@ export function commentOnBlock(blockId: string, label: string) {
   if (!hlDocId) return; // a public viewer or a version preview: no comments here
   setPending({ quote: label.slice(0, 500), blockId });
   openListeners.forEach((l) => l());
+}
+
+let activeTimer: ReturnType<typeof setTimeout> | undefined;
+/**
+ * Scroll the page to a thread's passage and flash it — a click on its card.
+ * A thread whose text has changed goes to its block, while that is here.
+ */
+export function revealComment(id: string, blockId: string | null): boolean {
+  if (!hlRoot) return false;
+  const a = applied.find((x) => x.id === id);
+  const node = a?.range?.startContainer;
+  const el = a?.el
+    ?? (node ? (node instanceof Element ? node : node.parentElement) : null)
+    ?? (blockId ? hlRoot.querySelector(`[data-block-id="${CSS.escape(blockId)}"]`) : null);
+  if (!el) return false;
+  el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  setFocus(id);
+  if (!supported || !a?.range) return true;
+  const Highlight = (window as unknown as { Highlight: new (...r: Range[]) => unknown }).Highlight;
+  const registry = (CSS as unknown as { highlights: Map<string, unknown> }).highlights;
+  registry.set(HL_ACTIVE, new Highlight(a.range));
+  clearTimeout(activeTimer);
+  activeTimer = setTimeout(() => registry.delete(HL_ACTIVE), 1800);
+  return true;
+}
+
+// ---- a thread to open once its page is up (an inbox row)
+// The inbox switches pages and then names a comment; the old editor's teardown
+// would clear a plain focus, so the request waits here for the comments panel.
+let queued: { docId: string; id: string } | null = null;
+const queuedListeners = new Set<() => void>();
+
+/** Open `id`'s thread on `docId` — its card and its passage — once both load. */
+export function focusCommentOnPage(docId: string, id: string) {
+  queued = { docId, id };
+  queuedListeners.forEach((l) => l());
+}
+
+/** The comment waiting to be opened on this page, if any; take it to clear it. */
+export function useQueuedFocus(docId: string): { id: string | null; take: () => void } {
+  const [, bump] = useState(0);
+  useEffect(() => {
+    const l = () => bump((n) => n + 1);
+    queuedListeners.add(l);
+    return () => { queuedListeners.delete(l); };
+  }, []);
+  return { id: queued?.docId === docId ? queued.id : null, take: () => { queued = null; } };
 }
 
 /** Focus a thread from outside the editor (a gutter pip). */
@@ -516,7 +579,7 @@ export function attachComments(
   // and gutter pips linger over the new page until the fetch below lands.
   applied = [];
   lastRows = [];
-  detached = new Set();
+  detached = new Map();
   setOpenCount(0);
   markerListeners.forEach((l) => l());
   // Load once on open. The highlights, the gutter pips and the top-bar count
@@ -708,6 +771,7 @@ export function attachComments(
     if (supported) {
       (CSS as unknown as { highlights: Map<string, unknown> }).highlights.delete(HL_NAME);
       (CSS as unknown as { highlights: Map<string, unknown> }).highlights.delete(HL_SUGGESTION);
+      (CSS as unknown as { highlights: Map<string, unknown> }).highlights.delete(HL_ACTIVE);
     }
     hlRoot = null; hlDocId = null; hlLoad = null; applied = []; lastRows = [];
     caps = { comment: false, suggest: false };

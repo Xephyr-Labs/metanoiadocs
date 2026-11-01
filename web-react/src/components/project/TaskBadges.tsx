@@ -16,7 +16,7 @@ import { avatarFor } from '../../lib/avatar';
 import { cn } from '../../lib/cn';
 import { todayISO } from '../../lib/gantt';
 import { swatch } from '../../lib/tagColors';
-import type { TaskKind, TaskKindRow, TaskRow } from '../../lib/tasksApi';
+import { isClosed, type TaskKind, type TaskKindRow, type TaskRow } from '../../lib/tasksApi';
 import { kindVisual } from '../../lib/taskKinds';
 import { useKinds } from './kinds';
 
@@ -96,4 +96,4 @@ export const shortDate = (iso: string | null) =>
     : '';
 
 export const isOverdue = (t: TaskRow) =>
-  !!t.due_at && t.status !== 'done' && t.due_at.slice(0, 10) < todayISO();
+  !!t.due_at && !isClosed(t.status) && t.due_at.slice(0, 10) < todayISO();

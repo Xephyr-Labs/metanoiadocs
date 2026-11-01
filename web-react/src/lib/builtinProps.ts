@@ -66,7 +66,9 @@ export const STATUS_COLOR: Record<string, string> = {
   todo: 'gray',
   doing: 'blue',
   review: 'yellow',
+  approved: 'teal',
   done: 'green',
+  discarded: 'red',
 };
 
 const row = (

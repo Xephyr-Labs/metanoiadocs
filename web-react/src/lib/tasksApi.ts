@@ -27,8 +27,13 @@ async function req(path: string, opts: RequestInit = {}): Promise<any> {
 
 const body = (v: unknown) => ({ body: JSON.stringify(v) });
 
-export type TaskStatus = 'todo' | 'doing' | 'review' | 'done';
-export const STATUSES: TaskStatus[] = ['todo', 'doing', 'review', 'done'];
+export type TaskStatus = 'todo' | 'doing' | 'review' | 'approved' | 'done' | 'discarded';
+export const STATUSES: TaskStatus[] = ['todo', 'doing', 'review', 'approved', 'done', 'discarded'];
+/** Finished as done: counted as completed (server/src/task-writes.js COMPLETE). */
+export const isComplete = (s: string) => s === 'done' || s === 'approved';
+/** No longer open — completed, or discarded. A discarded task is closed
+ *  without being completed: it leaves progress totals altogether. */
+export const isClosed = (s: string) => isComplete(s) || s === 'discarded';
 /** The five rules a task can repeat on. Mirrors REPEAT_RULES in
  *  server/src/repeat.js, which is what actually applies them. */
 export const REPEAT_LABEL: Record<string, string> = {
@@ -107,7 +112,9 @@ export const STATUS_LABEL: Record<TaskStatus, string> = {
   todo: 'To do',
   doing: 'In progress',
   review: 'Review',
+  approved: 'Approved',
   done: 'Done',
+  discarded: 'Discarded',
 };
 
 /**

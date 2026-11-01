@@ -488,8 +488,14 @@ app.get('/api/inbox', requireUser, async (req, res) => {
        LEFT JOIN docs d ON d.id = n.doc_id AND d.deleted_at IS NULL
        LEFT JOIN tasks t ON t.id = n.task_id AND t.deleted_at IS NULL
       WHERE n.user_id = $1
-      ORDER BY n.created_at DESC LIMIT 50`,
-    [req.user.id]
+        -- ?before=<id>: the page after that row. A flat 50 was all anyone
+        -- could ever see, so a busy inbox lost everything past a few hours.
+        -- Keyed on the row, not a timestamp: created_at has microseconds the
+        -- client's copy does not, and a fan-out stamps many rows alike.
+        AND ($2::text IS NULL OR (n.created_at, n.id) <
+             (SELECT created_at, id FROM notifications WHERE id = $2 AND user_id = $1))
+      ORDER BY n.created_at DESC, n.id DESC LIMIT 50`,
+    [req.user.id, typeof req.query.before === 'string' ? req.query.before : null]
   );
   res.json(rows);
 });

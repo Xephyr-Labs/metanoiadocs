@@ -89,7 +89,7 @@ function event(task, { now, baseUrl }) {
     `SUMMARY:${escapeText(task.title || 'Untitled')}`,
     // Cancelled rather than dropped: a finished task that simply vanished would
     // stay in every calendar that had already synced it.
-    `STATUS:${task.status === 'done' ? 'CANCELLED' : 'CONFIRMED'}`,
+    `STATUS:${['done', 'approved', 'discarded'].includes(task.status) ? 'CANCELLED' : 'CONFIRMED'}`,
   ];
   if (task.project_name) lines.push(`CATEGORIES:${escapeText(task.project_name)}`);
   if (baseUrl && task.project_id) lines.push(`URL:${baseUrl}/db/${task.project_id}`);

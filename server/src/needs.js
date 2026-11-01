@@ -50,7 +50,7 @@ const OVERDUE_SQL = (space) => `
          count(*) FILTER (WHERE t.due_at < $2::date) OVER () AS total,
          count(*) FILTER (WHERE t.due_at = $2::date) OVER () AS due_today
     FROM tasks t JOIN projects p ON p.id = t.project_id
-   WHERE EXISTS (SELECT 1 FROM task_assignees ta WHERE ta.task_id = t.id AND ta.user_id = $1) AND t.status <> 'done'
+   WHERE EXISTS (SELECT 1 FROM task_assignees ta WHERE ta.task_id = t.id AND ta.user_id = $1) AND t.status NOT IN ('done', 'approved', 'discarded')
      AND t.due_at <= $2::date
      AND t.deleted_at IS NULL AND p.archived_at IS NULL AND p.mode <> 'data'
      AND ${MY_SPACE('p.space_id', 3, space)}

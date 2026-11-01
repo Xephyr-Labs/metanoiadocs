@@ -3,7 +3,7 @@ import { CalendarRange } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { splitKindProp } from '../../lib/taskKinds';
 import { barFor, dayX, rangeFor, ticksFor, todayISO } from '../../lib/gantt';
-import type { PropRow, TaskRow } from '../../lib/tasksApi';
+import { isClosed, type PropRow, type TaskRow } from '../../lib/tasksApi';
 import type { UserRow } from '../../lib/docsApi';
 import { PropChips } from './props/PropChips';
 import { Button } from '../ui/Button';
@@ -134,7 +134,7 @@ export function Gantt({ tasks, cardProps, users, onOpen }: {
                 className="flex w-full items-center gap-1.5 px-3 text-left text-sm transition-colors hover:bg-hover"
               >
                 {showKind && <KindIcon kind={t.kind} />}
-                <span className={cn('min-w-0 truncate', t.status === 'done' ? 'text-muted line-through' : 'text-ink')}>
+                <span className={cn('min-w-0 truncate', isClosed(t.status) ? 'text-muted line-through' : 'text-ink')}>
                   {t.title || 'Untitled'}
                 </span>
                 {/* A gantt row is a fixed-height band, so properties ride
@@ -197,7 +197,7 @@ export function Gantt({ tasks, cardProps, users, onOpen }: {
                       className={cn(
                         'absolute h-2.5 w-2.5 rounded-full',
                         late ? 'bg-canvas ring-2 ring-danger-strong' : 'bg-accent ring-4 ring-accent-soft',
-                        t.status === 'done' && 'opacity-60',
+                        isClosed(t.status) && 'opacity-60',
                       )}
                     />
                   );
@@ -224,7 +224,7 @@ export function Gantt({ tasks, cardProps, users, onOpen }: {
                       'absolute h-5 overflow-hidden rounded text-left ring-1 ring-inset',
                       'bg-accent-soft ring-accent',
                       late && 'outline-dashed outline-2 outline-offset-1 outline-danger-strong',
-                      t.status === 'done' && 'opacity-70',
+                      isClosed(t.status) && 'opacity-70',
                     )}
                   >
                     {/* The progress fill, with a floor: at 0 % a bar with no fill

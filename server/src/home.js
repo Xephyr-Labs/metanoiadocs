@@ -82,7 +82,7 @@ const MY_TASKS_SQL = (space) => `
               WHEN t.due_at <= $2::date + 7   THEN 'week'
               ELSE 'later' END AS bucket
     FROM tasks t JOIN projects p ON p.id = t.project_id
-   WHERE EXISTS (SELECT 1 FROM task_assignees ta WHERE ta.task_id = t.id AND ta.user_id = $1) AND t.status <> 'done'
+   WHERE EXISTS (SELECT 1 FROM task_assignees ta WHERE ta.task_id = t.id AND ta.user_id = $1) AND t.status NOT IN ('done', 'approved', 'discarded')
      AND t.deleted_at IS NULL AND p.archived_at IS NULL AND p.mode <> 'data'
      AND ${MY_SPACE('p.space_id', 3, space)}
    ORDER BY t.due_at ASC NULLS LAST, t.priority DESC
@@ -110,9 +110,9 @@ export function registerHomeRoutes(app, { requireUser, wrap }) {
       ),
       pool.query(
         `SELECT p.id, p.name, p.icon, p.color, p.doc_id,
-                count(t.id) FILTER (WHERE t.deleted_at IS NULL) AS total,
-                count(t.id) FILTER (WHERE t.deleted_at IS NULL AND t.status = 'done') AS done,
-                count(t.id) FILTER (WHERE t.deleted_at IS NULL AND t.status <> 'done'
+                count(t.id) FILTER (WHERE t.deleted_at IS NULL AND t.status <> 'discarded') AS total,
+                count(t.id) FILTER (WHERE t.deleted_at IS NULL AND t.status IN ('done', 'approved')) AS done,
+                count(t.id) FILTER (WHERE t.deleted_at IS NULL AND t.status NOT IN ('done', 'approved', 'discarded')
                                       AND t.due_at < $2::date) AS overdue
            FROM projects p LEFT JOIN tasks t ON t.project_id = p.id
           WHERE p.archived_at IS NULL AND p.mode <> 'data' AND ${space ? 'p.space_id = $1' : JOINED('p.space_id')}
