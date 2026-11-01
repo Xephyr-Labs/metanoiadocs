@@ -5,7 +5,7 @@
 import { MessageSquareText, Pencil, Send, Trash2, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import {
-  onCommentsChanged,
+  onCommentsChanged, revealComment,
   applyCommentHighlights, clearPendingAnchor, clearPendingFocus, usePendingAnchor, usePendingFocus,
 } from '../../editor/comments';
 import { avatarFor } from '../../lib/avatar';
@@ -17,6 +17,7 @@ import { ClampedText } from '../ui/ClampedText';
 import { emojify } from '../../lib/emoji';
 import { field } from '../ui/styles';
 import { CommentFiles } from '../ui/VoiceNoteButton';
+import { CommentQuote } from '../ui/CommentQuote';
 import type { StoredFile } from '../../lib/uploads';
 
 export interface GuestCommentRow {
@@ -241,6 +242,13 @@ export function GuestComments({ token, onClose }: { token: string; onClose?: () 
     <div
       key={c.id}
       ref={(el) => { if (el) cardRefs.current.set(c.id, el); else cardRefs.current.delete(c.id); }}
+      // As in the member panel: a click on a card goes to its passage — not
+      // on a phone (onClose is the sheet's), where the quote is the way there.
+      onClick={(e) => {
+        if (onClose || !c.quote || c.resolved) return;
+        if ((e.target as Element).closest('button, a, input, textarea, audio') || document.getSelection()?.toString()) return;
+        revealComment(c.id, c.block_id);
+      }}
       className={cn(
         'rounded-lg border border-line bg-comment p-3 transition-shadow duration-220',
         c.resolved && 'bg-transparent opacity-55',
@@ -260,7 +268,7 @@ export function GuestComments({ token, onClose }: { token: string; onClose?: () 
           {c.suggestion ? <ins className="mn-diff-add">{c.suggestion}</ins> : <span className="text-2xs italic text-muted">delete it</span>}
           {c.suggestion_status && <span className="ml-1.5 text-2xs text-faint">({c.suggestion_status})</span>}
         </p>
-      ) : c.quote && <p className="mt-1.5 border-l-2 border-comment-mark pl-2 text-2xs italic text-muted">{c.quote}</p>}
+      ) : c.quote && <CommentQuote id={c.id} quote={c.quote} blockId={c.block_id} resolved={c.resolved} onReveal={onClose} />}
       {body(c, 'mt-1.5 text-sm leading-relaxed text-ink')}
       {/* Read-only: reacting needs an account. */}
       <Reactions reactions={c.reactions} />

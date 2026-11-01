@@ -52,6 +52,34 @@ export const encodeAnchor = (t: Y.Text, index: number, assoc = 0) =>
  * wholesale, as a version restore does): the quote is then matched as before.
  */
 export function anchoredOccurrence(t: Y.Text, quote: string, start: string, end: string): number | null | undefined {
+  const ends = anchoredEnds(t, start, end);
+  if (ends === undefined) return undefined;
+  if (!ends || ends.b <= ends.a) return null;
+  const raw = t.toString();
+  if (normalizeQuote(raw.slice(ends.a, ends.b)) !== normalizeQuote(quote)) return null;
+  let n = 0;
+  while (n < 1000) {
+    const hit = findQuote(raw, quote, n);
+    if (!hit || hit.index >= ends.a) break;
+    n++;
+  }
+  return n;
+}
+
+/**
+ * What a thread's anchored passage says now — what a detached thread shows
+ * its quote became. '' once the passage was deleted; undefined, as above,
+ * when the anchors have nothing left to point into.
+ */
+export function anchoredText(t: Y.Text, start: string, end: string): string | undefined {
+  const ends = anchoredEnds(t, start, end);
+  if (ends === undefined) return undefined;
+  return ends && ends.b > ends.a ? t.toString().slice(ends.a, ends.b) : '';
+}
+
+/** The anchors as offsets into `t`: null when they sit in another text,
+ *  undefined when their text is gone. */
+function anchoredEnds(t: Y.Text, start: string, end: string): { a: number; b: number } | null | undefined {
   const doc = t.doc;
   if (!doc) return undefined;
   const at = (s: string) => {
@@ -66,14 +94,6 @@ export function anchoredOccurrence(t: Y.Text, quote: string, start: string, end:
   // to: the caller finds the quote the way it did before anchors existed.
   const gone = (p: typeof a) => !p || !!(p.type as unknown as { _item?: { deleted?: boolean } | null })._item?.deleted;
   if (gone(a) || gone(b)) return undefined;
-  if (a!.type !== t || b!.type !== t || b!.index <= a!.index) return null;
-  const raw = t.toString();
-  if (normalizeQuote(raw.slice(a!.index, b!.index)) !== normalizeQuote(quote)) return null;
-  let n = 0;
-  while (n < 1000) {
-    const hit = findQuote(raw, quote, n);
-    if (!hit || hit.index >= a!.index) break;
-    n++;
-  }
-  return n;
+  if (a!.type !== t || b!.type !== t) return null;
+  return { a: a!.index, b: b!.index };
 }

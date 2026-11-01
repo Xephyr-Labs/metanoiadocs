@@ -86,6 +86,7 @@
   /* Inline comments: subtle warm-yellow card + text-mark tint. */
   --comment: #fdfaee;
   --comment-mark: rgba(250, 204, 21, 0.32);
+  --comment-mark-active: rgba(250, 204, 21, 0.62);
 
   /* Table row/column tints. Eight hues and one strength: the hue is mixed INTO
    * the canvas, so the same eight tokens serve light and dark and only the
@@ -213,6 +214,7 @@ html.dark {
 
   --comment: #26241c;
   --comment-mark: rgba(214, 178, 66, 0.30);
+  --comment-mark-active: rgba(214, 178, 66, 0.55);
 
   --table-tint: 30%;
   --highlight-ink-mix: 34%;
@@ -232,6 +234,11 @@ html.dark {
 /* Commented text in the editor (CSS Custom Highlight API, set by editor/comments.ts). */
 ::highlight(mn-comment) {
   background-color: var(--comment-mark);
+}
+/* The passage a comment card was just clicked to (revealComment): a beat
+   stronger than the mark, so the eye finds it after the scroll. */
+::highlight(mn-comment-active) {
+  background-color: var(--comment-mark-active);
 }
 /* Text with a pending suggested change: struck through, so it reads as
    "this is proposed to go" before anyone opens the card. */
