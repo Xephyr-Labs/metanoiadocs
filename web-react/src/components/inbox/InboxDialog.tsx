@@ -8,6 +8,7 @@ import { notifyEnabled } from '../../lib/desktopNotify';
 import { enableAlerts, pushSupported } from '../../lib/push';
 import { useAuth } from '../../store/auth';
 import { openReview } from '../../lib/reviewMode';
+import { focusCommentOnPage } from '../../editor/comments';
 import { useWorkspace } from '../../store/workspace';
 import { EmptyState } from '../ui/EmptyState';
 import { Modal, ModalBody } from '../ui/Modal';
@@ -176,6 +177,7 @@ export function InboxDialog() {
       return;
     }
     ws.setRightPanel('comments');
+    if (it.comment_id) focusCommentOnPage(it.doc_id, it.comment_id);
   };
 
   return (

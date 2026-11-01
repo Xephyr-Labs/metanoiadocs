@@ -163,6 +163,17 @@ await step('inbox shows older', async () => {
   check('the last page, then no button', third === 120 && !(await dialog.getByRole('button', { name: 'Show older' }).count()), String(third));
 });
 
+await step('inbox row opens its comment', async () => {
+  // An old one, far down the panel's list of 121 threads.
+  await page.getByRole('dialog').getByText('“note 5”', { exact: true }).click();
+  await page.waitForTimeout(1500);
+  const card = page.locator('.ring-accent', { hasText: 'note 5' }).first();
+  check('its card is picked out', (await card.count()) === 1);
+  const box = await card.boundingBox();
+  check('and scrolled into view', !!box && box.y >= 0 && box.y + box.height <= 900, JSON.stringify(box));
+  await page.screenshot({ path: `${OUT}/e2e-inbox-to-comment.png` });
+});
+
 check('no page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 await browser.close();
 process.exit(failed ? 1 : 0);

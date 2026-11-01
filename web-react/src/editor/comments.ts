@@ -334,22 +334,46 @@ let activeTimer: ReturnType<typeof setTimeout> | undefined;
  * Scroll the page to a thread's passage and flash it — a click on its card.
  * A thread whose text has changed goes to its block, while that is here.
  */
-export function revealComment(id: string, blockId: string | null) {
-  if (!hlRoot) return;
+export function revealComment(id: string, blockId: string | null): boolean {
+  if (!hlRoot) return false;
   const a = applied.find((x) => x.id === id);
   const node = a?.range?.startContainer;
   const el = a?.el
     ?? (node ? (node instanceof Element ? node : node.parentElement) : null)
     ?? (blockId ? hlRoot.querySelector(`[data-block-id="${CSS.escape(blockId)}"]`) : null);
-  if (!el) return;
+  if (!el) return false;
   el.scrollIntoView({ block: 'center', behavior: 'smooth' });
   setFocus(id);
-  if (!supported || !a?.range) return;
+  if (!supported || !a?.range) return true;
   const Highlight = (window as unknown as { Highlight: new (...r: Range[]) => unknown }).Highlight;
   const registry = (CSS as unknown as { highlights: Map<string, unknown> }).highlights;
   registry.set(HL_ACTIVE, new Highlight(a.range));
   clearTimeout(activeTimer);
   activeTimer = setTimeout(() => registry.delete(HL_ACTIVE), 1800);
+  return true;
+}
+
+// ---- a thread to open once its page is up (an inbox row)
+// The inbox switches pages and then names a comment; the old editor's teardown
+// would clear a plain focus, so the request waits here for the comments panel.
+let queued: { docId: string; id: string } | null = null;
+const queuedListeners = new Set<() => void>();
+
+/** Open `id`'s thread on `docId` — its card and its passage — once both load. */
+export function focusCommentOnPage(docId: string, id: string) {
+  queued = { docId, id };
+  queuedListeners.forEach((l) => l());
+}
+
+/** The comment waiting to be opened on this page, if any; take it to clear it. */
+export function useQueuedFocus(docId: string): { id: string | null; take: () => void } {
+  const [, bump] = useState(0);
+  useEffect(() => {
+    const l = () => bump((n) => n + 1);
+    queuedListeners.add(l);
+    return () => { queuedListeners.delete(l); };
+  }, []);
+  return { id: queued?.docId === docId ? queued.id : null, take: () => { queued = null; } };
 }
 
 /** Focus a thread from outside the editor (a gutter pip). */

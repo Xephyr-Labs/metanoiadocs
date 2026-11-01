@@ -2,8 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowRight, Check, GitPullRequestArrow, Loader2, MessageSquareText, Pencil, RotateCcw, Send, SquarePen, Trash2, X } from 'lucide-react';
 import { canCommentRole, canEditRole, canSuggestRole, docsApi, type CommentRow, type UserRow } from '../../lib/docsApi';
 import {
-  applyCommentHighlights, clearPendingAnchor, clearPendingFocus, isDetached, onCommentsChanged, onMarkersChanged,
-  revealComment, setPendingMode, usePendingAnchor, usePendingFocus,
+  applyCommentHighlights, clearPendingAnchor, clearPendingFocus, focusComment, isDetached, onCommentsChanged, onMarkersChanged,
+  revealComment, setPendingMode, usePendingAnchor, usePendingFocus, useQueuedFocus,
 } from '../../editor/comments';
 import { tasksApi, type DocTask } from '../../lib/tasksApi';
 import { openReview, useReviewState } from '../../lib/reviewMode';
@@ -76,6 +76,7 @@ export function CommentsTab({ docId }: { docId: string }) {
   const cancelEdit = useRef(false);
   const anchor = usePendingAnchor();
   const focusId = usePendingFocus();
+  const queued = useQueuedFocus(docId);
   const suggesting = anchor?.mode === 'suggest' && maySuggest;
   // On a phone the panel is a sheet over the page: it gets out of the way
   // before the page scrolls to a passage.
@@ -127,6 +128,25 @@ export function CommentsTab({ docId }: { docId: string }) {
     const t = setTimeout(() => (anchor.mode === 'suggest' ? replacementRef : inputRef).current?.focus(), 300);
     return () => clearTimeout(t);
   }, [anchor]);
+  // Opened from the inbox on one comment: its thread's card at once, and its
+  // passage once the page's editor is up (retried briefly — it may still be
+  // mounting). Not cleared by re-renders: taking the request re-renders.
+  const revealTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearInterval(revealTimer.current), []);
+  useEffect(() => {
+    if (!queued.id || !comments) return;
+    const hit = comments.find((c) => c.id === queued.id);
+    queued.take();
+    if (!hit) return;
+    const root = comments.find((c) => c.id === (hit.parent_id ?? hit.id)) ?? hit;
+    focusComment(root.id);
+    let tries = 0;
+    window.clearInterval(revealTimer.current);
+    revealTimer.current = window.setInterval(() => {
+      if (revealComment(root.id, root.block_id) || ++tries >= 10) window.clearInterval(revealTimer.current);
+    }, 300);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queued.id, comments]);
   // A marked range was clicked in the doc — bring its card into view, flash it.
   useEffect(() => {
     if (!focusId || !comments) return;
