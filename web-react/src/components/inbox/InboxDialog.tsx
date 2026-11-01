@@ -119,19 +119,36 @@ const INBOX_VERBS: Partial<Record<string, string>> = {
   integrity: 'found a problem in',
 };
 
+/** Rows per request, as the server pages them (GET /api/inbox). */
+const PAGE = 50;
+
 export function InboxDialog() {
   const ws = useWorkspace();
   const auth = useAuth();
   const [items, setItems] = useState<InboxRow[] | null>(null);
+  // A full page means there may be older rows; the feed used to stop at 50.
+  const [more, setMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   useEffect(() => {
     if (!ws.inboxOpen) return;
     setItems(null);
+    setMore(false);
     // Load the feed (its read_at snapshot drives the unread dots), then mark
     // everything read so the sidebar badge clears.
-    docsApi.inbox().then((rows) => { setItems(rows); ws.markInboxRead(); }).catch(() => setItems([]));
+    docsApi.inbox().then((rows) => { setItems(rows); setMore(rows.length === PAGE); ws.markInboxRead(); }).catch(() => setItems([]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ws.inboxOpen]);
+
+  const loadOlder = () => {
+    const last = items?.[items.length - 1];
+    if (!last || loadingMore) return;
+    setLoadingMore(true);
+    docsApi.inbox(last.id)
+      .then((rows) => { setItems((cur) => [...(cur ?? []), ...rows]); setMore(rows.length === PAGE); })
+      .catch(() => {})
+      .finally(() => setLoadingMore(false));
+  };
 
   // A mention or comment lands on a document with a thread to read; anything
   // about a task opens that task's panel over its database, since its page may
@@ -234,6 +251,17 @@ export function InboxDialog() {
               </button>
             );
           })
+        )}
+        {items && more && (
+          <button
+            type="button"
+            onClick={loadOlder}
+            disabled={loadingMore}
+            className="mt-1 flex h-8 w-full items-center justify-center gap-1.5 rounded-md text-xs font-medium text-muted transition-colors hover:bg-hover hover:text-ink disabled:opacity-60"
+          >
+            {loadingMore && <Loader2 size={12} className="animate-spin" />}
+            Show older
+          </button>
         )}
       </ModalBody>
     </Modal>
