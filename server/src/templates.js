@@ -16,6 +16,7 @@
 //   sweeper and every count — and each of those is a place to forget.
 import crypto from 'node:crypto';
 import * as Y from 'yjs';
+import { pendingJson } from './inline-suggest.js';
 import { isPerson } from './approval.js';
 import { pool } from './db.js';
 import { isRepeatRule } from './repeat.js';
@@ -205,8 +206,10 @@ export function registerTemplateRoutes(app, { requireUser, wrap, grantOn, templa
         [id, req.user.id]
       );
       if (src[0].state) {
-        await client.query('INSERT INTO doc_states (doc_id, state) VALUES ($1, $2)',
-          [id, Buffer.from(retitleState(src[0].state, title))]);
+        const state = Buffer.from(retitleState(src[0].state, title));
+        await client.query('INSERT INTO doc_states (doc_id, state) VALUES ($1, $2)', [id, state]);
+        // Pending suggestions in the copied body come with it, so Home's To review lists the copy.
+        await client.query(`UPDATE docs SET pending_suggestions = coalesce($2::jsonb, '[]') WHERE id = $1`, [id, pendingJson(state)]);
       }
       await client.query('COMMIT');
     } catch (e) {
