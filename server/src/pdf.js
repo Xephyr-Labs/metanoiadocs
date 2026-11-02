@@ -20,7 +20,15 @@ const PARAGRAPH_GAP = 1.6;
 /** Type this much larger than the body is a heading rather than emphasis. */
 const HEADING_RATIO = 1.15;
 
-const BULLETS = /^[•‣●○▪◦·–—-]\s+/;
+/** A gap between runs wider than this many times the font size separates table cells, not words. */
+const CELL_GAP = 1.5;
+
+/** A gap wider than this many times the font size is a space between words. */
+const WORD_GAP = 0.15;
+
+// Word and LibreOffice draw bullets in Symbol/Wingdings, whose glyphs extract
+// as private-use code points (U+F0B7 is Symbol's bullet, U+F0A7 Wingdings').
+const BULLETS = /^[•‣●○▪◦·–—\-]\s+/;
 const ORDERED = /^(\d{1,3})[.)]\s+/;
 
 /**
@@ -43,11 +51,60 @@ function loadPdfjs() {
 const bucket = (n) => Math.round(n * 2) / 2;
 
 /**
+ * Markdown for a run of parts that share one style. Markers go inside any
+ * surrounding whitespace: `** bold**` is not bold in markdown.
+ */
+function styled(seg) {
+  const [, lead, core, trail] = /^(\s*)(.*?)(\s*)$/s.exec(seg.text);
+  if (!core) return seg.text;
+  let t = core;
+  if (seg.italic) t = `*${t}*`;
+  if (seg.bold) t = `**${t}**`;
+  if (seg.href) t = `[${t}](${seg.href})`;
+  return lead + t + trail;
+}
+
+/** Join one cell's parts into markdown and plain text. */
+function renderCell(parts) {
+  const segs = [];
+  let prev = null;
+  for (const part of parts) {
+    const seg = segs.at(-1);
+    // Whitespace has no style worth keeping; it rides along with whatever run
+    // it sits in rather than splitting `**a b**` into two bold runs.
+    if (!part.text.trim()) {
+      if (seg) seg.text += part.text;
+      continue;
+    }
+    // pdfjs splits a line wherever the text matrix changes — at a font switch,
+    // a kern, a ligature. Joining without a separator would run words together;
+    // joining with a space would break them apart. Where the run widths are
+    // known, the gap between them decides; otherwise insert one only where the
+    // pieces do not already read as separate words.
+    const text = seg ? seg.text : '';
+    const gap = prev && prev.end > prev.x ? part.x - prev.end > part.size * WORD_GAP : true;
+    const space = prev && gap && !/\s$/.test(text) && !/^\s/.test(part.text) ? ' ' : '';
+    if (seg && seg.bold === part.bold && seg.italic === part.italic && seg.href === part.href) {
+      seg.text += space + part.text;
+    } else {
+      if (seg) seg.text += space;
+      segs.push({ text: part.text, bold: part.bold, italic: part.italic, href: part.href });
+    }
+    prev = part;
+  }
+  const tidy = (s) => s.replace(/\s+/g, ' ').trim();
+  return { text: tidy(segs.map(styled).join('')), plain: tidy(segs.map((s) => s.text).join('')) };
+}
+
+/**
  * Collect one page's glyph runs into lines carrying their baseline and size.
  * pdfjs gives each item a transform matrix; [5] is the baseline's y and [3] the
  * vertical scale, which for ordinary text is the font size.
+ *
+ * @param fontStyle maps a pdfjs font id to {bold, italic}
+ * @param links the page's link annotations, as {rect, url}
  */
-function pageLines(items) {
+function pageLines(items, fontStyle = () => ({}), links = []) {
   const lines = [];
   for (const item of items) {
     const text = item.str;
@@ -55,37 +112,110 @@ function pageLines(items) {
     const y = item.transform[5];
     const size = Math.abs(item.transform[3]) || item.height || 0;
     const x = item.transform[4];
+    const mid = x + (item.width || 0) / 2;
+    const href = links.find(({ rect: [x1, y1, x2, y2] }) => mid >= x1 && mid <= x2 && y >= y1 - 1 && y <= y2 + 1)?.url;
+    const part = { x, end: x + (item.width || 0), size, text, href, ...fontStyle(item.fontName) };
     const line = lines.find((l) => Math.abs(l.y - y) <= LINE_TOLERANCE);
     if (line) {
-      line.parts.push({ x, text });
+      line.parts.push(part);
       line.size = Math.max(line.size, size);
     } else {
-      lines.push({ y, size, parts: [{ x, text }] });
+      lines.push({ y, size, parts: [part] });
     }
   }
 
   // Top of the page downwards, and left to right within a line. pdfjs emits in
   // drawing order, which for multi-column and tagged PDFs is not reading order.
   lines.sort((a, b) => b.y - a.y);
-  return lines.map((l) => {
+  const result = lines.map((l) => {
     l.parts.sort((a, b) => a.x - b.x);
-    // pdfjs splits a line wherever the text matrix changes — at a font switch,
-    // a kern, a ligature. Joining without a separator would run words together;
-    // joining with a space would break them apart. Insert one only where the
-    // pieces already read as separate words.
-    let text = '';
+    // A gap far wider than a word space is a column boundary: a table, or
+    // label/value pairs set on tab stops. Split there so a run of such lines
+    // can be told apart from prose.
+    const cells = [];
+    let prev = null;
     for (const part of l.parts) {
-      const needsSpace = text && !/\s$/.test(text) && !/^\s/.test(part.text);
-      text += needsSpace ? ` ${part.text}` : part.text;
+      const blank = !part.text.trim();
+      if (!cells.length || (!blank && prev && prev.end > prev.x && part.x - prev.end > l.size * CELL_GAP)) {
+        if (blank) continue;
+        cells.push({ x: part.x, parts: [] });
+      }
+      cells.at(-1).parts.push(part);
+      if (!blank) { prev = part; cells.at(-1).end = part.end; }
     }
-    return { y: l.y, size: bucket(l.size), text: text.replace(/\s+/g, ' ').trim() };
-  }).filter((l) => l.text);
+    const rendered = cells.map((c) => ({ x: c.x, end: c.end, ...renderCell(c.parts) }));
+    return {
+      y: l.y,
+      size: bucket(l.size),
+      text: rendered.map((c) => c.text).join(' '),
+      plain: rendered.map((c) => c.plain).join(' '),
+      cells: rendered.length > 1 ? rendered : null,
+    };
+  }).filter((l) => l.plain);
+
+  // Two columns of prose: sorted by baseline alone they interleave a line at a
+  // time. The gutter is an x where several runs start and no run crosses; read
+  // the left column top to bottom, then the right.
+  // ponytail: a full-width title or abstract crossing the gutter disables the
+  // split for the whole page; per-band column detection if that comes up.
+  const runs = items.filter((it) => it.str.trim());
+  const starts = new Map();
+  for (const it of runs) {
+    const x = Math.round(it.transform[4]);
+    starts.set(x, (starts.get(x) ?? 0) + 1);
+  }
+  const minX = Math.min(...starts.keys());
+  // A table's columns also start runs at a common x; prose is what has long runs.
+  const prose = (side) => side.length >= 3 && side.filter((it) => it.str.trim().length >= 20).length * 2 >= side.length;
+  for (const [g, count] of [...starts].sort((a, b) => a[0] - b[0])) {
+    if (g <= minX + 2 || count < 3) continue;
+    if (runs.some((it) => it.transform[4] < g - 2 && it.transform[4] + (it.width || 0) > g)) continue;
+    const left = items.filter((it) => it.transform[4] < g - 2);
+    const right = items.filter((it) => it.transform[4] >= g - 2);
+    if (!prose(left.filter((it) => it.str.trim())) || !prose(right.filter((it) => it.str.trim()))) continue;
+    return [...pageLines(left, fontStyle, links), ...pageLines(right, fontStyle, links)];
+  }
+  return result;
 }
+
+/**
+ * Drop running heads, running feet and page numbers: lines at the top or
+ * bottom of a page that recur at the same height on at least half the pages.
+ * Digits are ignored in the comparison so "Page 3" matches "Page 4".
+ */
+function dropRunningLines(pages) {
+  const key = (l) => `${Math.round(l.y)}|${l.plain.replace(/\d+/g, '#')}`;
+  const edge = (lines, i) => i < 2 || i >= lines.length - 2;
+  const seen = new Map();
+  for (const lines of pages) {
+    for (const k of new Set(lines.filter((l, i) => edge(lines, i)).map(key))) {
+      seen.set(k, (seen.get(k) ?? 0) + 1);
+    }
+  }
+  const min = Math.max(2, pages.length / 2);
+  return pages.map((lines) => lines.filter((l, i) => !(edge(lines, i) && seen.get(key(l)) >= min)));
+}
+
+/**
+ * Two cell rows are the same table when they have as many cells and each one
+ * lines up, by its left edge or (for right-aligned numbers) its right.
+ */
+function sameTable(a, b) {
+  if (!b?.cells || b.cells.length !== a.cells.length) return false;
+  return b.cells.every((c, k) => {
+    const h = a.cells[k];
+    return Math.abs(c.x - h.x) < a.size * 2 || Math.abs(c.end - h.end) < a.size * 2;
+  });
+}
+
+// ponytail: two-column prose also splits into aligned "cells"; short cells are
+// the only thing telling a table from it. Tables with long cell text stay prose.
+const MAX_CELL = 40;
 
 /** The size most of the document is set in. */
 function bodySize(lines) {
   const weight = new Map();
-  for (const l of lines) weight.set(l.size, (weight.get(l.size) ?? 0) + l.text.length);
+  for (const l of lines) weight.set(l.size, (weight.get(l.size) ?? 0) + l.plain.length);
   let best = 0;
   let bestWeight = -1;
   for (const [size, w] of weight) {
@@ -132,14 +262,14 @@ export async function pdfToMarkdown(buf) {
   }
 
   try {
-    const pages = [];
+    let pages = [];
     let images = 0;
     for (let n = 1; n <= doc.numPages; n++) {
       const page = await doc.getPage(n);
       const content = await page.getTextContent();
-      pages.push(pageLines(content.items));
       // Counting images so the import can say what it left behind rather than
-      // quietly dropping the figures.
+      // quietly dropping the figures. Building the operator list also loads the
+      // page's fonts, which is where bold and italic come from.
       try {
         const ops = await page.getOperatorList();
         const paintImage = pdfjs.OPS?.paintImageXObject;
@@ -149,16 +279,28 @@ export async function pdfToMarkdown(buf) {
       } catch {
         // An operator list that will not build costs us the image count only.
       }
+      // Text items carry only a font id; weight and slant are in the font's
+      // PostScript name ("ABCDEF+NotoSerif-BoldItalic").
+      const fontStyle = (id) => {
+        let name = '';
+        try { name = page.commonObjs.get(id)?.name ?? ''; } catch { /* font never loaded */ }
+        return { bold: /Bold|Black|Heavy/i.test(name), italic: /Italic|Oblique/i.test(name) };
+      };
+      const links = (await page.getAnnotations().catch(() => []))
+        .filter((a) => a.subtype === 'Link' && /^(https?|mailto):/i.test(a.url ?? ''))
+        .map((a) => ({ rect: a.rect, url: a.url }));
+      pages.push(pageLines(content.items, fontStyle, links));
       page.cleanup();
     }
 
-    const all = pages.flat();
-    if (!all.length) {
+    if (!pages.some((lines) => lines.length)) {
       throw new Error(
         'No text found in this PDF. It is probably a scan or images of pages, ' +
         'which needs OCR rather than import.',
       );
     }
+    pages = dropRunningLines(pages);
+    const all = pages.flat();
 
     const body = bodySize(all);
     // Distinct heading sizes, largest first, become h1, h2, h3…
@@ -180,7 +322,9 @@ export async function pdfToMarkdown(buf) {
           ? text.slice(0, -1) + line
           : `${text} ${line}`;
       }
-      out.push(text, '');
+      // The blank line before matters after a list: without it markdown reads
+      // the paragraph as a continuation of the last item.
+      out.push('', text, '');
       para = [];
     };
 
@@ -190,8 +334,21 @@ export async function pdfToMarkdown(buf) {
         const level = headingSizes.indexOf(line.size);
         if (level >= 0) {
           flush();
-          out.push(`${'#'.repeat(level + 1)} ${line.text}`, '');
+          out.push('', `${'#'.repeat(level + 1)} ${line.plain}`, '');
           continue;
+        }
+
+        // Two or more consecutive rows whose cells line up are a table.
+        if (line.cells && line.cells.every((c) => c.plain.length <= MAX_CELL)) {
+          let j = i + 1;
+          while (sameTable(line, lines[j]) && lines[j].cells.every((c) => c.plain.length <= MAX_CELL)) j++;
+          if (j - i >= 2) {
+            flush();
+            const row = (l) => `| ${l.cells.map((c) => c.text.replace(/\|/g, '\\|')).join(' | ')} |`;
+            out.push('', row(line), `|${' --- |'.repeat(line.cells.length)}`, ...lines.slice(i + 1, j).map(row), '');
+            i = j - 1;
+            continue;
+          }
         }
 
         const bullet = BULLETS.exec(line.text);
@@ -214,8 +371,11 @@ export async function pdfToMarkdown(buf) {
         const next = lines[i + 1];
         const wraps =
           next &&
+          // Below, not just near: the next column starts back at the top.
+          line.y > next.y &&
           line.y - next.y < line.size * PARAGRAPH_GAP &&
           headingSizes.indexOf(next.size) < 0 &&
+          !next.cells &&
           !BULLETS.test(next.text) &&
           !ORDERED.test(next.text);
         if (!wraps) flush();
