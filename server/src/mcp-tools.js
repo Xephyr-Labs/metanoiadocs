@@ -269,6 +269,107 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
     }
   );
 
+  // A slide's body: the markdown subset a slide's text box can hold.
+  const slideBody = z
+    .string()
+    .optional()
+    .describe('Slide body as markdown: bullet/numbered lists (indent to nest), paragraphs, sub-headings (##), quotes, code. Inline **bold**, *italic*, `code`, links. Keep it to a few short bullets.');
+
+  server.registerTool(
+    'create_slides',
+    {
+      title: 'Create a slide deck',
+      description:
+        'Create a new page holding a slide deck: one 16:9 slide per entry, each a title and a markdown body, in order. Open the page and switch to Slides (or Present) to see it. Returns the page id and the slide ids. Add more with add_slide.',
+      inputSchema: {
+        title: z.string().describe('Page title'),
+        slides: z
+          .array(z.object({ title: z.string().describe('Slide title'), body: slideBody }))
+          .min(1)
+          .max(200)
+          .describe('The slides, in presentation order'),
+        visibility: z
+          .enum(['team', 'private'])
+          .optional()
+          .describe('team (default) = whole workspace; private = only you'),
+        spaceId: z.string().optional().describe('Space to create it in; defaults to General.'),
+      },
+    },
+    async ({ title, slides, visibility, spaceId }) => {
+      try {
+        const doc = await api('/docs', { method: 'POST', body: { title, slides, visibility, spaceId } });
+        const deck = await api(`/docs/${encodeURIComponent(doc.id)}/slides`);
+        return ok({ id: doc.id, title: doc.title, visibility: doc.visibility, slides: deck.slides.map((s) => s.id) });
+      } catch (e) {
+        return fail(e);
+      }
+    }
+  );
+
+  server.registerTool(
+    'add_slide',
+    {
+      title: 'Add a slide',
+      description:
+        "Add a slide to the end of a page's deck (a page with no slides gets its first). Returns the new slide's id.",
+      inputSchema: {
+        id: z.string().describe('Page id'),
+        title: z.string().describe('Slide title'),
+        body: slideBody,
+      },
+    },
+    async ({ id, title, body }) => {
+      try {
+        const r = await api(`/docs/${encodeURIComponent(id)}/slides`, { method: 'POST', body: { title, body } });
+        return ok({ slideId: r.id, slides: r.slides });
+      } catch (e) {
+        return fail(e);
+      }
+    }
+  );
+
+  server.registerTool(
+    'list_slides',
+    {
+      title: 'List slides',
+      description: "A page's slides in presentation order: id, title and body (markdown) of each.",
+      inputSchema: { id: z.string().describe('Page id') },
+    },
+    async ({ id }) => {
+      try {
+        return ok((await api(`/docs/${encodeURIComponent(id)}/slides`)).slides);
+      } catch (e) {
+        return fail(e);
+      }
+    }
+  );
+
+  server.registerTool(
+    'update_slide',
+    {
+      title: 'Update a slide',
+      description:
+        "Change a slide's title and/or body (slide ids from list_slides). A body replaces the slide's whole body; leave a field out to keep it.",
+      inputSchema: {
+        id: z.string().describe('Page id'),
+        slideId: z.string().describe('Slide id'),
+        title: z.string().optional().describe('New slide title'),
+        body: slideBody,
+      },
+    },
+    async ({ id, slideId, title, body }) => {
+      try {
+        await api(`/docs/${encodeURIComponent(id)}/slides/${encodeURIComponent(slideId)}`, {
+          method: 'PATCH',
+          body: { title, body },
+        });
+        return ok('Done.');
+      } catch (e) {
+        return fail(e);
+      }
+    }
+  );
+
   server.registerTool(
     'comment_on_doc',
     {
@@ -1274,6 +1375,10 @@ export const MCP_TOOL_NAMES = [
   'read_doc',
   'create_doc',
   'write_doc',
+  'create_slides',
+  'add_slide',
+  'list_slides',
+  'update_slide',
   'comment_on_doc',
   'read_comments',
   'read_suggestions',

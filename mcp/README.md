@@ -18,6 +18,10 @@ team/private access.
 | `read_doc` | A doc's title + plain-text content |
 | `create_doc` | New doc from markdown (headings, lists, to-dos, quotes, code, dividers → real blocks) |
 | `write_doc` | Append or replace a doc's content with markdown |
+| `create_slides` | New page holding a slide deck: `[{ title, body }]`, body as markdown bullets |
+| `add_slide` | Add a slide to the end of a page's deck |
+| `list_slides` | A page's slides in order: id, title, body |
+| `update_slide` | Change a slide's title and/or body |
 | `comment_on_doc` | Add a comment (supports `@username` mentions) |
 | `read_comments` | Read a doc's comment threads — the request behind a mention lives here |
 | `read_task_comments` | Read a task's comment thread (`parentId` threads replies) |

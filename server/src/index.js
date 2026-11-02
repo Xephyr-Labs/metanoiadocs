@@ -44,7 +44,7 @@ import { baseMime } from './media.js';
 import { commentInput } from './comment-input.js';
 import { deleteUnusedAudio } from './blob-cleanup.js';
 import { docCommentRecipients } from './comment-recipients.js';
-import { buildDocState, appendMarkdownToDoc, appendPageReference, extractText, extractBlocks, docToMarkdown, fixTableOrderKeys, stateWithValidTableKeys, linkResolver, linkLabeler, pageLinksOf, lossyBlocks } from './blocks.js';
+import { buildDocState, appendMarkdownToDoc, appendPageReference, extractText, extractBlocks, docToMarkdown, fixTableOrderKeys, stateWithValidTableKeys, linkResolver, linkLabeler, pageLinksOf, lossyBlocks, buildDeckState, addSlideToDoc, updateSlideInDoc, listSlides } from './blocks.js';
 import { rewriteDoc } from './restore.js';
 import { registerCalendarRoutes } from './calendar.js';
 import { registerCalendarWriteRoutes } from './calendar-write.js';
@@ -825,9 +825,9 @@ app.post('/api/docs/reorder', requireUser, wrap(async (req, res) => {
  * transaction, so a failure part-way cannot leave a doc row with no content.
  * Shared by the JSON create route and the file import below.
  */
-async function createDocRow({ title, icon, userId, folderId, visibility, kind, content, spaceId }) {
+async function createDocRow({ title, icon, userId, folderId, visibility, kind, content, spaceId, slides }) {
   const id = crypto.randomUUID();
-  const links = content ? await docLinkContext(userId) : null;
+  const links = content || slides ? await docLinkContext(userId) : null;
   let state = null;
   const client = await pool.connect();
   try {
@@ -842,7 +842,11 @@ async function createDocRow({ title, icon, userId, folderId, visibility, kind, c
       `INSERT INTO doc_access (doc_id, user_id, role) VALUES ($1, $2, 'owner')`,
       [id, userId]
     );
-    if (content) {
+    if (slides) {
+      state = Buffer.from(buildDeckState(title, content || '', slides, links.resolve));
+      await client.query('INSERT INTO doc_states (doc_id, state) VALUES ($1, $2)', [id, state]);
+      await client.query('UPDATE docs SET search_text = $1 WHERE id = $2', [extractText(state).text.slice(0, 100000), id]);
+    } else if (content) {
       state = Buffer.from(buildDocState(title, content, links.resolve));
       await client.query('INSERT INTO doc_states (doc_id, state) VALUES ($1, $2)', [id, state]);
       await client.query('UPDATE docs SET search_text = $1 WHERE id = $2', [content.slice(0, 100000), id]);
@@ -878,6 +882,8 @@ app.post('/api/docs', requireUser, async (req, res) => {
     // Optional markdown body (used by the MCP server / API clients). Built into
     // a BlockSuite Yjs state so the doc opens with real content.
     content: typeof req.body?.content === 'string' ? req.body.content : null,
+    // Optional deck: [{ title, body }] → one slide each (see blocks.js Slides).
+    slides: slideInputs(req.body?.slides),
   });
   emit('doc.created', { id: doc.id, title: doc.title, kind: doc.kind, by: req.user.id });
   res.json(doc);
@@ -1349,6 +1355,71 @@ app.post('/api/docs/:id/content', requireUser, wrap(async (req, res) => {
   const unresolved = [...prose.matchAll(/(?<!\\)\[\[([^\]\n]+)\]\]/g)].map((m) => m[1]).filter((k) => !resolve(k));
   res.json({ ok: true, ...(unresolved.length ? { unresolvedLinks: [...new Set(unresolved)] } : {}) });
 }));
+
+// ── slides ──────────────────────────────────────────────────────────────────
+// A deck is a page whose canvas holds frames (blocks.js Slides). Writes go
+// through a Hocuspocus direct connection, like /content, so open editors see
+// the slide land.
+
+/** `[{ title, body }]` from a request, bounded; null when it is not a list. */
+function slideInputs(raw) {
+  if (!Array.isArray(raw)) return null;
+  return raw.slice(0, 200).map((s) => ({
+    title: String(s?.title ?? '').slice(0, 200),
+    body: String(s?.body ?? '').slice(0, 20000),
+  }));
+}
+
+app.get('/api/docs/:id/slides', requireUser, wrap(async (req, res) => {
+  if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
+  const d = await pool.query('SELECT title FROM docs WHERE id = $1 AND deleted_at IS NULL', [req.params.id]);
+  if (!d.rows[0]) return res.status(404).json({ error: 'not found' });
+  const live = hocuspocus.documents.get(req.params.id);
+  const state = live
+    ? Y.encodeStateAsUpdate(live)
+    : (await pool.query('SELECT state FROM doc_states WHERE doc_id = $1', [req.params.id])).rows[0]?.state;
+  res.json({ id: req.params.id, title: d.rows[0].title, slides: state ? listSlides(state) : [] });
+}));
+
+/** Add (no slideId) or change (slideId) one slide on a page the caller may write directly. */
+async function writeSlide(req, res, slideId) {
+  const docId = req.params.id;
+  if (!(await editGrant(docId, req.user.id))) return res.status(403).json({ error: 'forbidden' });
+  const d = await pool.query('SELECT title, kind FROM docs WHERE id = $1 AND deleted_at IS NULL', [docId]);
+  if (!d.rows[0]) return res.status(404).json({ error: 'not found' });
+  // A slide cannot be a suggestion: drafts review markdown, and a canvas has none.
+  if (untrusted(req) && d.rows[0].kind !== 'task') {
+    return res.status(403).json({ error: 'Your edits to an existing page are reviewed first, and slides cannot be. Build the whole deck with create_slides, or leave a comment.' });
+  }
+  const [input] = slideInputs([req.body || {}]);
+  const { resolve } = await docLinkContext(req.user.id);
+  let id = slideId;
+  let state;
+  const conn = await hocuspocus.openDirectConnection(docId, { docId, user: req.user });
+  try {
+    await conn.transact((doc) => {
+      if (!doc.getMap('blocks').size) rewriteDoc(doc, buildDocState(d.rows[0].title, '', resolve));
+      if (!slideId) id = addSlideToDoc(doc, input, resolve);
+      else if (!updateSlideInDoc(doc, slideId, {
+        title: typeof req.body?.title === 'string' ? input.title : undefined,
+        body: typeof req.body?.body === 'string' ? input.body : undefined,
+      }, resolve)) id = null;
+      state = Buffer.from(Y.encodeStateAsUpdate(doc));
+    });
+  } finally {
+    await conn.disconnect();
+  }
+  if (!id) return res.status(404).json({ error: 'no such slide' });
+  try {
+    const { text } = extractText(state);
+    await pool.query('UPDATE docs SET search_text = $1, updated_at = now(), updated_by = $3, updated_via = $4 WHERE id = $2', [text.slice(0, 100000), docId, req.user.id, req.via]);
+  } catch { /* only the search text goes stale */ }
+  await storeLinks(docId, pageLinksOf(state));
+  res.json({ ok: true, id, slides: listSlides(state).length });
+}
+
+app.post('/api/docs/:id/slides', requireUser, wrap((req, res) => writeSlide(req, res, null)));
+app.patch('/api/docs/:id/slides/:slideId', requireUser, wrap((req, res) => writeSlide(req, res, req.params.slideId)));
 
 // Toggle a doc between team-visible and private (owner only). Private keeps only
 // the owner + anyone explicitly shared via doc_access; team is visible to all.
