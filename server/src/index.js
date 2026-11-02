@@ -87,6 +87,8 @@ import { dayIn, isZone, zoneOf } from './timezone.js';
 import { byJoinedFirst } from './spaces.js';
 import { ROLE_RANK, rankOf, canEdit, writePolicy, resolveApprover, untrusted, needsPerson, isPerson, pageSyncRole, mintAgentToken } from './approval.js';
 import { draftEdit, draftToRead, lossyRefusal } from './ai-drafts.js';
+import { listSuggestions } from './inline-suggest.js';
+import { suggestMarkdown } from './suggest-writer.js';
 import OpenAI from 'openai';
 
 process.on('unhandledRejection', (e) => console.error('[proc] unhandledRejection', e?.message || e));
@@ -1118,9 +1120,11 @@ app.get('/api/docs/:id/markdown', requireUser, wrap(async (req, res) => {
   if (!d.rows[0]) return res.status(404).json({ error: 'not found' });
   const s = await pool.query('SELECT state FROM doc_states WHERE doc_id = $1', [req.params.id]);
   let state = s.rows[0]?.state;
-  // A writer whose edits become suggestions reads its own open draft, so a
+  // A writer whose edits become suggestions reads its own open legacy draft,
+  // else the live page with its own pending suggestions applied — so a
   // read-change-replace builds on what it already proposed.
   let pendingSuggestion;
+  let withPendingFor;
   if (writePolicy({ user: req.user, via: req.via, token: req.token }) === 'suggest') {
     const who = await approverFor(req);
     const draft = await draftToRead({
@@ -1130,6 +1134,9 @@ app.get('/api/docs/:id/markdown', requireUser, wrap(async (req, res) => {
       const live = hocuspocus.documents.get(draftName(req.params.id, draft.id));
       state = live ? Buffer.from(Y.encodeStateAsUpdate(live)) : draft.state;
       pendingSuggestion = { id: draft.id, reviewUrl: `/d/${req.params.id}?review=${draft.id}` };
+    } else {
+      withPendingFor = req.user.id;
+      state = (await pageStateFrom(pool, () => hocuspocus)(req.params.id)) ?? state;
     }
   }
   let markdown = '';
@@ -1137,7 +1144,7 @@ app.get('/api/docs/:id/markdown', requireUser, wrap(async (req, res) => {
   if (state) {
     const { label } = await docLinkContext(req.user.id);
     try {
-      markdown = docToMarkdown(state, { resolveTitle: label, escape: true }).markdown;
+      markdown = docToMarkdown(state, { resolveTitle: label, escape: true, withPendingFor }).markdown;
       lossy = lossyBlocks(state);
     } catch { /* empty */ }
   }
@@ -1318,6 +1325,11 @@ app.post('/api/docs/:id/content', requireUser, wrap(async (req, res) => {
     await conn.transact((doc) => {
       if (mode === 'append' && appendMarkdownToDoc(doc, markdown, resolve)) {
         // appended in place
+      } else if (mode === 'replace' && listSuggestions(doc).length) {
+        // A rebuild would drop everyone's pending suggestions with the old
+        // body. Applied as a diff instead, they stay where they are.
+        suggestMarkdown({ doc, markdown, mode, by: req.user.id, title: d.rows[0].title, resolve, direct: true });
+        rewrote = false;
       } else {
         rewriteDoc(doc, buildDocState(d.rows[0].title, markdown, resolve));
         rewrote = true;

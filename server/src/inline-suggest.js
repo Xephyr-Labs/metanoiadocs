@@ -126,6 +126,7 @@ function dropBlock(doc, id) {
 
 /** Accept or reject the suggestion `id`. True if anything changed. */
 export function decide(doc, id, verdict) {
+  if (verdict !== 'accept' && verdict !== 'reject') throw new Error(`unknown verdict: ${verdict}`);
   const accept = verdict === 'accept';
   let changed = false;
   doc.transact(() => {
@@ -154,6 +155,7 @@ export function decide(doc, id, verdict) {
 }
 
 export function decideAll(doc, verdict, { by } = {}) {
+  if (verdict !== 'accept' && verdict !== 'reject') throw new Error(`unknown verdict: ${verdict}`);
   let n = 0;
   doc.transact(() => {
     for (const c of listSuggestions(doc)) {

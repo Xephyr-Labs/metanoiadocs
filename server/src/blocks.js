@@ -848,7 +848,7 @@ export function docToMarkdown(existing, opts = {}) {
 }
 
 /** The subtrees under `rootIds`, in order, as markdown (docToMarkdown's walker). */
-function blocksToMarkdown(blocks, rootIds, opts = {}) {
+export function blocksToMarkdown(blocks, rootIds, opts = {}) {
   const imageUrl = opts.imageUrl || ((key) => `/api/blob/${encodeURIComponent(key)}`);
   // Parts, not lines: list items pack together, everything else gets a blank
   // line between it and its neighbour.
@@ -1066,14 +1066,14 @@ const kidsOf = (b) => {
   return k instanceof Y.Array ? k.toArray() : [];
 };
 
-function dropTree(blocks, id, depth = 0) {
+export function dropTree(blocks, id, depth = 0) {
   if (depth > 200) return;
   for (const k of kidsOf(blocks.get(id))) dropTree(blocks, k, depth + 1);
   blocks.delete(id);
 }
 
 /** Copy a scratch subtree into the live doc under fresh ids; returns the new root id. */
-function copyTree(from, to, id) {
+export function copyTree(from, to, id) {
   const src = from.get(id);
   const newId = blockId();
   const m = new Y.Map();

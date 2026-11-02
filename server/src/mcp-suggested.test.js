@@ -55,3 +55,15 @@ test('the standalone stdio package builds the same message', () => {
   assert.ok(line('./mcp-tools.js'));
   assert.equal(line('../../mcp/src/index.js'), line('./mcp-tools.js'));
 });
+
+test('an inline suggestion links to the page at its first change', async () => {
+  const before = process.env.BASE_URL;
+  process.env.BASE_URL = 'https://docs.example.com';
+  try {
+    const w = await call('write_doc', { id: 'd1', markdown: 'x', mode: 'replace' },
+      { ok: true, suggested: true, changes: 1, link: '/d/d1?sugg=abc', approverName: null });
+    assert.equal(w.text, 'Suggested 1 change for anyone who can edit the page to review: https://docs.example.com/d/d1?sugg=abc');
+  } finally {
+    if (before === undefined) delete process.env.BASE_URL; else process.env.BASE_URL = before;
+  }
+});

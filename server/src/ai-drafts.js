@@ -5,6 +5,8 @@ import crypto from 'node:crypto';
 import * as Y from 'yjs';
 import { appendMarkdownToDoc, lossyBlocks, replaceBodyKeepingIds } from './blocks.js';
 import { computeChanges, docFromState, draftName, pending } from './suggestions.js';
+import { listSuggestions } from './inline-suggest.js';
+import { suggestMarkdown } from './suggest-writer.js';
 
 const OPEN = `SELECT * FROM doc_suggestions
   WHERE doc_id = $1 AND author_id = $2 AND status <> 'closed'
@@ -111,32 +113,68 @@ export const lossyRefusal = (lossy) => ({
 /**
  * Where a markdown write from POST /api/docs/:id/content goes. Null: straight
  * onto the page (a trusted writer, a task page, or a page with no body yet).
- * Otherwise the response to send — a refusal, or the draft it landed in.
+ * Otherwise the response to send — a refusal, or the suggestions it became.
+ * New writes become inline suggestions on the live page (suggest-writer.js),
+ * authored by the writer (Ask AI: the asker, via 'ai'); a writer that still has
+ * an open legacy draft here keeps writing into it, so it closes the old way.
  * `approver()` resolves who reviews, as `{ id, name }`, or null for any editor.
  */
 export async function draftEdit({ policy, kind, via, pageState, approver, pool, hocuspocus, docId, title, authorId, markdown, mode, resolve, notify }) {
   if (policy === 'direct' || kind === 'task') return null;
   const state = await pageState(docId);
   if (!state || !docFromState(state).getMap('blocks').size) return null;
-  // Before anything else: a refused replace must not leave a draft behind.
   const lossy = mode === 'replace' ? lossyBlocks(state) : [];
   if (lossy.length) return { status: 409, body: lossyRefusal(lossy) };
-  // No approver (an agent's edit): anyone who can edit the page decides it.
   const who = await approver();
+  const writerVia = via === 'ai' ? 'ai' : 'agent';
+  const noBody = { status: 409, body: { error: 'This page has no text body to suggest changes to. Leave a comment instead.' } };
+
+  if (await openDraftFor({ pool, docId, authorId, approverId: who?.id ?? null, writerVia })) {
+    let out;
+    try {
+      out = await writeToDraft({
+        pool, hocuspocus, pageState, docId, title, authorId, approverId: who?.id ?? null, writerVia, markdown, mode, resolve, notify,
+      });
+    } catch (e) {
+      if (e.message === 'no body') return noBody;
+      throw e;
+    }
+    const { sid, changes } = out;
+    return {
+      status: 200,
+      body: { ok: true, suggested: true, suggestionId: sid, reviewUrl: `/d/${docId}?review=${sid}`, approverName: who?.name ?? null, changes },
+    };
+  }
+
   let out;
+  let hadPending = false;
   try {
-    out = await writeToDraft({
-      pool, hocuspocus, pageState, docId, title, authorId, approverId: who?.id ?? null,
-      writerVia: via === 'ai' ? 'ai' : 'agent', markdown, mode, resolve, notify,
-    });
+    const conn = await hocuspocus.openDirectConnection(docId, { docId, user: { id: authorId } });
+    try {
+      await conn.transact((doc) => {
+        hadPending = listSuggestions(doc).some((c) => c.by === authorId);
+        out = suggestMarkdown({ doc, markdown, mode, by: authorId, via: via === 'ai' ? 'ai' : undefined, title, resolve });
+      });
+    } finally {
+      await conn.disconnect();
+    }
   } catch (e) {
-    // A page with blocks but no text body (canvas only): nothing to draft against.
-    if (e.message === 'no body') return { status: 409, body: { error: 'This page has no text body to suggest changes to. Leave a comment instead.' } };
+    if (e.message === 'no body') return noBody;
     throw e;
   }
-  const { sid, changes } = out;
+  // Told once, when this writer's first pending suggestion on the page lands
+  // (what a new draft used to be). Ask AI's asker is the one reviewing.
+  if (out.changes && !hadPending && via !== 'ai') {
+    // ponytail: no suggestionId — linkFor still builds ?review= links; the notification opens the page.
+    try { await notify({ userId: who?.id ?? null, kind: 'ai_suggestion', docId }); }
+    catch (e) { console.error('[notify] ai suggestion:', e.message); }
+  }
   return {
     status: 200,
-    body: { ok: true, suggested: true, suggestionId: sid, reviewUrl: `/d/${docId}?review=${sid}`, approverName: who?.name ?? null, changes },
+    body: {
+      ok: true, suggested: true, changes: out.changes,
+      link: out.ids.length ? `/d/${docId}?sugg=${encodeURIComponent(out.ids[0])}` : `/d/${docId}`,
+      approverName: who?.name ?? null,
+    },
   };
 }
