@@ -99,9 +99,11 @@ export function listSuggestions(doc) {
     if (bs?.id) {
       const c = card(bs, blockId, bs.kind);
       const here = t ? t.toString() : '';
-      if (bs.kind === 'add') c.after = here;
-      else if (bs.kind === 'remove') c.before = here;
-      else {
+      // A block removed and one added under one id (a re-ticked item) is one replace.
+      if (bs.kind === 'add' || bs.kind === 'remove') {
+        if (bs.kind === 'add') c.after = here; else c.before = here;
+        if (c.kind !== bs.kind) c.kind = 'replace';
+      } else {
         c.before = bs.from?.type ?? bs.from?.flavour ?? '';
         c.after = b.get('prop:type') ?? b.get('sys:flavour') ?? '';
       }

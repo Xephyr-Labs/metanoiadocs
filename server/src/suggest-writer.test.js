@@ -220,3 +220,68 @@ test('an indentation change in code is a change, not whitespace noise', () => {
   write(doc, '```py\nif x:\ny()\n```\n');
   assert.deepEqual(cards(doc).map((c) => c.kind), ['remove', 'add']);
 });
+
+// ── fix round 1 ──────────────────────────────────────────────────────────────
+
+test('rewriting one sentence is one suggestion on that sentence', () => {
+  const doc = page('The team will ship the new onboarding flow to all users by the end of next week, after a final review of the copy.\n');
+  const out = write(doc, 'The team plans to ship the redesigned onboarding flow to every user by Friday, once the copy has been reviewed.\n');
+  assert.equal(out.changes, 1);
+  const [c] = cards(doc);
+  assert.equal(c.kind, 'replace');
+  assert.equal(c.before, 'will ship the new onboarding flow to all users by the end of next week, after a final review of the copy');
+  assert.equal(c.after, 'plans to ship the redesigned onboarding flow to every user by Friday, once the copy has been reviewed');
+});
+
+test('a one-word typo fix is one small card', () => {
+  const doc = page('We will revew the plan with the whole team before the launch next month.\n');
+  write(doc, 'We will review the plan with the whole team before the launch next month.\n');
+  assert.deepEqual(cards(doc).map((c) => [c.before, c.after]), [['revew', 'review']]);
+});
+
+test('two unrelated one-word fixes in two sentences are two cards', () => {
+  const doc = page('The budget is aproved for the quarter. Hiring starts in Febuary with two roles.\n');
+  write(doc, 'The budget is approved for the quarter. Hiring starts in February with two roles.\n');
+  assert.deepEqual(cards(doc).map((c) => [c.before, c.after]), [['aproved', 'approved'], ['Febuary', 'February']]);
+});
+
+test('a hunk never carries an unchanged space at its edges', () => {
+  const doc = page('Ship it on Monday morning.\n');
+  write(doc, 'Ship it on Tuesday afternoon.\n');
+  assert.deepEqual(cards(doc).map((c) => [c.before, c.after]), [['Monday morning', 'Tuesday afternoon']]);
+});
+
+test('R13: a ticked checkbox is the item removed and added, as one card', () => {
+  const doc = page('- [ ] open task\n- [ ] other\n');
+  const out = write(doc, '- [x] open task\n- [ ] other\n');
+  assert.equal(out.changes, 1);
+  assert.deepEqual(cards(doc).map((c) => [c.kind, c.before, c.after]), [['replace', 'open task', 'open task']]);
+  assert.equal(read(doc), '- [ ] open task\n- [ ] other');
+  assert.equal(read(doc, 'andy'), '- [x] open task\n- [ ] other');
+  decide(doc, out.ids[0], 'accept');
+  assert.equal(read(doc), '- [x] open task\n- [ ] other');
+});
+
+test('R13 direct: a trusted writer\'s tick applies', () => {
+  const doc = page('- [ ] open task\n\nPara.\n');
+  const t = texts(doc).find((x) => x.toString() === 'Para.');
+  t.insert(0, 'New ', { mnSugg: { id: 'u2-ins', kind: 'ins', by: 'u2', at: 1 } });
+  suggestMarkdown({ doc, markdown: '- [x] open task\n\nPara.\n', mode: 'replace', by: 'owner', title: 'T', direct: true });
+  assert.equal(read(doc), '- [x] open task\n\nPara.');
+  assert.equal(cards(doc).length, 1);
+});
+
+test('direct: editing a block someone suggested removing or retyping keeps their suggestion', () => {
+  const doc = page('Remove me please.\n\n## Retype me\n\nOther.\n');
+  const blocks = doc.getMap('blocks');
+  const byText = (s) => [...blocks.values()].find((b) => b.get('prop:text')?.toString() === s);
+  byText('Remove me please.').set('prop:mnSugg', { id: 'u2-rm', kind: 'remove', by: 'u2', at: 1 });
+  const h = byText('Retype me');
+  h.set('prop:type', 'h3');
+  h.set('prop:mnSugg', { id: 'u2-ty', kind: 'type', by: 'u2', at: 1, from: { flavour: 'affine:paragraph', type: 'h2' } });
+  assert.equal(read(doc), 'Remove me please.\n\n## Retype me\n\nOther.');
+  suggestMarkdown({ doc, markdown: 'Remove me now.\n\n## Retype this\n\nOther.\n', mode: 'replace', by: 'owner', title: 'T', direct: true });
+  assert.equal(read(doc), 'Remove me now.\n\n## Retype this\n\nOther.');
+  assert.deepEqual(listSuggestions(doc).map((c) => [c.id, c.kind]), [['u2-rm', 'remove'], ['u2-ty', 'type']]);
+  assert.equal(h.get('prop:type'), 'h3');
+});

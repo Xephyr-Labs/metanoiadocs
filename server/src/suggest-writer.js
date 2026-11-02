@@ -110,9 +110,16 @@ function reconcileBlocks(w, children, newIds) {
   }
   let i = 0, j = 0, after = null;
   const flush = (iEnd, jEnd) => {
-    while (i < iEnd && j < jEnd && pairable(w, old[i], newIds[j])) {
-      pairBlocks(w, old[i], newIds[j]);
-      after = old[i];
+    while (i < iEnd && j < jEnd) {
+      if (pairable(w, old[i], newIds[j])) {
+        pairBlocks(w, old[i], newIds[j]);
+        after = old[i];
+      } else if (reticked(w, old[i], newIds[j])) {
+        // R13: a tick cannot be a mark, so the item is removed and added as
+        // ticked, under one id: one card, accepted or rejected as one.
+        after = removeBlock(w, children, old[i]) ?? after;
+        after = addBlock(w, children, after, newIds[j], sugg(live.get(old[i])));
+      } else break;
       i++; j++;
     }
     for (; i < iEnd; i++) after = removeBlock(w, children, old[i]) ?? after;
@@ -133,15 +140,25 @@ function reconcileBlocks(w, children, newIds) {
   renumberLists(live, children.toArray());
 }
 
+const checkedOf = (b) => !!b.get('prop:checked');
+
+/** Someone else's retype stays theirs; the type the writer read is the one it came from. */
+const baseType = (w, o) => {
+  const s = sugg(o);
+  return s?.kind === 'type' && !own(w, s) ? s.from?.type : o.get('prop:type');
+};
+
 function pairable(w, oid, nid) {
   const o = w.live.get(oid), nb = w.scratch.get(nid);
   const s = sugg(o);
-  // Someone else's block suggestion is theirs to keep; the writer's own added
-  // block is simplest withdrawn and added again as it now reads.
-  if (s && (!own(w, s) || s.kind === 'add')) return false;
+  // The writer's own added block is simplest withdrawn and added again as it
+  // now reads. Someone else's block suggestion is theirs to keep: a suggester
+  // leaves that block alone, a trusted writer edits it under their mark.
+  if (s && (s.kind === 'add' || (!own(w, s) && !w.direct))) return false;
   const fl = o.get('sys:flavour');
   if (!TEXTY.has(fl) || fl !== nb.get('sys:flavour')) return false;
-  if (o.get('prop:type') === nb.get('prop:type')) return true;
+  if (!w.direct && checkedOf(o) !== checkedOf(nb)) return false;
+  if (baseType(w, o) === nb.get('prop:type')) return true;
   // ponytail: a retype pairs only when the text is unchanged; retype + edit is remove + add.
   const t = o.get('prop:text'), nt = nb.get('prop:text');
   return fold(viewText(w, t)) === fold(nt instanceof Y.Text ? nt.toString() : '');
@@ -154,12 +171,26 @@ const viewText = (w, t) => (t instanceof Y.Text
   }).map((op) => (typeof op.insert === 'string' ? op.insert : '')).join('')
   : '');
 
+/** A list item whose only block-level change is its tick, in suggest mode. */
+function reticked(w, oid, nid) {
+  const o = w.live.get(oid), nb = w.scratch.get(nid);
+  return !w.direct && !sugg(o) && o.get('sys:flavour') === 'affine:list' && nb.get('sys:flavour') === 'affine:list'
+    && checkedOf(o) !== checkedOf(nb);
+}
+
 function pairBlocks(w, oid, nid) {
   const o = w.live.get(oid), nb = w.scratch.get(nid);
   let s = sugg(o);
-  if (s?.kind === 'remove') { o.delete(BLOCK_KEY); s = null; } // own: edited, so wanted after all
+  if (s?.kind === 'remove' && own(w, s)) { o.delete(BLOCK_KEY); s = null; } // edited, so wanted after all
   const type = nb.get('prop:type');
-  if (o.get('prop:type') !== type) {
+  if (w.direct && checkedOf(o) !== checkedOf(nb)) o.set('prop:checked', checkedOf(nb));
+  if (s && !own(w, s)) {
+    // Direct only: the base under someone else's mark changes, the mark stays.
+    if (s.kind === 'type' && s.from?.type !== type) {
+      if (o.get('prop:type') === type) o.delete(BLOCK_KEY);
+      else o.set(BLOCK_KEY, { ...s, from: { ...s.from, type } });
+    }
+  } else if (o.get('prop:type') !== type) {
     const from = s?.kind === 'type' ? s.from : { flavour: o.get('sys:flavour'), type: o.get('prop:type') };
     o.set('prop:type', type);
     if (w.direct || from.type === type) o.delete(BLOCK_KEY);
@@ -188,10 +219,10 @@ function removeBlock(w, children, id) {
   return id;
 }
 
-function addBlock(w, children, after, sid) {
+function addBlock(w, children, after, sid, pairedWith = null) {
   const id = copyTree(w.scratch, w.live, sid);
   if (!w.direct) {
-    const m = mark(w, 'add');
+    const m = pairedWith ? { ...pairedWith, kind: 'add' } : mark(w, 'add');
     w.live.get(id).set(BLOCK_KEY, m);
     w.created.push(m.id);
   }
@@ -234,7 +265,19 @@ function tokens(units) {
   return out;
 }
 
-/** Hunks between base and next as unit ranges: [{ bs, be, ns, ne }]; whitespace-only ones dropped. */
+const STOP = new Set(('a an the and or but nor so of to in on at by for with from as into onto than then '
+  + 'is are was were be been am it its this that these those we you they he she i our your their his her').split(' '));
+const isWord = (str) => /[\p{L}\p{N}]/u.test(str);
+// ponytail: sentence ends at . ! ? before a space; abbreviations ("e.g. x") split early, which only means two cards.
+const endsSentence = (T, x, units) => /^[.!?]$/.test(units[T[x].s].ch) && (x + 1 >= T.length || units[T[x + 1].s].ch.trim() === '');
+
+/**
+ * Hunks between base and next as unit ranges: [{ bs, be, ns, ne }]. One
+ * suggestion per thought, not per word: inside a sentence, changes joined only
+ * by stopwords, or covering much of the sentence, become one replace from the
+ * first change to the last. Changes in different sentences stay apart.
+ * Whitespace-only hunks are dropped, and none keeps an unchanged space at an edge.
+ */
 function hunks(base, next) {
   const A = tokens(base), B = tokens(next);
   const n = A.length, m = B.length;
@@ -242,8 +285,8 @@ function hunks(base, next) {
   for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) {
     L[i][j] = A[i].k === B[j].k ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
   }
-  const at = (T, x, len) => (x < T.length ? T[x].s : len);
-  const out = [];
+  // Token ranges first: { ai, aj, bi, bj }.
+  const raw = [];
   let i = 0, j = 0;
   while (i < n || j < m) {
     if (i < n && j < m && A[i].k === B[j].k) { i++; j++; continue; }
@@ -251,15 +294,49 @@ function hunks(base, next) {
     while ((i < n || j < m) && !(i < n && j < m && A[i].k === B[j].k)) {
       if (j >= m || (i < n && L[i + 1][j] >= L[i][j + 1])) i++; else j++;
     }
-    const h = { bs: at(A, i0, base.length), be: at(A, i, base.length), ns: at(B, j0, next.length), ne: at(B, j, next.length) };
-    const prev = out[out.length - 1];
-    // Words replaced side by side, with only a space kept between them, are one change.
-    if (prev && !base.slice(prev.be, h.bs).some((u) => u.ch.trim()) && !next.slice(prev.ne, h.ns).some((u) => u.ch.trim())) {
-      prev.be = h.be; prev.ne = h.ne;
-    } else out.push(h);
+    raw.push({ ai: i0, aj: i, bi: j0, bj: j });
   }
+  const text = (T, us, x, y) => T.slice(x, y).map((t) => us.slice(t.s, t.e).map((u) => u.ch).join(''));
+  const words = (T, us, x, y) => text(T, us, x, y).filter(isWord);
+  // Sentence index of each base token, and the base words in each sentence.
+  const sent = [];
+  const sentWords = [];
+  for (let x = 0, k = 0; x < n; x++) {
+    sent.push(k);
+    sentWords[k] = (sentWords[k] || 0) + (isWord(text(A, base, x, x + 1)[0]) ? 1 : 0);
+    if (endsSentence(A, x, base)) k++;
+  }
+  const sentOf = (h) => (n ? sent[Math.min(h.ai, n - 1)] : 0);
+  const out = [];
+  for (const h of raw) {
+    const prev = out[out.length - 1];
+    const between = prev && sentOf(prev) === sentOf(h) ? words(A, base, prev.aj, h.ai) : null;
+    if (between && between.every((w) => STOP.has(w.toLowerCase()))) Object.assign(prev, { aj: h.aj, bj: h.bj });
+    else out.push({ ...h });
+  }
+  // A sentence most of whose words change is rewritten, not edited: one change.
+  const merged = [];
+  for (const h of out) {
+    const prev = merged[merged.length - 1];
+    if (prev && sentOf(prev) === sentOf(h)) prev.parts.push(h);
+    else merged.push({ ...h, parts: [h] });
+  }
+  const final = merged.flatMap((g) => {
+    if (g.parts.length < 2) return g.parts;
+    const changed = g.parts.reduce((c, h) => c + Math.max(words(A, base, h.ai, h.aj).length, words(B, next, h.bi, h.bj).length), 0);
+    if (changed < 0.4 * (sentWords[sentOf(g)] || 1)) return g.parts;
+    const last = g.parts[g.parts.length - 1];
+    return [{ ai: g.ai, aj: last.aj, bi: g.bi, bj: last.bj }];
+  });
+  const at = (T, x, len) => (x < T.length ? T[x].s : len);
   const blank = (us) => !us.some((u) => u.ch.trim());
-  return out.filter((h) => !(blank(base.slice(h.bs, h.be)) && blank(next.slice(h.ns, h.ne))));
+  return final.map((h) => {
+    const r = { bs: at(A, h.ai, base.length), be: at(A, h.aj, base.length), ns: at(B, h.bi, next.length), ne: at(B, h.bj, next.length) };
+    // A space on both sides of an edge is unchanged: leave it out of the change.
+    while (r.be > r.bs && r.ne > r.ns && !base[r.be - 1].ch.trim() && !next[r.ne - 1].ch.trim()) { r.be--; r.ne--; }
+    while (r.be > r.bs && r.ne > r.ns && !base[r.bs].ch.trim() && !next[r.ns].ch.trim()) { r.bs++; r.ns++; }
+    return r;
+  }).filter((h) => !(blank(base.slice(h.bs, h.be)) && blank(next.slice(h.ns, h.ne))));
 }
 
 const sameMark = (a, b) => (a == null ? b == null : b != null && a.id === b.id && a.kind === b.kind && a.at === b.at);
