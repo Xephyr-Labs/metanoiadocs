@@ -285,6 +285,13 @@ export async function mountEditor(
         awareness: collection.awarenessStore.awareness,
       });
 
+  // Yjs cannot un-send a refused edit, so drop the local copy and start again
+  // from the server's state. Only on the server's own 4403 close after the
+  // notice: any peer can relay a stateless message, but not close our socket.
+  let refused = false;
+  provider?.on('close', ({ event }: { event: { code?: number } }) => {
+    if (refused && event?.code === 4403) void (idb?.clearData() ?? Promise.resolve()).finally(() => location.reload());
+  });
   provider?.on('stateless', ({ payload }: { payload: string }) => {
     try {
       const type = JSON.parse(payload)?.type;
@@ -293,6 +300,9 @@ export async function mountEditor(
       else if (type === 'comments-changed') notifyCommentsChanged();
       // This Suggesting-mode draft was reviewed or discarded: leave it (reviewMode.ts).
       else if (type === 'draft-closed' && draft) window.dispatchEvent(new CustomEvent('mn-draft-closed', { detail: { draft } }));
+      // The server refused an edit from this suggest-only connection
+      // (suggest-guard.js); it closes the socket next (below).
+      else if (type === 'suggestion-refused') refused = true;
     } catch { /* not ours */ }
   });
 
