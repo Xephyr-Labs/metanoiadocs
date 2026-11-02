@@ -47,6 +47,17 @@ describe('block suggestion marks', () => {
     expect(css).toMatch(/html\.dark\s*{[^}]*--sugg-ins-fg/);
   });
 
+  it('block bar stands off the text; an added block gets a faint green wash', () => {
+    const rule = css.match(/\[data-mn-sugg='add'\],\s*\[data-mn-sugg='remove'\],\s*\[data-mn-sugg='type'\]\s*{([^}]*)}/)![1];
+    // Two outer shadows: a canvas-coloured gap next to the text, the bar beyond it.
+    expect(rule).toMatch(/box-shadow:\s*-\d+px 0 0 0 var\(--canvas\),\s*-\d+px 0 0 0 var\(--sugg-ins-fg\)/);
+    expect(rule).not.toMatch(/inset/);
+    expect(css).not.toMatch(/\[data-mn-sugg='remove'\][^{]*{[^}]*inset/);
+    expect(css).toMatch(/\[data-mn-sugg='add'\]\s*{[^}]*background:\s*var\(--sugg-add-bg\)/);
+    expect(css).toContain('--sugg-add-bg: #f3faf5');
+    expect(css).toMatch(/html\.dark\s*{[^}]*--sugg-add-bg/);
+  });
+
   it('share/snapshot view: ins hidden, del plain, add blocks hidden, remove blocks normal', () => {
     const c = CLEAN_VIEW_CLASS;
     expect(css).toMatch(new RegExp(`\\.${c} \\.mn-sugg-ins\\s*{[^}]*display:\\s*none`));

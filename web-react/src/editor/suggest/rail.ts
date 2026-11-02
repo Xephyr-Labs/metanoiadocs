@@ -31,6 +31,16 @@ export function stepActive(ids: string[], active: string | null, dir: 1 | -1): s
   return ids[(i + dir + ids.length) % ids.length];
 }
 
+/** A margin card's width, and its gap from the text. */
+export const CARD_W = 240;
+export const CARD_GAP = 16;
+
+/** Cards go under their paragraph on a phone, or when the editor has no room
+ *  right of the text for a card; otherwise they sit in the margin. */
+export function cardsInline({ phone, textRight, areaRight }: { phone: boolean; textRight: number; areaRight: number }): boolean {
+  return phone || areaRight - textRight < CARD_W + CARD_GAP;
+}
+
 /** Tops for cards that want to sit at `top`, pushed down so none overlaps the one above. */
 export function stackCards(items: { top: number; height: number }[], gap: number): number[] {
   let floor = -Infinity;

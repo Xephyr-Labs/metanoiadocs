@@ -8,10 +8,9 @@ import { avatarFor } from '../../lib/avatar';
 import { cn } from '../../lib/cn';
 import { relativeTime } from '../../lib/time';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
-import { elementsFor, stackCards, type Card, type Suggestions } from '../../editor/suggest/rail';
+import { CARD_GAP, CARD_W, cardsInline, elementsFor, stackCards, type Card, type Suggestions } from '../../editor/suggest/rail';
 import type { Verdict } from '../../editor/suggest/model';
 
-const CARD_W = 240;
 const GAP = 8;
 
 interface RailProps {
@@ -43,10 +42,10 @@ export function SuggestionRail({ cards, active, canDecide, onDecide, onHover, on
             className={cn(
               'pointer-events-auto absolute rounded-lg border border-line bg-canvas p-2.5 shadow-sm',
               'transition-[box-shadow,border-color] duration-120',
-              inline ? 'left-0 right-0' : 'left-full ml-4',
+              inline ? 'left-0 right-0' : 'left-full',
               c.id === active ? 'border-line-strong ring-2 ring-accent' : 'hover:border-line-strong',
             )}
-            style={inline ? undefined : { width: CARD_W }}
+            style={inline ? undefined : { width: CARD_W, marginLeft: CARD_GAP }}
           >
             <div className="flex items-center gap-2">
               <span
@@ -111,7 +110,7 @@ export function SuggestionLayer({ s, container, canDecide, fullWidth }: {
 }) {
   const phone = useMediaQuery('(max-width: 767px)');
   const layer = useRef<HTMLDivElement>(null);
-  const col = useRef<HTMLDivElement>(null);
+  const text = useRef<HTMLDivElement>(null);
   const reserved = useRef<HTMLElement[]>([]);
   const [inline, setInline] = useState(phone);
   const [, setTick] = useState(0);
@@ -134,9 +133,10 @@ export function SuggestionLayer({ s, container, canDecide, fullWidth }: {
     for (const el of reserved.current) el.style.marginBottom = '';
     reserved.current = [];
     const L = layer.current;
-    const C = col.current;
-    if (!L || !C || !container) return;
-    const want = phone || L.getBoundingClientRect().right - C.getBoundingClientRect().right < CARD_W + 24;
+    const T = text.current;
+    if (!L || !T || !container) return;
+    // Room is measured from the text's right edge to the editor's.
+    const want = cardsInline({ phone, textRight: T.getBoundingClientRect().right, areaRight: container.getBoundingClientRect().right });
     if (want !== inline) { setInline(want); return; }
 
     const cardEls = new Map([...L.querySelectorAll<HTMLElement>('[data-sugg-card]')].map((el) => [el.dataset.suggCard!, el]));
@@ -191,7 +191,6 @@ export function SuggestionLayer({ s, container, canDecide, fullWidth }: {
   return (
     <div ref={layer} className="pointer-events-none absolute inset-0 z-10">
       <div
-        ref={col}
         className={cn(
           'relative mx-auto h-full',
           fullWidth ? 'max-w-none px-[clamp(40px,7vw,120px)]' : 'max-w-[var(--reading-w)] px-6',
@@ -199,7 +198,7 @@ export function SuggestionLayer({ s, container, canDecide, fullWidth }: {
       >
         {/* The text column itself: margin cards start at its right edge,
             inline ones span it. */}
-        <div className="relative h-full">
+        <div ref={text} className="relative h-full">
         <SuggestionRail
           cards={s.cards}
           active={s.active}

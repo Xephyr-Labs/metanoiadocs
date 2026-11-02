@@ -7,7 +7,7 @@
 // Block suggestions live in `prop:mnSugg`, which the schema does not declare:
 // the props proxy would drop it, so it is read from and deleted on the Y block
 // directly, as textSize.ts does.
-import { Text } from '@blocksuite/affine/store';
+import type { Text } from '@blocksuite/affine/store';
 
 export type Verdict = 'accept' | 'reject';
 
@@ -37,17 +37,13 @@ interface Model {
   text?: Text;
   yBlock?: YBlock;
   props?: { type?: string; mnSugg?: Sugg };
-  parent?: Model | null;
 }
 // Loose on purpose: BlockSuite's Store is generic over every block schema.
 export interface StoreLike {
   root: unknown;
   transact(fn: () => void): void;
   deleteBlock(model: never): void;
-  updateBlock(model: never, props: never): void;
-  addBlock(flavour: string, props: never, parent?: never, index?: number): string;
   getBlock(id: string): { model: unknown } | null | undefined;
-  moveBlocks?(models: never[], parent: never): void;
   captureSync?(): void;
 }
 
@@ -119,22 +115,51 @@ function assertVerdict(v: unknown): asserts v is Verdict {
   if (v !== 'accept' && v !== 'reject') throw new Error(`Unknown verdict: ${String(v)}`);
 }
 
-/** Put a block back to the flavour and type it had before a `type` suggestion. */
-function restoreType(store: StoreLike, m: Model, from: { flavour: string; type?: string }) {
-  if (from.flavour === m.flavour) {
-    if (from.type !== undefined) store.updateBlock(m as never, { type: from.type } as never);
-    return;
-  }
-  // A flavour can't change in place: a new block of the old flavour takes this
-  // one's place, text and children.
-  const parent = m.parent;
-  if (!parent) return;
-  const props: Record<string, unknown> = { text: new Text((m.text?.yText.toDelta() ?? []) as never) };
-  if (from.type !== undefined) props.type = from.type;
-  const id = store.addBlock(from.flavour, props as never, parent as never, parent.children.indexOf(m));
-  const fresh = store.getBlock(id)?.model;
-  if (fresh && m.children.length) store.moveBlocks?.(m.children as never[], fresh as never);
-  store.deleteBlock(m as never);
+/**
+ * Put a block back to the flavour and type it had before a `type` suggestion,
+ * in place, as the server does: same block, same id, same Y.Text, so comments
+ * anchored to it, its other Y props and anyone's concurrent typing all stay.
+ * BlockSuite does not rebuild a model whose flavour changes under it; that is
+ * watchFlavours' job.
+ */
+function restoreType(m: Model, from: { flavour: string; type?: string }) {
+  const yb = m.yBlock as (YBlock & { set(k: string, v: unknown): void }) | undefined;
+  if (!yb) return;
+  if (from.flavour !== m.flavour) yb.set('sys:flavour', from.flavour);
+  if (from.type === undefined) yb.delete('prop:type'); else yb.set('prop:type', from.type);
+}
+
+interface YMapEvent { target: { get(k: string): unknown }; keysChanged?: Set<string>; transaction: { local: boolean } }
+interface YMapLike { observeDeep(f: (e: YMapEvent[]) => void): void; unobserveDeep(f: (e: YMapEvent[]) => void): void }
+
+/**
+ * Rebuild a block's model when its `sys:flavour` is rewritten in place — a
+ * type reject here or on another client, or the undo of one. BlockSuite builds
+ * a model once per block and only reacts to blocks coming and going, so this
+ * sends the block out and back in through the store's own add/delete slot: the
+ * model is rebuilt from the same Y block, and the view re-renders it.
+ */
+export function watchFlavours(store: StoreLike): () => void {
+  const s = store as unknown as {
+    doc: { spaceDoc: { getMap(n: string): YMapLike } };
+    getBlock(id: string): { flavour?: string; model: { flavour: string } } | null | undefined;
+    slots: { yBlockUpdated: { next(p: { type: 'add' | 'delete'; id: string; isLocal: boolean }): void } };
+  };
+  const blocks = s.doc.spaceDoc.getMap('blocks');
+  const onEvents = (events: YMapEvent[]) => {
+    for (const e of events) {
+      if ((e.target as unknown) === blocks || !e.keysChanged?.has('sys:flavour')) continue;
+      const id = e.target.get('sys:id') as string;
+      const flavour = e.target.get('sys:flavour');
+      const model = s.getBlock(id)?.model;
+      if (!model || model.flavour === flavour) continue;
+      const isLocal = e.transaction.local;
+      s.slots.yBlockUpdated.next({ type: 'delete', id, isLocal });
+      s.slots.yBlockUpdated.next({ type: 'add', id, isLocal });
+    }
+  };
+  blocks.observeDeep(onEvents);
+  return () => blocks.unobserveDeep(onEvents);
 }
 
 /** Accept or reject the suggestion `id`. True if anything changed. */
@@ -156,7 +181,7 @@ export function decide(store: StoreLike, id: string, verdict: Verdict): boolean 
       changed = true;
       m.yBlock?.delete(BLOCK_KEY);
       if (bs.kind === 'add' ? !accept : bs.kind === 'remove' ? accept : false) store.deleteBlock(m as never);
-      else if (bs.kind === 'type' && !accept && bs.from) restoreType(store, m, bs.from);
+      else if (bs.kind === 'type' && !accept && bs.from) restoreType(m, bs.from);
     }
   });
   return changed;

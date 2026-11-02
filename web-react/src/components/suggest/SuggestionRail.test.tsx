@@ -5,7 +5,7 @@ import { Text } from '@blocksuite/affine/store';
 import { TestWorkspace } from '@blocksuite/affine/store/test';
 import { getTestStoreManager } from '@blocksuite/integration-test/store';
 import { decide, listSuggestions } from '../../editor/suggest/model';
-import { highlightSuggestion, stackCards, stepActive, toCards } from '../../editor/suggest/rail';
+import { cardsInline, highlightSuggestion, stackCards, stepActive, toCards } from '../../editor/suggest/rail';
 import { SuggestionRail } from './SuggestionRail';
 
 const S = (id: string, kind: string, by = 'u1') => ({ id, kind, by, at: 1 });
@@ -133,5 +133,16 @@ describe('navigation and layout', () => {
   it('stacks cards in page order without overlapping', () => {
     expect(stackCards([{ top: 10, height: 50 }, { top: 20, height: 40 }, { top: 200, height: 30 }], 8))
       .toEqual([10, 68, 200]);
+  });
+});
+
+describe('margin or inline', () => {
+  it('margin cards whenever a card fits right of the text; inline on phones and narrow panes', () => {
+    // 1600px window (controller's measure): text ends at 1309, editor at 1590.
+    expect(cardsInline({ phone: false, textRight: 1309, areaRight: 1590 })).toBe(false);
+    // 1280px window with the sidebar open: about 120px to spare.
+    expect(cardsInline({ phone: false, textRight: 1149, areaRight: 1270 })).toBe(true);
+    // A phone is inline whatever the numbers say.
+    expect(cardsInline({ phone: true, textRight: 100, areaRight: 1000 })).toBe(true);
   });
 });

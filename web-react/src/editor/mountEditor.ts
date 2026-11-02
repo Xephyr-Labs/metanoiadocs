@@ -49,6 +49,7 @@ import { imageToolbarExtensions } from './imageToolbar';
 import { pageViewportExtension } from './pageViewport';
 import { attachCalloutPanels, calloutExtensions } from './callout';
 import { CLEAN_VIEW_CLASS, paintSuggestionBlocks } from './suggest/blockMarks';
+import { watchFlavours } from './suggest/model';
 import { stripSuggestionsOnCopyExtension, suggestInlineExtensions } from './suggest/inlineSpec';
 import { cancelVoiceNote, voiceNoteExtensions } from './voiceNote';
 import { closeTranscriptCard, voiceTranscriptExtensions } from './voiceTranscript';
@@ -708,6 +709,8 @@ export async function mountEditor(
   // version preview shows the page without the pending insertions (CSS only).
   if (share || snapshot) editor.classList.add(CLEAN_VIEW_CLASS);
   const detachSuggestionBlocks = paintSuggestionBlocks(editor, (cb) => { doc.spaceDoc.on('update', cb); return () => doc.spaceDoc.off('update', cb); });
+  // A rejected type change rewrites a block's flavour in place; rebuild its model.
+  const detachFlavours = watchFlavours(store as never);
 
   // Render read-only diagram previews under ```mermaid code blocks. Mermaid is
   // dynamically imported inside here, so it only loads for docs that use it.
@@ -816,6 +819,7 @@ export async function mountEditor(
       try { closeTranscriptCard(); } catch { /* noop */ }
       try { detachTextSize(); } catch { /* noop */ }
       try { detachSuggestionBlocks(); } catch { /* noop */ }
+      try { detachFlavours(); } catch { /* noop */ }
       try { detachMermaid(); } catch { /* noop */ }
       try { detachMarkdownPaste?.(); } catch { /* noop */ }
       try { detachForeignClipboard(); } catch { /* noop */ }
