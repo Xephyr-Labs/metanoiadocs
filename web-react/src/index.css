@@ -1718,6 +1718,10 @@ affine-paragraph:has(> .affine-block-component > .affine-paragraph-block-contain
   box-shadow: inset 3px 0 0 var(--sugg-ins-fg);
 }
 [data-mn-sugg='remove'] { box-shadow: inset 3px 0 0 var(--sugg-del-fg); }
+/* The change whose card is hovered or active (editor/suggest/rail.ts). */
+::highlight(mn-sugg-active) {
+  background-color: var(--comment-mark-active);
+}
 /* Share links and version previews: no pending insertion is shown, a pending
  * deletion is still plain text, a block marked for removal still reads normally. */
 .mn-sugg-clean .mn-sugg-ins { display: none; }

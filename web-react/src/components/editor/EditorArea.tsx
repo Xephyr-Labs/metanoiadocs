@@ -25,6 +25,9 @@ import * as prefs from '../../lib/docPrefs';
 import { useReviewState } from '../../lib/reviewMode';
 import { SuggestingBanner } from '../review/SuggestingBanner';
 import { ReviewView } from '../review/ReviewView';
+import { useSuggestions } from '../../editor/suggest/rail';
+import { SuggestionBar } from '../suggest/SuggestionBar';
+import { SuggestionLayer } from '../suggest/SuggestionRail';
 
 export function EditorArea() {
   const ws = useWorkspace();
@@ -78,6 +81,8 @@ export function EditorArea() {
   const pageId = page?.id;
   // Editing / Suggesting / Viewing, and the review takeover.
   const review = useReviewState(pageId, page?.role, auth.user?.id);
+  // Pending inline suggestions: the bar above the page, the cards beside it.
+  const sugg = useSuggestions(editorEl);
   useEffect(() => {
     if (!editorEl || !pageId || !takeTitleFocus(pageId)) return;
     return focusDocTitle(editorEl);
@@ -161,6 +166,8 @@ export function EditorArea() {
         </div>
       )}
 
+      {!canvas && <SuggestionBar s={sugg} canDecide={canEditRole(page.role)} />}
+
       <div className="relative min-h-0 flex-1">
         {canvas ? (
           <div className="absolute inset-0 flex">
@@ -233,6 +240,7 @@ export function EditorArea() {
                       positioned either way, and rendering it first put every
                       comment pip ahead of the document in the tab order. */}
                   <CommentMarkers container={markerHost} fullWidth={ws.fullWidth} />
+                  <SuggestionLayer s={sugg} container={markerHost} canDecide={canEditRole(page.role)} fullWidth={ws.fullWidth} />
                   <LinkedPages docId={page.id} refreshKey={refreshKey} fullWidth={ws.fullWidth} onOpen={(id) => ws.select(id)} />
                 </div>
               </motion.div>

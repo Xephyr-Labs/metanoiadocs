@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { resolveHotkey, type HotkeyAction } from '../lib/hotkeys';
+import { navigateSuggestions } from '../editor/suggest/rail';
 import { isInDialog, isTyping } from '../lib/typing';
 import { useWorkspace } from '../store/workspace';
 
@@ -14,7 +15,8 @@ export function useGlobalHotkeys() {
   const chord = useRef<{ key: string; at: number } | null>(null);
 
   useEffect(() => {
-    const run: Record<HotkeyAction, () => void> = {
+    // An action that returns false did not apply here; its key goes on to the page.
+    const run: Record<HotkeyAction, () => void | boolean> = {
       palette: () => ws.setPaletteOpen(true),
       sidebar: () => ws.setSidebarCollapsed(!ws.sidebarCollapsed),
       theme: ws.toggleTheme,
@@ -30,6 +32,8 @@ export function useGlobalHotkeys() {
         if (ws.view === 'project' && ws.activeProjectId) void ws.createTaskIn(ws.activeProjectId);
         else void ws.createPage(null);
       },
+      nextChange: () => navigateSuggestions(1),
+      prevChange: () => navigateSuggestions(-1),
     };
 
     // A modifier pressed on its own is not a keystroke yet — it is the first
@@ -50,8 +54,7 @@ export function useGlobalHotkeys() {
       // waiting through the rest of a sentence.
       chord.current = hit?.arm ? { key: hit.arm, at: Date.now() } : null;
       if (!hit?.action) return;
-      e.preventDefault();
-      run[hit.action]();
+      if (run[hit.action]() !== false) e.preventDefault();
     };
 
     window.addEventListener('keydown', onKey);
