@@ -281,6 +281,9 @@ function tokens(units) {
   return out;
 }
 
+/** The most LCS cells a word diff fills (~8 MB); past that the differing middle is one replace. */
+const LCS_CELLS = 2_000_000;
+
 const STOP = new Set(('a an the and or but nor so of to in on at by for with from as into onto than then '
   + 'is are was were be been am it its this that these those we you they he she i our your their his her').split(' '));
 const isWord = (str) => /[\p{L}\p{N}]/u.test(str);
@@ -297,20 +300,32 @@ const endsSentence = (T, x, units) => /^[.!?]$/.test(units[T[x].s].ch) && (x + 1
 function hunks(base, next) {
   const A = tokens(base), B = tokens(next);
   const n = A.length, m = B.length;
-  const L = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
-  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) {
-    L[i][j] = A[i].k === B[j].k ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
-  }
-  // Token ranges first: { ai, aj, bi, bj }.
+  // Token ranges first: { ai, aj, bi, bj }. The common start and end are no
+  // change, so the LCS runs only on the middle that differs.
+  let p = 0;
+  while (p < n && p < m && A[p].k === B[p].k) p++;
+  let q = 0;
+  while (q < n - p && q < m - p && A[n - 1 - q].k === B[m - 1 - q].k) q++;
   const raw = [];
-  let i = 0, j = 0;
-  while (i < n || j < m) {
-    if (i < n && j < m && A[i].k === B[j].k) { i++; j++; continue; }
-    const i0 = i, j0 = j;
-    while ((i < n || j < m) && !(i < n && j < m && A[i].k === B[j].k)) {
-      if (j >= m || (i < n && L[i + 1][j] >= L[i][j + 1])) i++; else j++;
+  const n2 = n - p - q, m2 = m - p - q;
+  if (n2 * m2 > LCS_CELLS) {
+    // ponytail: a middle this big (two long, different texts) is one replace; the table would cost ~4 bytes a cell.
+    raw.push({ ai: p, aj: n - q, bi: p, bj: m - q });
+  } else {
+    const L = Array.from({ length: n2 + 1 }, () => new Uint32Array(m2 + 1));
+    for (let i = n2 - 1; i >= 0; i--) for (let j = m2 - 1; j >= 0; j--) {
+      L[i][j] = A[p + i].k === B[p + j].k ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
     }
-    raw.push({ ai: i0, aj: i, bi: j0, bj: j });
+    const same = (i, j) => i < n2 && j < m2 && A[p + i].k === B[p + j].k;
+    let i = 0, j = 0;
+    while (i < n2 || j < m2) {
+      if (same(i, j)) { i++; j++; continue; }
+      const i0 = i, j0 = j;
+      while ((i < n2 || j < m2) && !same(i, j)) {
+        if (j >= m2 || (i < n2 && L[i + 1][j] >= L[i][j + 1])) i++; else j++;
+      }
+      raw.push({ ai: p + i0, aj: p + i, bi: p + j0, bj: p + j });
+    }
   }
   const text = (T, us, x, y) => T.slice(x, y).map((t) => us.slice(t.s, t.e).map((u) => u.ch).join(''));
   const words = (T, us, x, y) => text(T, us, x, y).filter(isWord);

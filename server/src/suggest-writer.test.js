@@ -392,3 +392,30 @@ test('R14: a tick dropped under someone else\'s pending tick is reported; agreei
   // u2 now suggests numbered+ticked; andy wants a bullet: dropped and reported.
   assert.deepEqual(write(doc, '- open task\n').skipped?.map((s) => s.blockId), [id]);
 });
+
+test('a 10,000-word paragraph with one word changed is one card, in modest time and memory', () => {
+  const words = Array.from({ length: 10_000 }, (_, i) => `word${i}`);
+  const doc = page(`${words.join(' ')}.\n`);
+  const rss0 = process.memoryUsage().rss;
+  const t0 = performance.now();
+  const out = write(doc, `${words.map((w, i) => (i === 5000 ? 'changed' : w)).join(' ')}.\n`);
+  const ms = performance.now() - t0;
+  const grew = (process.memoryUsage().rss - rss0) / 1e6;
+  assert.deepEqual(cards(doc), [{ kind: 'replace', by: 'andy', before: 'word5000', after: 'changed' }]);
+  assert.equal(out.changes, 1);
+  assert.ok(ms < 1500, `${Math.round(ms)} ms`);
+  assert.ok(grew < 250, `rss grew ${Math.round(grew)} MB`);
+});
+
+test('two long paragraphs that differ throughout are one replace of the middle, not a table past the cap', () => {
+  const a = Array.from({ length: 2_000 }, (_, i) => `alpha${i}`).join(' ');
+  const b = Array.from({ length: 2_000 }, (_, i) => `beta${i}`).join(' ');
+  const doc = page(`Start ${a} end.\n`);
+  write(doc, `Start ${b} end.\n`);
+  const cs = cards(doc);
+  assert.equal(cs.length, 1);
+  assert.equal(cs[0].kind, 'replace');
+  assert.equal(cs[0].before, a);
+  assert.equal(cs[0].after, b);
+  assert.equal(read(doc, 'andy'), `Start ${b} end.`);
+});
