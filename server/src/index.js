@@ -3020,22 +3020,11 @@ app.get('/api/docs/:id/comments', requireUser, async (req, res) => {
 app.post('/api/docs/:id/comments', requireUser, async (req, res) => {
   const role = await grantOn(req.params.id, req.user.id);
   if (!canComment(role)) return res.status(403).json({ error: 'forbidden' });
-  const suggestion = req.body?.kind === 'suggestion';
-  // A suggestion proposes new text for a passage; the note beside it is optional.
-  // A comment is text, a file (a voice note), or both; a suggestion is never a file.
-  const input = suggestion
-    ? { body: String(req.body?.body || '').trim().slice(0, 4000), attachments: [] }
-    : commentInput(req.body);
-  if (input.error) return res.status(400).json({ error: input.error });
+  // A comment is text, a file (a voice note), or both; never a suggestion (410).
+  const input = commentInput(req.body);
+  if (input.error) return res.status(input.status ?? 400).json({ error: input.error });
   const { body, attachments } = input;
   const notifyText = input.notifyText ?? body;
-  const replacement = suggestion ? String(req.body?.suggestion ?? '').slice(0, 4000) : null;
-  if (suggestion) {
-    if (!canSuggest(role)) return res.status(403).json({ error: 'You can comment on this page, but not suggest changes.' });
-    if (!req.body?.blockId || !String(req.body?.quote || '').trim()) {
-      return res.status(400).json({ error: 'Select the text you want to change first.' });
-    }
-  }
   // Replying to a task comment (e.g. an agent answering an @mention on a task,
   // which it only knows by the task's page): keep the reply in the task thread.
   if (req.body?.parentId) {
@@ -3064,7 +3053,6 @@ app.post('/api/docs/:id/comments', requireUser, async (req, res) => {
     if (!p) return res.status(400).json({ error: 'That thread is not on this page.' });
     parentId = p.parent_id || p.id;
     replyToId = p.id;
-    if (suggestion) return res.status(400).json({ error: 'A suggestion starts its own thread.' });
   }
   const id = crypto.randomUUID();
   await pool.query(
@@ -3074,7 +3062,7 @@ app.post('/api/docs/:id/comments', requireUser, async (req, res) => {
     [id, req.params.id, parentId ? null : (req.body?.blockId || null),
      parentId ? '' : String(req.body?.quote || '').slice(0, 500),
      body, req.user.id, req.user.name || req.user.email, parentId,
-     suggestion ? 'suggestion' : 'comment', replacement,
+     'comment', null,
      // Which copy of the quoted words in that block — "the" twice in a line.
      Math.max(0, Math.min(1000, Number.parseInt(req.body?.occurrence, 10) || 0)),
      ...commentAnchors(parentId ? null : req.body),
@@ -3082,8 +3070,8 @@ app.post('/api/docs/:id/comments', requireUser, async (req, res) => {
   );
   // Fan out notifications for this comment (best-effort; never fails the comment).
   createCommentNotifications({
-    commentId: id, docId: req.params.id, body: suggestion ? suggestionSnippet(req.body.quote, replacement, body) : notifyText,
-    actor: req.user, parentId, replyToId, kind: suggestion ? 'suggestion' : null,
+    commentId: id, docId: req.params.id, body: notifyText,
+    actor: req.user, parentId, replyToId, kind: null,
   }).catch((e) => console.error('[notify] fanout failed', e.message));
   emit('comment.created', { id, doc_id: req.params.id, body, attachments, author_id: req.user.id });
   commentsChanged(req.params.id);

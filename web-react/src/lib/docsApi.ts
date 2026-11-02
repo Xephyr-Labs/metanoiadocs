@@ -513,7 +513,7 @@ export const docsApi = {
   comments: (id: string): Promise<CommentRow[]> => req(`/docs/${id}/comments`),
   addComment: (id: string, body: string, opts?: {
     parentId?: string; blockId?: string | null; quote?: string; occurrence?: number;
-    anchorStart?: string; anchorEnd?: string; kind?: 'suggestion'; suggestion?: string;
+    anchorStart?: string; anchorEnd?: string;
     attachments?: StoredFile[];
   }) =>
     req(`/docs/${id}/comments`, { method: 'POST', body: JSON.stringify({ body, ...opts }) }),

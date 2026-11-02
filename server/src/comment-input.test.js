@@ -33,3 +33,10 @@ test('a comment reads as its words, or as a voice note when it has none', () => 
   assert.equal(commentText('', []), '');
   assert.equal(commentText('', undefined), '');
 });
+
+test('a comment suggestion is refused with 410, as the retired drafts route is (POST /api/docs/:id/comments)', () => {
+  const out = commentInput({ kind: 'suggestion', body: 'tighter', suggestion: 'huge', blockId: 'b1', quote: 'very big' });
+  assert.equal(out.status, 410);
+  assert.match(out.error, /Suggesting mode/);
+  assert.equal(commentInput({ kind: 'comment', body: 'hi' }).body, 'hi');
+});

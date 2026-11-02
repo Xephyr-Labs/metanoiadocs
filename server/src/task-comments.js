@@ -184,7 +184,7 @@ export function registerTaskCommentRoutes(app, { requireUser, wrap }) {
 
   app.post('/api/tasks/:id/comments', requireUser, wrap(async (req, res) => {
     const input = commentInput(req.body);
-    if (input.error) return res.status(400).json({ error: input.error });
+    if (input.error) return res.status(input.status ?? 400).json({ error: input.error });
     const { body, attachments } = input;
     const { rows: task } = await pool.query(
       'SELECT id, title, doc_id, project_id, created_by FROM tasks WHERE id = $1 AND deleted_at IS NULL',
