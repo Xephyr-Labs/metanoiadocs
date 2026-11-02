@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { resolveHotkey, type HotkeyAction } from '../lib/hotkeys';
 import { navigateSuggestions } from '../editor/suggest/rail';
-import { isInDialog, isTyping } from '../lib/typing';
+import { isInDialog, isInEditor, isTyping } from '../lib/typing';
 import { useWorkspace } from '../store/workspace';
 
 /** How long a `g` stays armed, waiting for the letter that says where to go. */
@@ -47,6 +47,7 @@ export function useGlobalHotkeys() {
       const hit = resolveHotkey(e, {
         typing: isTyping(e.target),
         inDialog: isInDialog(e.target),
+        inEditor: isInEditor(e.target),
         armed,
       });
       // Only a key that arms a chord leaves one armed. Anything else — a hit, a

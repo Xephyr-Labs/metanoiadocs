@@ -21,6 +21,12 @@ export function isTyping(target: EventTarget | null): boolean {
   );
 }
 
+/** True when the keystroke is in the page editor (BlockSuite), not another field. */
+export function isInEditor(target: EventTarget | null): boolean {
+  const el = target instanceof Element ? target : null;
+  return !!el?.closest('editor-host');
+}
+
 /**
  * True when a modal dialog owns the keyboard.
  *
