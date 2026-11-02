@@ -105,6 +105,21 @@ describe('client suggestion model', () => {
     expect(n.store.getBlock(n.noteId)!.model.children).toHaveLength(0);
   });
 
+  it('removes whole blocks through Yjs, so a read-only store cannot half-apply a decision', () => {
+    const n = mk('one', 'two', 'three');
+    n.yb(n.ids[0]).set('prop:mnSugg', S('add', 'add'));
+    n.yb(n.ids[1]).set('prop:mnSugg', S('rem', 'remove'));
+    n.store.readonly = true;
+    decide(n.store, 'add', 'reject');
+    decide(n.store, 'rem', 'accept');
+    const kids = n.yb(n.noteId).get('sys:children') as Y.Array<string>;
+    expect(kids.toArray()).toEqual([n.ids[2]]);
+    expect(n.doc.spaceDoc.getMap('blocks').has(n.ids[0])).toBe(false);
+    expect(n.doc.spaceDoc.getMap('blocks').has(n.ids[1])).toBe(false);
+    expect(n.store.getBlock(n.ids[0])).toBeFalsy();
+    expect(n.store.getBlock(n.noteId)!.model.children.map((c) => c.id)).toEqual([n.ids[2]]);
+  });
+
   it('a tick is an in-place type mark: one card, accept keeps it, reject unticks; others\' runs stay (server R13b)', () => {
     for (const verdict of ['accept', 'reject'] as const) {
       const m = mk();

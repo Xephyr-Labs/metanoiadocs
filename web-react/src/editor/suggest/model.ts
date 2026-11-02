@@ -46,7 +46,6 @@ interface Model {
 export interface StoreLike {
   root: unknown;
   transact(fn: () => void): void;
-  deleteBlock(model: never): void;
   getBlock(id: string): { model: unknown } | null | undefined;
   captureSync?(): void;
 }
@@ -180,6 +179,30 @@ export function watchFlavours(store: StoreLike): () => void {
   return () => blocks.unobserveDeep(onEvents);
 }
 
+interface YChildren { length: number; get(i: number): unknown; delete(i: number, n: number): void; toArray(): unknown[] }
+interface YBlocks { get(id: string): YBlock | undefined; delete(id: string): void; forEach(f: (b: YBlock) => void): void }
+
+/**
+ * Remove block `id`, its subtree and its place in its parent's children, as
+ * the server's dropBlock does: on the Y blocks themselves, never through
+ * store.deleteBlock, which does nothing on a read-only store and so would
+ * leave the block behind with its mark already gone. The store follows the Y
+ * change as it follows a peer's.
+ */
+function dropBlock(store: StoreLike, id: string) {
+  const blocks = (store as unknown as { doc: { spaceDoc: { getMap(n: string): YBlocks } } }).doc.spaceDoc.getMap('blocks');
+  const b = blocks.get(id);
+  if (!b) return;
+  blocks.forEach((p) => {
+    const kids = p?.get?.('sys:children') as YChildren | undefined;
+    if (!kids?.toArray) return;
+    for (let i = kids.length - 1; i >= 0; i--) if (kids.get(i) === id) kids.delete(i, 1);
+  });
+  const kids = b.get('sys:children') as YChildren | undefined;
+  if (kids?.toArray) for (const k of kids.toArray()) dropBlock(store, k as string);
+  blocks.delete(id);
+}
+
 /** Accept or reject the suggestion `id`. True if anything changed. */
 export function decide(store: StoreLike, id: string, verdict: Verdict): boolean {
   assertVerdict(verdict);
@@ -198,7 +221,7 @@ export function decide(store: StoreLike, id: string, verdict: Verdict): boolean 
       if (bs?.id !== id) continue;
       changed = true;
       m.yBlock?.delete(BLOCK_KEY);
-      if (bs.kind === 'add' ? !accept : bs.kind === 'remove' ? accept : false) store.deleteBlock(m as never);
+      if (bs.kind === 'add' ? !accept : bs.kind === 'remove' ? accept : false) dropBlock(store, m.id);
       else if (bs.kind === 'type' && !accept && bs.from) restoreType(m, bs.from);
     }
   });
