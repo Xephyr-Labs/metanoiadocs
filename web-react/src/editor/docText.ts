@@ -30,7 +30,7 @@ export function docPlainText(store: unknown): string {
     const text = textOf(model.text ?? p.text);
     if (text) {
       lines.push(flavour === 'affine:list' && type === 'todo'
-        ? `- [${p.checked ? 'x' : ' '}] ${text}`
+        ? `- [${(was && 'checked' in was ? was.checked : p.checked) ? 'x' : ' '}] ${text}`
         : text);
     }
     if (model.flavour === 'affine:database') {

@@ -731,7 +731,7 @@ export function extractBlocks(existing, opts = {}) {
       out.push({
         flavour: fl,
         type: v.type || 'text',
-        checked: !!b.get('prop:checked'),
+        checked: v.checked,
         text: textOf(b),
       });
     }
@@ -882,7 +882,7 @@ export function blocksToMarkdown(blocks, rootIds, opts = {}) {
       }
       case 'affine:list': {
         const type = v.type;
-        const marker = type === 'numbered' ? '1.' : type === 'todo' ? `- [${b.get('prop:checked') ? 'x' : ' '}]` : '-';
+        const marker = type === 'numbered' ? '1.' : type === 'todo' ? `- [${v.checked ? 'x' : ' '}]` : '-';
         parts.push({ list: true, type, depth, text: `${'  '.repeat(depth)}${marker} ${withSize(b, text(b))}` });
         childDepth = depth + 1;
         break;

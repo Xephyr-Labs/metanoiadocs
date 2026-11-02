@@ -251,18 +251,41 @@ test('a hunk never carries an unchanged space at its edges', () => {
   assert.deepEqual(cards(doc).map((c) => [c.before, c.after]), [['Monday morning', 'Tuesday afternoon']]);
 });
 
-test('R13: a ticked checkbox is the item removed and added, as one card', () => {
-  const doc = page('- [ ] open task\n- [ ] other\n');
-  const out = write(doc, '- [x] open task\n- [ ] other\n');
-  assert.equal(out.changes, 1);
-  assert.deepEqual(cards(doc).map((c) => [c.kind, c.before, c.after]), [['replace', 'open task', 'open task']]);
-  assert.equal(read(doc), '- [ ] open task\n- [ ] other');
-  assert.equal(read(doc, 'andy'), '- [x] open task\n- [ ] other');
-  decide(doc, out.ids[0], 'accept');
-  assert.equal(read(doc), '- [x] open task\n- [ ] other');
+const tickCards = (doc) => listSuggestions(doc).map(({ kind, by, ticked, text }) => ({ kind, by, ticked, text }));
+
+test('R13b: a tick is an in-place mark on the same block; accept keeps it, reject unticks', () => {
+  for (const verdict of ['accept', 'reject']) {
+    const doc = page('- [ ] open task\n- [ ] other\n');
+    const before = [...doc.getMap('blocks').keys()].sort();
+    const out = write(doc, '- [x] open task\n- [ ] other\n');
+    assert.equal(out.changes, 1);
+    assert.deepEqual([...doc.getMap('blocks').keys()].sort(), before, 'no copy');
+    assert.deepEqual(tickCards(doc), [{ kind: 'type', by: 'andy', ticked: true, text: 'open task' }]);
+    assert.equal(read(doc), '- [ ] open task\n- [ ] other');
+    assert.equal(read(doc, 'andy'), '- [x] open task\n- [ ] other');
+    decide(doc, out.ids[0], verdict);
+    assert.equal(read(doc), `- [${verdict === 'accept' ? 'x' : ' '}] open task\n- [ ] other`);
+    assert.deepEqual(listSuggestions(doc), []);
+  }
 });
 
-test('R13 direct: a trusted writer\'s tick applies', () => {
+test('R13b: unticking back withdraws the tick; unticking a done item is an untick card', () => {
+  const doc = page('- [ ] open task\n- [x] done task\n');
+  write(doc, '- [x] open task\n- [ ] done task\n');
+  assert.deepEqual(tickCards(doc).map((c) => [c.ticked, c.text]), [[true, 'open task'], [false, 'done task']]);
+  write(doc, '- [ ] open task\n- [x] done task\n');
+  assert.deepEqual(listSuggestions(doc), []);
+});
+
+test('R13b: docToMarkdown shows the old tick to everyone, the new one to its author', () => {
+  const doc = page('- [ ] open task\n');
+  write(doc, '- [x] open task\n');
+  assert.equal(read(doc), '- [ ] open task');
+  assert.equal(read(doc, 'u2'), '- [ ] open task');
+  assert.equal(read(doc, 'andy'), '- [x] open task');
+});
+
+test('R13b direct: a trusted writer\'s tick applies', () => {
   const doc = page('- [ ] open task\n\nPara.\n');
   const t = texts(doc).find((x) => x.toString() === 'Para.');
   t.insert(0, 'New ', { mnSugg: { id: 'u2-ins', kind: 'ins', by: 'u2', at: 1 } });
@@ -286,20 +309,25 @@ test('direct: editing a block someone suggested removing or retyping keeps their
   assert.equal(h.get('prop:type'), 'h3');
 });
 
-test('R13: a tick keeps another user\'s pending ins and del inside the item, whichever way it is decided', () => {
+/** A to-do where u2 suggested inserting "big " and deleting "task". */
+function u2Todo() {
+  const doc = page('- [ ] open task\n- [ ] other\n');
+  const t = texts(doc).find((x) => x.toString() === 'open task');
+  t.insert(0, 'big ', { mnSugg: { id: 'u2-ins', kind: 'ins', by: 'u2', at: 1 } });
+  t.format(9, 4, { mnSugg: { id: 'u2-del', kind: 'del', by: 'u2', at: 1 } }); // "task"
+  return { doc, t };
+}
+
+test('R13b: a tick keeps another user\'s pending ins and del in the item, whichever way it is decided', () => {
   for (const verdict of ['accept', 'reject']) {
-    const doc = page('- [ ] open task\n- [ ] other\n');
-    const t = texts(doc).find((x) => x.toString() === 'open task');
-    t.insert(0, 'big ', { mnSugg: { id: 'u2-ins', kind: 'ins', by: 'u2', at: 1 } });
-    t.format(9, 4, { mnSugg: { id: 'u2-del', kind: 'del', by: 'u2', at: 1 } }); // "task"
+    const { doc } = u2Todo();
     const theirs = cards(doc);
     assert.deepEqual(theirs.map((c) => [c.kind, c.before, c.after]), [['insert', '', 'big '], ['delete', 'task', '']]);
     const { ids } = write(doc, read(doc, 'andy').replace('- [ ] open', '- [x] open'));
     assert.equal(ids.length, 1);
-    assert.deepEqual(cards(doc).filter((c) => c.by === 'u2'), theirs, 'listed once each while the tick is pending');
+    assert.deepEqual(cards(doc).filter((c) => c.by === 'u2'), theirs);
     decide(doc, ids[0], verdict);
     assert.deepEqual(cards(doc), theirs);
-    assert.equal(read(doc), `- [${verdict === 'accept' ? 'x' : ' '}] open task\n- [ ] other`);
     assert.equal(decide(doc, 'u2-ins', 'accept'), true);
     assert.equal(decide(doc, 'u2-del', 'accept'), true);
     assert.equal(read(doc), `- [${verdict === 'accept' ? 'x' : ' '}] big open \n- [ ] other`); // "task" deleted, its space kept
@@ -307,12 +335,35 @@ test('R13: a tick keeps another user\'s pending ins and del inside the item, whi
   }
 });
 
-test('R13: a tick withdraws the writer\'s own earlier text suggestion in that item into the new copy', () => {
+test('R13b: tick, then a rewrite of the item: one tick card plus one text card, no copies, u2 intact', () => {
+  for (const [v1, v2] of [['accept', 'accept'], ['reject', 'reject'], ['accept', 'reject']]) {
+    const { doc } = u2Todo();
+    const blocks = [...doc.getMap('blocks').keys()].sort();
+    write(doc, read(doc, 'andy').replace('- [ ] open', '- [x] open'));
+    write(doc, read(doc, 'andy').replace('open', 'opened'));
+    assert.deepEqual([...doc.getMap('blocks').keys()].sort(), blocks, 'no copies');
+    const andy = listSuggestions(doc).filter((c) => c.by === 'andy');
+    assert.deepEqual(andy.map((c) => [c.kind, c.before, c.after]), [['replace', 'open', 'opened'], ['type', 'todo', 'todo']]);
+    decide(doc, andy[1].id, v1);
+    decide(doc, andy[0].id, v2);
+    assert.deepEqual(listSuggestions(doc).map((c) => c.id), ['u2-ins', 'u2-del']);
+    assert.equal(read(doc), `- [${v1 === 'accept' ? 'x' : ' '}] ${v2 === 'accept' ? 'opened' : 'open'} task\n- [ ] other`);
+  }
+});
+
+test('R13b: a tick together with a text change is one tick card and one text card', () => {
   const doc = page('- [ ] open task\n');
-  write(doc, '- [ ] open job\n');
-  const { ids } = write(doc, '- [x] open job\n');
-  assert.deepEqual(cards(doc).map((c) => [c.kind, c.before, c.after]), [['replace', 'open task', 'open job']]);
-  decide(doc, ids[0], 'reject');
-  assert.equal(read(doc, 'andy'), '- [ ] open task');
-  assert.deepEqual(listSuggestions(doc), []);
+  const out = write(doc, '- [x] shut task\n');
+  assert.deepEqual(listSuggestions(doc).map((c) => [c.kind, c.before, c.after, c.ticked]), [['replace', 'open', 'shut', undefined], ['type', 'todo', 'todo', true]]);
+  assert.equal(out.changes, 2);
+});
+
+test('R13b: a second suggester writing an item under someone else\'s pending tick makes no copy', () => {
+  const doc = page('- [ ] open task\n');
+  write(doc, '- [x] open task\n');
+  const blocks = [...doc.getMap('blocks').keys()].sort();
+  write(doc, '- [x] open job\n', { by: 'u2' });
+  assert.deepEqual([...doc.getMap('blocks').keys()].sort(), blocks, 'no copy');
+  assert.deepEqual(listSuggestions(doc).map((c) => [c.by, c.kind, c.before, c.after]),
+    [['u2', 'replace', 'task', 'job'], ['andy', 'type', 'todo', 'todo']]);
 });

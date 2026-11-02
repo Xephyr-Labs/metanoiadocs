@@ -114,10 +114,6 @@ function reconcileBlocks(w, children, newIds) {
       if (pairable(w, old[i], newIds[j])) {
         pairBlocks(w, old[i], newIds[j]);
         after = old[i];
-      } else if (reticked(w, old[i], newIds[j])) {
-        // R13: a tick cannot be a mark, so the item is removed and added as
-        // ticked, under one id: one card, accepted or rejected as one.
-        after = retick(w, children, after, old[i], newIds[j]);
       } else break;
       i++; j++;
     }
@@ -152,13 +148,14 @@ function pairable(w, oid, nid) {
   const s = sugg(o);
   // The writer's own added block is simplest withdrawn and added again as it
   // now reads. Someone else's block suggestion is theirs to keep: a suggester
-  // leaves that block alone, a trusted writer edits it under their mark.
-  if (s && (s.kind === 'add' || (!own(w, s) && !w.direct))) return false;
+  // leaves a block they suggested removing alone, and edits only the text of
+  // one they retyped or ticked; a trusted writer edits it under their mark.
+  if (s && (s.kind === 'add' || (!own(w, s) && !w.direct && s.kind !== 'type'))) return false;
   const fl = o.get('sys:flavour');
   if (!TEXTY.has(fl) || fl !== nb.get('sys:flavour')) return false;
-  if (!w.direct && checkedOf(o) !== checkedOf(nb)) return false;
   if (baseType(w, o) === nb.get('prop:type')) return true;
   // ponytail: a retype pairs only when the text is unchanged; retype + edit is remove + add.
+  // (A tick alone keeps the type, so it always pairs.)
   const t = o.get('prop:text'), nt = nb.get('prop:text');
   return fold(viewText(w, t)) === fold(nt instanceof Y.Text ? nt.toString() : '');
 }
@@ -170,65 +167,33 @@ const viewText = (w, t) => (t instanceof Y.Text
   }).map((op) => (typeof op.insert === 'string' ? op.insert : '')).join('')
   : '');
 
-/** A list item whose only block-level change is its tick, in suggest mode. */
-function reticked(w, oid, nid) {
-  const o = w.live.get(oid), nb = w.scratch.get(nid);
-  return !w.direct && !sugg(o) && o.get('sys:flavour') === 'affine:list' && nb.get('sys:flavour') === 'affine:list'
-    && checkedOf(o) !== checkedOf(nb);
-}
-
-/**
- * The re-ticked copy starts from the old item's text, everyone else's pending
- * runs included, so they survive whichever of the two blocks is kept (both
- * carry the same ids, and a decision applies to both). The writer's own runs
- * in the old item are withdrawn first; their text change is then written into
- * the copy as plain text, since the copy as a whole is their suggestion.
- */
-function retick(w, children, after, oid, nid) {
-  const o = w.live.get(oid);
-  const t = o.get('prop:text');
-  if (t instanceof Y.Text) withdrawOwn(w, t);
-  const id = addBlock(w, children, removeBlock(w, children, oid) ?? after, nid, sugg(o));
-  const nt = w.live.get(id).get('prop:text');
-  const src = w.scratch.get(nid).get('prop:text');
-  if (t instanceof Y.Text && nt instanceof Y.Text && src instanceof Y.Text) {
-    nt.delete(0, nt.length);
-    nt.applyDelta(t.toDelta(), { sanitize: false });
-    reconcileText({ ...w, by: null, direct: true }, nt, src);
-  }
-  return id;
-}
-
-/** Take back the writer's own inline suggestions in `t`: insertions go, deletions stay as text. */
-function withdrawOwn(w, t) {
-  let at = 0;
-  const runs = [];
-  for (const op of t.toDelta()) {
-    const len = typeof op.insert === 'string' ? op.insert.length : 1;
-    if (own(w, op.attributes?.[KEY])) runs.push({ at, len, ins: op.attributes[KEY].kind === 'ins' });
-    at += len;
-  }
-  for (const r of runs.reverse()) {
-    if (r.ins) t.delete(r.at, r.len); else t.format(r.at, r.len, { [KEY]: null });
-  }
-}
-
 function pairBlocks(w, oid, nid) {
   const o = w.live.get(oid), nb = w.scratch.get(nid);
   let s = sugg(o);
   if (s?.kind === 'remove' && own(w, s)) { o.delete(BLOCK_KEY); s = null; } // edited, so wanted after all
+  // A retype, a tick and an untick are one in-place `type` mark (R13b): the
+  // block takes the new type and tick, `from` keeps them as everyone else reads them.
+  const list = o.get('sys:flavour') === 'affine:list';
   const type = nb.get('prop:type');
-  if (w.direct && checkedOf(o) !== checkedOf(nb)) o.set('prop:checked', checkedOf(nb));
+  const checked = checkedOf(nb);
+  const differs = (f) => f.type !== type || (list && f.checked !== checked);
   if (s && !own(w, s)) {
-    // Direct only: the base under someone else's mark changes, the mark stays.
-    if (s.kind === 'type' && s.from?.type !== type) {
-      if (o.get('prop:type') === type) o.delete(BLOCK_KEY);
-      else o.set(BLOCK_KEY, { ...s, from: { ...s.from, type } });
+    // ponytail: a suggester's own type/tick wish on a block someone else already retyped or ticked is not written; their mark stands.
+    // Direct: the base under their mark moves, the mark stays.
+    if (w.direct && s.kind === 'type' && s.from) {
+      const base = { type: s.from.type, checked: 'checked' in s.from ? !!s.from.checked : checkedOf(o) };
+      if (differs(base)) {
+        const from = { ...s.from, type, ...(list ? { checked } : {}) };
+        if (!differs({ type: o.get('prop:type'), checked: checkedOf(o) })) o.delete(BLOCK_KEY);
+        else o.set(BLOCK_KEY, { ...s, from });
+      }
     }
-  } else if (o.get('prop:type') !== type) {
-    const from = s?.kind === 'type' ? s.from : { flavour: o.get('sys:flavour'), type: o.get('prop:type') };
-    o.set('prop:type', type);
-    if (w.direct || from.type === type) o.delete(BLOCK_KEY);
+  } else if (differs({ type: o.get('prop:type'), checked: checkedOf(o) })) {
+    const from = s?.kind === 'type' ? { ...s.from } : { flavour: o.get('sys:flavour'), type: o.get('prop:type') };
+    if (list && !('checked' in from)) from.checked = checkedOf(o);
+    if (o.get('prop:type') !== type) o.set('prop:type', type);
+    if (list && checkedOf(o) !== checked) o.set('prop:checked', checked);
+    if (w.direct || !differs({ type: from.type, checked: !!from.checked })) o.delete(BLOCK_KEY);
     else o.set(BLOCK_KEY, mark(w, 'type', { ...(s?.kind === 'type' ? s : {}), from }));
   }
   const t = o.get('prop:text'), nt = nb.get('prop:text');
@@ -254,10 +219,10 @@ function removeBlock(w, children, id) {
   return id;
 }
 
-function addBlock(w, children, after, sid, pairedWith = null) {
+function addBlock(w, children, after, sid) {
   const id = copyTree(w.scratch, w.live, sid);
   if (!w.direct) {
-    const m = pairedWith ? { ...pairedWith, kind: 'add' } : mark(w, 'add');
+    const m = mark(w, 'add');
     w.live.get(id).set(BLOCK_KEY, m);
     w.created.push(m.id);
   }

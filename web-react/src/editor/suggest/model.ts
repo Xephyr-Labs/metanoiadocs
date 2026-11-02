@@ -26,9 +26,13 @@ export interface SuggestionCard {
   /** Block suggestions: the block's flavour and type now. */
   flavour?: string;
   type?: string;
+  /** A `type` mark that ticks (true) or unticks (false) its to-do (R13b), with the item's text. */
+  ticked?: boolean;
+  text?: string;
 }
 
-interface Sugg { id: string; kind: string; by: string; at: number; via?: 'ai'; from?: { flavour: string; type?: string } }
+interface From { flavour: string; type?: string; checked?: boolean }
+interface Sugg { id: string; kind: string; by: string; at: number; via?: 'ai'; from?: From }
 interface YBlock { get(k: string): unknown; delete(k: string): void }
 interface Model {
   id: string;
@@ -64,6 +68,14 @@ function ordered(store: StoreLike): Model[] {
   return out;
 }
 
+/** The text with nothing pending accepted (insertions out), as the server's pendingText. */
+const pendingText = (text: Text | undefined): string =>
+  text
+    ? (text.yText.toDelta() as { insert: unknown; attributes?: Record<string, unknown> }[])
+      .filter((op) => (op.attributes?.[KEY] as Sugg | undefined)?.kind !== 'ins')
+      .map((op) => (typeof op.insert === 'string' ? op.insert : '')).join('')
+    : '';
+
 function runsOf(text: Text | undefined) {
   const runs: { at: number; len: number; s: Sugg; text: string }[] = [];
   if (!text) return runs;
@@ -89,15 +101,8 @@ export function listSuggestions(store: StoreLike): SuggestionCard[] {
     if (s.via) c.via = s.via;
     return c;
   };
-  const models = ordered(store);
-  // A remove and an add under one id (a re-ticked item) carry the same inline
-  // runs; they are listed once, from the block being replaced (as the server).
-  const marks = models.map(blockSugg).filter((bs) => bs?.id);
-  const paired = new Set(marks.filter((bs) => bs!.kind === 'add' && marks.some((r) => r!.kind === 'remove' && r!.id === bs!.id)).map((bs) => bs!.id));
-  for (const m of models) {
-    const own = blockSugg(m);
-    const runs = own?.kind === 'add' && paired.has(own.id) ? [] : runsOf(m.text);
-    for (const { s, text } of runs) {
+  for (const m of ordered(store)) {
+    for (const { s, text } of runsOf(m.text)) {
       const c = card(s, m.id, s.kind === 'del' ? 'delete' : 'insert');
       if (s.kind === 'del') c.before += text; else c.after += text;
       if ((s.kind === 'del' && c.after) || (s.kind === 'ins' && c.before)) c.kind = 'replace';
@@ -108,13 +113,16 @@ export function listSuggestions(store: StoreLike): SuggestionCard[] {
     c.flavour = m.flavour;
     c.type = m.props?.type;
     const here = m.text ? m.text.toString() : '';
-    // A block removed and one added under one id (a re-ticked item) is one replace.
-    if (bs.kind === 'add' || bs.kind === 'remove') {
-      if (bs.kind === 'add') c.after = here; else c.before = here;
-      if (c.kind !== bs.kind) c.kind = 'replace';
-    } else {
+    if (bs.kind === 'add') c.after = here;
+    else if (bs.kind === 'remove') c.before = here;
+    else {
       c.before = bs.from?.type ?? bs.from?.flavour ?? '';
       c.after = m.props?.type ?? m.flavour ?? '';
+      const checked = !!m.yBlock?.get('prop:checked');
+      if (bs.from && 'checked' in bs.from && !!bs.from.checked !== checked) {
+        c.ticked = checked;
+        c.text = pendingText(m.text);
+      }
     }
   }
   return [...cards.values()];
@@ -131,11 +139,12 @@ function assertVerdict(v: unknown): asserts v is Verdict {
  * BlockSuite does not rebuild a model whose flavour changes under it; that is
  * watchFlavours' job.
  */
-function restoreType(m: Model, from: { flavour: string; type?: string }) {
+function restoreType(m: Model, from: From) {
   const yb = m.yBlock as (YBlock & { set(k: string, v: unknown): void }) | undefined;
   if (!yb) return;
   if (from.flavour !== m.flavour) yb.set('sys:flavour', from.flavour);
   if (from.type === undefined) yb.delete('prop:type'); else yb.set('prop:type', from.type);
+  if ('checked' in from) yb.set('prop:checked', !!from.checked);
 }
 
 interface YMapEvent { target: { get(k: string): unknown }; keysChanged?: Set<string>; transaction: { local: boolean } }
@@ -236,6 +245,9 @@ export function describeCard(c: SuggestionCard): string {
     case 'delete': return `Delete "${clip(c.before)}"`;
     case 'add': return `Add ${blockNoun(c)}`;
     case 'remove': return `Remove ${blockNoun(c)}`;
-    case 'type': return `Changed to ${typeLabel(c.after)}`;
+    case 'type':
+      if (c.ticked === undefined) return `Changed to ${typeLabel(c.after)}`;
+      if (c.before === c.after) return `${c.ticked ? 'Ticked' : 'Unticked'} "${clip(c.text ?? '')}"`;
+      return `Changed to ${typeLabel(c.after)} and ${c.ticked ? 'ticked' : 'unticked'}`;
   }
 }

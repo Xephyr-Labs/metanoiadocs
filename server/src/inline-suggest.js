@@ -1,6 +1,8 @@
 // Server model for inline suggestions, in plain Yjs (no BlockSuite runtime).
 // Inline: Y.Text attribute `mnSugg` = { id, kind: 'ins'|'del', by, at, via? }.
 // Block: block prop `prop:mnSugg` = { id, kind: 'add'|'remove'|'type', by, at, via?, from? }.
+// A `type` mark's `from` = { flavour, type, checked? }: a retype, a tick or an
+// untick (R13b), suggested in place on the same block.
 import * as Y from 'yjs';
 
 const KEY = 'mnSugg';
@@ -26,19 +28,27 @@ const view = (ytext, userId) =>
 
 /**
  * How a block reads with nothing pending accepted: `null` when it is absent
- * (an `add`), else its flavour and type (a `type` change shows its `from`).
+ * (an `add`), else its flavour, type and tick (a `type` change shows its `from`).
  * `userId` sees their own block suggestions the other way round.
  */
 export function blockView(b, userId = null) {
   const bs = b.get(BLOCK_KEY);
   const flavour = b.get('sys:flavour');
   const type = b.get('prop:type');
+  const checked = !!b.get('prop:checked');
   const mine = userId != null && bs?.by === userId;
-  if (bs?.kind === 'add') return mine ? { flavour, type } : null;
+  if (bs?.kind === 'add') return mine ? { flavour, type, checked } : null;
   if (bs?.kind === 'remove' && mine) return null;
-  if (bs?.kind === 'type' && bs.from && !mine) return { flavour: bs.from.flavour, type: bs.from.type };
-  return { flavour, type };
+  if (bs?.kind === 'type' && bs.from && !mine) {
+    return { flavour: bs.from.flavour, type: bs.from.type, checked: 'checked' in bs.from ? !!bs.from.checked : checked };
+  }
+  return { flavour, type, checked };
 }
+
+/** Whether a `type` mark ticks (true) or unticks (false) its block; undefined when the tick is unchanged. */
+export const tickOf = (b, bs) =>
+  (bs?.kind === 'type' && bs.from && 'checked' in bs.from && !!bs.from.checked !== !!b.get('prop:checked')
+    ? !!b.get('prop:checked') : undefined);
 
 export const pendingText = (ytext) => view(ytext, null);
 export const authorView = (ytext, userId) => view(ytext, userId);
@@ -86,15 +96,9 @@ export function listSuggestions(doc) {
     if (s.via) c.via = s.via;
     return c;
   };
-  const blocks = orderedBlocks(doc);
-  // A remove and an add under one id (a re-ticked item) carry the same inline
-  // runs; they are listed once, from the block being replaced.
-  const marks = blocks.map(([, b]) => b.get(BLOCK_KEY)).filter((bs) => bs?.id);
-  const paired = new Set(marks.filter((bs) => bs.kind === 'add' && marks.some((r) => r.kind === 'remove' && r.id === bs.id)).map((bs) => bs.id));
-  for (const [blockId, b] of blocks) {
+  for (const [blockId, b] of orderedBlocks(doc)) {
     const t = textOf(b);
-    const bm = b.get(BLOCK_KEY);
-    if (t && !(bm?.kind === 'add' && paired.has(bm.id))) {
+    if (t) {
       for (const { s, text } of runsOf(t)) {
         const c = card(s, blockId, s.kind === 'del' ? 'delete' : 'insert');
         if (s.kind === 'del') c.before += text; else c.after += text;
@@ -105,13 +109,13 @@ export function listSuggestions(doc) {
     if (bs?.id) {
       const c = card(bs, blockId, bs.kind);
       const here = t ? t.toString() : '';
-      // A block removed and one added under one id (a re-ticked item) is one replace.
-      if (bs.kind === 'add' || bs.kind === 'remove') {
-        if (bs.kind === 'add') c.after = here; else c.before = here;
-        if (c.kind !== bs.kind) c.kind = 'replace';
-      } else {
+      if (bs.kind === 'add') c.after = here;
+      else if (bs.kind === 'remove') c.before = here;
+      else {
         c.before = bs.from?.type ?? bs.from?.flavour ?? '';
         c.after = b.get('prop:type') ?? b.get('sys:flavour') ?? '';
+        const ticked = tickOf(b, bs);
+        if (ticked !== undefined) { c.ticked = ticked; c.text = t ? pendingText(t) : ''; }
       }
     }
   }
@@ -156,6 +160,7 @@ export function decide(doc, id, verdict) {
       else if (bs.kind === 'type' && !accept && bs.from) {
         b.set('sys:flavour', bs.from.flavour);
         if (bs.from.type === undefined) b.delete('prop:type'); else b.set('prop:type', bs.from.type);
+        if ('checked' in bs.from) b.set('prop:checked', !!bs.from.checked);
       }
     }
   });

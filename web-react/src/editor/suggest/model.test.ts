@@ -105,32 +105,27 @@ describe('client suggestion model', () => {
     expect(n.store.getBlock(n.noteId)!.model.children).toHaveLength(0);
   });
 
-  it('a block removed and one added under one id is one replace, decided as a unit (server R13)', () => {
+  it('a tick is an in-place type mark: one card, accept keeps it, reject unticks; others\' runs stay (server R13b)', () => {
     for (const verdict of ['accept', 'reject'] as const) {
-      const m = mk('open task', 'open task', 'other');
-      const [old, ticked] = m.ids;
-      m.yb(old).set('prop:mnSugg', S('re', 'remove'));
-      m.yb(ticked).set('prop:mnSugg', S('re', 'add'));
+      const m = mk();
+      const id = m.store.addBlock('affine:list', { type: 'todo', checked: true, text: new Text('big open task') } as never, m.noteId);
+      m.yt(id).format(0, 4, { mnSugg: S('u2-ins', 'ins', 'u2') });
+      m.yb(id).set('prop:mnSugg', { ...S('tk', 'type'), from: { flavour: 'affine:list', type: 'todo', checked: false } });
       const cards = listSuggestions(m.store);
-      expect(cards.map((x) => [x.id, x.kind, x.before, x.after])).toEqual([['re', 'replace', 'open task', 'open task']]);
-      expect(decide(m.store, 're', verdict)).toBe(true);
-      expect(!!m.store.getBlock(old)).toBe(verdict === 'reject');
-      expect(!!m.store.getBlock(ticked)).toBe(verdict === 'accept');
-      expect(listSuggestions(m.store)).toEqual([]);
+      expect(cards.map((c) => [c.id, c.kind, c.ticked, c.text])).toEqual([['u2-ins', 'insert', undefined, undefined], ['tk', 'type', true, 'open task']]);
+      expect(describeCard(cards[1])).toBe('Ticked "open task"');
+      expect(decide(m.store, 'tk', verdict)).toBe(true);
+      expect(m.yb(id).get('prop:checked')).toBe(verdict === 'accept');
+      expect(m.yb(id).get('prop:mnSugg')).toBeUndefined();
+      expect(listSuggestions(m.store).map((c) => c.id)).toEqual(['u2-ins']);
     }
   });
 
-  it('runs a re-ticked pair both carry are listed once, from the replaced block (server R13)', () => {
-    const m = mk('big open', 'big open');
-    const [old, ticked] = m.ids;
-    for (const id of m.ids) m.yt(id).format(0, 4, { mnSugg: S('u2-ins', 'ins', 'u2') });
-    m.yb(old).set('prop:mnSugg', S('re', 'remove'));
-    m.yb(ticked).set('prop:mnSugg', S('re', 'add'));
-    const cards = listSuggestions(m.store);
-    expect(cards.map((x) => [x.id, x.kind, x.after])).toEqual([['u2-ins', 'insert', 'big '], ['re', 'replace', 'big open']]);
-    expect(cards[0].blockId).toBe(old);
-    decide(m.store, 're', 'accept');
-    expect(listSuggestions(m.store).map((x) => [x.id, x.after, x.blockId])).toEqual([['u2-ins', 'big ', ticked]]);
+  it('tick card labels: untick, and a retype that also ticks', () => {
+    const base = { id: 'x', by: 'u1', at: 1, blockId: 'b', blockIds: ['b'], kind: 'type' as const, flavour: 'affine:list' };
+    expect(describeCard({ ...base, before: 'todo', after: 'todo', ticked: false, text: 'ship it' })).toBe('Unticked "ship it"');
+    expect(describeCard({ ...base, before: 'bulleted', after: 'todo', ticked: true, text: 'ship it' })).toBe('Changed to To-do and ticked');
+    expect(describeCard({ ...base, before: 'bulleted', after: 'todo' })).toBe('Changed to To-do');
   });
 
   it('decideAll counts and leaves no mnSugg; filters by author', () => {

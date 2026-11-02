@@ -72,3 +72,19 @@ describe('docPlainText with suggestions pending', () => {
     expect(docPlainText(store).split('\n')).toEqual(['keep  OLD', 'REMOVED', '- [ ] Retyped']);
   });
 });
+
+describe('docPlainText with a pending tick (R13b)', () => {
+  it('reads the old tick', () => {
+    const store = {
+      root: {
+        children: [block('affine:note', {}, [
+          block('affine:list', {
+            type: 'todo', checked: true, text: text('Ship it'),
+            mnSugg: { id: 't', kind: 'type', by: 'u', at: 1, from: { flavour: 'affine:list', type: 'todo', checked: false } },
+          }),
+        ])],
+      },
+    };
+    expect(docPlainText(store)).toBe('- [ ] Ship it');
+  });
+});
