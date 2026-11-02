@@ -229,6 +229,23 @@ describe('what Suggesting mode refuses', () => {
     }
   });
 
+  it('AltGr is typing, not a chord: @ { } [ ] \\ | € ~ and Polish or Czech letters', () => {
+    for (const k of ['@', '{', '}', '[', ']', '\\', '|', '€', '~', 'ł', 'ś', 'ž']) {
+      expect(refusedKey(key(k, { ctrlKey: true, altKey: true })), k).toBe(false);
+    }
+    const altGr = { ...key('ę'), getModifierState: (m: string) => m === 'AltGraph' };
+    expect(refusedKey(altGr)).toBe(false);
+  });
+
+  it('moving blocks (Mod+Shift or Mod+Alt with Up/Down) is refused; selecting by word or line is not', () => {
+    for (const k of [key('ArrowUp', { ctrlKey: true, shiftKey: true }), key('ArrowDown', { metaKey: true, shiftKey: true }),
+      key('ArrowUp', { ctrlKey: true, altKey: true }), key('ArrowDown', { metaKey: true, altKey: true })]) {
+      expect(refusedKey(k), JSON.stringify(k)).toBe(true);
+    }
+    expect(refusedKey(key('ArrowLeft', { ctrlKey: true, shiftKey: true }))).toBe(false);
+    expect(refusedKey(key('ArrowUp', { ctrlKey: true }))).toBe(false);
+  });
+
   it('text inside a table or a database is not suggestable (ruling R12)', () => {
     expect(suggestableIn(['affine:paragraph', 'affine:note', 'affine:page'])).toBe(true);
     expect(suggestableIn(['affine:table', 'affine:note'])).toBe(false);
@@ -264,8 +281,16 @@ describe('Suggesting mode hides the formatting and structure tools (ruling R11)'
     const css = readFileSync(new URL('../../index.css', import.meta.url), 'utf8');
     const rule = css.match(new RegExp(`((?:html\\.${SUGGESTING_CLASS} [a-z-]+,?\\s*)+)\\{\\s*display: none !important;`));
     expect(rule, 'hiding rule').toBeTruthy();
-    for (const el of ['affine-toolbar-widget', 'affine-slash-menu', 'affine-linked-doc-popover', 'affine-drag-handle-widget', 'affine-keyboard-toolbar']) {
+    for (const el of ['affine-toolbar-widget', 'affine-slash-menu', 'affine-linked-doc-popover', 'affine-drag-handle-widget', 'affine-keyboard-toolbar',
+      'affine-code-toolbar', 'latex-editor-menu', 'affine-emoji-menu']) {
       expect(rule![1]).toContain(`html.${SUGGESTING_CLASS} ${el}`);
     }
+  });
+
+  it('the to-do checkbox and the callout icon take no clicks (ruling R11b)', () => {
+    const css = readFileSync(new URL('../../index.css', import.meta.url), 'utf8');
+    const rule = css.match(new RegExp(`((?:html\\.${SUGGESTING_CLASS} [.a-z_-]+,?\\s*)+)\\{\\s*pointer-events: none !important;`));
+    expect(rule, 'pointer rule').toBeTruthy();
+    for (const sel of ['.affine-list-block__todo-prefix', '.affine-callout-emoji']) expect(rule![1]).toContain(`html.${SUGGESTING_CLASS} ${sel}`);
   });
 });

@@ -157,11 +157,19 @@ const MOD_ALLOWED = new Set(['c', 'x', 'v', 'z', 'y', 'a', 'f', 'arrowleft', 'ar
  * formatting, links, headings, duplicating are not suggestable in v1.
  * Cut and paste go on to the cut/paste handlers below.
  */
-export function refusedKey(e: { key: string; ctrlKey: boolean; metaKey: boolean }): boolean {
+export function refusedKey(e: KeyLike): boolean {
   if (e.key === 'Tab') return true;
-  if (!e.ctrlKey && !e.metaKey) return false;
+  if ((!e.ctrlKey && !e.metaKey) || altGr(e)) return false;
+  // Mod+Shift / Mod+Alt with Up or Down is BlockSuite's moveBlocks.
+  if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && (e.shiftKey || e.altKey)) return true;
   return !MOD_ALLOWED.has(e.key.toLowerCase()) && !['Backspace', 'Delete', 'Enter'].includes(e.key);
 }
+
+type KeyLike = { key: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean; shiftKey: boolean; getModifierState?(k: string): boolean };
+/** A character typed with AltGr: Windows reports it as Ctrl+Alt (@ { } [ ] € ł…).
+ *  A plain letter or digit is a Ctrl+Alt chord instead (Ctrl+Alt+1 = Heading 1). */
+const altGr = (e: KeyLike) => [...e.key].length === 1 && !/^[a-z0-9]$/i.test(e.key)
+  && (!!e.getModifierState?.('AltGraph') || (e.ctrlKey && e.altKey && !e.metaKey));
 
 /**
  * Apply one input in Suggesting mode, given the inline range it acts on.
@@ -310,7 +318,7 @@ function targetRange(ed: Ed, e: InputEvent): Range | null {
 }
 
 const stop = (e: Event) => { e.preventDefault(); e.stopImmediatePropagation(); };
-const printable = (e: KeyboardEvent) => e.key.length === 1 && !e.ctrlKey && !e.metaKey;
+const printable = (e: KeyboardEvent) => [...e.key].length === 1 && ((!e.ctrlKey && !e.metaKey) || altGr(e));
 
 /**
  * Listen on window, in the capture phase, for events inside `editorEl`: this
@@ -374,7 +382,7 @@ export function attachSuggestingInput(editorEl: Element, opts: SuggestingOptions
       const parent = b.std.store.getParent(b.model);
       const prev = parent?.children[parent.children.indexOf(b.model) - 1];
       if (removeOwnAddedBlock(b.std.store, b.model, me) && prev?.props.text) focusTextModel(b.std as never, prev.id, prev.props.text.length);
-    } else if (printable(e) && !e.altKey) { // Alt: Alt+[ / Alt+] step through changes (window hotkeys)
+    } else if (printable(e) && !(e.altKey && !e.ctrlKey && !altGr(e))) { // plain Alt: Alt+[ / Alt+] step through changes (window hotkeys)
       if (!ed) return stop(e); // typing over a selection across blocks
       // Not to BlockSuite: its slash menu opens on keydown. The text itself
       // arrives as the beforeinput that follows.

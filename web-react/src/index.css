@@ -1740,8 +1740,16 @@ html.mn-suggesting affine-toolbar-widget,
 html.mn-suggesting affine-slash-menu,
 html.mn-suggesting affine-linked-doc-popover,
 html.mn-suggesting affine-drag-handle-widget,
-html.mn-suggesting affine-keyboard-toolbar {
+html.mn-suggesting affine-keyboard-toolbar,
+html.mn-suggesting affine-code-toolbar,
+html.mn-suggesting latex-editor-menu,
+html.mn-suggesting affine-emoji-menu {
   display: none !important;
+}
+/* Ruling R11b: a to-do's tick and a callout's icon are direct edits. */
+html.mn-suggesting .affine-list-block__todo-prefix,
+html.mn-suggesting .affine-callout-emoji {
+  pointer-events: none !important;
 }
 
 /* Body text sizes (editor/textSize.ts). Child selectors all the way down: a
