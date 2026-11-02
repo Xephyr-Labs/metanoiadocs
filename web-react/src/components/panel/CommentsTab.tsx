@@ -38,7 +38,9 @@ const GuestChip = () => (
  * suggested changes to accept or decline. Refreshes itself when anyone changes
  * a comment on the page (the server announces it over the page's connection).
  */
-export function CommentsTab({ docId }: { docId: string }) {
+/** `withTask`: show the task's own thread above the page's. Off in the task
+ *  peek, which already shows that thread. */
+export function CommentsTab({ docId, withTask = true }: { docId: string; withTask?: boolean }) {
   const auth = useAuth();
   const ws = useWorkspace();
   const role = ws.pages[docId]?.role;
@@ -70,6 +72,7 @@ export function CommentsTab({ docId }: { docId: string }) {
   const [, bumpDetached] = useState(0);
   const inputRef = useRef<CommentBoxHandle>(null);
   const replacementRef = useRef<CommentBoxHandle>(null);
+  const composerRef = useRef<HTMLDivElement>(null);
   const cardRefs = useRef(new Map<string, HTMLDivElement>());
   // Escape abandons an edit, but the blur it causes still runs with the old
   // state — this tells that late save to stand down.
@@ -112,9 +115,9 @@ export function CommentsTab({ docId }: { docId: string }) {
   useEffect(() => {
     let alive = true;
     setTask(null);
-    tasksApi.docTask(docId).then((r) => alive && setTask(r.task)).catch(() => {});
+    if (withTask) tasksApi.docTask(docId).then((r) => alive && setTask(r.task)).catch(() => {});
     return () => { alive = false; };
-  }, [docId]);
+  }, [docId, withTask]);
   useEffect(() => { docsApi.users().then(setMembers).catch(() => {}); }, []);
 
   // Selection just landed here — put the caret in the composer. Delay past the
@@ -128,6 +131,12 @@ export function CommentsTab({ docId }: { docId: string }) {
     const t = setTimeout(() => (anchor.mode === 'suggest' ? replacementRef : inputRef).current?.focus(), 300);
     return () => clearTimeout(t);
   }, [anchor]);
+  // The list loading in above the composer pushes it down; where the panel
+  // sits under other content (a task peek) that is off the screen.
+  const loaded = comments !== null;
+  useEffect(() => {
+    if (anchor && loaded) composerRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [anchor, loaded]);
   // Opened from the inbox on one comment: its thread's card at once, and its
   // passage once the page's editor is up (retried briefly — it may still be
   // mounting). Not cleared by re-renders: taking the request re-renders.
@@ -557,7 +566,7 @@ export function CommentsTab({ docId }: { docId: string }) {
       </div>
 
       {mayComment ? (
-        <div className="relative border-t border-line p-3">
+        <div ref={composerRef} className="relative border-t border-line p-3">
           {anchor && (
             <div className="mb-2 rounded-md bg-comment px-2.5 py-1.5">
               <div className="flex items-center gap-2">

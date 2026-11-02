@@ -37,7 +37,8 @@ const supported = typeof CSS !== 'undefined' && 'highlights' in CSS;
 // ---- pending-anchor store (editor -> RightPanel bridge, presence.ts pattern)
 type AnchorListener = (a: CommentAnchor | null) => void;
 const anchorListeners = new Set<AnchorListener>();
-const openListeners = new Set<() => void>();
+/** Told which page asked: a task's page can be open over another page. */
+const openListeners = new Set<(docId: string | null) => void>();
 let pending: CommentAnchor | null = null;
 
 function setPending(a: CommentAnchor | null) {
@@ -53,7 +54,7 @@ export function setPendingMode(mode: 'comment' | 'suggest') {
 }
 
 /** Fires when the editor asks for the comments tab to open. */
-export function onCommentRequest(l: () => void): () => void {
+export function onCommentRequest(l: (docId: string | null) => void): () => void {
   openListeners.add(l);
   return () => { openListeners.delete(l); };
 }
@@ -326,7 +327,7 @@ export function onMarkersChanged(l: () => void): () => void {
 export function commentOnBlock(blockId: string, label: string) {
   if (!hlDocId) return; // a public viewer or a version preview: no comments here
   setPending({ quote: label.slice(0, 500), blockId });
-  openListeners.forEach((l) => l());
+  openListeners.forEach((l) => l(hlDocId));
 }
 
 let activeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -379,7 +380,7 @@ export function useQueuedFocus(docId: string): { id: string | null; take: () => 
 /** Focus a thread from outside the editor (a gutter pip). */
 export function focusComment(id: string) {
   setFocus(id);
-  openListeners.forEach((l) => l());
+  openListeners.forEach((l) => l(hlDocId));
 }
 
 // ---- open-thread count (top-bar badge; no extra request — same payload)
@@ -627,7 +628,7 @@ export function attachComments(
     // Collapse the selection: if it stays live, the editor treats the next
     // keystroke as "replace selection" and eats the selected text.
     document.getSelection()?.removeAllRanges();
-    openListeners.forEach((l) => l());
+    openListeners.forEach((l) => l(docId));
     hide();
   };
   pickSelection = pick;
@@ -688,7 +689,7 @@ export function attachComments(
       : undefined;
     if (onImage) {
       setFocus(onImage.id);
-      openListeners.forEach((l) => l());
+      openListeners.forEach((l) => l(docId));
       return;
     }
     const d = document as Document & {
@@ -708,7 +709,7 @@ export function attachComments(
       try {
         if (a.range?.isPointInRange(node, offset)) {
           setFocus(a.id);
-          openListeners.forEach((l) => l());
+          openListeners.forEach((l) => l(docId));
           return;
         }
       } catch { /* range detached by a re-render; next refresh rebuilds it */ }
