@@ -127,6 +127,21 @@ export const pendingIndex = (doc) =>
   listSuggestions(doc).map(({ id, by, at, via }) => ({ id, by, at, ...(via ? { via } : {}) }));
 
 /**
+ * pendingIndex as JSON for docs.pending_suggestions, from a Y.Doc or a stored
+ * state; null when it cannot be read, so a save keeps the column as it was
+ * (`coalesce($n::jsonb, pending_suggestions)`) instead of failing.
+ */
+export function pendingJson(docOrState) {
+  try {
+    let doc = docOrState;
+    if (!(doc instanceof Y.Doc)) { doc = new Y.Doc(); Y.applyUpdate(doc, new Uint8Array(docOrState)); }
+    return JSON.stringify(pendingIndex(doc));
+  } catch {
+    return null;
+  }
+}
+
+/**
  * The suggestion ids a Yjs `update` writes with `by === userId`: the `mnSugg`
  * of text it inserts or formats (Y.Text keeps attributes as format items) and
  * the `prop:mnSugg` it sets on blocks. Whoever sent the update is the only

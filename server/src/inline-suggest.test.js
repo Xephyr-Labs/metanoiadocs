@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as Y from 'yjs';
 import { buildDocState } from './blocks.js';
-import { authorView, creditedSuggestions, decide, decideAll, listSuggestions, newSuggestionsBy, pendingIndex, pendingText } from './inline-suggest.js';
+import { authorView, creditedSuggestions, decide, decideAll, listSuggestions, newSuggestionsBy, pendingIndex, pendingJson, pendingText } from './inline-suggest.js';
 import { suggestedState } from './suggest-fixture.js';
 
 const S = (id, kind, by = 'u1') => ({ id, kind, by, at: 1 });
@@ -194,4 +194,18 @@ test('pendingIndex: every pending suggestion in page order, id/by/at only', () =
   const empty = new Y.Doc();
   Y.applyUpdate(empty, new Uint8Array(buildDocState('T', 'plain')));
   assert.deepEqual(pendingIndex(empty), []);
+});
+
+test('pendingJson: from a doc or a stored state; null (column kept) when unreadable', () => {
+  const state = suggestedState();
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, state);
+  const want = JSON.stringify(pendingIndex(doc));
+  assert.equal(pendingJson(doc), want);
+  assert.equal(pendingJson(Buffer.from(state)), want);
+  assert.equal(pendingJson(Buffer.from([1, 2, 3, 255])), null);
+  const odd = new Y.Doc();
+  odd.getMap('blocks').set('b', 'not a block map');
+  assert.equal(pendingJson(odd), '[]');
+  assert.equal(pendingJson({ getMap() { throw new Error('odd'); } }), null);
 });
