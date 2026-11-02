@@ -23,7 +23,7 @@ import { getTestStoreManager } from '@blocksuite/integration-test/store';
 import { onVBeforeinput, onVCompositionEnd } from '../../../node_modules/@blocksuite/affine-rich-text/src/hooks';
 import { suggestInlineExtensions } from './inlineSpec';
 import { listSuggestions } from './model';
-import { addSuggestedBlock, applyInput, attachSuggestingInput, type Ed, patchHooks, refusedKey, removeOwnAddedBlock, SUGGESTING_CLASS, suggestableIn } from './suggestingInput';
+import { addSuggestedBlock, applyInput, attachSuggestingInput, type Ed, patchHooks, refusedKey, removeOwnAddedBlock, SUGGESTING_CLASS, suggestableIn, suggestReplacement } from './suggestingInput';
 
 const ME = 'me';
 const THEM = { id: 't1', kind: 'ins', by: 'them', at: 1 } as const;
@@ -273,6 +273,47 @@ describe('what Suggesting mode refuses', () => {
       detach();
       expect(remove).toHaveBeenCalledTimes(5);
     } finally { vi.unstubAllGlobals(); }
+  });
+});
+
+describe('the Suggest button writes an inline replace (suggestReplacement)', () => {
+  it('marks the passage deleted and the new text inserted, by me, under one id: one replace card, one undo step', () => {
+    const { store, yText } = page('Hello world');
+    let transactions = 0;
+    yText.doc!.on('afterTransaction', () => { transactions++; });
+    expect(suggestReplacement(yText, { index: 6, length: 5 }, 'there', ME)).toBe(true);
+    const d = delta(yText);
+    expect(d.map((x) => x.insert)).toEqual(['Hello ', 'world', 'there']);
+    expect(sugg(d[1])).toMatchObject({ kind: 'del', by: ME });
+    expect(sugg(d[2])).toMatchObject({ kind: 'ins', by: ME, id: sugg(d[1])!.id });
+    expect(transactions).toBe(1);
+    const cards = listSuggestions(store as never);
+    expect(cards).toHaveLength(1);
+    expect(cards[0]).toMatchObject({ kind: 'replace', before: 'world', after: 'there', by: ME });
+  });
+
+  it('an empty replacement suggests deleting the passage', () => {
+    const { yText } = page('Hello world');
+    suggestReplacement(yText, { index: 5, length: 6 }, '', ME);
+    const d = delta(yText);
+    expect(d.map((x) => x.insert)).toEqual(['Hello', ' world']);
+    expect(sugg(d[1])).toMatchObject({ kind: 'del', by: ME });
+  });
+
+  it("leaves someone else's pending text inside the passage alone", () => {
+    const { yText } = page('Hello world');
+    yText.format(0, 5, { mnSugg: THEM });
+    suggestReplacement(yText, { index: 0, length: 11 }, 'Bye', ME);
+    const d = delta(yText);
+    expect(d.map((x) => x.insert)).toEqual(['Hello', ' world', 'Bye']);
+    expect(sugg(d[0])).toEqual(THEM);
+    expect(sugg(d[1])).toMatchObject({ kind: 'del', by: ME });
+  });
+
+  it('refuses a range that is not in the text', () => {
+    const { yText } = page('Hi');
+    expect(suggestReplacement(yText, { index: 1, length: 5 }, 'x', ME)).toBe(false);
+    expect(yText.toString()).toBe('Hi');
   });
 });
 

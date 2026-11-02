@@ -11,6 +11,7 @@ import { CommentIcon, EditIcon } from '@blocksuite/icons/lit';
 import * as Y from 'yjs';
 import { docsApi } from '../lib/docsApi';
 import { anchoredOccurrence, anchoredText, encodeAnchor, findQuote, normalizeQuote } from '../lib/textMatch';
+import { suggestReplacement } from './suggest/suggestingInput';
 
 export interface CommentAnchor {
   quote: string;
@@ -328,6 +329,25 @@ export function commentOnBlock(blockId: string, label: string) {
   if (!hlDocId) return; // a public viewer or a version preview: no comments here
   setPending({ quote: label.slice(0, 500), blockId });
   openListeners.forEach((l) => l(hlDocId));
+}
+
+/**
+ * The Suggest button's submit: suggest replacing the anchored passage with
+ * `text` ('' deletes it) inline on the page, as `me` — no comment row. False
+ * when the passage is no longer on the page as it was selected.
+ */
+export function suggestOnPage(a: CommentAnchor, text: string, me: string): boolean {
+  const el = hlRoot && a.blockId ? hlRoot.querySelector(`[data-block-id="${CSS.escape(a.blockId)}"]`) : null;
+  const t = yTextOf(el);
+  if (!t) return false;
+  let occurrence = a.occurrence ?? 0;
+  if (a.anchorStart && a.anchorEnd) {
+    const n = anchoredOccurrence(t, a.quote, a.anchorStart, a.anchorEnd);
+    if (n === null) return false;
+    if (n !== undefined) occurrence = n;
+  }
+  const hit = findQuote(t.toString(), a.quote, occurrence);
+  return !!hit && suggestReplacement(t, hit, text, me);
 }
 
 let activeTimer: ReturnType<typeof setTimeout> | undefined;

@@ -194,6 +194,34 @@ export function applyInput(ed: Ed, inputType: string, data: string | null, range
   return back || range.length ? r.index : end;
 }
 
+/** Inline embeds (a page link, an equation, a footnote, a mention): typed text never takes their attributes. */
+const EMBEDS = ['reference', 'latex', 'footnote', 'mention'];
+
+/**
+ * The Suggest button: suggest replacing `range` of `yText` with `text` (empty:
+ * deleting it), as selecting it and typing in Suggesting mode would — one
+ * replace, del + ins under one id, by me, in one transaction (one undo step).
+ * Straight on the Y.Text, not through a mounted inline editor, which refuses
+ * writes on a read-only page (a suggester's). False when `range` is not in it.
+ */
+export function suggestReplacement(yText: Y.Text, range: Range, text: string, me: string): boolean {
+  const doc = yText.doc;
+  if (!doc || !range.length || range.index < 0 || range.index + range.length > yText.length) return false;
+  const ed = {
+    yText,
+    insertText: (r: Range, t: string, a?: Attrs) => { yText.insert(r.index, t, a ?? {}); },
+    deleteText: (r: Range) => { yText.delete(r.index, r.length); },
+    formatText: (r: Range, a: Attrs, { match }: { match?: (d: { attributes?: Attrs }) => boolean } = {}) => {
+      for (const run of runs(yText, r.index, r.index + r.length)) if (!match || match(run.op)) yText.format(run.at, run.len, a);
+    },
+    isEmbed: (d: { attributes?: Attrs }) => EMBEDS.some((k) => d.attributes?.[k]),
+  } as unknown as Ed;
+  doc.transact(() => {
+    applyInput(ed, text ? 'insertReplacementText' : 'deleteContentBackward', text || null, range, me);
+  }, doc.clientID);
+  return true;
+}
+
 const wrapped = new WeakSet<Ed>();
 
 /**
