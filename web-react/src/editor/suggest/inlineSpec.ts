@@ -56,12 +56,21 @@ export function suggestInlineExtensions(): ExtensionType[] {
   // BlockSuite's own factory for the manager, caught rather than copied, so its
   // spec list stays BlockSuite's across upgrades.
   let stock: ((p: Provider) => Manager) | undefined;
-  DefaultInlineManagerExtension.setup({ addImpl: (_: unknown, f: typeof stock) => { stock = f; } } as never);
+  try {
+    DefaultInlineManagerExtension.setup({ addImpl: (_: unknown, f: typeof stock) => { stock = f; } } as never);
+  } catch { /* reported just below */ }
+  if (typeof stock !== 'function') {
+    throw new Error('BlockSuite DefaultInlineManagerExtension shape changed: mnSugg inline spec cannot register');
+  }
+  const build = stock;
   return [
     SuggSpec,
     {
       setup: (di) => (di as unknown as Di).override(DefaultInlineManagerExtension.identifier, (p) => {
-        const manager = stock!(p);
+        const manager = build(p);
+        // `specs` is typed readonly but is a plain array, and getSchema,
+        // getRenderer and embedChecker all read it lazily on each call, so a
+        // spec pushed here takes part in validation and rendering like the rest.
         (manager.specs as InlineSpecs[]).push(p.get(SuggSpec.identifier));
         return manager;
       }),
