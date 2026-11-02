@@ -168,6 +168,32 @@ test('a trusted writer\'s edit that would cut through someone\'s pending del or 
   assert.equal(read(doc), 'Aleph  delta new.\n\nOther line.');
 });
 
+test('a trusted writer\'s insertion inside someone\'s pending del run is skipped; right before or after it, it lands', () => {
+  const setup = () => {
+    const doc = page('Alpha beta gamma delta.\n');
+    textOf(doc, /Alpha/).format(6, 10, { mnSugg: { id: 'u2-del', kind: 'del', by: 'u2', at: 1 } }); // "beta gamma"
+    return doc;
+  };
+  const inside = setup();
+  let out;
+  assert.equal(updates(inside, () => { out = edit(inside, [{ find: 'beta gamma', replace: 'beta big gamma' }], { by: 'owner', direct: true }); }), 0);
+  assert.deepEqual(out.skipped.map((x) => [x.edit, x.reason]), [[0, 'overlaps a pending suggestion by u2']]);
+  for (const [find, replace, want] of [['Alpha beta', 'Alpha, beta', 'Alpha,  delta.'], ['gamma delta', 'gamma, delta', 'Alpha , delta.']]) {
+    const doc = setup();
+    const r = edit(doc, [{ find, replace }], { by: 'owner', direct: true });
+    assert.equal(r.applied, 1, find);
+    assert.equal(decide(doc, 'u2-del', 'accept'), true);
+    assert.equal(read(doc), want);
+  }
+});
+
+test('a trusted writer is not blocked by their own pending marks', () => {
+  const doc = page('Alpha beta gamma delta.\n');
+  textOf(doc, /Alpha/).format(6, 10, { mnSugg: { id: 'o-del', kind: 'del', by: 'owner', at: 1 } });
+  assert.equal(edit(doc, [{ find: 'beta gamma', replace: 'beta X gamma' }], { by: 'owner', direct: true }).applied, 1);
+  assert.equal(edit(doc, [{ find: 'X gamma', replace: 'Z' }], { by: 'owner', direct: true }).applied, 1);
+});
+
 test('R16: a trusted writer matches the page with nothing pending accepted, so their own pending insertion is not findable', () => {
   const doc = page('Alpha beta.\n');
   edit(doc, [{ find: 'beta', replace: 'beta mine' }], { by: 'owner' }); // owner suggested " mine" earlier

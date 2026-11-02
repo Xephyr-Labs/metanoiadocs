@@ -452,17 +452,25 @@ function fill(t, units) {
 
 /**
  * Who has a pending suggestion that a direct (unmarked) write of `src` over
- * `t` would delete or split: the units inside each change's span, after the
- * diff widens it to whole words, that carry anyone's mark.
+ * `t` would delete or split: the marked units inside each change's span,
+ * after the diff widens it to whole words, and for a pure insertion, a
+ * deletion run it would land inside (both neighbours carry the same mark).
+ * An insertion lands after any inserted run in its gap, so never inside one.
+ * The writer's (`by`) own marks never count.
  */
-function overlapped(t, src) {
+function overlapped(t, src, by) {
   const units = unitsOf(t);
   const baseAt = [];
   units.forEach((u, i) => { if (u.s?.kind !== 'ins') baseAt.push(i); });
+  const theirs = (s) => (s && s.by !== by ? s : null);
   const who = new Set();
   for (const h of hunks(baseAt.map((i) => units[i]), unitsOf(src))) {
-    if (h.be <= h.bs) continue;
-    for (let u = baseAt[h.bs]; u <= baseAt[h.be - 1]; u++) if (units[u].s) who.add(units[u].s.by);
+    if (h.be > h.bs) {
+      for (let u = baseAt[h.bs]; u <= baseAt[h.be - 1]; u++) if (theirs(units[u].s)) who.add(units[u].s.by);
+    } else if (h.bs > 0 && h.bs < baseAt.length) {
+      const a = theirs(units[baseAt[h.bs - 1]].s), b = theirs(units[baseAt[h.bs]].s);
+      if (a && b && a.id === b.id) who.add(a.by);
+    }
   }
   return [...who];
 }
@@ -569,7 +577,7 @@ export function suggestEdits({ doc, edits, by, via, direct = false, at = Date.no
     if (plan.inline) {
       plan.next = new Y.Doc().getText('t');
       fill(plan.next, e.units);
-      const who = plan.w.direct ? overlapped(e.t, plan.next) : [];
+      const who = plan.w.direct ? overlapped(e.t, plan.next, by) : [];
       if (who.length) {
         for (const k of changed.get(e)) {
           skipped.push({ edit: k, find: edits[k].find, blockId: e.id, reason: `overlaps a pending suggestion by ${who.join(', ')}` });
