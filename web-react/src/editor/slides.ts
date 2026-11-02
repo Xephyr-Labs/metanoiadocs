@@ -185,6 +185,12 @@ export async function renderSlides(editor: Element | null, ids?: string[]): Prom
   if (!s) return null;
   const vp = s.gfx.viewport;
   const { zoom, centerX, centerY } = vp;
+  // rich-text clips overflow-y, and html2canvas sets glyphs a few px lower than
+  // the browser does, so descenders ("gyp") get cut off. html2canvas copies the
+  // live computed styles, so loosening it here for the export is enough.
+  const unclip = document.createElement('style');
+  unclip.textContent = 'editor-host rich-text { overflow: visible !important; }';
+  document.head.append(unclip);
   try {
     const frames: Any[] = ids ? ids.map((id) => s.gfx.getElementById(id)).filter(Boolean) : s.frames.frames;
     if (!frames.length) return null;
@@ -212,6 +218,7 @@ export async function renderSlides(editor: Element | null, ids?: string[]): Prom
     // A tainted image, an image whose blob is gone, or the user navigated away.
     return null;
   } finally {
+    unclip.remove();
     try { vp.setViewport(zoom, [centerX, centerY]); } catch { /* editor unmounted */ }
   }
 }
