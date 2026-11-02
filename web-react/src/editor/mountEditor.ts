@@ -23,6 +23,7 @@ import { applyUpdate } from 'yjs';
 import { IndexeddbPersistence } from 'y-indexeddb';
 import { Signal } from '@preact/signals-core';
 import { avatarFor } from '../lib/avatar';
+import { opensWritable } from '../lib/docsApi';
 import { attachPresence, primeRemoteSelections } from './presence';
 import { attachComments, commentToolbarExtensions, notifyCommentsChanged, type CommentRows } from './comments';
 import { takePendingSeed } from './pendingSeed';
@@ -169,7 +170,6 @@ interface MountArgs {
   suggesting?: SuggestingOptions;
 }
 
-const EDIT_ROLES = new Set(['owner', 'editor']);
 
 function docModeService(editor: { mode: string }, mode: 'page' | 'edgeless') {
   let current = mode;
@@ -189,9 +189,15 @@ export async function mountEditor(
 ) {
   installEffects();
   // Read-only for this viewer: a public link, a version preview, or a role
-  // that can't edit. A draft is the suggester's own and always writable.
-  const readonlyRole = !share && !snapshot && !draft && !!role && !EDIT_ROLES.has(role);
+  // that can't edit. A draft is the suggester's own and always writable; so is
+  // the live page for a suggester in Suggesting mode (opensWritable).
+  const readonlyRole = !share && !snapshot && !draft && !opensWritable(role);
   const noWrite = !!(share || snapshot || readonlyRole);
+  // A suggester's editor is writable only for Suggesting mode's marked edits;
+  // the server refuses (and makes the tab reload on) any direct write, so none
+  // of the editor's own housekeeping writes run for them: seeding, the title
+  // reconcile, the surface heal, the title/search push, file drops.
+  const noDirect = noWrite || (!draft && role === 'suggester');
   chartEffects(); // register the metanoia:chart custom elements once
   databaseEffects(); // register the metanoia:database custom element once
   columnsEffects(); // register the column elements + widen the schema once
@@ -402,7 +408,7 @@ export async function mountEditor(
   // Only the first client to reach a still-empty doc seeds the skeleton (page ->
   // surface + note + blocks). A read-only viewer never seeds. If the doc was
   // created from a template, seed its blocks; otherwise a single empty paragraph.
-  if (!noWrite && !draft && !store.root) {
+  if (!noDirect && !draft && !store.root) {
     const seed = takePendingSeed(docId);
     try {
       const pageId = store.addBlock('affine:page', { title: new Text(title) });
@@ -469,12 +475,12 @@ export async function mountEditor(
     try { await settleTitle(); } finally {
       titleSettled = true;
       // What was held back while asking goes out now.
-      if (!signal?.aborted && !noWrite && !draft) push();
+      if (!signal?.aborted && !noDirect && !draft) push();
     }
   };
   const settleTitle = async () => {
     // A draft's title is the suggester's proposal, not the page's to restore.
-    if (noWrite || draft || !store.root) return;
+    if (noDirect || draft || !store.root) return;
     const before = titleNow();
     let stored: string;
     try {
@@ -506,7 +512,7 @@ export async function mountEditor(
   // Two clients switching to canvas at the same instant would add two surfaces;
   // BlockSuite reads the first, so the loser is inert.
   const ensureSurface = () => {
-    if (noWrite) return;
+    if (noDirect) return;
     const pageRoot = store.root as { id: string; children?: { flavour: string }[] } | null;
     if (!pageRoot || (pageRoot.children ?? []).some((c) => c.flavour === 'affine:surface')) return;
     try { store.addBlock('affine:surface', {}, pageRoot.id, 0); } catch { /* raced, fine */ }
@@ -702,7 +708,7 @@ export async function mountEditor(
   // A file dropped in the margin or under the last line lands where it was
   // dropped, not at the end of the page (see fileDrop.ts). Not for viewers:
   // nothing can be dropped into a read-only page.
-  const detachFileDrop = noWrite
+  const detachFileDrop = noDirect
     ? null
     : attachFileDrop(editor as unknown as Parameters<typeof attachFileDrop>[0]);
 
@@ -790,7 +796,7 @@ export async function mountEditor(
   };
   // A read-only viewer never writes back title/search text, and nor does a
   // draft: the page it was drafted from keeps its own until changes are accepted.
-  if (!noWrite && !draft) {
+  if (!noDirect && !draft) {
     doc.spaceDoc.on('update', push);
     push();
     if (!live) {

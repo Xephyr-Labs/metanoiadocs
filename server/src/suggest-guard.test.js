@@ -328,3 +328,89 @@ test('syncUpdateOf: the update inside a sync step 2 or update message, nothing e
   assert.equal(syncUpdateOf(msg(['u', 1], ['a', u])), null); // awareness
   assert.equal(syncUpdateOf(msg(['u', 5])), null); // stateless
 });
+
+// ── fix round 1 ──────────────────────────────────────────────────────────
+
+const diffOf = (d, fn) => { const sv = Y.encodeStateVector(d); fn(); return Y.encodeStateAsUpdate(d, sv); };
+const paraOf = (d) => [...d.getMap('blocks').values()].find((b) => b.get('sys:flavour') === 'affine:paragraph');
+const noteKids = (d) => [...d.getMap('blocks').values()].find((b) => b.get('sys:flavour') === 'affine:note').get('sys:children');
+
+test('a struct Yjs merges into its left neighbour (same client) is still checked: text', () => {
+  const server = new Y.Doc();
+  Y.applyUpdate(server, new Uint8Array(buildDocState('T', 'hello world')));
+  const ed = new Y.Doc(); Y.applyUpdate(ed, Y.encodeStateAsUpdate(server));
+  Y.applyUpdate(server, diffOf(ed, () => paraOf(ed).get('prop:text').insert(11, '!!')));
+  const atk = new Y.Doc(); Y.applyUpdate(atk, Y.encodeStateAsUpdate(server)); atk.clientID = ed.clientID;
+  no(checkSuggesterUpdate(server, diffOf(atk, () => paraOf(atk).get('prop:text').insert(13, ' PLAIN')), ME));
+});
+
+test('a merged struct is still checked: children, with a forged or my own client id', () => {
+  for (const forged of [true, false]) {
+    const server = new Y.Doc();
+    Y.applyUpdate(server, new Uint8Array(buildDocState('T', 'hello world\n\nsecond')));
+    const ed = new Y.Doc(); Y.applyUpdate(ed, Y.encodeStateAsUpdate(server));
+    // The first client appends a block (forged: an editor's; else my own add).
+    const up = diffOf(ed, () => {
+      const b = new Y.Map(); ed.getMap('blocks').set('nb', b);
+      b.set('sys:id', 'nb'); b.set('sys:flavour', 'affine:paragraph'); b.set('sys:children', new Y.Array());
+      if (!forged) b.set('prop:mnSugg', S('a1', 'add'));
+      noteKids(ed).push(['nb']);
+    });
+    if (!forged) ok(checkSuggesterUpdate(server, up, ME));
+    Y.applyUpdate(server, up);
+    const atk = new Y.Doc(); Y.applyUpdate(atk, Y.encodeStateAsUpdate(server)); atk.clientID = ed.clientID;
+    const pid = [...atk.getMap('blocks').entries()].find(([, b]) => b.get('sys:flavour') === 'affine:paragraph')[0];
+    no(checkSuggesterUpdate(server, diffOf(atk, () => noteKids(atk).push([pid, { evil: 1 }])), ME));
+  }
+});
+
+test('an update that cannot apply yet is refused even when the doc already waits on another', () => {
+  const server = new Y.Doc();
+  Y.applyUpdate(server, new Uint8Array(buildDocState('T', 'hello world')));
+  const ed = new Y.Doc(); Y.applyUpdate(ed, Y.encodeStateAsUpdate(server));
+  diffOf(ed, () => paraOf(ed).get('prop:text').insert(0, 'A'));
+  Y.applyUpdate(server, diffOf(ed, () => paraOf(ed).get('prop:text').insert(1, 'B'))); // out of order: pending
+  assert.ok(server.store.pendingStructs);
+  const atk = new Y.Doc(); Y.applyUpdate(atk, Y.encodeStateAsUpdate(ed));
+  no(checkSuggesterUpdate(server, diffOf(atk, () => paraOf(atk).get('prop:text').insert(1, 'PLAIN')), ME));
+  // An update that needs nothing missing is still judged on its own.
+  const me = new Y.Doc(); Y.applyUpdate(me, Y.encodeStateAsUpdate(server));
+  ok(checkSuggesterUpdate(server, diffOf(me, () => paraOf(me).get('prop:text').insert(0, 'x', { mnSugg: S('i1', 'ins') })), ME));
+});
+
+test('no remove or type mark on page structure (page, note, surface)', () => {
+  for (const f of ['affine:page', 'affine:note', 'affine:surface']) {
+    no(edit(setup(), (s) => s.by(f)[1].set('prop:mnSugg', S('r1', 'remove'))));
+    no(edit(setup(), (s) => s.by(f)[1].set('prop:mnSugg', S('t1', 'type', ME, { from: { flavour: f } }))));
+  }
+  ok(edit(setup(), (s) => s.by('affine:code')[1].set('prop:mnSugg', S('r1', 'remove')))); // a whole non-text block
+  ok(edit(setup(), (s) => s.by('affine:table')[1].set('prop:mnSugg', S('r2', 'remove'))));
+});
+
+test('no type (or remove) mark on a database row (R12)', () => {
+  const s = setup();
+  const up = [];
+  const h = (u) => up.push(u);
+  s.client.on('update', h);
+  s.client.transact(() => {
+    const db = new Y.Map();
+    s.blocks.set('db1', db);
+    db.set('sys:id', 'db1'); db.set('sys:flavour', 'affine:database');
+    const kids = new Y.Array(); db.set('sys:children', kids);
+    s.note.get('sys:children').push(['db1']);
+    const row = new Y.Map();
+    s.blocks.set('row1', row);
+    row.set('sys:id', 'row1'); row.set('sys:flavour', 'affine:paragraph'); row.set('prop:type', 'text');
+    row.set('sys:children', new Y.Array()); row.set('prop:text', new Y.Text('r'));
+    kids.push(['row1']);
+  });
+  s.client.off('update', h);
+  Y.applyUpdate(s.server, Y.mergeUpdates(up));
+  no(edit(s, () => {
+    const row = s.blocks.get('row1');
+    row.set('prop:mnSugg', S('t1', 'type', ME, { from: { flavour: 'affine:paragraph', type: 'text' } }));
+    row.set('prop:type', 'h1');
+  }));
+  no(edit(s, () => s.blocks.get('row1').set('prop:mnSugg', S('r1', 'remove'))));
+  ok(edit(s, () => s.blocks.get('db1').set('prop:mnSugg', S('r2', 'remove')))); // the whole database
+});

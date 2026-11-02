@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { canEditRole, docsApi, type SuggestionDraft } from './docsApi';
+import { canEditRole, docsApi, opensWritable, type SuggestionDraft } from './docsApi';
 import { currentMode, loadDrafts, pickDrafts, resolveReview, setMode } from './reviewMode';
 
 vi.mock('./docsApi', async (importOriginal) => ({
@@ -57,6 +57,20 @@ describe('what the page shows (useReviewState)', () => {
     expect(r.myDraft).toBeNull();
     // mountEditor opens the page writable for this role, and attaches suggestingInput (it skips only read-only editors).
     expect(canEditRole(r.effectiveRole)).toBe(true);
+  });
+
+  it('a suggester opens Suggesting on a writable editor, and never gets Editing', async () => {
+    const r = resolveReview('d6', 'suggester', 'me');
+    expect(r.mode).toBe('suggesting');
+    expect(r.allowed).not.toContain('editing');
+    // mountEditor opens the page writable for this role and attaches suggestingInput.
+    expect(opensWritable(r.effectiveRole)).toBe(true);
+    await setMode('d6', 'editing');
+    expect(currentMode('d6', 'suggester')).toBe('suggesting');
+    await setMode('d6', 'viewing');
+    expect(opensWritable(resolveReview('d6', 'suggester', 'me').effectiveRole)).toBe(false);
+    for (const role of ['commenter', 'viewer']) expect(opensWritable(resolveReview('d7', role, 'me').effectiveRole)).toBe(false);
+    for (const role of ['owner', 'editor']) expect(opensWritable(role)).toBe(true);
   });
 
   it('a legacy draft of mine is still the one Suggesting opens', async () => {

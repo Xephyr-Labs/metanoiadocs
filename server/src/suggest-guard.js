@@ -11,10 +11,12 @@
 // - deleting text of my own pending `ins`;
 // - a new empty paragraph/list block marked prop:mnSugg { kind:'add', by: me },
 //   inserted once into a container's children; deleting such a block again;
-// - setting, changing or withdrawing my own prop:mnSugg `remove` or `type` on a
-//   paragraph/list (a `type` may change flavour/type/checked in place, with
+// - setting or withdrawing my own prop:mnSugg `remove` on any block except page
+//   structure (page, note, surface) and anything inside a table or database;
+// - setting, changing or withdrawing my own `type` on a paragraph/list outside
+//   tables and databases (it may change flavour/type/checked in place, with
 //   `from` holding what it was: R13b, ticks included).
-// Only in paragraph/list text outside tables and databases (R7, R12).
+// Text only in paragraph/list text outside tables and databases (R7, R12).
 import { isDeepStrictEqual } from 'node:util';
 import * as Y from 'yjs';
 import * as decoding from 'lib0/decoding';
@@ -26,6 +28,8 @@ const TEXT_FLAVOURS = new Set(['affine:paragraph', 'affine:list']);
 const CONTAINERS = new Set(['affine:note', 'affine:paragraph', 'affine:list', 'affine:callout']);
 const NO_SUGGEST = new Set(['affine:table', 'affine:database', 'metanoia:database']);
 const TYPE_KEYS = new Set(['sys:flavour', 'prop:type', 'prop:checked']);
+// Accepting a remove on these would drop the page's own structure.
+const STRUCTURE = new Set(['affine:page', 'affine:note', 'affine:surface']);
 
 class Refused extends Error {}
 const refuse = (reason) => { throw new Refused(reason); };
@@ -140,7 +144,7 @@ function checkRemovedBlock(b, ctx) {
 }
 
 /** Block-level marks on an existing block: my own `remove` or `type`, never anyone else's or an `add`. */
-function checkBlockMark(bb, ba, keys, ctx) {
+function checkBlockMark(id, bb, ba, keys, ctx) {
   for (const k of keys) if (k !== BLOCK_KEY && !TYPE_KEYS.has(k)) refuse(`cannot change ${k}`);
   const prev = bb.get(BLOCK_KEY);
   const next = ba.get(BLOCK_KEY);
@@ -158,6 +162,8 @@ function checkBlockMark(bb, ba, keys, ctx) {
   }
   if (!validMark(next, ctx.me, ['remove', 'type'])) refuse('a block mark that is not your suggestion');
   ctx.claim(next.id);
+  if (STRUCTURE.has(v0.flavour)) refuse('page structure cannot be suggested away');
+  if (ctx.underNoSuggest(id)) refuse('tables and databases cannot be suggested in');
   if (next.kind === 'remove') {
     if (prev?.kind === 'type' || !isDeepStrictEqual(v1, v0)) refuse('a remove suggestion changes nothing else');
     return;
@@ -185,13 +191,17 @@ function check(doc, update, me) {
   if (!me) refuse('no user');
   const clone = new Y.Doc({ gc: false });
   Y.applyUpdate(clone, Y.encodeStateAsUpdate(doc));
-  const pending = () => !!(clone.store.pendingStructs || clone.store.pendingDs);
-  const hadPending = pending();
+  // What the doc waits on (structs whose dependencies it lacks). The live doc
+  // may already wait on someone's out-of-order frame; an update that adds to
+  // that would integrate later, unchecked, so it is refused.
+  const pendingNow = () => [clone.store.pendingStructs?.update ?? null, clone.store.pendingDs ?? null];
+  const pending0 = pendingNow();
   const sv0 = Y.decodeStateVector(Y.encodeStateVector(clone));
   const trs = [];
   clone.on('afterTransaction', (t) => trs.push(t));
   Y.applyUpdate(clone, update);
-  if (!hadPending && pending()) refuse('depends on changes the server does not have');
+  const pending1 = pendingNow();
+  if ((pending1[0] || pending1[1]) && !isDeepStrictEqual(pending0, pending1)) refuse('depends on changes the server does not have');
 
   const root = clone.getMap('blocks');
   const touched = new Map(); // block id -> { entry, keys, inner, deep }
@@ -207,7 +217,9 @@ function check(doc, update, me) {
   };
   for (const [client, structs] of clone.store.clients) {
     const from = sv0.get(client) ?? 0;
-    for (let i = structs.length - 1; i >= 0 && structs[i].id.clock >= from; i--) touch(structs[i]);
+    // `clock + length`: Yjs merges a new item into its left neighbour of the
+    // same client, and the merged struct keeps the neighbour's (old) clock.
+    for (let i = structs.length - 1; i >= 0 && structs[i].id.clock + structs[i].length > from; i--) touch(structs[i]);
   }
   for (const t of trs) Y.iterateDeletedStructs(t, t.deleteSet, touch);
   if (!touched.size) return;
@@ -238,6 +250,7 @@ function check(doc, update, me) {
     }
     return false;
   };
+  ctx.underNoSuggest = underNoSuggest;
 
   const added = new Set(), removed = new Set();
   const inserted = [], dropped = [];
@@ -249,7 +262,7 @@ function check(doc, update, me) {
     if (ba !== undefined && !sameBlock) { checkNewBlock(id, ba, ctx); added.add(id); }
     if (!sameBlock) continue;
     if (t.deep) refuse('changed something deep inside a block');
-    if (t.keys.size) checkBlockMark(bb, ba, t.keys, ctx);
+    if (t.keys.size) checkBlockMark(id, bb, ba, t.keys, ctx);
     for (const k of t.inner) {
       if (t.keys.has(k)) refuse(`replaced ${k}`);
       const flavour = ba.get('sys:flavour');

@@ -174,6 +174,11 @@ export type DocRole = 'viewer' | 'commenter' | 'suggester' | 'editor' | 'owner';
 export const canEditRole = (role?: string | null) => !role || role === 'editor' || role === 'owner';
 export const canSuggestRole = (role?: string | null) => canEditRole(role) || role === 'suggester';
 export const canCommentRole = (role?: string | null) => canSuggestRole(role) || role === 'commenter';
+/** Whether the editor opens writable for this (effective) role. A suggester's
+ *  is: Suggesting mode marks what they type, and the server's suggest-guard
+ *  refuses anything else. Their effective role is 'suggester' only in Suggesting
+ *  (reviewMode.resolveReview); Editing is never theirs. */
+export const opensWritable = (role?: string | null) => canEditRole(role) || role === 'suggester';
 
 /** A Suggesting-mode draft of a page. */
 export interface SuggestionDraft {
