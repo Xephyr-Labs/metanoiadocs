@@ -8,7 +8,7 @@
  * made until the person accepts, and the accepted ones are linked under a
  * "Tasks from this meeting" heading on the page.
  */
-import { pendingText, visibleOps } from './inline-suggest.js';
+import { blockView, pendingText, visibleOps } from './inline-suggest.js';
 import * as Y from 'yjs';
 import { appendMarkdownToDoc, bodyNote, docToMarkdown } from './blocks.js';
 import { pageStateFrom } from './suggestions.js';
@@ -107,7 +107,8 @@ export function openTodos(doc, baseUrl) {
     const b = blocks.get(id);
     if (!(b instanceof Y.Map)) return;
     const text = b.get('prop:text');
-    if (b.get('sys:flavour') === 'affine:list' && b.get('prop:type') === 'todo' && text instanceof Y.Text) {
+    const v = blockView(b);
+    if (v?.flavour === 'affine:list' && v.type === 'todo' && text instanceof Y.Text) {
       const plain = pendingText(text);
       if (plain.trim()) {
         if (b.get('prop:checked') || linkedToTask(text, baseUrl)) skipped++;

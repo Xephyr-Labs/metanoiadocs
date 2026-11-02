@@ -430,6 +430,9 @@ export function collectPageLinks(store: unknown): string[] {
 
   const takeDeltas = (value: any) => {
     for (const d of value.toDelta() ?? []) {
+      // A suggested insertion is not on the page yet, so it links nothing yet
+      // (the server's pageLinksOf applies the same rule).
+      if (d?.attributes?.mnSugg?.kind === 'ins') continue;
       const pageId = d?.attributes?.reference?.pageId;
       if (typeof pageId === 'string' && pageId) ids.add(pageId);
     }
@@ -450,8 +453,11 @@ export function collectPageLinks(store: unknown): string[] {
 
   const walk = (model: any) => {
     if (!model) return;
-    scan(model.text, 0);
-    scan(model.props, 0);
+    // A suggested block is not on the page yet either; its children still are.
+    if (model.props?.mnSugg?.kind !== 'add') {
+      scan(model.text, 0);
+      scan(model.props, 0);
+    }
     for (const child of model.children ?? []) walk(child);
   };
 

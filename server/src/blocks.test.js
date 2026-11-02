@@ -505,3 +505,16 @@ test('a reference inside a pending insertion is not a link, and a pending add is
   db.set('sys:flavour', 'affine:database');
   assert.deepEqual(lossyBlocks(Y.encodeStateAsUpdate(doc)), []);
 });
+
+test('pageLinksOf mirrors the editor: no links from a pending insertion or add block, kept elsewhere', () => {
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, new Uint8Array(suggestedState()));
+  const ref = (pageId, mnSugg) => ({ reference: { type: 'LinkedPage', pageId }, ...(mnSugg ? { mnSugg } : {}) });
+  const bs = [...doc.getMap('blocks').values()];
+  const keep = bs.find((b) => b.get('prop:text')?.toString().startsWith('keep')).get('prop:text');
+  keep.insert(0, ' ', ref('kept'));
+  keep.insert(0, ' ', ref('del-ref', { id: 'd', kind: 'del', by: 'u1', at: 1 }));
+  keep.insert(0, ' ', ref('ins-ref', { id: 'i', kind: 'ins', by: 'u1', at: 1 }));
+  bs.find((b) => b.get('prop:text')?.toString() === 'ADDED').get('prop:text').insert(0, ' ', ref('add-ref'));
+  assert.deepEqual(pageLinksOf(Y.encodeStateAsUpdate(doc)).sort(), ['del-ref', 'kept']);
+});

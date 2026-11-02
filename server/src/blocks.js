@@ -207,7 +207,7 @@ export function pageLinksOf(existing) {
       v.forEach((x) => scan(x, depth + 1));
     }
   };
-  for (const [, b] of doc.getMap('blocks')) scan(b, 0);
+  for (const [, b] of doc.getMap('blocks')) if (!(b instanceof Y.Map) || blockView(b)) scan(b, 0);
   return [...ids];
 }
 
