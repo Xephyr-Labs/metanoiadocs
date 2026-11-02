@@ -353,3 +353,23 @@ export const suggestGuard = (role) => ({
     throw Object.assign(new Error(`suggestion refused: ${reason}`), { reason: 'suggestion refused' });
   },
 });
+
+/**
+ * Hocuspocus extension (R18): no client may send BroadcastStateless (6).
+ * MessageReceiver relays one to every connection on the document unchecked
+ * (MessageReceiver.ts:88–93), so any viewer or share-link guest could make
+ * every open editor remount ('doc-restored') or act on anything else the
+ * server says that way. Only the server broadcasts; the app's clients never
+ * send stateless messages. Refused like a bad update: closed with 4403.
+ */
+export const noClientBroadcast = {
+  async beforeHandleMessage({ update }) {
+    let type = -1;
+    try {
+      const d = decoding.createDecoder(update);
+      decoding.readVarString(d);
+      type = decoding.readVarUint(d);
+    } catch { return; /* unreadable: MessageReceiver refuses it */ }
+    if (type === 6) throw Object.assign(new Error('clients may not broadcast stateless messages'), { reason: 'broadcast refused' });
+  },
+};

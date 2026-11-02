@@ -90,7 +90,7 @@ import { draftEdit, draftToRead, lossyRefusal } from './ai-drafts.js';
 import { registerDocEditRoutes } from './doc-edits.js';
 import { creditedSuggestions, listSuggestions, newSuggestionsBy } from './inline-suggest.js';
 import { suggestMarkdown } from './suggest-writer.js';
-import { suggestGuard } from './suggest-guard.js';
+import { noClientBroadcast, suggestGuard } from './suggest-guard.js';
 import OpenAI from 'openai';
 
 process.on('unhandledRejection', (e) => console.error('[proc] unhandledRejection', e?.message || e));
@@ -3638,6 +3638,8 @@ async function notifyPageSuggestions(docId, doc, credits) {
 
 const hocuspocus = new Hocuspocus({
   extensions: [
+    // Only the server broadcasts stateless messages to a page's clients (R18).
+    noClientBroadcast,
     // Checks every update a suggester's connection sends before it applies.
     suggestGuard(SUGGESTER),
     {

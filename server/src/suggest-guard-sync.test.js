@@ -9,12 +9,13 @@ import * as Y from 'yjs';
 import * as encoding from 'lib0/encoding';
 import * as decoding from 'lib0/decoding';
 import { buildDocState } from './blocks.js';
-import { suggestGuard } from './suggest-guard.js';
+import { noClientBroadcast, suggestGuard } from './suggest-guard.js';
 
 const seed = new Uint8Array(buildDocState('T', 'hello'));
 const hocuspocus = new Hocuspocus({
   quiet: true,
   extensions: [
+    noClientBroadcast,
     suggestGuard('suggester'),
     { async onLoadDocument({ document }) { Y.applyUpdate(document, seed); } },
   ],
@@ -22,7 +23,7 @@ const hocuspocus = new Hocuspocus({
 const server = http.createServer();
 const wss = new WebSocketServer({ noServer: true });
 server.on('upgrade', (req, socket, head) => wss.handleUpgrade(req, socket, head, (ws) =>
-  hocuspocus.handleConnection(ws, req, { user: { id: 'me' }, role: 'suggester' })));
+  hocuspocus.handleConnection(ws, req, { user: { id: 'me' }, role: new URL(req.url, 'http://x').searchParams.get('role') ?? 'suggester' })));
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 after(() => { hocuspocus.closeConnections(); server.close(); });
 
@@ -32,8 +33,8 @@ const syncUpdate = (name, u) => msg(name, (e) => { encoding.writeVarUint(e, 0); 
 const step1 = (name) => msg(name, (e) => { encoding.writeVarUint(e, 0); encoding.writeVarUint(e, 0); encoding.writeVarUint8Array(e, Y.encodeStateVector(new Y.Doc())); });
 
 /** A suggester's socket and local doc on page `name`. */
-async function connect(name) {
-  const ws = new WebSocket(`ws://127.0.0.1:${server.address().port}/`);
+async function connect(name, role = 'suggester') {
+  const ws = new WebSocket(`ws://127.0.0.1:${server.address().port}/?role=${role}`);
   const stateless = [];
   let closed = null;
   ws.on('message', (data) => {
@@ -79,4 +80,15 @@ test('a burst of dependent frames is checked in order', async () => {
   assert.equal(c.serverText(), 'helloabc');
   assert.deepEqual(c.stateless, []);
   c.ws.close();
+});
+
+test('no connection may relay a stateless message to everyone (R18)', async () => {
+  const editor = await connect('p3', 'editor');
+  const other = await connect('p3', 'viewer');
+  editor.ws.send(msg('p3', (e) => { encoding.writeVarUint(e, 6); encoding.writeVarString(e, JSON.stringify({ type: 'doc-restored' })); }));
+  await Promise.race([editor.done, new Promise((r) => setTimeout(r, 2000))]);
+  await settle();
+  assert.equal(editor.closed(), 4403);
+  assert.deepEqual(other.stateless, []);
+  other.ws.close();
 });
