@@ -1,0 +1,7 @@
+# A throwaway stack for the inline suggestion checks, beside any other local stack.
+services:
+  server:
+    ports: !override
+      - "8102:3000"
+    environment:
+      BASE_URL: http://localhost:8102
