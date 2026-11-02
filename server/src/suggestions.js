@@ -17,6 +17,7 @@ import * as Y from 'yjs';
 import { cloneValue } from './restore.js';
 import { isPerson } from './approval.js';
 import { findQuote, normalizeQuote } from './text-match.js';
+import { listSuggestions } from './inline-suggest.js';
 
 // ── suggestion cards ───────────────────────────────────────────────────────
 
@@ -608,6 +609,24 @@ export function registerSuggestionRoutes(app, { requireUser, wrap, pool, grantOn
       [req.params.id, req.user.id, canEdit(role)]
     );
     res.json(rows.map(summary));
+  }));
+
+  /**
+   * The inline suggestions pending on the live page, in page order, for anyone
+   * who can open it (they are on the page they see): read_suggestions' cards.
+   */
+  app.get('/api/docs/:id/inline-suggestions', requireUser, wrap(async (req, res) => {
+    if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
+    const state = await pageState(req.params.id);
+    const cards = state ? listSuggestions(docFromState(state)) : [];
+    const ids = [...new Set(cards.map((c) => c.by))];
+    const { rows } = ids.length
+      ? await pool.query('SELECT id, name, email FROM users WHERE id = ANY($1)', [ids])
+      : { rows: [] };
+    const names = new Map(rows.map((u) => [u.id, u.name || u.email]));
+    res.json(cards.map(({ by, at, ...c }) => ({
+      ...c, authorId: by, author: names.get(by) || 'Someone', at: Number.isFinite(at) ? new Date(at).toISOString() : null,
+    })));
   }));
 
   /** Your open legacy Suggesting draft of this page; new ones are no longer made (410). */

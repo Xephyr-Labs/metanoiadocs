@@ -86,3 +86,37 @@ test('the standalone stdio package reports an edit_doc miss the same way', () =>
   assert.ok(block('./mcp-tools.js'));
   assert.equal(block('../../mcp/src/index.js'), block('./mcp-tools.js'));
 });
+
+test('read_suggestions lists the inline suggestions on the live page, and open legacy drafts only when there are any', async () => {
+  const card = { id: 'c1', blockId: 'b1', kind: 'replace', before: 'quick', after: 'slow', authorId: 'u1', author: 'Andy', at: null, via: 'ai' };
+  const answer = (drafts) => async (url) => {
+    const path = new URL(url).pathname;
+    const data = path.endsWith('/inline-suggestions') ? [card]
+      : path.endsWith('/suggestions') ? drafts
+        : { changes: [{ id: 'x', kind: 'modified', before: 'a', after: 'b' }], accepted: 0, rejected: 0 };
+    return { ok: true, status: 200, text: async () => JSON.stringify(data) };
+  };
+  const run = async (drafts) => {
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = answer(drafts);
+    try {
+      const server = createMetanoiaMcpServer({ base: 'http://x', headers: { Authorization: 'Bearer t' } });
+      return JSON.parse((await server._registeredTools.read_suggestions.handler({ id: 'd1' }, {})).content[0].text);
+    } finally { globalThis.fetch = realFetch; }
+  };
+  const inline = { id: 'c1', kind: 'replace', before: 'quick', after: 'slow', author: 'Andy', via: 'ai' };
+  assert.deepEqual(await run([]), { suggestions: [inline] });
+  const both = await run([{ id: 's1', authorName: 'Bea', status: 'submitted' }]);
+  assert.deepEqual(both.suggestions, [inline]);
+  assert.deepEqual(both.drafts.map((d) => [d.id, d.author, d.changes.length]), [['s1', 'Bea', 1]]);
+});
+
+test('the standalone stdio package reads suggestions the same way', () => {
+  const src = (file) => readFileSync(new URL(file, import.meta.url), 'utf8');
+  const block = (file) => src(file).match(/\/\/ ── read_suggestions: [\s\S]*?return ok\(\{ suggestions[^\n]*/)?.[0].replace(/^\s+/gm, '');
+  const desc = (file) => src(file).match(/"The changes still waiting on a decision on a doc: [^\n]*/)?.[0];
+  assert.ok(block('./mcp-tools.js'));
+  assert.ok(desc('./mcp-tools.js'));
+  assert.equal(block('../../mcp/src/index.js'), block('./mcp-tools.js'));
+  assert.equal(desc('../../mcp/src/index.js'), desc('./mcp-tools.js'));
+});

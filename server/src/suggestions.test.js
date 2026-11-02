@@ -480,3 +480,35 @@ test('an AI draft whose approver was deleted falls to any editor, and stays in e
   const list = calls.find((s) => /ORDER BY s.updated_at DESC/.test(s));
   assert.match(list, /\(\$3 AND s\.approver_id IS NULL\)/);
 });
+
+test('GET /api/docs/:id/inline-suggestions: the live page\'s pending cards with their authors\' names, for anyone it is shared with', async () => {
+  const page = docFromState(buildDocState('T', 'The quick fox.\n'));
+  const { text } = textBlock(page, 'The quick fox.');
+  text.format(4, 5, { mnSugg: { id: 'c1', kind: 'del', by: 'u1', at: 0 } });
+  text.insert(9, 'slow', { mnSugg: { id: 'c1', kind: 'ins', by: 'u1', at: 0, via: 'ai' } });
+  const routes = {};
+  let role = 'viewer';
+  registerSuggestionRoutes({ get: (path, ...h) => { routes[path] = h[h.length - 1]; }, post() {}, delete() {} }, {
+    requireUser: () => {}, wrap: (fn) => fn,
+    pool: {
+      query: async (sql, p) => (/FROM doc_states/.test(sql) ? { rows: [{ state: Buffer.from(state(page)) }] }
+        : /FROM users/.test(sql) ? { rows: p[0].includes('u1') ? [{ id: 'u1', name: 'Una', email: 'u@x' }] : [] } : { rows: [] }),
+    },
+    grantOn: async () => role, canEdit: () => false, canSuggest: () => false,
+    getHocuspocus: () => ({ documents: new Map() }), notifyUser: async () => {}, recordDocEditors: async () => {},
+  });
+  const get = async () => {
+    let status = 200, body;
+    await routes['/api/docs/:id/inline-suggestions']({ params: { id: 'd1' }, user: { id: 'v1' } },
+      { status(s) { status = s; return this; }, json(v) { body = v; } });
+    return { status, body };
+  };
+  const { status, body } = await get();
+  assert.equal(status, 200);
+  assert.equal(body.length, 1);
+  assert.deepEqual({ ...body[0], blockId: undefined }, {
+    id: 'c1', blockId: undefined, kind: 'replace', before: 'quick', after: 'slow', via: 'ai', authorId: 'u1', author: 'Una', at: new Date(0).toISOString(),
+  });
+  role = null;
+  assert.equal((await get()).status, 403);
+});

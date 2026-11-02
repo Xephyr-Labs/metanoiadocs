@@ -327,16 +327,21 @@ server.registerTool(
   {
     title: 'Read suggested changes to a doc',
     description:
-      "Changes proposed in Suggesting mode: each person's draft of the page, with every change still waiting on a decision (the block, its text before and after). You see drafts submitted for review when you can edit the page, plus your own. For a single passage someone proposed new text for, see `suggestion` on read_comments instead.",
+      "The changes still waiting on a decision on a doc: `suggestions`, the inline suggestions marked on the page itself (Suggesting mode, and agents' and Ask AI's writes), in page order, each with its id, kind (insert, delete, replace, add, remove, type), the text before and after, its author, and via 'ai' for Ask AI; plus `drafts`, only while older whole-page drafts are still open (each with its changes, before and after). For a single passage someone proposed new text for, see `suggestion` on read_comments instead.",
     inputSchema: { id: z.string().describe('Document id') },
   },
   async ({ id }) => {
     try {
-      const drafts = await api(`/docs/${encodeURIComponent(id)}/suggestions`);
-      const out = [];
-      for (const d of drafts || []) {
+      // ── read_suggestions: inline cards on the live page, then any open legacy drafts ──
+      const cards = await api(`/docs/${encodeURIComponent(id)}/inline-suggestions`);
+      const suggestions = (cards || []).map((c) => ({
+        id: c.id, kind: c.kind, before: c.before, after: c.after, author: c.author,
+        ...(c.via ? { via: c.via } : {}), ...(c.ticked !== undefined ? { ticked: c.ticked, text: c.text } : {}),
+      }));
+      const drafts = [];
+      for (const d of (await api(`/docs/${encodeURIComponent(id)}/suggestions`)) || []) {
         const full = await api(`/suggestions/${encodeURIComponent(d.id)}`);
-        out.push({
+        drafts.push({
           id: d.id,
           author: d.authorName,
           status: d.status,
@@ -347,7 +352,7 @@ server.registerTool(
           rejected: full.rejected,
         });
       }
-      return ok(out);
+      return ok({ suggestions, ...(drafts.length ? { drafts } : {}) });
     } catch (e) {
       return fail(e);
     }
