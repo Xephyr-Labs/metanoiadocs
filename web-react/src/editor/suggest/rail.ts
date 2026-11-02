@@ -3,6 +3,7 @@
 // Geometry (where a card sits) is the rail component's; this is the state.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { docsApi } from '../../lib/docsApi';
+import { readRoute } from '../../lib/route';
 import { decide as decideOne, decideAll as decideEvery, describeCard, listSuggestions, type StoreLike, type SuggestionCard, type Verdict } from './model';
 
 export interface Card extends SuggestionCard {
@@ -89,6 +90,25 @@ export function navigateSuggestions(dir: 1 | -1): boolean {
   return false;
 }
 
+// ---- a suggestion to open (a `?sugg=` link, an inbox row). The page may not
+// be up yet, so the request waits here for the rail whose page holds it.
+let wanted: string | null = null;
+const wantedListeners = new Set<() => void>();
+
+/** Open suggestion `id`: its card active, its text scrolled into view. */
+export function focusSuggestion(id: string) {
+  wanted = id;
+  wantedListeners.forEach((l) => l());
+}
+
+/** The suggestion waiting to be opened when `has` it; taking it clears it. */
+export function takeWanted(has: (id: string) => boolean): string | null {
+  if (!wanted || !has(wanted)) return null;
+  const id = wanted;
+  wanted = null;
+  return id;
+}
+
 let users: Promise<Map<string, string>> | null = null;
 const userNames = () => (users ??= docsApi.users()
   .then((rows) => new Map(rows.map((u) => [u.id, u.name || u.email])))
@@ -171,6 +191,41 @@ export function useSuggestions(editorEl: Element | null): Suggestions {
     const c = byId.get(id);
     if (editorEl && c) elementsFor(editorEl, c)[0]?.scrollIntoView({ block: 'center', behavior: 'smooth' });
   }, [editorEl, byId]);
+
+  // `/d/<doc>?sugg=<id>` (agents' links, notifications): read once, then the
+  // address is left clean so a reload doesn't jump back to it.
+  const [wantedBump, bumpWanted] = useState(0);
+  const wantedTimer = useRef<number | undefined>(undefined);
+  // Also on popstate: the phone app opens a push's link that way, maybe on the page already open.
+  useEffect(() => {
+    const l = () => bumpWanted((n) => n + 1);
+    const fromRoute = () => {
+      const { suggId } = readRoute();
+      if (!suggId) return;
+      history.replaceState(history.state, '', location.pathname + location.hash);
+      focusSuggestion(suggId);
+    };
+    wantedListeners.add(l);
+    fromRoute();
+    window.addEventListener('popstate', fromRoute);
+    return () => { wantedListeners.delete(l); window.removeEventListener('popstate', fromRoute); };
+  }, []);
+  useEffect(() => {
+    const id = editorEl && takeWanted((x) => byId.has(x));
+    if (!id) return;
+    setActive(id);
+    // The text may not be drawn yet when the store already has it. Not
+    // cleared by the next update (other people typing re-run this effect).
+    const card = byId.get(id)!;
+    let tries = 0;
+    window.clearInterval(wantedTimer.current);
+    wantedTimer.current = window.setInterval(() => {
+      const el = elementsFor(editorEl, card)[0];
+      el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      if (el || ++tries >= 10) window.clearInterval(wantedTimer.current);
+    }, 200);
+  }, [editorEl, byId, wantedBump]);
+  useEffect(() => () => window.clearInterval(wantedTimer.current), []);
 
   const ids = useMemo(() => cards.map((c) => c.id), [cards]);
   const go = useCallback((dir: 1 | -1) => {

@@ -5,7 +5,7 @@ import { Text } from '@blocksuite/affine/store';
 import { TestWorkspace } from '@blocksuite/affine/store/test';
 import { getTestStoreManager } from '@blocksuite/integration-test/store';
 import { decide, listSuggestions } from '../../editor/suggest/model';
-import { cardsInline, highlightSuggestion, stackCards, stepActive, toCards } from '../../editor/suggest/rail';
+import { cardsInline, focusSuggestion, highlightSuggestion, stackCards, stepActive, takeWanted, toCards } from '../../editor/suggest/rail';
 import { SuggestionRail } from './SuggestionRail';
 
 const S = (id: string, kind: string, by = 'u1') => ({ id, kind, by, at: 1 });
@@ -144,5 +144,14 @@ describe('margin or inline', () => {
     expect(cardsInline({ phone: false, textRight: 1149, areaRight: 1270 })).toBe(true);
     // A phone is inline whatever the numbers say.
     expect(cardsInline({ phone: true, textRight: 100, areaRight: 1000 })).toBe(true);
+  });
+});
+
+describe('opening a suggestion from a link or the inbox (focusSuggestion)', () => {
+  it('waits for the page that has it, which takes it once', () => {
+    focusSuggestion('s1');
+    expect(takeWanted((id) => id === 'other')).toBeNull();
+    expect(takeWanted((id) => id === 's1')).toBe('s1');
+    expect(takeWanted(() => true)).toBeNull();
   });
 });

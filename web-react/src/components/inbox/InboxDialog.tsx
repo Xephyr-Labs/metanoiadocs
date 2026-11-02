@@ -9,6 +9,7 @@ import { enableAlerts, pushSupported } from '../../lib/push';
 import { useAuth } from '../../store/auth';
 import { openReview } from '../../lib/reviewMode';
 import { focusCommentOnPage } from '../../editor/comments';
+import { focusSuggestion } from '../../editor/suggest/rail';
 import { useWorkspace } from '../../store/workspace';
 import { EmptyState } from '../ui/EmptyState';
 import { Modal, ModalBody } from '../ui/Modal';
@@ -116,6 +117,7 @@ const INBOX_VERBS: Partial<Record<string, string>> = {
   suggestion_rejected: 'declined your suggestion on',
   review_requested: 'asked you to review changes to',
   ai_suggestion: 'suggested changes to',
+  page_suggestion: 'suggested changes to',
   review_done: 'reviewed your changes to',
   integrity: 'found a problem in',
 };
@@ -172,6 +174,11 @@ export function InboxDialog() {
     }
     if (!it.doc_id) return;
     ws.select(it.doc_id);
+    // An inline suggestion: the page opens on its card and text.
+    if (it.kind === 'page_suggestion' && it.suggestion_id) {
+      focusSuggestion(it.suggestion_id);
+      return;
+    }
     if (it.kind === 'ai_suggestion' && it.suggestion_id) {
       openReview(it.suggestion_id, it.doc_id);
       return;
