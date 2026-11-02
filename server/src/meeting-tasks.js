@@ -111,7 +111,7 @@ export function openTodos(doc, baseUrl) {
     if (v?.flavour === 'affine:list' && v.type === 'todo' && text instanceof Y.Text) {
       const plain = pendingText(text);
       if (plain.trim()) {
-        if (b.get('prop:checked') || linkedToTask(text, baseUrl)) skipped++;
+        if (v.checked || linkedToTask(text, baseUrl)) skipped++;
         else todos.push({ blockId: id, text: plain });
       }
     }
