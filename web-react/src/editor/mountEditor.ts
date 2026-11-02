@@ -50,6 +50,7 @@ import { pageViewportExtension } from './pageViewport';
 import { attachCalloutPanels, calloutExtensions } from './callout';
 import { CLEAN_VIEW_CLASS, paintSuggestionBlocks } from './suggest/blockMarks';
 import { watchFlavours } from './suggest/model';
+import { attachSuggestingInput, type SuggestingOptions } from './suggest/suggestingInput';
 import { stripSuggestionsOnCopyExtension, suggestInlineExtensions } from './suggest/inlineSpec';
 import { cancelVoiceNote, voiceNoteExtensions } from './voiceNote';
 import { closeTranscriptCard, voiceTranscriptExtensions } from './voiceTranscript';
@@ -163,6 +164,9 @@ interface MountArgs {
    *  It renders and edits like the page, but nothing here writes to the page,
    *  its title, its search text or its comments. */
   draft?: string;
+  /** Suggesting mode (suggest/suggestingInput.ts). Omitted: never on — typing
+   *  still never grows anyone's suggestion. */
+  suggesting?: SuggestingOptions;
 }
 
 const EDIT_ROLES = new Set(['owner', 'editor']);
@@ -181,7 +185,7 @@ function docModeService(editor: { mode: string }, mode: 'page' | 'edgeless') {
 
 export async function mountEditor(
   root: HTMLElement,
-  { docId, title, mode, userName, share, guestComments, snapshot, onTitle, onSaved, pages, createPage, onOpenDoc, onRemoteRewrite, role, draft, signal }: MountArgs,
+  { docId, title, mode, userName, share, guestComments, snapshot, onTitle, onSaved, pages, createPage, onOpenDoc, onRemoteRewrite, role, draft, suggesting, signal }: MountArgs,
 ) {
   installEffects();
   // Read-only for this viewer: a public link, a version preview, or a role
@@ -711,6 +715,8 @@ export async function mountEditor(
   const detachSuggestionBlocks = paintSuggestionBlocks(editor, (cb) => { doc.spaceDoc.on('update', cb); return () => doc.spaceDoc.off('update', cb); });
   // A rejected type change rewrites a block's flavour in place; rebuild its model.
   const detachFlavours = watchFlavours(store as never);
+  // Typing never grows a suggestion; in Suggesting mode it writes them.
+  const detachSuggesting = noWrite ? () => {} : attachSuggestingInput(editor, suggesting ?? { userId: '', on: () => false });
 
   // Render read-only diagram previews under ```mermaid code blocks. Mermaid is
   // dynamically imported inside here, so it only loads for docs that use it.
@@ -820,6 +826,7 @@ export async function mountEditor(
       try { detachTextSize(); } catch { /* noop */ }
       try { detachSuggestionBlocks(); } catch { /* noop */ }
       try { detachFlavours(); } catch { /* noop */ }
+      try { detachSuggesting(); } catch { /* noop */ }
       try { detachMermaid(); } catch { /* noop */ }
       try { detachMarkdownPaste?.(); } catch { /* noop */ }
       try { detachForeignClipboard(); } catch { /* noop */ }

@@ -167,10 +167,12 @@ function altEnter(std: StdLike): boolean {
   const anchor = document.getSelection()?.anchorNode;
   const anchorEl = anchor instanceof Element ? anchor : anchor?.parentElement;
   if (anchorEl?.closest('[data-block-id]')?.getAttribute('data-block-id') !== block.id) return false;
-  const text = block.text as unknown as { delete(i: number, n: number): void; insert(s: string, i: number): void };
+  const text = block.text as unknown as { delete(i: number, n: number): void; insert(s: string, i: number, attributes?: Record<string, unknown>): void };
   std.store.captureSync?.();
   if (sel.from.length) text.delete(sel.from.index, sel.from.length);
-  text.insert('\n', sel.from.index);
+  // Attributes given, so Yjs does not hand the break the text before's, which
+  // may be someone's suggestion (suggest/suggestingInput.ts).
+  text.insert('\n', sel.from.index, {});
   std.selection.setGroup('note', [
     std.selection.create(TextSelection, { from: { blockId: block.id, index: sel.from.index + 1, length: 0 }, to: null }),
   ]);

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { FileQuestion, FileText, Plus } from 'lucide-react';
 import { emitDocSaved } from '../../lib/docSignal';
@@ -83,6 +83,11 @@ export function EditorArea() {
   const review = useReviewState(pageId, page?.role, auth.user?.id);
   // Pending inline suggestions: the bar above the page, the cards beside it.
   const sugg = useSuggestions(editorEl);
+  // Read on every keystroke by the editor (suggestingInput.ts), so a mode
+  // switch takes effect without remounting it.
+  const suggestingOn = useRef(false);
+  const userId = auth.user?.id ?? '';
+  const suggesting = useMemo(() => ({ userId, on: () => suggestingOn.current }), [userId]);
   useEffect(() => {
     if (!editorEl || !pageId || !takeTitleFocus(pageId)) return;
     return focusDocTitle(editorEl);
@@ -126,7 +131,10 @@ export function EditorArea() {
   const slides = mode === 'slides';
   // In Suggesting mode the editor syncs the suggester's draft, not the page;
   // in Viewing mode it opens read-only. Either remounts it (the key below).
+  // Only a draft from before inline suggestions; a new Suggesting session
+  // stays on the live page and marks what is typed there.
   const draft = review.mode === 'suggesting' ? review.myDraft?.draft : undefined;
+  suggestingOn.current = review.mode === 'suggesting' && !draft;
   const editorRole = review.effectiveRole;
   const editorKey = `${page.id}:${rewriteKey}:${draft ?? editorRole ?? ''}`;
 
@@ -183,6 +191,7 @@ export function EditorArea() {
               mode={mode}
               role={editorRole}
               draft={draft}
+              suggesting={suggesting}
               userName={auth.user?.name ?? 'You'}
               onTitle={(t) => ws.applyTitleFromEditor(page.id, t)}
               onSaved={bumpSoon}
@@ -226,6 +235,7 @@ export function EditorArea() {
                     mode="page"
                     role={editorRole}
                     draft={draft}
+                    suggesting={suggesting}
                     userName={auth.user?.name ?? 'You'}
                     fullWidth={ws.fullWidth}
                     onTitle={(t) => ws.applyTitleFromEditor(page.id, t)}

@@ -42,20 +42,21 @@ export async function loadDrafts(docId: string) {
 export function openReview(sid: string, docId: string) { state.reviewing = { sid, docId }; changed(); }
 export function closeReview() { state.reviewing = null; changed(); }
 
+/**
+ * Suggesting mode is this tab's own state: the editor stays on the live page
+ * and marks what is typed as suggestions (editor/suggest/suggestingInput.ts).
+ * No draft is started; drafts from before (`doc_suggestions`) are only
+ * finished — sent or discarded from SuggestingBanner, reviewed in ReviewView.
+ */
 export async function setMode(docId: string, mode: EditMode) {
-  if (mode === 'suggesting') {
-    // The draft has to exist before the editor can connect to it.
-    try {
-      const d = await docsApi.startSuggesting(docId);
-      const rest = (state.drafts.get(docId) ?? []).filter((x) => x.id !== d.id);
-      state.drafts.set(docId, [d, ...rest]);
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'Could not start suggesting');
-      return;
-    }
-  }
   state.modes.set(docId, mode);
   changed();
+}
+
+/** The mode a page is in for this role: the one chosen, if the role may use it, else the role's default. */
+export function currentMode(docId: string, role: string | null | undefined): EditMode {
+  const chosen = state.modes.get(docId);
+  return chosen && modesFor(role).includes(chosen) ? chosen : defaultMode(role);
 }
 
 /** After a draft is discarded or fully reviewed: drop it and leave Suggesting. */

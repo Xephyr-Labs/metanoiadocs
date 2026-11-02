@@ -39,6 +39,9 @@ export interface EditorProps {
   role?: string;
   /** Suggesting mode: edit this draft (its sync name) instead of the page. */
   draft?: string;
+  /** Who I am, and whether Suggesting mode is on (asked per keystroke; see
+   *  suggest/suggestingInput.ts). Read once, at mount. Omitted: never on. */
+  suggesting?: { userId: string; on: () => boolean };
   /** The page as plain HTML, shown until the editor is ready (LazyEditor). */
   preview?: PagePreviewData | null;
 }
@@ -49,7 +52,7 @@ export interface EditorProps {
  */
 export function BlockSuiteEditor({
   docId, title, mode, userName, share, guestComments, snapshot, fullWidth,
-  onTitle, onSaved, pages, createPage, onOpenDoc, onRemoteRewrite, onEditor, role, draft, preview,
+  onTitle, onSaved, pages, createPage, onOpenDoc, onRemoteRewrite, onEditor, role, draft, suggesting, preview,
 }: EditorProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const instRef = useRef<Awaited<ReturnType<typeof mountEditor>> | null>(null);
@@ -94,6 +97,7 @@ export function BlockSuiteEditor({
       snapshot,
       role,
       draft,
+      suggesting,
       onTitle: (t) => onTitleRef.current?.(t),
       onSaved: () => onSavedRef.current?.(),
       pages: pagesRef.current ? () => pagesRef.current?.() ?? [] : undefined,
