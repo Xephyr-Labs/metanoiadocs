@@ -1,5 +1,6 @@
-// AI edit approval, end to end: an untrusted agent's write becomes a draft a
-// person reviews; a trusted one writes directly. Stack from run.sh.
+// AI edit approval, end to end: an untrusted agent's write lands as inline
+// suggestions a person decides in the page; a trusted one writes directly; no
+// agent decides suggestions or changes who is trusted. Stack from run.sh.
 import { execFileSync } from 'node:child_process';
 import { chromium } from 'playwright';
 
@@ -44,8 +45,29 @@ const P3 = 'Third paragraph about plums.';
 const P4 = 'Fourth paragraph about figs.';
 const P5 = 'Fifth paragraph about limes.';
 const body = (p3) => [P1, P2, p3, P4, P5].join('\n\n');
-const md = async (id) => (await admin.get(`/api/docs/${id}/markdown`)).markdown;
+const md = async (id, c = admin) => (await c.get(`/api/docs/${id}/markdown`)).markdown;
 const write = (c, id, markdown) => c.raw('POST', `/api/docs/${id}/content`, { markdown, mode: 'replace' });
+const pending = (id) => JSON.parse(sql(`SELECT pending_suggestions FROM docs WHERE id = '${id}'`) || '[]');
+const suggOf = (r) => { try { return new URL(r.json.link, BASE).searchParams.get('sugg'); } catch { return null; } };
+const told = async (c, id) => (await c.get('/api/inbox')).filter((n) => n.kind === 'page_suggestion' && n.doc_id === id);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const until = async (fn, ms = 15000) => { const end = Date.now() + ms; let v; while (!(v = await fn()) && Date.now() < end) await sleep(300); return v; };
+
+const browser = await chromium.launch();
+/** `who`'s browser on a page, once its text and suggestion cards are drawn. */
+const open = async (who, id, query = '') => {
+  const ctx = await browser.newContext({ viewport: { width: 1400, height: 1000 } });
+  await ctx.addCookies(who.cookie.split('; ').map((c) => { const i = c.indexOf('='); return { name: c.slice(0, i), value: c.slice(i + 1), url: BASE }; }));
+  const p = await ctx.newPage();
+  await p.goto(`${BASE}/d/${id}${query}`);
+  await p.locator('[data-sugg-card]').first().waitFor({ timeout: 20000 });
+  await p.waitForTimeout(1000);
+  return p;
+};
+const buttons = async (p) => ({
+  accept: await p.getByRole('button', { name: /^Accept/ }).count(),
+  reject: await p.getByRole('button', { name: /^Reject/ }).count(),
+});
 
 let users; let page; let untrustedTok; let trustedTok; let sid; let untrustedId;
 
@@ -74,81 +96,80 @@ await step('seed', async () => {
 });
 
 await step('1 untrusted write is a suggestion', async () => {
-  const changed = 'Third paragraph about cherries.';
-  const w = await write(untrustedTok, page, body(changed));
-  sid = w.json.suggestionId;
-  check('1 write answers suggested:true with an id and review url', w.status === 200 && w.json.suggested === true && !!sid && /review=/.test(w.json.reviewUrl || ''), `${w.status} ${JSON.stringify(w.json).slice(0, 250)}`);
-  check('1 no named approver: any editor reviews', w.json.approverName == null, w.json.approverName);
+  const w = await write(untrustedTok, page, body('Third paragraph about cherries.'));
+  sid = suggOf(w);
+  check('1 write answers suggested:true with a ?sugg= link', w.status === 200 && w.json.suggested === true && !!sid, `${w.status} ${JSON.stringify(w.json).slice(0, 250)}`);
+  check('1 no named approver: any editor decides', w.json.approverName == null, w.json.approverName);
   check('1 live page unchanged', (await md(page)).includes('plums') && !(await md(page)).includes('cherries'));
-  const rv = await farhanaj.get(`/api/suggestions/${sid}`);
-  check('1 review shows exactly 1 change, canReview', rv.changes?.length === 1 && rv.canReview === true, JSON.stringify(rv).slice(0, 300));
-  const inbox = await farhanaj.get('/api/inbox');
-  check('1 Farhanaj has an ai_suggestion inbox item', inbox.some((n) => n.kind === 'ai_suggestion' && n.suggestion_id === sid), JSON.stringify(inbox.map((n) => n.kind)));
+  const p = pending(page);
+  check('1 the page holds it as Andy\'s suggestion', p.some((x) => x.id === sid && x.by === users.andy), JSON.stringify(p));
+  const n = await told(farhanaj, page);
+  check('1 Farhanaj is told once, linking it', n.length === 1 && n[0].suggestion_id === sid, JSON.stringify(n));
 });
 
-await step('2 who may decide', async () => {
-  const a = await untrustedTok.raw('POST', `/api/suggestions/${sid}/decide`, { all: 'accept' });
-  check('2 untrusted agent token decide -> 403', a.status === 403, `${a.status}`);
-  const v = await viewer.raw('POST', `/api/suggestions/${sid}/decide`, { all: 'accept' });
-  // 404, not 403: a viewer can't see the draft at all, so it "does not exist" for them.
-  check('2 viewer decide -> 404', v.status === 404, `${v.status} ${JSON.stringify(v.json)}`);
-  check('2 page still unchanged after refusals', !(await md(page)).includes('cherries'));
+await step('2 the agent and a viewer cannot decide', async () => {
+  // An agent's live session is read-only on the server (pageSyncRole). Its
+  // page may still draw Accept (the UI goes by the page role), so press it:
+  // nothing it does there may reach the page.
+  const a = await open(andy, page);
+  const ab = await buttons(a);
+  if (ab.accept) await a.getByRole('button', { name: /^Accept/ }).first().click();
+  await a.evaluate(() => {
+    const m = document.querySelector('editor-host')?.std?.store?.getBlocksByFlavour('affine:paragraph').map((b) => b.model).find((x) => x.text?.toString().startsWith('First'));
+    try { m?.text.insert('AGENTEDIT ', 0); } catch { /* read-only store */ }
+  });
+  await sleep(3000);
+  check('2 agent session: its Accept and a forced edit change nothing', !(await md(page)).includes('cherries') && !(await md(page)).includes('AGENTEDIT')
+    && pending(page).some((x) => x.id === sid), `${JSON.stringify(ab)} ${JSON.stringify(pending(page))}`);
+  await a.context().close();
+  const v = await open(viewer, page);
+  check('2 viewer: the card, no Accept/Reject', JSON.stringify(await buttons(v)) === '{"accept":0,"reject":0}', JSON.stringify(await buttons(v)));
+  await v.context().close();
+  check('2 page still unchanged', !(await md(page)).includes('cherries'));
 });
 
-await step('3 browser review (before accept)', async () => {
-  const browser = await chromium.launch();
-  try {
-  const open = async (who, path) => {
-    const ctx = await browser.newContext({ viewport: { width: 1400, height: 1000 } });
-    await ctx.addCookies(who.cookie.split('; ').map((c) => { const i = c.indexOf('='); return { name: c.slice(0, i), value: c.slice(i + 1), url: BASE }; }));
-    const p = await ctx.newPage();
-    await p.goto(BASE + path);
-    return { ctx, p };
-  };
-  const f = await open(farhanaj, `/d/${page}?review=${sid}`);
-  await f.p.getByRole('button', { name: /^Accept/ }).first().waitFor({ timeout: 15000 });
-  const txt = await f.p.locator('body').innerText();
-  const acc = await f.p.getByRole('button', { name: /^Accept/ }).count();
-  check('3 Farhanaj: review shows the change and Accept buttons', acc > 0 && /cherries/.test(txt), `accept=${acc} cherries=${/cherries/.test(txt)}`);
-  check('3 Farhanaj: address no longer has ?review=', !f.p.url().includes('review='), f.p.url());
-  await f.p.screenshot({ path: '/tmp/ai-approval-farhanaj.png' });
-  const v = await open(viewer, `/d/${page}?review=${sid}`);
-  // Positive control: the page itself loaded for the viewer (live text visible).
-  await v.p.getByText('plums').first().waitFor({ timeout: 15000 });
-  await v.p.waitForTimeout(1500);
-  const vacc = await v.p.getByRole('button', { name: /^Accept/ }).count();
-  check('3 viewer: no Accept buttons', vacc === 0, `accept=${vacc}`);
-  } finally { await browser.close(); }
-});
-
-await step('4 accept', async () => {
-  const d = await farhanaj.post(`/api/suggestions/${sid}/decide`, { all: 'accept' });
-  check('4 Farhanaj accepts', d.ok && d.applied === 1, JSON.stringify(d));
-  check('4 page has the change', (await md(page)).includes('cherries'));
-  check("4 updated_via = 'ai'", sql(`SELECT updated_via FROM docs WHERE id = '${page}'`) === 'ai', sql(`SELECT updated_via FROM docs WHERE id = '${page}'`));
+await step('3+4 an editor accepts it in the page', async () => {
+  const f = await open(farhanaj, page, `?sugg=${encodeURIComponent(sid)}`);
+  const b = await buttons(f);
+  check('3 Farhanaj: Accept and Reject on the card', b.accept > 0 && b.reject > 0, JSON.stringify(b));
+  check('3 Farhanaj: ?sugg= makes its card active', !!(await until(async () => /ring-2/.test(await f.locator(`[data-sugg-card="${sid}"]`).getAttribute('class') || ''), 8000)));
+  await f.screenshot({ path: '/tmp/ai-approval-farhanaj.png' });
+  await f.getByRole('button', { name: /^Accept/ }).first().click();
+  check('4 the page has the change', !!(await until(async () => (await md(page)).includes('cherries') && !(await md(page)).includes('plums'))), (await md(page)).slice(0, 200));
+  check('4 nothing pending', !!(await until(async () => pending(page).length === 0)), JSON.stringify(pending(page)));
+  await f.context().close();
 });
 
 await step('5 trusted token writes directly', async () => {
   const w = await write(trustedTok, page, body('Third paragraph about dates.'));
-  check('5 trusted write applied, no draft', w.status === 200 && !w.json.suggested && (await md(page)).includes('dates'), `${w.status} ${JSON.stringify(w.json)}`);
-  check('5 no open draft rows', sql(`SELECT count(*) FROM doc_suggestions WHERE doc_id = '${page}' AND status <> 'closed'`) === '0');
+  check('5 trusted write applied, not suggested', w.status === 200 && !w.json.suggested && (await md(page)).includes('dates'), `${w.status} ${JSON.stringify(w.json)}`);
+  check('5 nothing pending, no draft rows', pending(page).length === 0 && sql(`SELECT count(*) FROM doc_suggestions WHERE doc_id = '${page}'`) === '0');
 });
 
-await step('6 the page owner can review an agent edit too', async () => {
+await step('6 the page owner rejects an agent edit', async () => {
   const w = await write(untrustedTok, page, body('Third paragraph about kiwis.'));
-  const rv = await admin.get(`/api/suggestions/${w.json.suggestionId}`);
-  check('6 Maya (owner) canReview', w.json.suggested === true && rv.canReview === true, `${w.status} ${JSON.stringify(rv).slice(0, 200)}`);
+  check('6 untrusted write is a suggestion again', w.json.suggested === true && !!suggOf(w), JSON.stringify(w.json));
+  const m = await open(admin, page);
+  const b = await buttons(m);
+  check('6 Maya (owner): Accept and Reject', b.accept > 0 && b.reject > 0, JSON.stringify(b));
+  await m.getByRole('button', { name: /^Reject/ }).first().click();
+  check('6 rejected: nothing pending, page as it was', !!(await until(async () => pending(page).length === 0))
+    && (await md(page)).includes('dates') && !(await md(page)).includes('kiwis'), (await md(page)).slice(0, 200));
+  await m.context().close();
 });
 
+let own;
 await step('7 agent-owned page shared with a person', async () => {
-  const own = (await trustedTok.post('/api/docs', { title: 'Andy page', content: 'one\n\ntwo', visibility: 'private' })).id;
+  own = (await trustedTok.post('/api/docs', { title: 'Andy page', content: 'one\n\ntwo', visibility: 'private' })).id;
   await trustedTok.post(`/api/docs/${own}/share`, { email: 'farhanaj@example.com', role: 'editor' });
   const w = await write(untrustedTok, own, 'one\n\nthree');
-  check('7 untrusted write to its own page is a suggestion', w.status === 200 && w.json.suggested === true, `${w.status} ${JSON.stringify(w.json)}`);
-  const rv = await farhanaj.get(`/api/suggestions/${w.json.suggestionId}`);
-  check('7 the editor (Farhanaj) can review it', rv.canReview === true, JSON.stringify(rv).slice(0, 200));
-  const inbox = await farhanaj.get('/api/inbox');
-  check('7 Farhanaj was told', inbox.some((n) => n.kind === 'ai_suggestion' && n.suggestion_id === w.json.suggestionId), JSON.stringify(inbox.map((n) => n.kind)));
+  check('7 untrusted write to its own page is a suggestion', w.status === 200 && w.json.suggested === true && !!suggOf(w), `${w.status} ${JSON.stringify(w.json)}`);
+  const n = await told(farhanaj, own);
+  check('7 Farhanaj was told', n.length === 1 && n[0].suggestion_id === suggOf(w), JSON.stringify(n));
+  const f = await open(farhanaj, own);
+  const b = await buttons(f);
+  check('7 the editor (Farhanaj) can decide it', b.accept > 0 && b.reject > 0, JSON.stringify(b));
+  await f.context().close();
 });
 
 await step('8 an admin agent cannot switch approval off', async () => {
@@ -170,9 +191,15 @@ await step('8 an admin agent cannot switch approval off', async () => {
   check('8 token still untrusted after trusted-token try', sql(`SELECT trusted FROM api_tokens WHERE id = '${untrustedId}'`) === 'f');
   const del = await trustedTok.raw('DELETE', `/api/users/${users.viewer}`);
   check('8 trusted admin agent deleting a member -> 403', del.status === 403, `${del.status}`);
-  const dec = await trustedTok.raw('POST', `/api/suggestions/${sid}/decide`, { all: 'reject' });
-  check('8 trusted agent deciding a suggestion -> 403', dec.status === 403, `${dec.status}`);
+  // An admin agent, on the page it owns: still no deciding its suggestions.
+  const before = await md(own, trustedTok);
+  const a = await open(andy, own);
+  if ((await buttons(a)).accept) await a.getByRole('button', { name: /^Accept/ }).first().click();
+  await sleep(3000);
+  check('8 admin agent accepting on its own page changes nothing', (await md(own, trustedTok)) === before && pending(own).length === 1, `${await md(own, trustedTok)} ${JSON.stringify(pending(own))}`);
+  await a.context().close();
 });
 
+await browser.close();
 console.log(failed ? `\n${failed} FAILED` : '\nall passed');
 process.exit(failed ? 1 : 0);
