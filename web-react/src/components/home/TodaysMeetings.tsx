@@ -65,6 +65,9 @@ export function TodaysMeetings() {
     setBusy(id);
     try {
       const { docId } = await startNotes(id, spaceId);
+      // A page made just now is not in the workspace list yet; opening it
+      // before the list knows it shows "No page open".
+      if (!ws.pages[docId]) await ws.refresh();
       ws.select(docId);
       void load(); // refresh in the background; navigation does not wait
     } catch (e) {

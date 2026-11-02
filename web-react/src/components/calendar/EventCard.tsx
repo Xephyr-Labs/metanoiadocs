@@ -86,6 +86,7 @@ export function EventCard({ event, zone, canWrite, names, onClose, onChanged, on
     setError(null);
     try {
       const { docId } = await startNotes(e.id, ws.currentSpaceId || undefined);
+      if (!ws.pages[docId]) await ws.refresh(); // see TodaysMeetings
       ws.select(docId);
       onClose();
     } catch (err) {
