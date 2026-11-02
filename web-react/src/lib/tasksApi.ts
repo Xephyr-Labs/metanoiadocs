@@ -447,7 +447,7 @@ export interface HomePayload {
 export interface NeedsCounts { review: number; overdue: number; dueToday: number; mentions: number; changed: number }
 export interface NeedsPayload {
   counts: NeedsCounts;
-  review: { suggestionId: string; docId: string; docTitle: string; authorName: string; writerVia: string | null; submittedAt: string }[];
+  review: { suggestionId: string; docId: string; docTitle: string; authorName: string; writerVia: string | null; submittedAt: string; inline?: boolean }[];
   overdue: { taskId: string; title: string; projectId: string; projectName: string; dueAt: string; today: boolean }[];
   mentions: {
     notificationId: string; commentId: string; threadId: string; docId: string | null; taskId: string | null;

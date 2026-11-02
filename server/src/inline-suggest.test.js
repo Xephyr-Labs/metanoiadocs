@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as Y from 'yjs';
 import { buildDocState } from './blocks.js';
-import { authorView, creditedSuggestions, decide, decideAll, listSuggestions, newSuggestionsBy, pendingText } from './inline-suggest.js';
+import { authorView, creditedSuggestions, decide, decideAll, listSuggestions, newSuggestionsBy, pendingIndex, pendingText } from './inline-suggest.js';
+import { suggestedState } from './suggest-fixture.js';
 
 const S = (id, kind, by = 'u1') => ({ id, kind, by, at: 1 });
 
@@ -184,4 +185,13 @@ test('creditedSuggestions: the first update to mention an id decides it; a closi
   const out = newSuggestionsBy(known, doc, credits);
   assert.deepEqual([...out.keys()], ['B']);
   assert.deepEqual(out.get('B').ids.sort(), ['b1', 'b2'], 'B\'s genuine ones still notify; s1 never does');
+});
+
+test('pendingIndex: every pending suggestion in page order, id/by/at only', () => {
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, suggestedState());
+  assert.deepEqual(pendingIndex(doc), ['s1', 's2', 's3', 's4', 's5'].map((id) => ({ id, by: 'u1', at: 1 })));
+  const empty = new Y.Doc();
+  Y.applyUpdate(empty, new Uint8Array(buildDocState('T', 'plain')));
+  assert.deepEqual(pendingIndex(empty), []);
 });

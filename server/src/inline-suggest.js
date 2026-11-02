@@ -122,6 +122,10 @@ export function listSuggestions(doc) {
   return [...cards.values()];
 }
 
+/** What docs.pending_suggestions holds (Home's To review): each pending suggestion, in page order. */
+export const pendingIndex = (doc) =>
+  listSuggestions(doc).map(({ id, by, at, via }) => ({ id, by, at, ...(via ? { via } : {}) }));
+
 /**
  * The suggestion ids a Yjs `update` writes with `by === userId`: the `mnSugg`
  * of text it inserts or formats (Y.Text keeps attributes as format items) and

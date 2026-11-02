@@ -88,7 +88,7 @@ import { byJoinedFirst } from './spaces.js';
 import { ROLE_RANK, rankOf, canEdit, writePolicy, resolveApprover, untrusted, needsPerson, isPerson, pageSyncRole, mintAgentToken } from './approval.js';
 import { draftEdit, draftToRead, lossyRefusal } from './ai-drafts.js';
 import { registerDocEditRoutes } from './doc-edits.js';
-import { creditedSuggestions, listSuggestions, newSuggestionsBy } from './inline-suggest.js';
+import { creditedSuggestions, listSuggestions, newSuggestionsBy, pendingIndex } from './inline-suggest.js';
 import { suggestMarkdown } from './suggest-writer.js';
 import { noClientBroadcast, suggestGuard } from './suggest-guard.js';
 import OpenAI from 'openai';
@@ -2954,7 +2954,8 @@ app.post('/api/docs/:id/versions/:vid/restore-in-place', requireUser, wrap(async
      ON CONFLICT (doc_id) DO UPDATE SET state = EXCLUDED.state, updated_at = now()`,
     [docId, state]
   );
-  await pool.query('UPDATE docs SET updated_at = now(), updated_by = $2, updated_via = $3 WHERE id = $1', [docId, req.user.id, req.via]);
+  await pool.query('UPDATE docs SET updated_at = now(), updated_by = $2, updated_via = $3, pending_suggestions = $4 WHERE id = $1',
+    [docId, req.user.id, req.via, JSON.stringify(pendingIndex(target))]);
   // The sidebar title and the search text are pushed by whichever editor is
   // open (see mountEditor); a headless restore refreshes them here so a page
   // restored from a phone still searches on its restored contents.
@@ -3748,8 +3749,8 @@ const hocuspocus = new Hocuspocus({
         // A suggester only suggested: the page's last editor stays who it was.
         const actor = context?.user?.id && context.user.id !== 'public' && context.role !== SUGGESTER ? context.user.id : null;
         await pool.query(
-          'UPDATE docs SET updated_at = now(), updated_by = coalesce($2, updated_by) WHERE id = $1',
-          [documentName, actor]
+          'UPDATE docs SET updated_at = now(), updated_by = coalesce($2, updated_by), pending_suggestions = $3 WHERE id = $1',
+          [documentName, actor, JSON.stringify(pendingIndex(document))]
         );
         notifyDocMentions(documentName, buf, actor).catch((err) =>
           console.error('[notify] doc mention:', err.message));

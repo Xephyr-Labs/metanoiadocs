@@ -8,12 +8,12 @@ let failed = 0;
 const check = (name, ok, extra = '') => { if (!ok) failed++; console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${extra ? ` — ${extra}` : ''}`); };
 const step = async (name, fn) => { try { await fn(); } catch (e) { check(`${name}: threw`, false, String(e?.message || e).slice(0, 400)); } };
 
-function client() {
+function client(token) {
   const s = { cookie: '' };
   s.raw = async (method, path, body) => {
     const r = await fetch(BASE + path, {
       method, redirect: 'manual',
-      headers: { 'content-type': 'application/json', ...(s.cookie ? { cookie: s.cookie } : {}) },
+      headers: { 'content-type': 'application/json', ...(s.cookie ? { cookie: s.cookie } : {}), ...(token ? { authorization: `Bearer ${token}` } : {}) },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     const set = r.headers.getSetCookie?.() ?? [];
@@ -39,7 +39,7 @@ const age = (id) => execFileSync('docker', ['exec', 'mdocs-homeneeds-db-1', 'psq
   `UPDATE docs SET created_at = created_at - interval '2 minutes' WHERE id = '${id}'`]);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const a = client(); const b = client();
+const a = client(); const b = client(); const andy = client();
 const needs = () => a.get('/api/home/needs');
 let P; let Q; let R; let t1; let t2; let t3; let thread; let sid; let n0;
 
@@ -48,18 +48,27 @@ await step('seed', async () => {
   await a.post('/api/auth/login', { username: 'alice', password: PW });
   await a.post('/api/invites', { email: 'bob@example.com' });
   await b.post('/api/auth/register', { name: 'Bob', username: 'bob', email: 'bob@example.com', password: PW });
+  // Andy, an agent: his edit_doc writes are inline suggestions for an editor to decide.
+  await a.post('/api/invites', { email: 'andy@example.com' });
+  await andy.post('/api/auth/register', { name: 'Andy', username: 'andy', email: 'andy@example.com', password: PW });
+  const andyId = (await a.get('/api/users')).find((u) => u.username === 'andy').id;
+  await a.call('PATCH', `/api/users/${andyId}/kind`, { kind: 'agent' });
+  const andyTok = client((await a.post(`/api/admin/users/${andyId}/tokens`, { name: 'andy' })).token);
   await a.call('PATCH', '/api/me', { timezone: 'UTC' });
 
   P = (await a.post('/api/docs', { title: 'Team plan', content: 'First line.' })).id;
   age(P);
   await a.post(`/api/docs/${P}/opened`);                 // A has looked at P ...
   await sleep(1100);
+  // Andy suggests a change inline (Alice, the owner, decides it) ...
+  await a.post(`/api/docs/${P}/share`, { email: 'andy@example.com', role: 'editor' });
+  const e = await andyTok.post(`/api/docs/${P}/edits`, { edits: [{ find: 'First line.', replace: 'First line, revised.' }] });
+  sid = new URL(e.link, BASE).searchParams.get('sugg');
+  check('seed: Andy\'s edit is an inline suggestion', e.suggested === true && !!sid, JSON.stringify(e));
+  await sleep(1100);
   await b.post(`/api/docs/${P}/content`, { markdown: 'Bob added a line.', mode: 'append' }); // ... then Bob edits it.
   const c = await b.post(`/api/docs/${P}/comments`, { body: '@alice can you check this?' });
   thread = c.id;
-  const d = await b.post(`/api/docs/${P}/suggestions`);
-  sid = d.id;
-  await b.post(`/api/suggestions/${sid}/submit`, { message: 'please review' });
 
   // R: Bob's page, Bob edits after Alice opened it, then Alice edits it last.
   R = (await b.post('/api/docs', { title: 'Bob notes', content: 'Notes.' })).id;
@@ -102,7 +111,7 @@ await step('api', async () => {
   n0 = await needs();
   const c = n0.counts;
   check('counts: review 1, overdue 2, dueToday 1, mentions 1, changed 1', c.review === 1 && c.overdue === 2 && c.dueToday === 1 && c.mentions === 1 && c.changed === 1, JSON.stringify(c));
-  check('review row is Bob\'s draft on P', n0.review[0]?.docId === P && n0.review[0]?.suggestionId === sid, JSON.stringify(n0.review));
+  check('review row is Andy\'s inline suggestion on P', n0.review[0]?.docId === P && n0.review[0]?.suggestionId === sid && n0.review[0]?.inline === true && n0.review[0]?.authorName === 'Andy', JSON.stringify(n0.review));
   check('overdue lists 3 tasks, only the due-today one flagged today', n0.overdue.length === 3 && n0.overdue.filter((t) => t.today).map((t) => t.taskId).join() === t3, JSON.stringify(n0.overdue));
   check('mention is the thread on P, canResolve', n0.mentions[0]?.threadId === thread && n0.mentions[0]?.docId === P && n0.mentions[0]?.canResolve === true, JSON.stringify(n0.mentions));
   check('changed is P by Bob', n0.changed[0]?.docId === P && /bob/i.test(n0.changed[0]?.changedByName), JSON.stringify(n0.changed));
@@ -152,8 +161,10 @@ await step('browser', async () => {
 
     await chip(/To review/).click();
     await panel.getByRole('button', { name: 'Review' }).click();
-    await p.getByRole('button', { name: /^(Back to the page|Close)$/ }).first().waitFor({ timeout: 15000 });
-    check('Review opens the review screen on P', p.url().includes(P), p.url());
+    const card = p.locator(`[data-sugg-card="${sid}"]`);
+    await card.waitFor({ timeout: 15000 });
+    await p.waitForFunction((id) => document.querySelector(`[data-sugg-card="${id}"]`)?.classList.contains('ring-2'), sid, { timeout: 10000 }).catch(() => {});
+    check('Review opens P on its suggestion, card active', p.url().includes(P) && /ring-2/.test(await card.getAttribute('class')), `${p.url()} ${await card.getAttribute('class')}`);
   } finally { await browser.close(); }
 });
 
