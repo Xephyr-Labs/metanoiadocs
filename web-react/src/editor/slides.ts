@@ -6,7 +6,7 @@
 // model of its own; it is the thin seam our React chrome calls to make a frame
 // that is slide-shaped, move the viewport onto one, and start presenting.
 import { EdgelessFrameManagerIdentifier, PresentTool } from '@blocksuite/affine/blocks/frame';
-import { DefaultTool } from '@blocksuite/affine/blocks/surface';
+import { DefaultTool, ExportManager } from '@blocksuite/affine/blocks/surface';
 import { Bound } from '@blocksuite/affine/global/gfx';
 import { focusTextModel } from '@blocksuite/affine/rich-text';
 import { GfxControllerIdentifier } from '@blocksuite/affine/std/gfx';
@@ -173,4 +173,52 @@ export function stopPresenting(editor: Element | null): void {
 export function isPresenting(editor: Element | null): boolean {
   const s = scope(editor);
   try { return s?.gfx.tool.currentToolName$.value === 'frameNavigator'; } catch { return false; }
+}
+
+/**
+ * Render slides to PNG data URLs, one per frame, in deck order (or just `ids`).
+ * Null when any slide fails, so the caller says so rather than exporting a deck
+ * with a hole in it. The viewport is put back where the user left it.
+ */
+export async function renderSlides(editor: Element | null, ids?: string[]): Promise<string[] | null> {
+  const s = scope(editor);
+  if (!s) return null;
+  const vp = s.gfx.viewport;
+  const { zoom, centerX, centerY } = vp;
+  // rich-text clips overflow-y, and html2canvas sets glyphs a few px lower than
+  // the browser does, so descenders ("gyp") get cut off. html2canvas copies the
+  // live computed styles, so loosening it here for the export is enough.
+  const unclip = document.createElement('style');
+  unclip.textContent = 'editor-host rich-text { overflow: visible !important; }';
+  document.head.append(unclip);
+  try {
+    const frames: Any[] = ids ? ids.map((id) => s.gfx.getElementById(id)).filter(Boolean) : s.frames.frames;
+    if (!frames.length) return null;
+    const out: string[] = [];
+    for (const frame of frames) {
+      const bound = Bound.deserialize(frame.xywh);
+      // BlockSuite rasterises the mounted DOM: bring each slide into view at
+      // zoom 1 and let it paint, or text renders scaled and gets clipped.
+      vp.setViewport(1, bound.center, false);
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const canvas: HTMLCanvasElement | undefined = await s.std
+        .get(ExportManager)
+        .edgelessToCanvas(s.gfx.surfaceComponent?.renderer, bound, s.gfx);
+      if (!canvas) return null;
+      // edgelessToCanvas pads the bound by 50px a side; crop back to the frame.
+      const dpr = window.devicePixelRatio || 1;
+      const crop = document.createElement('canvas');
+      crop.width = Math.round(bound.w * dpr);
+      crop.height = Math.round(bound.h * dpr);
+      crop.getContext('2d')!.drawImage(canvas, 50 * dpr, 50 * dpr, crop.width, crop.height, 0, 0, crop.width, crop.height);
+      out.push(crop.toDataURL('image/png'));
+    }
+    return out;
+  } catch {
+    // A tainted image, an image whose blob is gone, or the user navigated away.
+    return null;
+  } finally {
+    unclip.remove();
+    try { vp.setViewport(zoom, [centerX, centerY]); } catch { /* editor unmounted */ }
+  }
 }
