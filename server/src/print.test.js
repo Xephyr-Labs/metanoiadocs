@@ -18,3 +18,14 @@ test('anything outside the palette, or any other tag, stays escaped text', () =>
   assert.ok(!/<script|<span[^>]*(onclick|style)/.test(html), html);
   assert.match(html, /&lt;script&gt;/);
 });
+
+import { printHtml } from './print.js';
+import { docToMarkdown } from './blocks.js';
+import { suggestedState } from './suggest-fixture.js';
+
+test('print and export.md input skip pending suggestions', () => {
+  const { title, markdown } = docToMarkdown(suggestedState());
+  const html = printHtml({ title, markdown });
+  assert.match(html, /OLD/);
+  assert.doesNotMatch(html, /NEW|ADDED/);
+});

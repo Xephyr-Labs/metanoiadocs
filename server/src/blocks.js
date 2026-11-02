@@ -3,6 +3,7 @@
 // keys, note defaults) mirrors what the editor produces natively, so a doc built
 // here renders in the editor and syncs over Hocuspocus like any other.
 import * as Y from 'yjs';
+import { blockView, authorView, visibleOps } from './inline-suggest.js';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { cloneValue } from './restore.js';
@@ -198,7 +199,7 @@ export function pageLinksOf(existing) {
   const scan = (v, depth) => {
     if (depth > 6) return;
     if (v instanceof Y.Text) {
-      for (const op of v.toDelta()) {
+      for (const op of visibleOps(v)) {
         const id = op.attributes?.reference?.pageId;
         if (typeof id === 'string' && id) ids.add(id);
       }
@@ -225,7 +226,7 @@ export function lossyBlocks(existing) {
   Y.applyUpdate(doc, new Uint8Array(existing));
   const out = new Set();
   for (const [, b] of doc.getMap('blocks')) {
-    if (!(b instanceof Y.Map)) continue;
+    if (!(b instanceof Y.Map) || !blockView(b)) continue;
     const fl = b.get('sys:flavour');
     if (LOSSY[fl]) out.add(LOSSY[fl]);
     else if (/^affine:embed-/.test(fl) && fl !== 'affine:embed-linked-doc' && fl !== 'affine:embed-synced-doc') out.add('embed');
@@ -661,14 +662,15 @@ function numberLists(blocks) {
 }
 
 /** Decode a doc_states buffer to plain text (title + block text, in tree order). */
-export function extractText(existing) {
+export function extractText(existing, opts = {}) {
+  const me = opts.withPendingFor ?? null;
   const doc = new Y.Doc();
   Y.applyUpdate(doc, new Uint8Array(existing));
   const blocks = doc.getMap('blocks');
   const get = (id) => blocks.get(id);
   const textOf = (b) => {
     const t = b.get('prop:text');
-    return t instanceof Y.Text ? t.toString() : '';
+    return t instanceof Y.Text ? authorView(t, me) : '';
   };
   // find the page block, then walk children depth-first.
   let page = null, title = '';
@@ -684,7 +686,9 @@ export function extractText(existing) {
   const walk = (id) => {
     const b = get(id);
     if (!(b instanceof Y.Map)) return;
-    const fl = b.get('sys:flavour');
+    const v = blockView(b, me);
+    if (!v) return;
+    const fl = v.flavour;
     if (fl === 'affine:paragraph' || fl === 'affine:list' || fl === 'affine:code') {
       const txt = textOf(b);
       if (txt) lines.push(txt);
@@ -697,14 +701,15 @@ export function extractText(existing) {
 }
 
 /** Decode a doc_states buffer to {title, blocks[]} with flavour/type/checked, tree order. */
-export function extractBlocks(existing) {
+export function extractBlocks(existing, opts = {}) {
+  const me = opts.withPendingFor ?? null;
   const doc = new Y.Doc();
   Y.applyUpdate(doc, new Uint8Array(existing));
   const blocksMap = doc.getMap('blocks');
   const get = (id) => blocksMap.get(id);
   const textOf = (b) => {
     const t = b.get('prop:text');
-    return t instanceof Y.Text ? t.toString() : '';
+    return t instanceof Y.Text ? authorView(t, me) : '';
   };
   let page = null, title = '';
   for (const [, b] of blocksMap) {
@@ -719,11 +724,13 @@ export function extractBlocks(existing) {
   const walk = (id) => {
     const b = get(id);
     if (!(b instanceof Y.Map)) return;
-    const fl = b.get('sys:flavour');
+    const v = blockView(b, me);
+    if (!v) return;
+    const fl = v.flavour;
     if (fl === 'affine:paragraph' || fl === 'affine:list' || fl === 'affine:code') {
       out.push({
         flavour: fl,
-        type: b.get('prop:type') || 'text',
+        type: v.type || 'text',
         checked: !!b.get('prop:checked'),
         text: textOf(b),
       });
@@ -744,7 +751,7 @@ export function extractBlocks(existing) {
 function inlineMarkdown(t, opts = {}) {
   if (!(t instanceof Y.Text)) return '';
   let out = '';
-  for (const op of t.toDelta()) {
+  for (const op of visibleOps(t, opts.withPendingFor ?? null)) {
     const raw = typeof op.insert === 'string' ? op.insert : '';
     const a = op.attributes || {};
     if (a.reference) {
@@ -851,7 +858,9 @@ function blocksToMarkdown(blocks, rootIds, opts = {}) {
   const walk = (id, depth) => {
     const b = blocks.get(id);
     if (!(b instanceof Y.Map)) return;
-    const fl = b.get('sys:flavour');
+    const v = blockView(b, opts.withPendingFor ?? null);
+    if (!v) return;
+    const fl = v.flavour;
     let childDepth = depth;
 
     switch (fl) {
@@ -864,7 +873,7 @@ function blocksToMarkdown(blocks, rootIds, opts = {}) {
         if (b.get('prop:displayMode') === 'edgeless') return;
         break;
       case 'affine:paragraph': {
-        const type = b.get('prop:type') || 'text';
+        const type = v.type || 'text';
         const body = text(b);
         if (/^h[1-6]$/.test(type)) parts.push({ text: `${'#'.repeat(Number(type[1]))} ${body}` });
         else if (type === 'quote') parts.push({ text: withSize(b, body).split('\n').map((l) => `> ${l}`).join('\n') });
@@ -872,14 +881,14 @@ function blocksToMarkdown(blocks, rootIds, opts = {}) {
         break;
       }
       case 'affine:list': {
-        const type = b.get('prop:type');
+        const type = v.type;
         const marker = type === 'numbered' ? '1.' : type === 'todo' ? `- [${b.get('prop:checked') ? 'x' : ' '}]` : '-';
         parts.push({ list: true, type, depth, text: `${'  '.repeat(depth)}${marker} ${withSize(b, text(b))}` });
         childDepth = depth + 1;
         break;
       }
       case 'affine:code':
-        parts.push({ text: '```' + (b.get('prop:language') || '') + '\n' + String(b.get('prop:text') ?? '') + '\n```' });
+        parts.push({ text: '```' + (b.get('prop:language') || '') + '\n' + (b.get('prop:text') instanceof Y.Text ? authorView(b.get('prop:text'), opts.withPendingFor ?? null) : '') + '\n```' });
         break;
       case 'affine:divider':
         parts.push({ text: '---' });
@@ -1235,6 +1244,9 @@ export function normalizeDocState(existing, opts = {}) {
   for (const b of childBlocks) {
     const fl = b.get('sys:flavour');
     if (!REBUILDABLE.has(fl)) return null;
+    // A rebuild would silently accept or lose what is pending.
+    const bt = b.get('prop:text');
+    if (b.get('prop:mnSugg') || (bt instanceof Y.Text && bt.toDelta().some((op) => op.attributes?.mnSugg))) return null;
     const kids = b.get('sys:children');
     if (kids instanceof Y.Array && kids.length > 0) return null;
     if (fl === 'affine:paragraph' && (b.get('prop:type') || 'text') === 'text') {

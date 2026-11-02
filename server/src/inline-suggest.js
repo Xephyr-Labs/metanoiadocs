@@ -11,17 +11,33 @@ const textOf = (block) => {
   return t instanceof Y.Text ? t : null;
 };
 
-/** Text with `ins` runs dropped and `del` runs kept; `mine` (a user id) sees their own the other way. */
-function view(ytext, userId) {
-  let out = '';
-  for (const op of ytext.toDelta()) {
-    if (typeof op.insert !== 'string') continue;
+/** The runs of a Y.Text with `ins` dropped and `del` kept; a user id (`userId`) sees their own the other way. */
+export function visibleOps(ytext, userId = null) {
+  return ytext.toDelta().filter((op) => {
     const s = op.attributes?.[KEY];
-    if (s?.kind === 'ins' && s.by !== userId) continue;
-    if (s?.kind === 'del' && userId != null && s.by === userId) continue;
-    out += op.insert;
-  }
-  return out;
+    if (s?.kind === 'ins' && s.by !== userId) return false;
+    if (s?.kind === 'del' && userId != null && s.by === userId) return false;
+    return true;
+  });
+}
+
+const view = (ytext, userId) =>
+  visibleOps(ytext, userId).map((op) => (typeof op.insert === 'string' ? op.insert : '')).join('');
+
+/**
+ * How a block reads with nothing pending accepted: `null` when it is absent
+ * (an `add`), else its flavour and type (a `type` change shows its `from`).
+ * `userId` sees their own block suggestions the other way round.
+ */
+export function blockView(b, userId = null) {
+  const bs = b.get(BLOCK_KEY);
+  const flavour = b.get('sys:flavour');
+  const type = b.get('prop:type');
+  const mine = userId != null && bs?.by === userId;
+  if (bs?.kind === 'add') return mine ? { flavour, type } : null;
+  if (bs?.kind === 'remove' && mine) return null;
+  if (bs?.kind === 'type' && bs.from && !mine) return { flavour: bs.from.flavour, type: bs.from.type };
+  return { flavour, type };
 }
 
 export const pendingText = (ytext) => view(ytext, null);

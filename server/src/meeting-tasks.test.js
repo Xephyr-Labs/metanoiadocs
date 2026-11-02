@@ -443,3 +443,11 @@ test('tasks-from-proposals: links go under the first such heading in the page bo
   await h.call({ projectId: 'p1', items: [{ title: 'New', assigneeIds: [] }] }, FROM);
   assert.match(docText(doc), /^Tasks from this meeting\nold\nNew\nLater\nTasks from this meeting\ntail$/);
 });
+
+test('openTodos reads a to-do with its pending insertions left out', () => {
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, new Uint8Array(buildDocState('T', '- [ ] ship it')));
+  const t = [...doc.getMap('blocks').values()].find((b) => b.get('prop:type') === 'todo').get('prop:text');
+  t.insert(t.length, ' NEW', { mnSugg: { id: 's', kind: 'ins', by: 'u1', at: 1 } });
+  assert.equal(openTodos(doc).todos[0].text, 'ship it');
+});

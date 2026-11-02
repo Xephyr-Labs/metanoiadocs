@@ -9,10 +9,12 @@
 // stock one plus this spec, last, which makes it the renderer that wins; it
 // draws the run as BlockSuite would without the mark and wraps that.
 import { DefaultInlineManagerExtension } from '@blocksuite/affine/inlines/preset';
+import { LifeCycleWatcher } from '@blocksuite/affine/std';
 import { type InlineManager, InlineSpecExtension, type InlineSpecs } from '@blocksuite/affine/std/inline';
 import type { ExtensionType } from '@blocksuite/affine/store';
 import type { AffineTextAttributes } from '@blocksuite/affine/shared/types';
 import { html } from 'lit';
+import type { Subject } from 'rxjs';
 import { z } from 'zod';
 
 export interface Suggestion {
@@ -77,3 +79,39 @@ export function suggestInlineExtensions(): ExtensionType[] {
     },
   ];
 }
+
+type Json = { [k: string]: unknown };
+
+/**
+ * A copy is a snapshot, and a snapshot's text deltas and block props carry the
+ * suggestion with its id. Pasted anywhere, that would be a second run answering
+ * to the same card — so the mark never travels; the text arrives as plain text.
+ */
+export function stripSuggestions(node: unknown): void {
+  if (Array.isArray(node)) return node.forEach(stripSuggestions);
+  if (!node || typeof node !== 'object') return;
+  const o = node as Json;
+  if ('insert' in o && o.attributes && typeof o.attributes === 'object') delete (o.attributes as Json).mnSugg;
+  if ('flavour' in o && o.props && typeof o.props === 'object') delete (o.props as Json).mnSugg;
+  for (const v of Object.values(o)) stripSuggestions(v);
+}
+
+type Slots = { beforeImport: Subject<{ snapshot: unknown }>; afterExport: Subject<{ snapshot: unknown }> };
+
+/** A clipboard middleware: nothing suggested leaves on copy or arrives on paste. */
+export const stripSuggestionsMiddleware = ({ slots }: { slots: Slots }) => {
+  slots.afterExport.subscribe(({ snapshot }) => stripSuggestions(snapshot));
+  slots.beforeImport.subscribe(({ snapshot }) => stripSuggestions(snapshot));
+};
+
+class StripSuggestionsOnCopy extends LifeCycleWatcher {
+  static override key = 'mn-strip-suggestions';
+  override mounted() {
+    this.std.clipboard.use(stripSuggestionsMiddleware as never);
+  }
+  override unmounted() {
+    this.std.clipboard.unuse(stripSuggestionsMiddleware as never);
+  }
+}
+
+export const stripSuggestionsOnCopyExtension: ExtensionType = StripSuggestionsOnCopy;

@@ -48,7 +48,7 @@ import { attachFileDrop } from './fileDrop';
 import { imageToolbarExtensions } from './imageToolbar';
 import { pageViewportExtension } from './pageViewport';
 import { attachCalloutPanels, calloutExtensions } from './callout';
-import { suggestInlineExtensions } from './suggest/inlineSpec';
+import { stripSuggestionsOnCopyExtension, suggestInlineExtensions } from './suggest/inlineSpec';
 import { cancelVoiceNote, voiceNoteExtensions } from './voiceNote';
 import { closeTranscriptCard, voiceTranscriptExtensions } from './voiceTranscript';
 import { attachTextSize } from './textSize';
@@ -552,6 +552,7 @@ export async function mountEditor(
     // on the next edit. Overrides the paragraph's inline manager, so it stays
     // after the view extensions. Everyone sees them, a public viewer included.
     ...suggestInlineExtensions(),
+    stripSuggestionsOnCopyExtension,
     ...voiceNoteExtensions(),
     ...voiceTranscriptExtensions(),
     noLinkedDocConvertCanvasExtension(),
