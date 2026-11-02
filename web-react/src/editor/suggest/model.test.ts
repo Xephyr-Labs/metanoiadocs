@@ -153,6 +153,16 @@ describe('client suggestion model', () => {
     expect(m.t.toString()).toBe('abc');
   });
 
+  it('Accept all is its own undo step, apart from the typing just before it', () => {
+    const m = abcd();
+    m.store.transact(() => m.t.insert(0, 'X')); // typed just now, inside the capture window
+    expect(decideAll(m.store, 'accept')).toBe(2);
+    expect(m.t.toString()).toBe('Xabc');
+    m.store.undo();
+    expect(m.t.toString()).toBe('Xabcd');
+    expect(listSuggestions(m.store)).toHaveLength(2);
+  });
+
   it('describes a replace in the words of the card', () => {
     const m = mk('x');
     const t = m.yt(m.ids[0]);

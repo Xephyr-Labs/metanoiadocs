@@ -232,6 +232,8 @@ export function decide(store: StoreLike, id: string, verdict: Verdict): boolean 
 export function decideAll(store: StoreLike, verdict: Verdict, { by }: { by?: string } = {}): number {
   assertVerdict(verdict);
   let n = 0;
+  // Its own undo step, as decide's (each decide inside captures again, harmlessly).
+  store.captureSync?.();
   store.transact(() => {
     for (const c of listSuggestions(store)) {
       if (by && c.by !== by) continue;
