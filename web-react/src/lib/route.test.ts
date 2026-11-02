@@ -103,6 +103,12 @@ describe('a malformed escape in an address', () => {
 });
 
 describe('review links', () => {
+  it('reads ?sugg= on a document address: the inline suggestion to focus', () => {
+    expect(parseRoute('/d/abc', '', '?sugg=x1')).toMatchObject({ docId: 'abc', suggId: 'x1' });
+    expect(parseRoute('/d/abc').suggId).toBeNull();
+    expect(parseRoute('/f/x', '', '?sugg=x1').suggId).toBeNull();
+  });
+
   it('reads ?review= on a document address', () => {
     expect(parseRoute('/d/abc', '', '?review=s1')).toMatchObject({ docId: 'abc', reviewId: 's1' });
     expect(parseRoute('/d/abc').reviewId).toBeNull();

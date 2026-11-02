@@ -11,6 +11,7 @@ import { CommentIcon, EditIcon } from '@blocksuite/icons/lit';
 import * as Y from 'yjs';
 import { docsApi } from '../lib/docsApi';
 import { anchoredOccurrence, anchoredText, encodeAnchor, findQuote, normalizeQuote } from '../lib/textMatch';
+import { suggestReplacement } from './suggest/suggestingInput';
 
 export interface CommentAnchor {
   quote: string;
@@ -330,6 +331,25 @@ export function commentOnBlock(blockId: string, label: string) {
   openListeners.forEach((l) => l(hlDocId));
 }
 
+/**
+ * The Suggest button's submit: suggest replacing the anchored passage with
+ * `text` ('' deletes it) inline on the page, as `me` — no comment row. False
+ * when the passage is no longer on the page as it was selected.
+ */
+export function suggestOnPage(a: CommentAnchor, text: string, me: string): boolean {
+  const el = hlRoot && a.blockId ? hlRoot.querySelector(`[data-block-id="${CSS.escape(a.blockId)}"]`) : null;
+  const t = yTextOf(el);
+  if (!t) return false;
+  let occurrence = a.occurrence ?? 0;
+  if (a.anchorStart && a.anchorEnd) {
+    const n = anchoredOccurrence(t, a.quote, a.anchorStart, a.anchorEnd);
+    if (n === null) return false;
+    if (n !== undefined) occurrence = n;
+  }
+  const hit = findQuote(t.toString(), a.quote, occurrence);
+  return !!hit && suggestReplacement(t, hit, text, me);
+}
+
 let activeTimer: ReturnType<typeof setTimeout> | undefined;
 /**
  * Scroll the page to a thread's passage and flash it — a click on its card.
@@ -570,8 +590,11 @@ export function attachComments(
   /** `readonly`: the page can't be edited here (a guest, a commenter, a
    *  suggester), so BlockSuite shows no toolbars and the floating buttons are
    *  how a selection becomes a comment. `canSuggest`: offer "Suggest edit". */
-  { readonly = false, canSuggest = false, canComment = true }: { readonly?: boolean; canSuggest?: boolean; canComment?: boolean } = {},
+  { readonly = false, canSuggest = false, canComment = true }: { readonly?: boolean | (() => boolean); canSuggest?: boolean; canComment?: boolean } = {},
 ): () => void {
+  // A function when it can change under an open page: Suggesting mode hides
+  // BlockSuite's toolbar, so the floating buttons stand in (ruling R11).
+  const toolbarless = typeof readonly === 'function' ? readonly : () => readonly;
   hlRoot = root;
   hlDocId = docId;
   hlLoad = load;
@@ -663,7 +686,7 @@ export function attachComments(
       bar.style.top = below && under + 36 <= floor ? `${under}px` : `${Math.max(8, r.top - 40)}px`;
       bar.style.left = `${Math.min(window.innerWidth - width - 8, Math.max(8, r.left + r.width / 2 - width / 2))}px`;
     };
-    if (readonly) return show();
+    if (toolbarless()) return show();
     // Where the page is editable, BlockSuite's own selection toolbar carries
     // Comment and Suggest. On a desktop these buttons used to wait 400ms for
     // that toolbar and appear if it was not up yet — and it often comes up
@@ -719,6 +742,7 @@ export function attachComments(
 
   // Read-only: an image's Comment button, since its toolbar never appears.
   const onImageClick = (e: MouseEvent) => {
+    if (!toolbarless()) return;
     const image = e.target instanceof Element ? e.target.closest('affine-image') : null;
     const blockId = image?.getAttribute('data-block-id');
     if (!image || !blockId) return;
@@ -737,7 +761,7 @@ export function attachComments(
     }, 40));
   };
   // Capture: the image block stops its own clicks from bubbling.
-  if (readonly && canComment) root.addEventListener('click', onImageClick, true);
+  if (readonly !== false && canComment) root.addEventListener('click', onImageClick, true);
 
   // A long-press selection on a phone fires neither mouseup nor keyup;
   // selectionchange covers it (debounced, it fires per handle drag).

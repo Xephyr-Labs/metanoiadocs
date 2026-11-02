@@ -403,15 +403,33 @@ test('an agent draft with no approver is reviewable by any editor, never by its 
   assert.equal(author.out.canReview, false);
 });
 
-test('an Ask-AI draft does not stand in for the author\'s own draft', async () => {
+test('new Suggesting-mode drafts are retired: 410, nothing inserted; an open one still loads', async () => {
   const rows = [aiRow({ author_id: 'u2', approver_id: 'u2' })];
   const { routes, calls } = fakeRoutes(rows);
+  let code; let out;
+  await routes['POST /api/docs/:id/suggestions']({ params: { id: 'd1' }, user: { id: 'u2' } }, { status(c) { code = c; return this; }, json(v) { out = v; } });
+  assert.equal(code, 410);
+  assert.match(out.error, /Suggesting mode/);
+  assert.equal(rows.length, 1, 'no draft inserted');
+  assert.ok(!calls.some((s) => /INSERT INTO doc_suggestions/.test(s)));
+  // A person's own open legacy draft is still handed back, so it can be finished.
+  const mine = [aiRow({ author_id: 'u3', writer_via: null, status: 'draft' })];
   const r = res();
-  await routes['POST /api/docs/:id/suggestions']({ params: { id: 'd1' }, user: { id: 'u2' } }, r);
-  assert.notEqual(r.out.id, 's1');
-  assert.equal(rows.length, 2, 'a person draft was inserted beside the AI one');
-  assert.ok(calls.some((s) => /writer_via IS NULL/.test(s)));
-  // And the v2 index lets both exist.
+  await fakeRoutes(mine).routes['POST /api/docs/:id/suggestions']({ params: { id: 'd1' }, user: { id: 'u3' } }, r);
+  assert.equal(r.out.id, 's1');
+});
+
+test('a legacy comment suggestion never lands inside a pending inline suggestion', () => {
+  const doc = docFromState(buildDocState('T', 'Hello world.\n'));
+  const { id, text } = textBlock(doc, 'Hello world.');
+  text.insert(6, 'big ', { mnSugg: { id: 's', kind: 'ins', by: 'u9', at: 1 } });
+  // "big wor" is only on the page as someone's pending insertion plus real text.
+  assert.equal(applyTextSuggestion(doc, id, 'big wor', 'x'), false);
+  // Text clear of pending runs still applies.
+  assert.equal(applyTextSuggestion(doc, id, 'Hello', 'Hi'), true);
+  assert.equal(text.toString(), 'Hi big world.');
+  text.format(10, 5, { mnSugg: { id: 't', kind: 'del', by: 'u9', at: 1 } });
+  assert.equal(applyTextSuggestion(doc, id, 'world', 'earth'), false, 'nor across a pending deletion');
 });
 
 test('applying an AI draft stamps the page as AI-edited by the approver', async () => {
@@ -461,4 +479,68 @@ test('an AI draft whose approver was deleted falls to any editor, and stays in e
   await routes['GET /api/docs/:id/suggestions']({ params: { id: 'd1' }, user: { id: 'e1' } }, res());
   const list = calls.find((s) => /ORDER BY s.updated_at DESC/.test(s));
   assert.match(list, /\(\$3 AND s\.approver_id IS NULL\)/);
+});
+
+test('GET /api/docs/:id/inline-suggestions: the live page\'s pending cards with their authors\' names, for anyone it is shared with', async () => {
+  const page = docFromState(buildDocState('T', 'The quick fox.\n'));
+  const { text } = textBlock(page, 'The quick fox.');
+  text.format(4, 5, { mnSugg: { id: 'c1', kind: 'del', by: 'u1', at: 0 } });
+  text.insert(9, 'slow', { mnSugg: { id: 'c1', kind: 'ins', by: 'u1', at: 0, via: 'ai' } });
+  const routes = {};
+  let role = 'viewer';
+  registerSuggestionRoutes({ get: (path, ...h) => { routes[path] = h[h.length - 1]; }, post() {}, delete() {} }, {
+    requireUser: () => {}, wrap: (fn) => fn,
+    pool: {
+      query: async (sql, p) => (/FROM doc_states/.test(sql) ? { rows: [{ state: Buffer.from(state(page)) }] }
+        : /FROM users/.test(sql) ? { rows: p[0].includes('u1') ? [{ id: 'u1', name: 'Una', email: 'u@x' }] : [] } : { rows: [] }),
+    },
+    grantOn: async () => role, canEdit: () => false, canSuggest: () => false,
+    getHocuspocus: () => ({ documents: new Map() }), notifyUser: async () => {}, recordDocEditors: async () => {},
+  });
+  const get = async () => {
+    let status = 200, body;
+    await routes['/api/docs/:id/inline-suggestions']({ params: { id: 'd1' }, user: { id: 'v1' } },
+      { status(s) { status = s; return this; }, json(v) { body = v; } });
+    return { status, body };
+  };
+  const { status, body } = await get();
+  assert.equal(status, 200);
+  assert.equal(body.length, 1);
+  assert.deepEqual({ ...body[0], blockId: undefined }, {
+    id: 'c1', blockId: undefined, kind: 'replace', before: 'quick', after: 'slow', via: 'ai', authorId: 'u1', author: 'Una', at: new Date(0).toISOString(),
+  });
+  role = null;
+  assert.equal((await get()).status, 403);
+});
+
+test('accepting a legacy draft change skips a block holding a newer inline suggestion, instead of wiping it', () => {
+  const { base, draft, main } = fork('Hello world, again.\n\nSecond.\n');
+  const baseDoc = docFromState(base);
+  // The legacy draft changes the last character of each paragraph.
+  textBlock(draft, 'Hello world, again.').text.delete(18, 1);
+  textBlock(draft, 'Hello world, again').text.insert(18, '!');
+  textBlock(draft, 'Second.').text.insert(6, ' line');
+  // Since then, Maya suggested inline on the live page, in the first paragraph only.
+  const t = textBlock(main, 'Hello world, again.').text;
+  t.insert(5, ' brave', { mnSugg: { id: 's1', kind: 'ins', by: 'maya', at: 1 } });
+  t.format(19, 6, { mnSugg: { id: 's2', kind: 'del', by: 'maya', at: 1 } });
+  const before = JSON.stringify(t.toDelta());
+  const changes = computeChanges(baseDoc, draft, main);
+  const results = changes.map((c) => [c.before, applyChange(main, draft, baseDoc, c)]);
+  assert.deepEqual(results.sort(), [['Hello world, again.', false], ['Second.', true]]);
+  assert.equal(JSON.stringify(t.toDelta()), before, 'Maya\'s suggestions are exactly as they were');
+  assert.ok(textBlock(main, 'Second line.'), 'the other change still applies');
+  // A block marked whole (an add, a remove, a type) is held the same way, removal included.
+  const f = fork('One.\n\nTwo.\n');
+  const two = textBlock(f.main, 'Two.');
+  two.block.set('prop:mnSugg', { id: 's3', kind: 'type', by: 'maya', at: 1, from: { flavour: 'affine:paragraph', type: 'text' } });
+  const dTwo = textBlock(f.draft, 'Two.');
+  for (const [, b] of f.draft.getMap('blocks')) {
+    const kids = b.get('sys:children');
+    if (kids instanceof Y.Array && kids.toArray().includes(dTwo.id)) kids.delete(kids.toArray().indexOf(dTwo.id), 1);
+  }
+  f.draft.getMap('blocks').delete(dTwo.id);
+  const removed = computeChanges(docFromState(f.base), f.draft, f.main).find((c) => c.kind === 'removed');
+  assert.equal(applyChange(f.main, f.draft, docFromState(f.base), removed), false);
+  assert.ok(textBlock(f.main, 'Two.'));
 });

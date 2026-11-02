@@ -70,6 +70,9 @@ export interface Route {
   /** `/d/<doc>?review=<draft>`: an AI (or person) suggestion waiting on this reader;
    *  the link in its email, push and inbox row. */
   reviewId: string | null;
+  /** `/d/<doc>?sugg=<id>`: an inline suggestion to focus — its card active, its
+   *  text in view (editor/suggest/rail.ts). The link agents and notifications give. */
+  suggId: string | null;
 }
 
 /** The parsing half, kept apart from `location` so it can be tested without a
@@ -100,6 +103,7 @@ export function parseRoute(pathname: string, hash = '', search = ''): Route {
     blockId: fragment ? decode(fragment) : null,
     taskId: db ? new URLSearchParams(search).get('task') : null,
     reviewId: doc && !AFFINE_PATH.test(pathname) ? new URLSearchParams(search).get('review') : null,
+    suggId: doc && !AFFINE_PATH.test(pathname) ? new URLSearchParams(search).get('sugg') : null,
   };
 }
 

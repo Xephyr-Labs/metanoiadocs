@@ -43,6 +43,24 @@ const REVIEW_SQL = (space) => `
    ORDER BY s.submitted_at DESC NULLS LAST
    LIMIT ${LIMIT}`;
 
+// Pages with inline suggestions by someone else that I can decide (editors
+// decide them): one row per page, opening on its first such suggestion.
+// docs.pending_suggestions is kept by every save (pendingIndex).
+const INLINE_SQL = (space) => `
+  SELECT d.id AS doc_id, d.title AS doc_title, s.id, s.at, s.via,
+         coalesce(nullif(u.name, ''), u.email) AS author_name, count(*) OVER () AS total
+    FROM docs d ${VISIBLE_JOIN}
+    CROSS JOIN LATERAL (
+      SELECT e->>'id' AS id, e->>'by' AS by, e->>'at' AS at, e->>'via' AS via
+        FROM jsonb_array_elements(d.pending_suggestions) WITH ORDINALITY x(e, n)
+       WHERE e->>'by' IS DISTINCT FROM $1
+       ORDER BY n LIMIT 1) s
+    LEFT JOIN users u ON u.id = s.by
+   WHERE d.pending_suggestions <> '[]'::jsonb
+     AND d.deleted_at IS NULL AND ${VISIBLE} AND ${IN_SPACE('d.space_id', 2, space)} AND ${EDITOR}
+   ORDER BY d.updated_at DESC
+   LIMIT ${LIMIT}`;
+
 // Same filters as MY_TASKS_SQL in home.js, bounded at the reader's today. The
 // list holds past-due and due-today (oldest first); the counts keep them apart.
 const OVERDUE_SQL = (space) => `
@@ -115,25 +133,34 @@ const CHANGED_SQL = (space) => `
    ORDER BY d.updated_at DESC
    LIMIT ${LIMIT}`;
 
+const when = (r) => new Date(r.submittedAt ?? 0).getTime() || 0;
 const countOf = (r) => Number(r.rows[0]?.total ?? 0);
 
 export async function needsQueries(pool, { userId, spaceId, today }) {
   const space = spaceId || null;
   const sp = space ? [space] : [];
-  const [review, overdue, mentions, changed] = await Promise.all([
+  const [review, inline, overdue, mentions, changed] = await Promise.all([
     pool.query(REVIEW_SQL(space), [userId, ...sp]),
+    pool.query(INLINE_SQL(space), [userId, ...sp]),
     pool.query(OVERDUE_SQL(space), [userId, today, ...sp]),
     pool.query(MENTIONS_SQL(space), [userId, ...sp]),
     pool.query(CHANGED_SQL(space), [userId, ...sp]),
   ]);
   return {
     counts: {
-      review: countOf(review), overdue: countOf(overdue),
+      review: countOf(review) + countOf(inline), overdue: countOf(overdue),
       dueToday: Number(overdue.rows[0]?.due_today ?? 0), mentions: countOf(mentions), changed: countOf(changed) },
-    review: review.rows.map((r) => ({
-      suggestionId: r.id, docId: r.doc_id, docTitle: r.doc_title, authorName: r.author_name,
-      writerVia: r.writer_via ?? null, submittedAt: r.submitted_at,
-    })),
+    // Drafts and pages with inline suggestions, newest first.
+    review: [
+      ...review.rows.map((r) => ({
+        suggestionId: r.id, docId: r.doc_id, docTitle: r.doc_title, authorName: r.author_name,
+        writerVia: r.writer_via ?? null, submittedAt: r.submitted_at,
+      })),
+      ...inline.rows.map((r) => ({
+        suggestionId: r.id, docId: r.doc_id, docTitle: r.doc_title, authorName: r.author_name,
+        writerVia: r.via ?? null, submittedAt: r.at ? new Date(Number(r.at)).toISOString() : null, inline: true,
+      })),
+    ].sort((x, y) => when(y) - when(x)).slice(0, LIMIT),
     overdue: overdue.rows.map((r) => {
       const dueAt = isoDate(r.due_at);
       return { taskId: r.id, title: r.title, projectId: r.project_id, projectName: r.project_name, dueAt, today: dueAt === today };

@@ -55,3 +55,68 @@ test('the standalone stdio package builds the same message', () => {
   assert.ok(line('./mcp-tools.js'));
   assert.equal(line('../../mcp/src/index.js'), line('./mcp-tools.js'));
 });
+
+test('an inline suggestion links to the page at its first change', async () => {
+  const before = process.env.BASE_URL;
+  process.env.BASE_URL = 'https://docs.example.com';
+  try {
+    const w = await call('write_doc', { id: 'd1', markdown: 'x', mode: 'replace' },
+      { ok: true, suggested: true, changes: 1, link: '/d/d1?sugg=abc', approverName: null });
+    assert.equal(w.text, 'Suggested 1 change for anyone who can edit the page to review: https://docs.example.com/d/d1?sugg=abc');
+  } finally {
+    if (before === undefined) delete process.env.BASE_URL; else process.env.BASE_URL = before;
+  }
+});
+
+test('R14: a write that skipped part of what was asked says so', async () => {
+  const w = await call('write_doc', { id: 'd1', markdown: 'x', mode: 'replace' },
+    { ok: true, suggested: true, changes: 0, link: '/d/d1', approverName: null, skipped: [{ blockId: 'b1', reason: 'r1' }] });
+  assert.match(w.text, /^Suggested 0 changes .*\nNot applied, because someone else's change is pending there \(tell whoever asked\): block b1: r1$/);
+});
+
+test('the standalone stdio package reports skipped parts the same way', () => {
+  const line = (file) => readFileSync(new URL(file, import.meta.url), 'utf8').match(/^\s*r\?\.skipped\?\.length .*$/m)?.[0].trim();
+  assert.ok(line('./mcp-tools.js'));
+  assert.equal(line('../../mcp/src/index.js'), line('./mcp-tools.js'));
+});
+
+test('the standalone stdio package reports an edit_doc miss the same way', () => {
+  const src = (file) => readFileSync(new URL(file, import.meta.url), 'utf8');
+  const block = (file) => src(file).match(/const editMissMessage = [\s\S]*?\.join\('\\n'\);/)?.[0];
+  assert.ok(block('./mcp-tools.js'));
+  assert.equal(block('../../mcp/src/index.js'), block('./mcp-tools.js'));
+});
+
+test('read_suggestions lists the inline suggestions on the live page, and open legacy drafts only when there are any', async () => {
+  const card = { id: 'c1', blockId: 'b1', kind: 'replace', before: 'quick', after: 'slow', authorId: 'u1', author: 'Andy', at: null, via: 'ai' };
+  const answer = (drafts) => async (url) => {
+    const path = new URL(url).pathname;
+    const data = path.endsWith('/inline-suggestions') ? [card]
+      : path.endsWith('/suggestions') ? drafts
+        : { changes: [{ id: 'x', kind: 'modified', before: 'a', after: 'b' }], accepted: 0, rejected: 0 };
+    return { ok: true, status: 200, text: async () => JSON.stringify(data) };
+  };
+  const run = async (drafts) => {
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = answer(drafts);
+    try {
+      const server = createMetanoiaMcpServer({ base: 'http://x', headers: { Authorization: 'Bearer t' } });
+      return JSON.parse((await server._registeredTools.read_suggestions.handler({ id: 'd1' }, {})).content[0].text);
+    } finally { globalThis.fetch = realFetch; }
+  };
+  const inline = { id: 'c1', kind: 'replace', before: 'quick', after: 'slow', author: 'Andy', via: 'ai' };
+  assert.deepEqual(await run([]), { suggestions: [inline] });
+  const both = await run([{ id: 's1', authorName: 'Bea', status: 'submitted' }]);
+  assert.deepEqual(both.suggestions, [inline]);
+  assert.deepEqual(both.drafts.map((d) => [d.id, d.author, d.changes.length]), [['s1', 'Bea', 1]]);
+});
+
+test('the standalone stdio package reads suggestions the same way', () => {
+  const src = (file) => readFileSync(new URL(file, import.meta.url), 'utf8');
+  const block = (file) => src(file).match(/\/\/ ── read_suggestions: [\s\S]*?return ok\(\{ suggestions[^\n]*/)?.[0].replace(/^\s+/gm, '');
+  const desc = (file) => src(file).match(/"The changes still waiting on a decision on a doc: [^\n]*/)?.[0];
+  assert.ok(block('./mcp-tools.js'));
+  assert.ok(desc('./mcp-tools.js'));
+  assert.equal(block('../../mcp/src/index.js'), block('./mcp-tools.js'));
+  assert.equal(desc('../../mcp/src/index.js'), desc('./mcp-tools.js'));
+});

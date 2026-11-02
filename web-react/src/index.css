@@ -87,6 +87,12 @@
   --comment: #fdfaee;
   --comment-mark: rgba(250, 204, 21, 0.32);
   --comment-mark-active: rgba(250, 204, 21, 0.62);
+  /* Suggested edits: green insert, red delete (editor/suggest). */
+  --sugg-ins-fg: #137333;
+  --sugg-ins-bg: #e6f4ea;
+  --sugg-del-fg: #a50e0e;
+  --sugg-del-bg: #fce8e6;
+  --sugg-add-bg: #f3faf5;
 
   /* Table row/column tints. Eight hues and one strength: the hue is mixed INTO
    * the canvas, so the same eight tokens serve light and dark and only the
@@ -212,6 +218,11 @@ html.dark {
   --tint: color-mix(in srgb, var(--accent) 22%, transparent);
   --tint-strong: color-mix(in srgb, var(--accent) 34%, transparent);
 
+  --sugg-ins-fg: #81c995;
+  --sugg-ins-bg: #1e3a29;
+  --sugg-del-fg: #f28b82;
+  --sugg-del-bg: #4a2523;
+  --sugg-add-bg: #17261d;
   --comment: #26241c;
   --comment-mark: rgba(214, 178, 66, 0.30);
   --comment-mark-active: rgba(214, 178, 66, 0.55);
@@ -1690,6 +1701,55 @@ affine-paragraph:has(> .affine-block-component > .affine-paragraph-block-contain
 }
 affine-paragraph:has(> .affine-block-component > .affine-paragraph-block-container > .quote) + affine-paragraph:has(> .affine-block-component > .affine-paragraph-block-container > .quote):has(+ affine-paragraph > .affine-block-component > .affine-paragraph-block-container > .quote) > .affine-block-component > .affine-paragraph-block-container > .quote::after {
   height: 100%;
+}
+
+/* Suggested edits (editor/suggest). */
+.mn-sugg-ins {
+  color: var(--sugg-ins-fg);
+  background: var(--sugg-ins-bg);
+  text-decoration: underline;
+}
+.mn-sugg-del {
+  color: var(--sugg-del-fg);
+  background: var(--sugg-del-bg);
+  text-decoration: line-through;
+}
+/* The bar sits in the gutter, 4px off the text: outer shadows paint outside
+ * the block without moving it — a canvas-coloured gap, then 3px of colour.
+ * Flush against the first letter it read as a caret. */
+[data-mn-sugg='add'],
+[data-mn-sugg='remove'],
+[data-mn-sugg='type'] {
+  box-shadow: -4px 0 0 0 var(--canvas), -7px 0 0 0 var(--sugg-ins-fg);
+}
+[data-mn-sugg='remove'] { box-shadow: -4px 0 0 0 var(--canvas), -7px 0 0 0 var(--sugg-del-fg); }
+[data-mn-sugg='add'] { background: var(--sugg-add-bg); }
+/* The change whose card is hovered or active (editor/suggest/rail.ts). */
+::highlight(mn-sugg-active) {
+  background-color: var(--comment-mark-active);
+}
+/* Share links and version previews: no pending insertion is shown, a pending
+ * deletion is still plain text, a block marked for removal still reads normally. */
+.mn-sugg-clean .mn-sugg-ins { display: none; }
+.mn-sugg-clean [data-mn-sugg='add'] { display: none; }
+.mn-sugg-clean .mn-sugg-del { color: inherit; background: none; text-decoration: none; }
+.mn-sugg-clean [data-mn-sugg] { box-shadow: none; background: none; }
+/* Suggesting mode (suggest/suggestingInput.ts SUGGESTING_CLASS, ruling R11):
+ * no formatting or structure tools; comments use the floating bar instead. */
+html.mn-suggesting affine-toolbar-widget,
+html.mn-suggesting affine-slash-menu,
+html.mn-suggesting affine-linked-doc-popover,
+html.mn-suggesting affine-drag-handle-widget,
+html.mn-suggesting affine-keyboard-toolbar,
+html.mn-suggesting affine-code-toolbar,
+html.mn-suggesting latex-editor-menu,
+html.mn-suggesting affine-emoji-menu {
+  display: none !important;
+}
+/* Ruling R11b: a to-do's tick and a callout's icon are direct edits. */
+html.mn-suggesting .affine-list-block__todo-prefix,
+html.mn-suggesting .affine-callout-emoji {
+  pointer-events: none !important;
 }
 
 /* Body text sizes (editor/textSize.ts). Child selectors all the way down: a

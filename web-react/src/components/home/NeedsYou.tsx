@@ -5,6 +5,7 @@ import { docsApi } from '../../lib/docsApi';
 import { tasksApi, type NeedsPayload } from '../../lib/tasksApi';
 import { openReview } from '../../lib/reviewMode';
 import { focusComment } from '../../editor/comments';
+import { focusSuggestion } from '../../editor/suggest/rail';
 import { relativeTime } from '../../lib/time';
 import { toast } from '../../lib/toast';
 import { cn } from '../../lib/cn';
@@ -61,8 +62,12 @@ export function NeedsYou({ needs, onChanged }: { needs: NeedsPayload; onChanged:
       case 'review':
         return needs.review.map((r) => (
           <Row key={r.suggestionId} icon={<PenLine size={16} />} meta={relativeTime(r.submittedAt)}
-            actions={action('Review', () => { ws.select(r.docId); openReview(r.suggestionId, r.docId); }, true)}>
-            {r.writerVia ? 'AI draft' : <b className="font-medium">{r.authorName}</b>} suggested changes to <b className="font-medium">{r.docTitle || 'Untitled'}</b>
+            actions={action('Review', () => {
+              ws.select(r.docId);
+              // A page's inline suggestions: it opens on the first one's card.
+              if (r.inline) focusSuggestion(r.suggestionId); else openReview(r.suggestionId, r.docId);
+            }, true)}>
+            {r.writerVia && !r.inline ? 'AI draft' : <b className="font-medium">{r.authorName}</b>} suggested changes to <b className="font-medium">{r.docTitle || 'Untitled'}</b>
           </Row>
         ));
       case 'overdue':

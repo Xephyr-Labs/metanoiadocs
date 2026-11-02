@@ -87,6 +87,10 @@ import { dayIn, isZone, zoneOf } from './timezone.js';
 import { byJoinedFirst } from './spaces.js';
 import { ROLE_RANK, rankOf, canEdit, writePolicy, resolveApprover, untrusted, needsPerson, isPerson, pageSyncRole, mintAgentToken } from './approval.js';
 import { draftEdit, draftToRead, lossyRefusal } from './ai-drafts.js';
+import { registerDocEditRoutes } from './doc-edits.js';
+import { creditedSuggestions, listSuggestions, newSuggestionsBy, pendingJson } from './inline-suggest.js';
+import { suggestMarkdown } from './suggest-writer.js';
+import { noClientBroadcast, suggestGuard } from './suggest-guard.js';
 import OpenAI from 'openai';
 
 process.on('unhandledRejection', (e) => console.error('[proc] unhandledRejection', e?.message || e));
@@ -1118,9 +1122,11 @@ app.get('/api/docs/:id/markdown', requireUser, wrap(async (req, res) => {
   if (!d.rows[0]) return res.status(404).json({ error: 'not found' });
   const s = await pool.query('SELECT state FROM doc_states WHERE doc_id = $1', [req.params.id]);
   let state = s.rows[0]?.state;
-  // A writer whose edits become suggestions reads its own open draft, so a
+  // A writer whose edits become suggestions reads its own open legacy draft,
+  // else the live page with its own pending suggestions applied — so a
   // read-change-replace builds on what it already proposed.
   let pendingSuggestion;
+  let withPendingFor;
   if (writePolicy({ user: req.user, via: req.via, token: req.token }) === 'suggest') {
     const who = await approverFor(req);
     const draft = await draftToRead({
@@ -1130,6 +1136,9 @@ app.get('/api/docs/:id/markdown', requireUser, wrap(async (req, res) => {
       const live = hocuspocus.documents.get(draftName(req.params.id, draft.id));
       state = live ? Buffer.from(Y.encodeStateAsUpdate(live)) : draft.state;
       pendingSuggestion = { id: draft.id, reviewUrl: `/d/${req.params.id}?review=${draft.id}` };
+    } else {
+      withPendingFor = req.user.id;
+      state = (await pageStateFrom(pool, () => hocuspocus)(req.params.id)) ?? state;
     }
   }
   let markdown = '';
@@ -1137,7 +1146,7 @@ app.get('/api/docs/:id/markdown', requireUser, wrap(async (req, res) => {
   if (state) {
     const { label } = await docLinkContext(req.user.id);
     try {
-      markdown = docToMarkdown(state, { resolveTitle: label, escape: true }).markdown;
+      markdown = docToMarkdown(state, { resolveTitle: label, escape: true, withPendingFor }).markdown;
       lossy = lossyBlocks(state);
     } catch { /* empty */ }
   }
@@ -1262,6 +1271,19 @@ app.get('/api/docs/:id/print', requireUser, async (req, res) => {
   }));
 });
 
+/**
+ * draftEdit for a write by this request's caller: null to write straight onto
+ * the page, else the response to send (shared by /content and /edits).
+ */
+const draftWrite = (req, docId, doc, write) => draftEdit({
+  policy: writePolicy({ user: req.user, via: req.via, token: req.token }), kind: doc.kind, via: req.via,
+  pageState: pageStateFrom(pool, () => hocuspocus), approver: () => approverFor(req),
+  pool, hocuspocus, docId, title: doc.title, authorId: req.user.id, ...write,
+  notify: async (n) => {
+    for (const userId of n.userId ? [n.userId] : await pageEditors(docId, req.user.id)) await notifyUser({ ...n, userId, actor: req.user });
+  },
+});
+
 // Write markdown content to a doc: mode 'append' (default) or 'replace'.
 //
 // Goes through a Hocuspocus direct connection rather than into doc_states, for
@@ -1281,14 +1303,7 @@ app.post('/api/docs/:id/content', requireUser, wrap(async (req, res) => {
 
   // An untrusted writer's edit to a page with a body lands in a draft for a
   // person to review, never on the page (see ai-drafts.js).
-  const drafted = await draftEdit({
-    policy: writePolicy({ user: req.user, via: req.via, token: req.token }), kind: d.rows[0].kind, via: req.via,
-    pageState: pageStateFrom(pool, () => hocuspocus), approver: () => approverFor(req),
-    pool, hocuspocus, docId, title: d.rows[0].title, authorId: req.user.id, markdown, mode, resolve,
-    notify: async (n) => {
-      for (const userId of n.userId ? [n.userId] : await pageEditors(docId, req.user.id)) await notifyUser({ ...n, userId, actor: req.user });
-    },
-  });
+  const drafted = await draftWrite(req, docId, d.rows[0], { markdown, mode, resolve });
   if (drafted) return res.status(drafted.status).json(drafted.body);
 
   // A replace swaps the whole body, which is what restoring a version does —
@@ -1318,6 +1333,11 @@ app.post('/api/docs/:id/content', requireUser, wrap(async (req, res) => {
     await conn.transact((doc) => {
       if (mode === 'append' && appendMarkdownToDoc(doc, markdown, resolve)) {
         // appended in place
+      } else if (mode === 'replace' && listSuggestions(doc).length) {
+        // A rebuild would drop everyone's pending suggestions with the old
+        // body. Applied as a diff instead, they stay where they are.
+        suggestMarkdown({ doc, markdown, mode, by: req.user.id, title: d.rows[0].title, resolve, direct: true });
+        rewrote = false;
       } else {
         rewriteDoc(doc, buildDocState(d.rows[0].title, markdown, resolve));
         rewrote = true;
@@ -1355,6 +1375,12 @@ app.post('/api/docs/:id/content', requireUser, wrap(async (req, res) => {
   const unresolved = [...prose.matchAll(/(?<!\\)\[\[([^\]\n]+)\]\]/g)].map((m) => m[1]).filter((k) => !resolve(k));
   res.json({ ok: true, ...(unresolved.length ? { unresolvedLinks: [...new Set(unresolved)] } : {}) });
 }));
+
+registerDocEditRoutes(app, {
+  requireUser, wrap, editGrant, pool, draftWrite, storeLinks,
+  // The sync server is built further down; the route only reaches it per request.
+  getHocuspocus: () => hocuspocus,
+});
 
 // ── slides ──────────────────────────────────────────────────────────────────
 // A deck is a page whose canvas holds frames (blocks.js Slides). Writes go
@@ -2928,7 +2954,8 @@ app.post('/api/docs/:id/versions/:vid/restore-in-place', requireUser, wrap(async
      ON CONFLICT (doc_id) DO UPDATE SET state = EXCLUDED.state, updated_at = now()`,
     [docId, state]
   );
-  await pool.query('UPDATE docs SET updated_at = now(), updated_by = $2, updated_via = $3 WHERE id = $1', [docId, req.user.id, req.via]);
+  await pool.query('UPDATE docs SET updated_at = now(), updated_by = $2, updated_via = $3, pending_suggestions = coalesce($4::jsonb, pending_suggestions) WHERE id = $1',
+    [docId, req.user.id, req.via, pendingJson(target)]);
   // The sidebar title and the search text are pushed by whichever editor is
   // open (see mountEditor); a headless restore refreshes them here so a page
   // restored from a phone still searches on its restored contents.
@@ -2964,11 +2991,13 @@ app.post('/api/docs/:id/versions/:vid/restore', requireUser, async (req, res) =>
   try {
     await client.query('BEGIN');
     // The copy sits beside its source, in the same space.
-    await client.query('INSERT INTO docs (id, title, created_by, space_id) VALUES ($1, $2, $3, $4)',
-      [newId, title, req.user.id, src.rows[0]?.space_id || await defaultSpaceId(client)]);
-    await client.query(`INSERT INTO doc_access (doc_id, user_id, role) VALUES ($1, $2, 'owner')`, [newId, req.user.id]);
     // An old version keeps the table keys the boot repair fixed; mend them.
-    await client.query('INSERT INTO doc_states (doc_id, state) VALUES ($1, $2)', [newId, stateWithValidTableKeys(v.rows[0].state)]);
+    const state = stateWithValidTableKeys(v.rows[0].state);
+    // Its pending suggestions come with it, so Home's To review lists the copy.
+    await client.query(`INSERT INTO docs (id, title, created_by, space_id, pending_suggestions) VALUES ($1, $2, $3, $4, coalesce($5::jsonb, '[]'))`,
+      [newId, title, req.user.id, src.rows[0]?.space_id || await defaultSpaceId(client), pendingJson(state)]);
+    await client.query(`INSERT INTO doc_access (doc_id, user_id, role) VALUES ($1, $2, 'owner')`, [newId, req.user.id]);
+    await client.query('INSERT INTO doc_states (doc_id, state) VALUES ($1, $2)', [newId, state]);
     await client.query('COMMIT');
   } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
   res.json({ id: newId, title });
@@ -2991,22 +3020,11 @@ app.get('/api/docs/:id/comments', requireUser, async (req, res) => {
 app.post('/api/docs/:id/comments', requireUser, async (req, res) => {
   const role = await grantOn(req.params.id, req.user.id);
   if (!canComment(role)) return res.status(403).json({ error: 'forbidden' });
-  const suggestion = req.body?.kind === 'suggestion';
-  // A suggestion proposes new text for a passage; the note beside it is optional.
-  // A comment is text, a file (a voice note), or both; a suggestion is never a file.
-  const input = suggestion
-    ? { body: String(req.body?.body || '').trim().slice(0, 4000), attachments: [] }
-    : commentInput(req.body);
-  if (input.error) return res.status(400).json({ error: input.error });
+  // A comment is text, a file (a voice note), or both; never a suggestion (410).
+  const input = commentInput(req.body);
+  if (input.error) return res.status(input.status ?? 400).json({ error: input.error });
   const { body, attachments } = input;
   const notifyText = input.notifyText ?? body;
-  const replacement = suggestion ? String(req.body?.suggestion ?? '').slice(0, 4000) : null;
-  if (suggestion) {
-    if (!canSuggest(role)) return res.status(403).json({ error: 'You can comment on this page, but not suggest changes.' });
-    if (!req.body?.blockId || !String(req.body?.quote || '').trim()) {
-      return res.status(400).json({ error: 'Select the text you want to change first.' });
-    }
-  }
   // Replying to a task comment (e.g. an agent answering an @mention on a task,
   // which it only knows by the task's page): keep the reply in the task thread.
   if (req.body?.parentId) {
@@ -3035,7 +3053,6 @@ app.post('/api/docs/:id/comments', requireUser, async (req, res) => {
     if (!p) return res.status(400).json({ error: 'That thread is not on this page.' });
     parentId = p.parent_id || p.id;
     replyToId = p.id;
-    if (suggestion) return res.status(400).json({ error: 'A suggestion starts its own thread.' });
   }
   const id = crypto.randomUUID();
   await pool.query(
@@ -3045,7 +3062,7 @@ app.post('/api/docs/:id/comments', requireUser, async (req, res) => {
     [id, req.params.id, parentId ? null : (req.body?.blockId || null),
      parentId ? '' : String(req.body?.quote || '').slice(0, 500),
      body, req.user.id, req.user.name || req.user.email, parentId,
-     suggestion ? 'suggestion' : 'comment', replacement,
+     'comment', null,
      // Which copy of the quoted words in that block — "the" twice in a line.
      Math.max(0, Math.min(1000, Number.parseInt(req.body?.occurrence, 10) || 0)),
      ...commentAnchors(parentId ? null : req.body),
@@ -3053,8 +3070,8 @@ app.post('/api/docs/:id/comments', requireUser, async (req, res) => {
   );
   // Fan out notifications for this comment (best-effort; never fails the comment).
   createCommentNotifications({
-    commentId: id, docId: req.params.id, body: suggestion ? suggestionSnippet(req.body.quote, replacement, body) : notifyText,
-    actor: req.user, parentId, replyToId, kind: suggestion ? 'suggestion' : null,
+    commentId: id, docId: req.params.id, body: notifyText,
+    actor: req.user, parentId, replyToId, kind: null,
   }).catch((e) => console.error('[notify] fanout failed', e.message));
   emit('comment.created', { id, doc_id: req.params.id, body, attachments, author_id: req.user.id });
   commentsChanged(req.params.id);
@@ -3408,10 +3425,10 @@ async function notifyUser({ userId, actor, docId, commentId = null, suggestionId
     [rowId, userId, actor.id, actorName, docId, commentId, suggestionId, kind, String(body || '').slice(0, 280)]
   );
   const heading = title || `${actorName} ${NOTIFY_VERBS[kind] || 'updated'} "${docTitle}"`;
-  sendPush(userId, { title: heading, body: String(body || '').slice(0, 280), tag: rowId, docId, suggestionId })
+  sendPush(userId, { title: heading, body: String(body || '').slice(0, 280), tag: rowId, docId, suggestionId, kind })
     .catch((e) => console.error('[push] notify:', e.message));
   const { rows: [u] } = await pool.query('SELECT email FROM users WHERE id = $1', [userId]);
-  if (u?.email) sendNotificationEmail(u.email, heading, String(body || '').slice(0, 280), `${BASE_URL}${linkFor({ docId, suggestionId })}`);
+  if (u?.email) sendNotificationEmail(u.email, heading, String(body || '').slice(0, 280), `${BASE_URL}${linkFor({ docId, suggestionId, kind })}`);
 }
 const NOTIFY_VERBS = {
   suggestion_accepted: 'accepted your suggestion on',
@@ -3419,6 +3436,7 @@ const NOTIFY_VERBS = {
   review_requested: 'asked you to review changes to',
   review_done: 'reviewed your changes to',
   ai_suggestion: 'suggested changes to',
+  page_suggestion: 'suggested changes to',
 };
 
 // Rewrite a comment. The author's own only — an owner may delete a comment on
@@ -3548,6 +3566,11 @@ app.use((err, req, res, next) => {
 // The role a draft's own author connects with: the one person who may write
 // to that draft, whatever their role on the page itself.
 const DRAFT_AUTHOR = 'draft-author';
+// A person whose grant on the page is suggest-only (pageSyncRole). Their
+// connection writes to the live page, but every update they send is checked by
+// suggest-guard.js first (suggestGuard, below) and refused unless it only
+// suggests, as themselves.
+const SUGGESTER = 'suggester';
 
 // Who changed each open page since its last save. A save carries the context of
 // only the last connection to send an update, so two people typing in the same
@@ -3556,8 +3579,60 @@ const DRAFT_AUTHOR = 'draft-author';
 // being connected sends none), emptied by the save that persists them.
 const unsavedEditors = new Map(); // doc id -> Set of user ids
 
+// A person's inline suggestions are made in the browser and reach the server
+// only as Yjs updates, so a save is where they are noticed: the suggestions on
+// the page now, against the ids seen when it was loaded or last saved. Each one
+// counts only when it was credited to its own author: an update from a socket
+// signed in as X credits the suggestion ids it writes with by = X
+// (creditedSuggestions), so nobody can make the page notify in someone else's
+// name by writing their id into a suggestion. Server-side direct connections
+// (agents, Ask AI) carry no role here and notify on their own write path
+// (ai-drafts.js).
+const knownSuggestions = new Map(); // doc id -> Set of suggestion ids
+const suggestionCredits = new Map(); // doc id -> Map of suggestion id -> user id, since the last save
+// Every suggestion id any update to an open doc has mentioned, whoever sent it:
+// the first update to mention an id decides its credit (creditedSuggestions).
+// Kept until the doc unloads, not cleared per save: a spoof credited to nobody
+// triggers no notify pass, so the ids it brings are not yet in knownSuggestions,
+// and a later closing format item in the real author's update could claim them.
+const seenSuggestions = new Map(); // doc id -> Set of suggestion ids
+
+/** Tell the page's owner, and anyone @mentioned in what they add, of a
+ *  person's new inline suggestions: once per author per page per 10 minutes. */
+async function notifyPageSuggestions(docId, doc, credits) {
+  const fresh = newSuggestionsBy(knownSuggestions.get(docId) ?? null, doc, credits);
+  knownSuggestions.set(docId, new Set(listSuggestions(doc).map((c) => c.id)));
+  for (const [by, { ids, text }] of fresh) {
+    const { rows: [actor] } = await pool.query('SELECT id, name, email, kind FROM users WHERE id = $1', [by]);
+    if (!actor || actor.kind === 'agent') continue;
+    const { rows: recent } = await pool.query(
+      `SELECT 1 FROM notifications WHERE doc_id = $1 AND actor_id = $2 AND kind = 'page_suggestion'
+          AND created_at > now() - interval '10 minutes' LIMIT 1`,
+      [docId, by]
+    );
+    if (recent.length) continue;
+    // Mentions reach as far as a comment mention does (notifyDocMentions).
+    const { rows: people } = await pool.query(
+      `SELECT u.id FROM users u
+        WHERE u.id <> $3 AND u.kind <> 'agent' AND (
+          EXISTS (SELECT 1 FROM doc_access a WHERE a.user_id = u.id AND a.doc_id = $1 AND a.role = 'owner')
+          OR (lower(u.username) = ANY($2)
+              AND (EXISTS (SELECT 1 FROM doc_access a WHERE a.user_id = u.id AND a.doc_id = $1)
+                   OR EXISTS (SELECT 1 FROM docs d WHERE d.id = $1 AND d.visibility = 'team'))))`,
+      [docId, mentionHandles(text), by]
+    );
+    for (const p of people) {
+      await notifyUser({ userId: p.id, actor, docId, kind: 'page_suggestion', suggestionId: ids[0], body: text.trim() || 'Suggested changes' });
+    }
+  }
+}
+
 const hocuspocus = new Hocuspocus({
   extensions: [
+    // Only the server broadcasts stateless messages to a page's clients (R18).
+    noClientBroadcast,
+    // Checks every update a suggester's connection sends before it applies.
+    suggestGuard(SUGGESTER),
     {
       // Read-only is enforced by the sync server, not by trusting the client to
       // set its store readonly: an update from a connection that can't edit is
@@ -3569,9 +3644,31 @@ const hocuspocus = new Hocuspocus({
         // already in memory, so on its own it let a connection reach any page
         // someone else had open — and write to it with this one's role.
         if (context?.docId && documentName !== context.docId) throw new Error('document mismatch');
-        if (context?.role !== DRAFT_AUTHOR && !canEdit(context?.role)) connection.readOnly = true;
+        if (context?.role !== DRAFT_AUTHOR && context?.role !== SUGGESTER && !canEdit(context?.role)) connection.readOnly = true;
       },
-      async onChange({ context, documentName }) {
+      // What a page's suggestions were when it was loaded: the baseline the
+      // first save compares against (notifyPageSuggestions).
+      async afterLoadDocument({ documentName, document }) {
+        if (!parseDraftName(documentName)) knownSuggestions.set(documentName, new Set(listSuggestions(document).map((c) => c.id)));
+      },
+      async afterUnloadDocument({ documentName }) {
+        knownSuggestions.delete(documentName);
+        suggestionCredits.delete(documentName);
+        seenSuggestions.delete(documentName);
+      },
+      async onChange({ context, documentName, update }) {
+        // Every update's ids go into `seen`, a direct connection's too; only a
+        // signed-in role's own socket (a direct connection has no role) is
+        // credited with the suggestions this very update writes as theirs.
+        const user = context?.user?.id;
+        const by = user && user !== 'public' && context.role ? user : null;
+        if (update && !parseDraftName(documentName)) {
+          let ids = [];
+          if (!seenSuggestions.has(documentName)) seenSuggestions.set(documentName, new Set());
+          try { ids = creditedSuggestions(update, by, seenSuggestions.get(documentName)); } catch { /* not ours to judge: the sync layer's */ }
+          if (ids.length && !suggestionCredits.has(documentName)) suggestionCredits.set(documentName, new Map());
+          for (const sid of ids) suggestionCredits.get(documentName).set(sid, by);
+        }
         // A Suggesting-mode draft is not the page: its author is credited if
         // and when a reviewer accepts what they wrote. Server-side direct
         // connections have no user here and name theirs on the save instead.
@@ -3605,13 +3702,15 @@ const hocuspocus = new Hocuspocus({
         );
         return rows[0] ? new Uint8Array(rows[0].state) : null;
       },
-      store: async ({ documentName, state, context }) => {
+      store: async ({ documentName, state, context, document }) => {
         // Read-only viewers (public share links, or a 'viewer' doc_access grant)
         // must never persist edits — enforce server-side, not just client-side.
-        // The same for every role that can't edit (commenter, suggester) —
-        // their connections are read-only below, and this is the second lock.
+        // The same for every role that can't edit (commenter) — their
+        // connections are read-only above, and this is the second lock.
         // Server-side direct connections carry no role and always persist.
-        if (context?.role && !canEdit(context.role) && context.role !== DRAFT_AUTHOR) return;
+        // A suggester's updates passed suggest-guard before they applied, so
+        // they are stored like anyone's.
+        if (context?.role && !canEdit(context.role) && context.role !== DRAFT_AUTHOR && context.role !== SUGGESTER) return;
         // Refuse to persist to any doc other than the one this connection was
         // authorized for at the WS upgrade.
         if (context?.docId && documentName !== context.docId) return;
@@ -3637,13 +3736,21 @@ const hocuspocus = new Hocuspocus({
         if (editors) await recordDocEditors(documentName, [...editors]);
         // Record who saved, so the activity feed can attribute a plain edit.
         // 'public' is the share-link guest — not a real user row.
-        const actor = context?.user?.id && context.user.id !== 'public' ? context.user.id : null;
+        // A suggester only suggested: the page's last editor stays who it was.
+        const actor = context?.user?.id && context.user.id !== 'public' && context.role !== SUGGESTER ? context.user.id : null;
         await pool.query(
-          'UPDATE docs SET updated_at = now(), updated_by = coalesce($2, updated_by) WHERE id = $1',
-          [documentName, actor]
+          'UPDATE docs SET updated_at = now(), updated_by = coalesce($2, updated_by), pending_suggestions = coalesce($3::jsonb, pending_suggestions) WHERE id = $1',
+          [documentName, actor, pendingJson(document)]
         );
         notifyDocMentions(documentName, buf, actor).catch((err) =>
           console.error('[notify] doc mention:', err.message));
+        // Credits are used up by this save, whatever it finds.
+        const credits = suggestionCredits.get(documentName);
+        suggestionCredits.delete(documentName);
+        if (credits) {
+          notifyPageSuggestions(documentName, document, credits).catch((err) =>
+            console.error('[notify] page suggestion:', err.message));
+        }
         // Auto-snapshot a version at most once per ~8 min of active editing, so
         // history accrues without a row per keystroke.
         const last = await pool.query(

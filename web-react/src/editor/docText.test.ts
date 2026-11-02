@@ -46,3 +46,45 @@ describe('docPlainText', () => {
     expect(docPlainText({})).toBe('');
   });
 });
+
+describe('docPlainText with suggestions pending', () => {
+  const S = (kind: string) => ({ mnSugg: { id: 'x', kind, by: 'u', at: 1 } });
+  const delta = (...ops: [string, string?][]) => ({
+    toString: () => ops.map(([t]) => t).join(''), // includes the suggested insertion, as the live text does
+    toDelta: () => ops.map(([t, k]) => (k ? { insert: t, attributes: S(k) } : { insert: t })),
+  });
+  const store = {
+    root: {
+      children: [
+        block('affine:note', {}, [
+          block('affine:paragraph', { type: 'text', text: delta(['keep '], ['NEW', 'ins'], [' '], ['OLD', 'del']) }),
+          block('affine:paragraph', { type: 'text', text: text('ADDED'), mnSugg: { id: 'a', kind: 'add' } }),
+          block('affine:paragraph', { type: 'text', text: text('REMOVED'), mnSugg: { id: 'r', kind: 'remove' } }),
+          block('affine:paragraph', {
+            type: 'h1', text: text('Retyped'),
+            mnSugg: { id: 't', kind: 'type', from: { flavour: 'affine:list', type: 'todo' } },
+          }),
+        ]),
+      ],
+    },
+  };
+  it('reads the page with nothing accepted', () => {
+    expect(docPlainText(store).split('\n')).toEqual(['keep  OLD', 'REMOVED', '- [ ] Retyped']);
+  });
+});
+
+describe('docPlainText with a pending tick (R13b)', () => {
+  it('reads the old tick', () => {
+    const store = {
+      root: {
+        children: [block('affine:note', {}, [
+          block('affine:list', {
+            type: 'todo', checked: true, text: text('Ship it'),
+            mnSugg: { id: 't', kind: 'type', by: 'u', at: 1, from: { flavour: 'affine:list', type: 'todo', checked: false } },
+          }),
+        ])],
+      },
+    };
+    expect(docPlainText(store)).toBe('- [ ] Ship it');
+  });
+});

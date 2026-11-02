@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { FileQuestion, FileText, Plus } from 'lucide-react';
 import { emitDocSaved } from '../../lib/docSignal';
@@ -22,9 +22,13 @@ import { focusDocTitle, takeTitleFocus } from '../../lib/titleFocus';
 import { canEditRole } from '../../lib/docsApi';
 import { deadDocLink } from '../../lib/route';
 import * as prefs from '../../lib/docPrefs';
-import { useReviewState } from '../../lib/reviewMode';
+import { canDecideSuggestions, useReviewState } from '../../lib/reviewMode';
 import { SuggestingBanner } from '../review/SuggestingBanner';
 import { ReviewView } from '../review/ReviewView';
+import { useSuggestions } from '../../editor/suggest/rail';
+import { SUGGESTING_CLASS } from '../../editor/suggest/suggestingInput';
+import { SuggestionBar } from '../suggest/SuggestionBar';
+import { SuggestionLayer } from '../suggest/SuggestionRail';
 
 export function EditorArea() {
   const ws = useWorkspace();
@@ -78,6 +82,19 @@ export function EditorArea() {
   const pageId = page?.id;
   // Editing / Suggesting / Viewing, and the review takeover.
   const review = useReviewState(pageId, page?.role, auth.user?.id);
+  // Pending inline suggestions: the bar above the page, the cards beside it.
+  const sugg = useSuggestions(editorEl);
+  // Read on every keystroke by the editor (suggestingInput.ts), so a mode
+  // switch takes effect without remounting it.
+  const suggestingOn = useRef(false);
+  const userId = auth.user?.id ?? '';
+  const suggesting = useMemo(() => ({ userId, on: () => suggestingOn.current }), [userId]);
+  // A new Suggesting session, not an old draft (see `draft` below).
+  const suggestingNow = !!pageId && review.mode === 'suggesting' && !review.myDraft;
+  useEffect(() => {
+    document.documentElement.classList.toggle(SUGGESTING_CLASS, suggestingNow);
+    return () => document.documentElement.classList.remove(SUGGESTING_CLASS);
+  }, [suggestingNow]);
   useEffect(() => {
     if (!editorEl || !pageId || !takeTitleFocus(pageId)) return;
     return focusDocTitle(editorEl);
@@ -121,9 +138,13 @@ export function EditorArea() {
   const slides = mode === 'slides';
   // In Suggesting mode the editor syncs the suggester's draft, not the page;
   // in Viewing mode it opens read-only. Either remounts it (the key below).
+  // Only a draft from before inline suggestions; a new Suggesting session
+  // stays on the live page and marks what is typed there.
   const draft = review.mode === 'suggesting' ? review.myDraft?.draft : undefined;
+  suggestingOn.current = suggestingNow;
   const editorRole = review.effectiveRole;
   const editorKey = `${page.id}:${rewriteKey}:${draft ?? editorRole ?? ''}`;
+  const canDecide = canDecideSuggestions(editorRole, auth.user?.kind);
 
   if (review.reviewing) {
     return (
@@ -161,6 +182,8 @@ export function EditorArea() {
         </div>
       )}
 
+      {!canvas && <SuggestionBar s={sugg} canDecide={canDecide} />}
+
       <div className="relative min-h-0 flex-1">
         {canvas ? (
           <div className="absolute inset-0 flex">
@@ -176,6 +199,7 @@ export function EditorArea() {
               mode={mode}
               role={editorRole}
               draft={draft}
+              suggesting={suggesting}
               userName={auth.user?.name ?? 'You'}
               onTitle={(t) => ws.applyTitleFromEditor(page.id, t)}
               onSaved={bumpSoon}
@@ -219,6 +243,7 @@ export function EditorArea() {
                     mode="page"
                     role={editorRole}
                     draft={draft}
+                    suggesting={suggesting}
                     userName={auth.user?.name ?? 'You'}
                     fullWidth={ws.fullWidth}
                     onTitle={(t) => ws.applyTitleFromEditor(page.id, t)}
@@ -233,6 +258,7 @@ export function EditorArea() {
                       positioned either way, and rendering it first put every
                       comment pip ahead of the document in the tab order. */}
                   <CommentMarkers container={markerHost} fullWidth={ws.fullWidth} />
+                  <SuggestionLayer s={sugg} container={markerHost} canDecide={canDecide} fullWidth={ws.fullWidth} />
                   <LinkedPages docId={page.id} refreshKey={refreshKey} fullWidth={ws.fullWidth} onOpen={(id) => ws.select(id)} />
                 </div>
               </motion.div>

@@ -29,10 +29,13 @@ export const canEdit = (role) => rankOf(role) >= ROLE_RANK.editor;
 
 /**
  * The role a live-page sync connection gets. An agent's session (password or
- * magic link — never a trusted token) reads and comments but cannot edit the
- * page itself; its edits go through the REST write path and become suggestions.
+ * magic link — never a trusted token) reads and comments but never writes the
+ * page live, not even suggestions: its edits go through the REST write path and
+ * become suggestions there. A person's `suggester` stays `suggester`: their
+ * connection writes, and every update is checked by suggest-guard.js.
  */
-export const pageSyncRole = (role, user) => (role && user?.kind === 'agent' && canEdit(role) ? 'commenter' : role);
+export const pageSyncRole = (role, user) =>
+  (role && user?.kind === 'agent' && rankOf(role) >= ROLE_RANK.suggester ? 'commenter' : role);
 
 /**
  * Who reviews an AI/agent edit: the signed-in person for Ask AI (they asked for

@@ -65,7 +65,9 @@ test('pageSyncRole: an agent session on a live page reads and comments but never
   const agent = { kind: 'agent' }, person = { kind: 'person' };
   assert.equal(pageSyncRole('owner', agent), 'commenter');
   assert.equal(pageSyncRole('editor', agent), 'commenter');
-  assert.equal(pageSyncRole('suggester', agent), 'suggester');
+  assert.equal(pageSyncRole('suggester', agent), 'commenter'); // agents suggest through REST, never live
+  assert.equal(pageSyncRole('suggester', person), 'suggester'); // a person suggests live, checked by suggest-guard
+  assert.equal(pageSyncRole('commenter', agent), 'commenter');
   assert.equal(pageSyncRole('viewer', agent), 'viewer');
   assert.equal(pageSyncRole(null, agent), null); // no grant stays no grant (canEdit(null) would throw)
   assert.equal(pageSyncRole(undefined, agent), undefined);

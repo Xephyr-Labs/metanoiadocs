@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import * as Y from 'yjs';
 import { appendMarkdownToDoc, lossyBlocks, replaceBodyKeepingIds } from './blocks.js';
 import { computeChanges, docFromState, draftName, pending } from './suggestions.js';
+import { suggestEdits, suggestMarkdown } from './suggest-writer.js';
 
 const OPEN = `SELECT * FROM doc_suggestions
   WHERE doc_id = $1 AND author_id = $2 AND status <> 'closed'
@@ -40,9 +41,12 @@ export async function draftToRead({ pool, docId, authorId, approverId, writerVia
  * the draft (submitted, from the page as it is now) if there isn't one.
  * mode 'append' adds to the draft's body; 'replace' rewrites it keeping ids.
  *
- * @returns {{ sid: string, created: boolean, changes: number }} changes = still undecided.
+ * `edits` (edit_doc) are applied to the draft instead, as direct edits.
+ *
+ * @returns {{ sid: string, created: boolean, changes: number, edited?: object }}
+ *   changes = still undecided; edited = suggestEdits' result, for `edits`.
  */
-export async function writeToDraft({ pool, hocuspocus, pageState, docId, title, authorId, approverId, writerVia, markdown, mode, resolve, notify }) {
+export async function writeToDraft({ pool, hocuspocus, pageState, docId, title, authorId, approverId, writerVia, markdown, mode, edits, resolve, notify }) {
   const key = { pool, docId, authorId, approverId, writerVia };
   let row = await openDraftFor(key);
   let created = false;
@@ -65,11 +69,14 @@ export async function writeToDraft({ pool, hocuspocus, pageState, docId, title, 
 
   const name = draftName(docId, row.id);
   let draftState;
+  let edited;
   try {
     const conn = await hocuspocus.openDirectConnection(name, { docId: name, user: { id: authorId } });
     try {
       let wrote = false;
       await conn.transact((doc) => {
+        // The draft is the writer's own copy: their edits land in it directly.
+        if (edits) { edited = suggestEdits({ doc, edits, by: authorId, direct: true }); wrote = true; return; }
         wrote = mode === 'replace'
           ? replaceBodyKeepingIds(doc, title, markdown, resolve)
           : appendMarkdownToDoc(doc, markdown, resolve) || replaceBodyKeepingIds(doc, title, markdown, resolve);
@@ -99,7 +106,7 @@ export async function writeToDraft({ pool, hocuspocus, pageState, docId, title, 
       await notify({ userId: approverId ?? null, kind: 'ai_suggestion', docId, suggestionId: row.id });
     } catch (e) { console.error('[notify] ai suggestion:', e.message); }
   }
-  return { sid: row.id, created, changes };
+  return { sid: row.id, created, changes, ...(edited ? { edited } : {}) };
 }
 
 /** The refusal for a replace that would delete what markdown cannot carry. */
@@ -108,35 +115,116 @@ export const lossyRefusal = (lossy) => ({
   lossy,
 });
 
+/** R15: what every edit_doc response carries, from suggestEdits' result. */
+export const editFields = (out) => ({
+  applied: out.applied, notFound: out.notFound, ambiguous: out.ambiguous, skipped: out.skipped ?? [],
+});
+
+/**
+ * The 409 for edit_doc edits that were not all applied (a find missing or
+ * found more than once, or a direct edit across someone's pending suggestion):
+ * nothing was written. Null when every edit was applied.
+ */
+export function editMiss(out) {
+  const { notFound = [], ambiguous = [], skipped = [] } = out;
+  if (!notFound.length && !ambiguous.length && !skipped.length) return null;
+  const parts = [];
+  if (notFound.length) {
+    parts.push(`Not found: ${notFound.map((m) => `"${m.find}"${m.under ? ` under "${m.under}"` : ''}`).join('; ')}.`);
+  }
+  if (ambiguous.length) {
+    parts.push(`Found more than once (pass occurrence, or under to search one heading's section): ${ambiguous.map((m) => `"${m.find}" (${m.matches} times)`).join('; ')}.`);
+  }
+  if (skipped.length) {
+    parts.push(`Not applied: ${skipped.map((m) => `"${m.find}" (${m.reason})`).join('; ')}.`);
+  }
+  return { error: `Nothing was changed. ${parts.join(' ')}`, suggested: false, ...editFields(out) };
+}
+
 /**
  * Where a markdown write from POST /api/docs/:id/content goes. Null: straight
  * onto the page (a trusted writer, a task page, or a page with no body yet).
- * Otherwise the response to send — a refusal, or the draft it landed in.
+ * Otherwise the response to send — a refusal, or the suggestions it became.
+ * New writes become inline suggestions on the live page (suggest-writer.js),
+ * authored by the writer (Ask AI: the asker, via 'ai'); a writer that still has
+ * an open legacy draft here keeps writing into it, so it closes the old way.
  * `approver()` resolves who reviews, as `{ id, name }`, or null for any editor.
+ * `edits` (edit_doc, POST /api/docs/:id/edits) in place of markdown: targeted
+ * edits, decided the same way; they touch only what they match, so a page
+ * markdown cannot fully carry is no reason to refuse them.
  */
-export async function draftEdit({ policy, kind, via, pageState, approver, pool, hocuspocus, docId, title, authorId, markdown, mode, resolve, notify }) {
+export async function draftEdit({ policy, kind, via, pageState, approver, pool, hocuspocus, docId, title, authorId, markdown, mode, edits, resolve, notify }) {
   if (policy === 'direct' || kind === 'task') return null;
   const state = await pageState(docId);
   if (!state || !docFromState(state).getMap('blocks').size) return null;
-  // Before anything else: a refused replace must not leave a draft behind.
-  const lossy = mode === 'replace' ? lossyBlocks(state) : [];
+  const lossy = mode === 'replace' && !edits ? lossyBlocks(state) : [];
   if (lossy.length) return { status: 409, body: lossyRefusal(lossy) };
-  // No approver (an agent's edit): anyone who can edit the page decides it.
   const who = await approver();
+  const writerVia = via === 'ai' ? 'ai' : 'agent';
+  const noBody = { status: 409, body: { error: 'This page has no text body to suggest changes to. Leave a comment instead.' } };
+
+  if (await openDraftFor({ pool, docId, authorId, approverId: who?.id ?? null, writerVia })) {
+    let out;
+    try {
+      out = await writeToDraft({
+        pool, hocuspocus, pageState, docId, title, authorId, approverId: who?.id ?? null, writerVia, markdown, mode, edits, resolve, notify,
+      });
+    } catch (e) {
+      if (e.message === 'no body') return noBody;
+      throw e;
+    }
+    const { sid, changes, edited } = out;
+    const miss = edited && editMiss(edited);
+    if (miss) return { status: 409, body: miss };
+    return {
+      status: 200,
+      body: {
+        ok: true, suggested: true, suggestionId: sid, reviewUrl: `/d/${docId}?review=${sid}`, approverName: who?.name ?? null, changes,
+        ...(edited ? editFields(edited) : {}),
+      },
+    };
+  }
+
   let out;
   try {
-    out = await writeToDraft({
-      pool, hocuspocus, pageState, docId, title, authorId, approverId: who?.id ?? null,
-      writerVia: via === 'ai' ? 'ai' : 'agent', markdown, mode, resolve, notify,
-    });
+    const conn = await hocuspocus.openDirectConnection(docId, { docId, user: { id: authorId } });
+    try {
+      await conn.transact((doc) => {
+        const aiVia = via === 'ai' ? 'ai' : undefined;
+        out = edits
+          ? suggestEdits({ doc, edits, by: authorId, via: aiVia })
+          : suggestMarkdown({ doc, markdown, mode, by: authorId, via: aiVia, title, resolve });
+      });
+    } finally {
+      await conn.disconnect();
+    }
   } catch (e) {
-    // A page with blocks but no text body (canvas only): nothing to draft against.
-    if (e.message === 'no body') return { status: 409, body: { error: 'This page has no text body to suggest changes to. Leave a comment instead.' } };
+    if (e.message === 'no body') return noBody;
     throw e;
   }
-  const { sid, changes } = out;
+  const miss = edits && editMiss(out);
+  if (miss) return { status: 409, body: miss };
+  // The approver hears of a write that made new suggestions, once, linking its
+  // first new one; a write that only reworks pending ones is not news. Like a
+  // person's (notifyPageSuggestions), once per writer per page per 10 minutes.
+  // Not an Ask AI asker, who approves their own ask.
+  if (out.fresh.length && who?.id !== authorId) {
+    try {
+      const { rows: recent } = await pool.query(
+        `SELECT 1 FROM notifications WHERE doc_id = $1 AND actor_id = $2 AND kind = 'page_suggestion'
+            AND created_at > now() - interval '10 minutes' LIMIT 1`,
+        [docId, authorId]
+      );
+      if (!recent.length) await notify({ userId: who?.id ?? null, kind: 'page_suggestion', docId, suggestionId: out.fresh[0] });
+    } catch (e) { console.error('[notify] page suggestion:', e.message); }
+  }
   return {
     status: 200,
-    body: { ok: true, suggested: true, suggestionId: sid, reviewUrl: `/d/${docId}?review=${sid}`, approverName: who?.name ?? null, changes },
+    body: {
+      ok: true, suggested: true, changes: out.changes,
+      link: out.ids.length ? `/d/${docId}?sugg=${encodeURIComponent(out.ids[0])}` : `/d/${docId}`,
+      approverName: who?.name ?? null,
+      ...(edits ? editFields(out) : out.skipped ? { skipped: out.skipped } : {}),
+    },
   };
 }

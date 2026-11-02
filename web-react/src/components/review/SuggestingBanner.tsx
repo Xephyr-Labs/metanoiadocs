@@ -6,9 +6,10 @@ import { toast } from '../../lib/toast';
 import { Button } from '../ui/Button';
 
 /**
- * The strip over the editor in Suggesting mode. It says, in one line, that
- * what is being typed is a draft and not the page, and holds the two things a
- * suggester does with one: hand it over for review, or throw it away.
+ * The strip over the editor while a draft from before inline suggestions (a
+ * `doc_suggestions` row) is open. New Suggesting sessions write suggestions
+ * into the page itself and never show this; an old draft is still edited,
+ * sent for review or discarded here until it is gone.
  */
 export function SuggestingBanner({ draft, canEdit }: { draft: SuggestionDraft; canEdit: boolean }) {
   const [asking, setAsking] = useState(false);
@@ -49,7 +50,7 @@ export function SuggestingBanner({ draft, canEdit }: { draft: SuggestionDraft; c
           <span className="text-muted">
             {submitted
               ? 'Sent for review. Keep editing — reviewers see your latest changes.'
-              : 'Your edits are a private draft. The page changes only when someone who can edit it accepts them.'}
+              : 'You are editing a draft from before suggestions went into the page. Send it for review or discard it; once it is gone, suggestions go straight into the page.'}
           </span>
         </p>
         <div className="flex shrink-0 items-center gap-1.5">

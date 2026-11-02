@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import * as Y from 'yjs';
 import { buildDocState, docToMarkdown } from './blocks.js';
 import { docFromState, parseDraftName } from './suggestions.js';
+import { listSuggestions } from './inline-suggest.js';
 import { writeToDraft, openDraftFor, draftEdit, draftToRead } from './ai-drafts.js';
 
 /** One page `d1` plus a fake pool holding doc_suggestions rows, and a fake
@@ -11,7 +12,11 @@ function world(md = 'Intro line.\n') {
   const page = docFromState(buildDocState('Plan', md));
   const rows = [];
   const pool = {
+    sent: [], // page_suggestion notifications: { docId, actor, at }
     async query(sql, p) {
+      if (/FROM notifications/.test(sql)) {
+        return { rows: this.sent.filter((n) => n.docId === p[0] && n.actor === p[1] && Date.now() - n.at < 600_000) };
+      }
       if (/^\s*SELECT/.test(sql)) {
         if (/WHERE id = \$1/.test(sql)) return { rows: rows.filter((r) => r.id === p[0]) };
         if (/writer_via IS NOT NULL/.test(sql)) {
@@ -40,6 +45,10 @@ function world(md = 'Intro line.\n') {
     failNext: false,
     async openDirectConnection(name) {
       if (this.failNext) { this.failNext = false; throw new Error('sync server down'); }
+      // The page itself: written in place, as the live page is.
+      if (!parseDraftName(name)) {
+        return { document: page, async transact(fn) { page.transact(() => fn(page)); }, async disconnect() {} };
+      }
       const { sid } = parseDraftName(name);
       const row = rows.find((r) => r.id === sid);
       const document = docFromState(row.state);
@@ -152,11 +161,13 @@ test('a notify that throws synchronously does not fail the saved write', async (
 
 // ── draftEdit: what POST /api/docs/:id/content does with a write ──────────────
 
-const edit = (w, over) => draftEdit({
+// notify records what the real notifyUser inserts, so the 10-minute dedupe sees it.
+const edit = (w, { notify = async () => {}, ...over } = {}) => draftEdit({
   policy: 'suggest', kind: 'doc', via: 'human', pool: w.pool, hocuspocus: w.hocuspocus,
   pageState: async () => Buffer.from(Y.encodeStateAsUpdate(w.page)),
-  approver: async () => ({ id: 'owner', name: 'Olive' }), notify: async () => {},
+  approver: async () => ({ id: 'owner', name: 'Olive' }),
   docId: 'd1', title: 'Plan', authorId: 'ai', markdown: 'AI paragraph.\n', mode: 'append', ...over,
+  notify: async (n) => { w.pool.sent.push({ docId: n.docId, actor: over.authorId ?? 'ai', at: Date.now() }); return notify(n); },
 });
 
 test('a direct writer, a task page and an empty page all go straight to the page', async () => {
@@ -169,17 +180,40 @@ test('a direct writer, a task page and an empty page all go straight to the page
   assert.equal(w.rows.length, 0);
 });
 
-test('a suggested write lands in a draft and answers with its review link', async () => {
-  const w = world();
-  const out = await edit(w, {});
+test('a suggested write lands on the page as inline suggestions and links to the first', async () => {
+  const w = world('Intro line.\n');
+  const out = await edit(w, { mode: 'replace', markdown: 'Intro sentence.\n\nAI paragraph.\n' });
   assert.equal(out.status, 200);
-  assert.equal(out.body.suggested, true);
-  assert.equal(out.body.reviewUrl, `/d/d1?review=${out.body.suggestionId}`);
-  assert.equal(out.body.approverName, 'Olive');
+  const cards = listSuggestions(w.page);
+  assert.deepEqual(cards.map((c) => [c.kind, c.by, c.via]), [['replace', 'ai', undefined], ['add', 'ai', undefined]]);
+  assert.deepEqual(out.body, { ok: true, suggested: true, changes: 2, link: `/d/d1?sugg=${cards[0].id}`, approverName: 'Olive' });
+  assert.equal(w.rows.length, 0, 'no draft row');
+  assert.equal(docToMarkdown(Y.encodeStateAsUpdate(w.page)).markdown, 'Intro line.', 'nothing pending is accepted');
+});
+
+test('Ask AI suggestions carry via ai, are authored by the asker, who is their approver and is not told of their own ask', async () => {
+  const w = world();
+  const notes = [];
+  const out = await edit(w, { via: 'ai', authorId: 'p1', approver: async () => ({ id: 'p1', name: 'Pat' }), notify: async (n) => { notes.push(n); } });
   assert.equal(out.body.changes, 1);
-  assert.equal(w.rows[0].writer_via, 'agent');
-  const ai = await edit(w, { via: 'ai' });
-  assert.equal(w.rows.find((r) => r.id === ai.body.suggestionId).writer_via, 'ai');
+  assert.deepEqual(listSuggestions(w.page).map((c) => [c.kind, c.by, c.via]), [['add', 'p1', 'ai']]);
+  assert.equal(notes.length, 0);
+  // An Ask AI write routed to someone else tells them, like an agent's.
+  await edit(w, { via: 'ai', authorId: 'p1', markdown: 'More.\n', notify: async (n) => { notes.push(n); } });
+  assert.deepEqual(notes.map((n) => [n.userId, n.kind]), [['owner', 'page_suggestion']]);
+});
+
+test('a writer with an open legacy draft keeps writing into it until it is decided', async () => {
+  const w = world();
+  const { sid } = await w.write({ approverId: 'owner', markdown: 'Old draft paragraph.\n' });
+  const out = await edit(w, { markdown: 'More.\n' });
+  assert.equal(out.body.suggestionId, sid);
+  assert.equal(out.body.reviewUrl, `/d/d1?review=${sid}`);
+  assert.deepEqual(listSuggestions(w.page), [], 'the page is untouched');
+  w.rows[0].status = 'closed';
+  const next = await edit(w, { markdown: 'Inline now.\n' });
+  assert.match(next.body.link, /^\/d\/d1\?sugg=/);
+  assert.equal(listSuggestions(w.page).length, 1);
 });
 
 test('a lossy replace is refused before an approver is asked or a draft is made', async () => {
@@ -201,16 +235,53 @@ test('a lossy replace is refused before an approver is asked or a draft is made'
   assert.equal(w.rows.length, 0);
 });
 
-test('an agent edit with no approver still lands as a draft, for any editor, and says so', async () => {
-  const w = world();
+test('an agent edit with no approver is for any editor: notified once per write, not per change, linking its first', async () => {
+  const w = world('Intro line.\n');
   const notes = [];
-  const out = await edit(w, { approver: async () => null, notify: async (n) => { notes.push(n); } });
+  const notify = async (n) => { notes.push(n); };
+  const out = await edit(w, { approver: async () => null, notify, mode: 'replace', markdown: 'Intro sentence.\n\nAI paragraph.\n' });
   assert.equal(out.status, 200);
   assert.equal(out.body.suggested, true);
+  assert.equal(out.body.changes, 2);
   assert.equal(out.body.approverName, null);
-  assert.equal(w.rows.length, 1);
-  assert.equal(w.rows[0].approver_id, null);
-  assert.deepEqual(notes, [{ userId: null, kind: 'ai_suggestion', docId: 'd1', suggestionId: out.body.suggestionId }]);
+  assert.equal(w.rows.length, 0);
+  const first = listSuggestions(w.page)[0].id;
+  assert.deepEqual(notes, [{ userId: null, kind: 'page_suggestion', docId: 'd1', suggestionId: first }]);
+});
+
+test('only a write that makes new suggestions notifies, at most once per writer per page per 10 minutes', async () => {
+  const w = world('Intro line.\n');
+  const notes = [];
+  const notify = async (n) => { notes.push(n); };
+  const md = 'Intro sentence.\n\nAI paragraph.\n';
+  await edit(w, { approver: async () => null, notify, mode: 'replace', markdown: md });
+  assert.equal(notes.length, 1);
+  w.pool.sent.forEach((n) => { n.at -= 11 * 60_000; }); // the dedupe window has passed
+  // The same replace again: all of Andy's suggestions still pending, none new.
+  const again = await edit(w, { approver: async () => null, notify, mode: 'replace', markdown: md });
+  assert.equal(again.body.changes, 0, 'counts what this write made or changed, not what is pending');
+  assert.equal(notes.length, 1, 'a no-op write is not news');
+  // Reworking a pending suggestion changes it but makes nothing new.
+  const rework = await edit(w, { approver: async () => null, notify, mode: 'replace', markdown: 'Intro paragraph.\n\nAI paragraph.\n' });
+  assert.equal(rework.body.changes, 1);
+  assert.equal(notes.length, 1, 'a reworked suggestion is not news');
+  // Something new, outside the window: told, linking the new one.
+  const before = new Set(listSuggestions(w.page).map((c) => c.id));
+  await edit(w, { approver: async () => null, notify, markdown: 'Another.\n' });
+  assert.equal(notes.length, 2);
+  assert.ok(!before.has(notes[1].suggestionId));
+  // Something new again, inside the window: deduped.
+  const third = await edit(w, { approver: async () => null, notify, markdown: 'And one more.\n' });
+  assert.equal(third.body.changes, 1);
+  assert.equal(notes.length, 2, 'inside 10 minutes of the last one');
+});
+
+test('a write that changes nothing says so and notifies no one', async () => {
+  const w = world();
+  const notes = [];
+  const out = await edit(w, { mode: 'replace', markdown: 'Intro line.\n', notify: async (n) => { notes.push(n); } });
+  assert.deepEqual(out.body, { ok: true, suggested: true, changes: 0, link: '/d/d1', approverName: 'Olive' });
+  assert.equal(notes.length, 0);
 });
 
 test('a page the draft cannot write a body into is refused, not a server error', async () => {

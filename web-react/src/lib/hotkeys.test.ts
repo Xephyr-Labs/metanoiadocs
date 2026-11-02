@@ -70,3 +70,26 @@ describe('resolveHotkey', () => {
     expect(resolveHotkey(key('c', { altKey: true }), idle)).toBeNull();
   });
 });
+
+describe('next and previous suggested change', () => {
+  it('Alt+] and Alt+[ move between changes, even while typing in the page', () => {
+    for (const ctx of [idle, { typing: true, inEditor: true, armed: null }]) {
+      expect(resolveHotkey(key(']', { altKey: true, code: 'BracketRight' }), ctx)).toEqual({ action: 'nextChange' });
+      expect(resolveHotkey(key('[', { altKey: true, code: 'BracketLeft' }), ctx)).toEqual({ action: 'prevChange' });
+    }
+  });
+  it('never fires in another field or a dialog, where Option+[ / Option+] type “ and ‘', () => {
+    for (const ctx of [{ typing: true, armed: null }, { typing: true, inEditor: false, armed: null }, { typing: false, inDialog: true, armed: null }, { typing: true, inEditor: true, inDialog: true, armed: null }]) {
+      expect(resolveHotkey(key('‘', { altKey: true, code: 'BracketRight' }), ctx)).toBeNull();
+      expect(resolveHotkey(key('“', { altKey: true, code: 'BracketLeft' }), ctx)).toBeNull();
+    }
+  });
+  it('reads the physical key, so a Mac Option layout still works', () => {
+    expect(resolveHotkey(key('‘', { altKey: true, code: 'BracketRight' }), idle)).toEqual({ action: 'nextChange' });
+    expect(resolveHotkey(key('“', { altKey: true, code: 'BracketLeft' }), idle)).toEqual({ action: 'prevChange' });
+  });
+  it('leaves Alt with other keys, and Ctrl+Alt+], alone', () => {
+    expect(resolveHotkey(key('x', { altKey: true, code: 'KeyX' }), idle)).toBeNull();
+    expect(resolveHotkey(key(']', { altKey: true, ctrlKey: true, code: 'BracketRight' }), idle)).toBeNull();
+  });
+});

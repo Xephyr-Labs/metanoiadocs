@@ -28,6 +28,15 @@ const changed = () => listeners.forEach((l) => l());
 export const defaultMode = (role?: string | null): EditMode =>
   canEditRole(role) ? 'editing' : canSuggestRole(role) ? 'suggesting' : 'viewing';
 
+/**
+ * Whether Accept/Reject (and Accept all/Reject all) show: only in an editor
+ * that is open writable for this role, so never in Viewing mode (the role it
+ * opens with there is commenter or viewer), and never for an agent account,
+ * which suggests but does not decide.
+ */
+export const canDecideSuggestions = (openRole?: string | null, userKind?: string | null): boolean =>
+  canEditRole(openRole) && userKind !== 'agent';
+
 /** The modes a role may pick from. */
 export const modesFor = (role?: string | null): EditMode[] =>
   canEditRole(role) ? ['editing', 'suggesting', 'viewing'] : canSuggestRole(role) ? ['suggesting', 'viewing'] : ['viewing'];
@@ -42,20 +51,21 @@ export async function loadDrafts(docId: string) {
 export function openReview(sid: string, docId: string) { state.reviewing = { sid, docId }; changed(); }
 export function closeReview() { state.reviewing = null; changed(); }
 
+/**
+ * Suggesting mode is this tab's own state: the editor stays on the live page
+ * and marks what is typed as suggestions (editor/suggest/suggestingInput.ts).
+ * No draft is started; drafts from before (`doc_suggestions`) are only
+ * finished — sent or discarded from SuggestingBanner, reviewed in ReviewView.
+ */
 export async function setMode(docId: string, mode: EditMode) {
-  if (mode === 'suggesting') {
-    // The draft has to exist before the editor can connect to it.
-    try {
-      const d = await docsApi.startSuggesting(docId);
-      const rest = (state.drafts.get(docId) ?? []).filter((x) => x.id !== d.id);
-      state.drafts.set(docId, [d, ...rest]);
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'Could not start suggesting');
-      return;
-    }
-  }
   state.modes.set(docId, mode);
   changed();
+}
+
+/** The mode a page is in for this role: the one chosen, if the role may use it, else the role's default. */
+export function currentMode(docId: string, role: string | null | undefined): EditMode {
+  const chosen = state.modes.get(docId);
+  return chosen && modesFor(role).includes(chosen) ? chosen : defaultMode(role);
 }
 
 /** After a draft is discarded or fully reviewed: drop it and leave Suggesting. */
@@ -113,30 +123,26 @@ export function useReviewState(docId: string | null | undefined, role: string | 
     openReview(reviewId, docId);
   }, [docId]);
 
-  const allowed = modesFor(role);
-  const chosen = docId ? state.modes.get(docId) : undefined;
-  let mode = chosen && allowed.includes(chosen) ? chosen : defaultMode(role);
-  const drafts = (docId && state.drafts.get(docId)) || [];
-  const { myDraft, toReview } = pickDrafts(drafts, userId, role);
-  // Suggesting needs the draft; until it is made (a suggester's first open),
-  // the page shows read-only rather than editable-but-unsaved.
-  if (mode === 'suggesting' && !myDraft) mode = 'viewing';
-
-  // A suggester opening a page lands in Suggesting: make their draft.
-  const needsDraft = !!docId && !chosen && defaultMode(role) === 'suggesting' && !myDraft;
-  useEffect(() => {
-    if (needsDraft && docId) void setMode(docId, 'suggesting');
-  }, [needsDraft, docId]);
-
   return {
-    mode,
-    allowed,
-    myDraft,
-    toReview,
+    ...resolveReview(docId, role, userId),
     // Only on the page it belongs to: opening another page leaves the review.
     reviewing: state.reviewing && state.reviewing.docId === docId ? state.reviewing.sid : null,
+    setMode: useCallback((m: EditMode) => { if (docId) void setMode(docId, m); }, [docId]),
+  };
+}
+
+/** useReviewState's answer from the current state, without React. Suggesting
+ *  needs no draft: it marks the live page (editor/suggest/suggestingInput.ts). */
+export function resolveReview(docId: string | null | undefined, role: string | null | undefined, userId?: string | null) {
+  const mode = docId ? currentMode(docId, role) : defaultMode(role);
+  const drafts = (docId && state.drafts.get(docId)) || [];
+  const { myDraft, toReview } = pickDrafts(drafts, userId, role);
+  return {
+    mode,
+    allowed: modesFor(role),
+    myDraft,
+    toReview,
     /** The role the editor should open with in this mode. */
     effectiveRole: mode === 'viewing' ? (canCommentRole(role) ? 'commenter' : 'viewer') : role ?? undefined,
-    setMode: useCallback((m: EditMode) => { if (docId) void setMode(docId, m); }, [docId]),
   };
 }

@@ -3,7 +3,7 @@ import { ArrowRight, Check, GitPullRequestArrow, Loader2, MessageSquareText, Pen
 import { canCommentRole, canEditRole, canSuggestRole, docsApi, type CommentRow, type UserRow } from '../../lib/docsApi';
 import {
   applyCommentHighlights, clearPendingAnchor, clearPendingFocus, focusComment, isDetached, onCommentsChanged, onMarkersChanged,
-  revealComment, setPendingMode, usePendingAnchor, usePendingFocus, useQueuedFocus,
+  revealComment, setPendingMode, suggestOnPage, usePendingAnchor, usePendingFocus, useQueuedFocus,
 } from '../../editor/comments';
 import { tasksApi, type DocTask } from '../../lib/tasksApi';
 import { openReview, useReviewState } from '../../lib/reviewMode';
@@ -127,7 +127,8 @@ export function CommentsTab({ docId, withTask = true }: { docId: string; withTas
     // The passage as the block has it: prefilled from the collapsed quote, a
     // line break inside it came back as a space and was accepted that way.
     if (anchor.mode === 'suggest') setReplacement(anchor.raw ?? anchor.quote);
-    setFilter(anchor.mode === 'suggest' ? 'suggestions' : 'open');
+    // An inline suggestion's card is in the page, not under 'Suggestions' (old comment suggestions).
+    setFilter('open');
     const t = setTimeout(() => (anchor.mode === 'suggest' ? replacementRef : inputRef).current?.focus(), 300);
     return () => clearTimeout(t);
   }, [anchor]);
@@ -180,15 +181,11 @@ export function CommentsTab({ docId, withTask = true }: { docId: string; withTas
     if (voice.busy) { toast(VOICE_BUSY); return; }
     if (suggesting && anchor) {
       if (replacement === (anchor.raw ?? anchor.quote)) { toast('Change the text to suggest something different'); return; }
-      await run('add', async () => {
-        await docsApi.addComment(docId, body, {
-          blockId: anchor.blockId, quote: anchor.quote, occurrence: anchor.occurrence,
-          anchorStart: anchor.anchorStart, anchorEnd: anchor.anchorEnd, kind: 'suggestion', suggestion: replacement,
-        });
-        setDraft('');
-        setReplacement('');
-        clearPendingAnchor();
-      }, 'Could not post the suggestion');
+      // An inline suggestion on the page itself, like typing over the
+      // selection in Suggesting mode; its card shows beside the text.
+      if (!me || !suggestOnPage(anchor, replacement, me)) { toast('That text has changed since you selected it'); return; }
+      setReplacement('');
+      clearPendingAnchor();
       return;
     }
     if (!body && !note) return;
@@ -607,11 +604,13 @@ export function CommentsTab({ docId, withTask = true }: { docId: string; withTas
                   placeholder="New text (leave empty to suggest deleting it)"
                   className="px-3 py-2"
                 />
+                <IconButton icon={<Send size={16} />} label="Suggest" onClick={() => void add()} className="mb-0.5 mr-0.5" />
               </div>
             </div>
           )}
           {note && !suggesting && <div className="mb-2"><CommentFiles files={[note]} onRemove={voice.discard} /></div>}
-          <div className="flex items-end gap-2 rounded-md ring-1 ring-inset ring-line focus-within:ring-2 focus-within:ring-accent">
+          {/* A suggestion is marked in the page and needs no message: no comment row is made. */}
+          {!suggesting && <div className="flex items-end gap-2 rounded-md ring-1 ring-inset ring-line focus-within:ring-2 focus-within:ring-accent">
             <CommentBox
               ref={inputRef}
               draftKey={draftKey}
@@ -619,19 +618,18 @@ export function CommentsTab({ docId, withTask = true }: { docId: string; withTas
               onChange={setDraft}
               onEnter={() => { void add(); }}
               people={members}
-              placeholder={suggesting ? 'Why? (optional)' : anchor ? 'Comment on selection…' : 'Add a comment…'}
+              placeholder={anchor ? 'Comment on selection…' : 'Add a comment…'}
               className="px-3 py-2"
             />
-            {!suggesting && <VoiceNoteButton onRecorded={voice.set} onBusyChange={voice.setBusy} onError={toast} disabled={!!busy} />}
+            <VoiceNoteButton onRecorded={voice.set} onBusyChange={voice.setBusy} onError={toast} disabled={!!busy} />
             <IconButton
               icon={busy === 'add' ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-              label={suggesting ? 'Suggest' : 'Send'}
+              label="Send"
               onClick={() => void add()}
-              // Nothing to send yet; a suggestion's reason is optional.
-              disabled={!suggesting && !draft.trim() && !note}
+              disabled={!draft.trim() && !note}
               className="mb-0.5 mr-0.5"
             />
-          </div>
+          </div>}
         </div>
       ) : (
         <p className="border-t border-line p-3 text-2xs text-faint">You can read this page’s comments. Ask its owner for comment access to join in.</p>

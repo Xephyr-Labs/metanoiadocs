@@ -23,6 +23,7 @@ import { applyUpdate } from 'yjs';
 import { IndexeddbPersistence } from 'y-indexeddb';
 import { Signal } from '@preact/signals-core';
 import { avatarFor } from '../lib/avatar';
+import { opensWritable } from '../lib/docsApi';
 import { attachPresence, primeRemoteSelections } from './presence';
 import { attachComments, commentToolbarExtensions, notifyCommentsChanged, type CommentRows } from './comments';
 import { takePendingSeed } from './pendingSeed';
@@ -40,7 +41,7 @@ import { blockLinkExtensions } from './blockLinks';
 import { socialEmbedExtensions } from './socialEmbeds';
 import { attachNoLinkedDocShortcut, dropDatabaseRowDoc, dropNewDocSlashItem, noLinkedDocConvertCanvasExtension } from './noLinkedDocConvert';
 import { attachImageAlign } from './imageAlign';
-import { attachBlockGaps } from './blockGaps';
+import { attachBlockGaps, NO_DIRECT_ATTR } from './blockGaps';
 import { attachTableFormat } from './tableFormat';
 import { attachTableDrag } from './tableDrag';
 import { attachSelectAll } from './selectAll';
@@ -48,6 +49,10 @@ import { attachFileDrop } from './fileDrop';
 import { imageToolbarExtensions } from './imageToolbar';
 import { pageViewportExtension } from './pageViewport';
 import { attachCalloutPanels, calloutExtensions } from './callout';
+import { CLEAN_VIEW_CLASS, paintSuggestionBlocks } from './suggest/blockMarks';
+import { watchFlavours } from './suggest/model';
+import { attachSuggestingInput, type SuggestingOptions } from './suggest/suggestingInput';
+import { stripSuggestionsOnCopyExtension, suggestInlineExtensions } from './suggest/inlineSpec';
 import { cancelVoiceNote, voiceNoteExtensions } from './voiceNote';
 import { closeTranscriptCard, voiceTranscriptExtensions } from './voiceTranscript';
 import { attachTextSize } from './textSize';
@@ -160,9 +165,11 @@ interface MountArgs {
    *  It renders and edits like the page, but nothing here writes to the page,
    *  its title, its search text or its comments. */
   draft?: string;
+  /** Suggesting mode (suggest/suggestingInput.ts). Omitted: never on — typing
+   *  still never grows anyone's suggestion. */
+  suggesting?: SuggestingOptions;
 }
 
-const EDIT_ROLES = new Set(['owner', 'editor']);
 
 function docModeService(editor: { mode: string }, mode: 'page' | 'edgeless') {
   let current = mode;
@@ -178,13 +185,19 @@ function docModeService(editor: { mode: string }, mode: 'page' | 'edgeless') {
 
 export async function mountEditor(
   root: HTMLElement,
-  { docId, title, mode, userName, share, guestComments, snapshot, onTitle, onSaved, pages, createPage, onOpenDoc, onRemoteRewrite, role, draft, signal }: MountArgs,
+  { docId, title, mode, userName, share, guestComments, snapshot, onTitle, onSaved, pages, createPage, onOpenDoc, onRemoteRewrite, role, draft, suggesting, signal }: MountArgs,
 ) {
   installEffects();
   // Read-only for this viewer: a public link, a version preview, or a role
-  // that can't edit. A draft is the suggester's own and always writable.
-  const readonlyRole = !share && !snapshot && !draft && !!role && !EDIT_ROLES.has(role);
+  // that can't edit. A draft is the suggester's own and always writable; so is
+  // the live page for a suggester in Suggesting mode (opensWritable).
+  const readonlyRole = !share && !snapshot && !draft && !opensWritable(role);
   const noWrite = !!(share || snapshot || readonlyRole);
+  // A suggester's editor is writable only for Suggesting mode's marked edits;
+  // the server refuses (and makes the tab reload on) any direct write, so none
+  // of the editor's own housekeeping writes run for them: seeding, the title
+  // reconcile, the surface heal, the title/search push, file drops.
+  const noDirect = noWrite || (!draft && role === 'suggester');
   chartEffects(); // register the metanoia:chart custom elements once
   databaseEffects(); // register the metanoia:database custom element once
   columnsEffects(); // register the column elements + widen the schema once
@@ -278,6 +291,14 @@ export async function mountEditor(
         awareness: collection.awarenessStore.awareness,
       });
 
+  // Yjs cannot un-send a refused edit, so drop the local copy and start again
+  // from the server's state. Only on the server's 4403 close after its notice:
+  // only the server sends stateless messages (noClientBroadcast, R18), and the
+  // close is what makes the reload safe to do.
+  let refused = false;
+  provider?.on('close', ({ event }: { event: { code?: number } }) => {
+    if (refused && event?.code === 4403) void (idb?.clearData() ?? Promise.resolve()).finally(() => location.reload());
+  });
   provider?.on('stateless', ({ payload }: { payload: string }) => {
     try {
       const type = JSON.parse(payload)?.type;
@@ -286,6 +307,9 @@ export async function mountEditor(
       else if (type === 'comments-changed') notifyCommentsChanged();
       // This Suggesting-mode draft was reviewed or discarded: leave it (reviewMode.ts).
       else if (type === 'draft-closed' && draft) window.dispatchEvent(new CustomEvent('mn-draft-closed', { detail: { draft } }));
+      // The server refused an edit from this suggest-only connection
+      // (suggest-guard.js); it closes the socket next (below).
+      else if (type === 'suggestion-refused') refused = true;
     } catch { /* not ours */ }
   });
 
@@ -385,7 +409,7 @@ export async function mountEditor(
   // Only the first client to reach a still-empty doc seeds the skeleton (page ->
   // surface + note + blocks). A read-only viewer never seeds. If the doc was
   // created from a template, seed its blocks; otherwise a single empty paragraph.
-  if (!noWrite && !draft && !store.root) {
+  if (!noDirect && !draft && !store.root) {
     const seed = takePendingSeed(docId);
     try {
       const pageId = store.addBlock('affine:page', { title: new Text(title) });
@@ -452,12 +476,12 @@ export async function mountEditor(
     try { await settleTitle(); } finally {
       titleSettled = true;
       // What was held back while asking goes out now.
-      if (!signal?.aborted && !noWrite && !draft) push();
+      if (!signal?.aborted && !noDirect && !draft) push();
     }
   };
   const settleTitle = async () => {
     // A draft's title is the suggester's proposal, not the page's to restore.
-    if (noWrite || draft || !store.root) return;
+    if (noDirect || draft || !store.root) return;
     const before = titleNow();
     let stored: string;
     try {
@@ -489,7 +513,7 @@ export async function mountEditor(
   // Two clients switching to canvas at the same instant would add two surfaces;
   // BlockSuite reads the first, so the loser is inert.
   const ensureSurface = () => {
-    if (noWrite) return;
+    if (noDirect) return;
     const pageRoot = store.root as { id: string; children?: { flavour: string }[] } | null;
     if (!pageRoot || (pageRoot.children ?? []).some((c) => c.flavour === 'affine:surface')) return;
     try { store.addBlock('affine:surface', {}, pageRoot.id, 0); } catch { /* raced, fine */ }
@@ -547,6 +571,11 @@ export async function mountEditor(
     // Panel colours are a property of the document, so a public viewer must see
     // them too; the toolbar they are set from never opens for them.
     ...calloutExtensions(),
+    // Suggested edits are a text attribute; without this BlockSuite strips it
+    // on the next edit. Overrides the paragraph's inline manager, so it stays
+    // after the view extensions. Everyone sees them, a public viewer included.
+    ...suggestInlineExtensions(),
+    stripSuggestionsOnCopyExtension,
     ...voiceNoteExtensions(),
     ...voiceTranscriptExtensions(),
     noLinkedDocConvertCanvasExtension(),
@@ -619,7 +648,8 @@ export async function mountEditor(
     : share
       ? (guestComments ? attachComments(editor, docId, onDocUpdate, guestComments, { readonly: true }) : null)
       : attachComments(editor, docId, onDocUpdate, undefined, {
-        readonly: readonlyRole,
+        // Suggesting mode hides BlockSuite's toolbar, which carries Comment.
+        readonly: readonlyRole || (() => !!suggesting?.on()),
         // A viewer reads the threads; everyone above can start one.
         canComment: role !== 'viewer',
         canSuggest: !role || (role !== 'viewer' && role !== 'commenter'),
@@ -652,14 +682,17 @@ export async function mountEditor(
 
   // Side-drop a block to make columns, plus the sweep that keeps a row from
   // stranding an empty column (see columns/columns-dnd.ts).
-  const detachColumns = attachColumns({
+  // Not for a suggester: its drops and sweeps are direct writes the server refuses.
+  const detachColumns = noDirect ? () => {} : attachColumns({
     editor,
     store: store as unknown as Parameters<typeof attachColumns>[0]['store'],
     onChange: (cb) => { doc.spaceDoc.on('update', cb); return () => doc.spaceDoc.off('update', cb); },
   });
 
   // A click in the gap above or below an image opens a line there, instead of
-  // sending the caret to the top of the page (see blockGaps.ts).
+  // sending the caret to the top of the page (see blockGaps.ts). Never for a
+  // suggester (NO_DIRECT_ATTR), whose server refuses the unmarked line.
+  root.toggleAttribute(NO_DIRECT_ATTR, noDirect);
   const detachBlockGaps = attachBlockGaps(editor as unknown as Parameters<typeof attachBlockGaps>[0]);
   // "Create Linked Doc" lost a page's text to a doc that was never saved
   // (noLinkedDocConvert.ts).
@@ -679,7 +712,7 @@ export async function mountEditor(
   // A file dropped in the margin or under the last line lands where it was
   // dropped, not at the end of the page (see fileDrop.ts). Not for viewers:
   // nothing can be dropped into a read-only page.
-  const detachFileDrop = noWrite
+  const detachFileDrop = noDirect
     ? null
     : attachFileDrop(editor as unknown as Parameters<typeof attachFileDrop>[0]);
 
@@ -696,6 +729,15 @@ export async function mountEditor(
     root: editor,
     onChange: (cb) => { doc.spaceDoc.on('update', cb); return () => doc.spaceDoc.off('update', cb); },
   });
+
+  // Block-level suggestions (add/remove/type) show as a bar; a share link or a
+  // version preview shows the page without the pending insertions (CSS only).
+  if (share || snapshot) editor.classList.add(CLEAN_VIEW_CLASS);
+  const detachSuggestionBlocks = paintSuggestionBlocks(editor, (cb) => { doc.spaceDoc.on('update', cb); return () => doc.spaceDoc.off('update', cb); });
+  // A rejected type change rewrites a block's flavour in place; rebuild its model.
+  const detachFlavours = watchFlavours(store as never);
+  // Typing never grows a suggestion; in Suggesting mode it writes them.
+  const detachSuggesting = noWrite ? () => {} : attachSuggestingInput(editor, suggesting ?? { userId: '', on: () => false });
 
   // Render read-only diagram previews under ```mermaid code blocks. Mermaid is
   // dynamically imported inside here, so it only loads for docs that use it.
@@ -758,7 +800,7 @@ export async function mountEditor(
   };
   // A read-only viewer never writes back title/search text, and nor does a
   // draft: the page it was drafted from keeps its own until changes are accepted.
-  if (!noWrite && !draft) {
+  if (!noDirect && !draft) {
     doc.spaceDoc.on('update', push);
     push();
     if (!live) {
@@ -803,6 +845,9 @@ export async function mountEditor(
       try { cancelVoiceNote(editor as unknown as Element); } catch { /* noop */ }
       try { closeTranscriptCard(); } catch { /* noop */ }
       try { detachTextSize(); } catch { /* noop */ }
+      try { detachSuggestionBlocks(); } catch { /* noop */ }
+      try { detachFlavours(); } catch { /* noop */ }
+      try { detachSuggesting(); } catch { /* noop */ }
       try { detachMermaid(); } catch { /* noop */ }
       try { detachMarkdownPaste?.(); } catch { /* noop */ }
       try { detachForeignClipboard(); } catch { /* noop */ }

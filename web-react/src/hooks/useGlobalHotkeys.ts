@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { resolveHotkey, type HotkeyAction } from '../lib/hotkeys';
-import { isInDialog, isTyping } from '../lib/typing';
+import { navigateSuggestions } from '../editor/suggest/rail';
+import { isInDialog, isInEditor, isTyping } from '../lib/typing';
 import { useWorkspace } from '../store/workspace';
 
 /** How long a `g` stays armed, waiting for the letter that says where to go. */
@@ -14,7 +15,8 @@ export function useGlobalHotkeys() {
   const chord = useRef<{ key: string; at: number } | null>(null);
 
   useEffect(() => {
-    const run: Record<HotkeyAction, () => void> = {
+    // An action that returns false did not apply here; its key goes on to the page.
+    const run: Record<HotkeyAction, () => void | boolean> = {
       palette: () => ws.setPaletteOpen(true),
       sidebar: () => ws.setSidebarCollapsed(!ws.sidebarCollapsed),
       theme: ws.toggleTheme,
@@ -30,6 +32,8 @@ export function useGlobalHotkeys() {
         if (ws.view === 'project' && ws.activeProjectId) void ws.createTaskIn(ws.activeProjectId);
         else void ws.createPage(null);
       },
+      nextChange: () => navigateSuggestions(1),
+      prevChange: () => navigateSuggestions(-1),
     };
 
     // A modifier pressed on its own is not a keystroke yet — it is the first
@@ -43,6 +47,7 @@ export function useGlobalHotkeys() {
       const hit = resolveHotkey(e, {
         typing: isTyping(e.target),
         inDialog: isInDialog(e.target),
+        inEditor: isInEditor(e.target),
         armed,
       });
       // Only a key that arms a chord leaves one armed. Anything else — a hit, a
@@ -50,8 +55,7 @@ export function useGlobalHotkeys() {
       // waiting through the rest of a sentence.
       chord.current = hit?.arm ? { key: hit.arm, at: Date.now() } : null;
       if (!hit?.action) return;
-      e.preventDefault();
-      run[hit.action]();
+      if (run[hit.action]() !== false) e.preventDefault();
     };
 
     window.addEventListener('keydown', onKey);

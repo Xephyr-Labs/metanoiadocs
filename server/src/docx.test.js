@@ -191,3 +191,16 @@ function sofficeSkip() {
     return 'LibreOffice is installed but cannot convert files here';
   }
 }
+
+import { docToMarkdown } from './blocks.js';
+import { suggestedState } from './suggest-fixture.js';
+
+test('docx input skips pending suggestions', async () => {
+  const { title, markdown } = docToMarkdown(suggestedState());
+  const buf = await docxFromMarkdown({ title, markdown });
+  const file = join(mkdtempSync(join(tmpdir(), 'dx-')), 'a.docx');
+  writeFileSync(file, buf);
+  const xml = execFileSync('unzip', ['-p', file, 'word/document.xml']).toString();
+  assert.match(xml, /OLD/);
+  assert.doesNotMatch(xml, /NEW|ADDED/);
+});

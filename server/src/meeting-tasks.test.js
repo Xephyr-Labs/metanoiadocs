@@ -443,3 +443,42 @@ test('tasks-from-proposals: links go under the first such heading in the page bo
   await h.call({ projectId: 'p1', items: [{ title: 'New', assigneeIds: [] }] }, FROM);
   assert.match(docText(doc), /^Tasks from this meeting\nold\nNew\nLater\nTasks from this meeting\ntail$/);
 });
+
+test('openTodos reads a to-do with its pending insertions left out', () => {
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, new Uint8Array(buildDocState('T', '- [ ] ship it')));
+  const t = [...doc.getMap('blocks').values()].find((b) => b.get('prop:type') === 'todo').get('prop:text');
+  t.insert(t.length, ' NEW', { mnSugg: { id: 's', kind: 'ins', by: 'u1', at: 1 } });
+  assert.equal(openTodos(doc).todos[0].text, 'ship it');
+});
+
+test('openTodos follows block-level suggestions: pending add and retype to to-do are out, retype away stays in', () => {
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, new Uint8Array(buildDocState('T', '- [ ] added\n\n- [ ] was todo\n\nbecame todo\n\n- [ ] plain todo')));
+  const by = (s) => [...doc.getMap('blocks').values()].find((b) => b.get('prop:text')?.toString() === s);
+  const sg = (kind, extra) => ({ id: kind, kind, by: 'u1', at: 1, ...extra });
+  by('added').set('prop:mnSugg', sg('add'));
+  const away = by('was todo');
+  away.set('prop:type', 'bulleted');
+  away.set('prop:mnSugg', sg('type', { from: { flavour: 'affine:list', type: 'todo' } }));
+  const into = by('became todo');
+  into.set('sys:flavour', 'affine:list');
+  into.set('prop:type', 'todo');
+  into.set('prop:mnSugg', sg('type', { from: { flavour: 'affine:paragraph', type: 'text' } }));
+  assert.deepEqual(openTodos(doc).todos.map((t) => t.text).sort(), ['plain todo', 'was todo']);
+});
+
+test('openTodos reads a pending tick or untick as not yet made (R13b)', () => {
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, new Uint8Array(buildDocState('T', '- [ ] tick pending\n- [x] untick pending')));
+  const by = (s) => [...doc.getMap('blocks').values()].find((b) => b.get('prop:text')?.toString() === s);
+  const tick = by('tick pending');
+  tick.set('prop:checked', true);
+  tick.set('prop:mnSugg', { id: 'tk', kind: 'type', by: 'andy', at: 1, from: { flavour: 'affine:list', type: 'todo', checked: false } });
+  const untick = by('untick pending');
+  untick.set('prop:checked', false);
+  untick.set('prop:mnSugg', { id: 'ut', kind: 'type', by: 'andy', at: 1, from: { flavour: 'affine:list', type: 'todo', checked: true } });
+  const out = openTodos(doc);
+  assert.deepEqual(out.todos.map((t) => t.text), ['tick pending']);
+  assert.equal(out.skipped, 1);
+});

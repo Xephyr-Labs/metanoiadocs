@@ -63,16 +63,17 @@ test('read_comments carries a suggestion card\'s proposed text and status', asyn
   assert.equal(r.data[1].suggestion, undefined);
 });
 
-test('read_suggestions lists each draft with its pending changes', async () => {
+test('read_suggestions lists each open legacy draft with its pending changes', async () => {
   const r = await call('read_suggestions', { id: 'd1' }, {
+    '/docs/d1/inline-suggestions': [],
     '/docs/d1/suggestions': [{ id: 's1', authorName: 'Amy', status: 'submitted', message: 'pls', submittedAt: 't' }],
     '/suggestions/s1': {
       accepted: 1, rejected: 0,
       changes: [{ id: 'b1', kind: 'modified', label: 'Paragraph', before: 'old', after: 'new', sig: 'x', mainChanged: true, gone: false }],
     },
   });
-  assert.deepEqual(r.data, [{
+  assert.deepEqual(r.data, { suggestions: [], drafts: [{
     id: 's1', author: 'Amy', status: 'submitted', message: 'pls', submittedAt: 't', accepted: 1, rejected: 0,
     changes: [{ kind: 'modified', block: 'Paragraph', before: 'old', after: 'new', pageChangedSince: true }],
-  }]);
+  }] });
 });

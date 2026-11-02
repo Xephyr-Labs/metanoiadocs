@@ -48,3 +48,8 @@ test('only the push service host is ever shown, never the endpoint itself', () =
 test('an AI draft notification opens the page straight into its review', () => {
   assert.equal(linkFor({ docId: 'abc', suggestionId: 's1' }), '/d/abc?review=s1');
 });
+
+test('an inline suggestion notification opens the page on that suggestion', () => {
+  assert.equal(linkFor({ docId: 'abc', suggestionId: 'x 1', kind: 'page_suggestion' }), '/d/abc?sugg=x%201');
+  assert.equal(linkFor({ docId: 'abc', suggestionId: 's1', kind: 'ai_suggestion' }), '/d/abc?review=s1');
+});

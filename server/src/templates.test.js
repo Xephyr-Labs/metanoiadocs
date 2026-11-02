@@ -102,3 +102,14 @@ test('a repeat rule saved before this check is dropped rather than carried', () 
   assert.equal(out.repeatRule, undefined);
   assert.equal(out.status, 'doing', 'the rest of the template still applies');
 });
+
+test('a copy made from a template indexes the pending suggestions its body carries (POST /api/templates/:id/use)', async () => {
+  const Y = await import('yjs');
+  const { pendingJson } = await import('./inline-suggest.js');
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, buildDocState('T', 'Hello world.\n'));
+  const t = [...doc.getMap('blocks').values()].map((b) => b.get('prop:text')).find((x) => x instanceof Y.Text && x.toString() === 'Hello world.');
+  t.insert(5, ' brave', { mnSugg: { id: 's1', kind: 'ins', by: 'u1', at: 1 } });
+  const copy = Buffer.from(retitleState(Y.encodeStateAsUpdate(doc), 'Copy'));
+  assert.deepEqual(JSON.parse(pendingJson(copy)), [{ id: 's1', by: 'u1', at: 1 }]);
+});

@@ -21,10 +21,11 @@ export const isGone = (statusCode) => statusCode === 404 || statusCode === 410;
  * Then the page, then the database alone, and the dashboard as the last
  * resort, for a notification about nothing addressable (never `/d/null`).
  */
-export function linkFor({ docId, projectId, taskId, suggestionId } = {}) {
+export function linkFor({ docId, projectId, taskId, suggestionId, kind } = {}) {
   if (taskId && projectId) return `/db/${projectId}?task=${encodeURIComponent(taskId)}`;
-  // An AI draft opens straight into its review.
-  if (docId) return suggestionId ? `/d/${docId}?review=${encodeURIComponent(suggestionId)}` : `/d/${docId}`;
+  // An inline suggestion opens the page on it; an AI draft opens straight into its review.
+  const q = kind === 'page_suggestion' ? 'sugg' : 'review';
+  if (docId) return suggestionId ? `/d/${docId}?${q}=${encodeURIComponent(suggestionId)}` : `/d/${docId}`;
   return projectId ? `/db/${projectId}` : '/';
 }
 

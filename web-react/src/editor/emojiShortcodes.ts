@@ -6,7 +6,11 @@
 import { TextSelection } from '@blocksuite/affine/std';
 import { shortcodeEmoji } from '../lib/emoji';
 
-interface TextLike { toString(): string; replace(index: number, length: number, content: string): void }
+interface TextLike {
+  toString(): string;
+  replace(index: number, length: number, content: string, attributes?: Record<string, unknown>): void;
+  sliceToDelta(begin: number, end?: number): { attributes?: Record<string, unknown> }[];
+}
 interface StdLike {
   store: { readonly: boolean; getModelById(id: string): { text?: TextLike | null } | null };
   selection: {
@@ -37,7 +41,12 @@ export function attachEmojiShortcodes(editor: Element & { std?: StdLike }): () =
       if (emoji) hit = { at: reach + (m.index ?? 0), length: m[0].length, emoji };
     }
     if (!hit) return;
-    text.replace(hit.at, hit.length, hit.emoji);
+    // The emoji takes the shortcode's own attributes, passed explicitly: left
+    // out, Yjs gives it the text before's, which may be someone's suggestion
+    // (suggest/suggestingInput.ts). Letters styled apart are left as typed.
+    const runs = text.sliceToDelta(hit.at, hit.at + hit.length);
+    if (runs.length !== 1) return;
+    text.replace(hit.at, hit.length, hit.emoji, runs[0].attributes ?? {});
     const caret = from.index - hit.length + hit.emoji.length;
     std.selection.setGroup('note', [
       std.selection.create(TextSelection, { from: { blockId: from.blockId, index: caret, length: 0 }, to: null }),

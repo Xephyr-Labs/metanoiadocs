@@ -39,3 +39,27 @@ describe('rankPages', () => {
     expect(rankPages(pages, '  ')).toEqual(pages);
   });
 });
+
+import { collectPageLinks } from './pageLinks';
+
+describe('collectPageLinks with suggestions pending', () => {
+  const ref = (pageId: string, kind?: string) => ({
+    insert: ' ', attributes: { reference: { pageId }, ...(kind ? { mnSugg: { id: 's', kind, by: 'u', at: 1 } } : {}) },
+  });
+  const text = (...ops: unknown[]) => ({ toDelta: () => ops });
+  const store = {
+    root: {
+      children: [{
+        props: {}, children: [
+          { props: {}, text: text(ref('kept'), ref('ins-ref', 'ins'), ref('del-ref', 'del')), children: [] },
+          { props: { mnSugg: { kind: 'add' } }, text: text(ref('add-ref')), children: [
+            { props: {}, text: text(ref('child-ref')), children: [] },
+          ] },
+        ],
+      }],
+    },
+  };
+  it('counts nothing inside a pending insertion or a pending add block', () => {
+    expect(collectPageLinks(store).sort()).toEqual(['child-ref', 'del-ref', 'kept']);
+  });
+});

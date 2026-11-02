@@ -33,6 +33,10 @@ import { TaskAgents } from './TaskAgents';
 import { TaskComments } from './TaskComments';
 import { CommentsTab } from '../panel/CommentsTab';
 import { onCommentRequest, useOpenCommentCount } from '../../editor/comments';
+import { canDecideSuggestions } from '../../lib/reviewMode';
+import { useSuggestions } from '../../editor/suggest/rail';
+import { SuggestionBar } from '../suggest/SuggestionBar';
+import { SuggestionLayer } from '../suggest/SuggestionRail';
 
 interface Props {
   task: TaskRow | null;
@@ -168,6 +172,8 @@ export function TaskPeek({
   const [detail, setDetail] = useState<TaskDetail | null>(null);
   // The notes editor, once mounted: the formatting bar above it drives it.
   const [notesEl, setNotesEl] = useState<Element | null>(null);
+  // The page's pending suggestions, reviewed here as on the page itself.
+  const sugg = useSuggestions(notesEl);
   // Comments on a passage of the page. The side panel that takes them on a
   // page of its own isn't shown beside a board, so the peek holds them itself.
   const [pageComments, setPageComments] = useState(false);
@@ -595,12 +601,13 @@ export function TaskPeek({
                 it measured zero and folded everything. */}
             {docId && <div className="min-w-0 flex-1"><EditorBar editor={notesEl} mode="page" /></div>}
           </div>
+          {docId && <SuggestionBar s={sugg} canDecide={canDecideSuggestions(ws.pages[docId]?.role, auth.user?.kind)} />}
           {docId && (
             // A click under the last line puts the caret there. A task's notes
             // are often one short line, and a click anywhere else in the panel
             // used to leave focus nowhere.
             <div
-              className="min-h-56 cursor-text pb-6"
+              className="relative min-h-56 cursor-text pb-6"
               onMouseDown={(e) => {
                 if (notesEl && e.button === 0 && focusDocEnd(notesEl, e.clientY)) e.preventDefault();
               }}
@@ -632,6 +639,8 @@ export function TaskPeek({
               onOpenDoc={(id) => { ws.select(id); onClose(); }}
               onEditor={setNotesEl}
             />
+            {/* No margin in a peek: the cards go under their paragraphs. */}
+            <SuggestionLayer s={sugg} container={notesEl} canDecide={canDecideSuggestions(ws.pages[docId]?.role, auth.user?.kind)} fullWidth />
             </div>
           )}
         </section>

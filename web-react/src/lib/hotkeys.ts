@@ -12,7 +12,8 @@
 
 export type HotkeyAction =
   | 'palette' | 'sidebar' | 'theme' | 'shortcuts'
-  | 'home' | 'tasks' | 'docs' | 'inbox' | 'create' | 'capture';
+  | 'home' | 'tasks' | 'docs' | 'inbox' | 'create' | 'capture'
+  | 'nextChange' | 'prevChange';
 
 /** The parts of a KeyboardEvent this needs. */
 export interface KeyLike {
@@ -20,6 +21,8 @@ export interface KeyLike {
   metaKey: boolean;
   ctrlKey: boolean;
   altKey: boolean;
+  /** The physical key. Option on a Mac turns `]` into `‘`, so Alt chords read this. */
+  code?: string;
 }
 
 export interface HotkeyContext {
@@ -28,6 +31,8 @@ export interface HotkeyContext {
   /** A modal dialog has the keyboard. Same effect as `typing` for bare keys and
    *  for the same reason: something nearer the keystroke owns it. */
   inDialog?: boolean;
+  /** The keystroke is in the page editor (BlockSuite's editor-host), not some other field. */
+  inEditor?: boolean;
   /** A chord key pressed within the window, or null. Only 'g' so far. */
   armed: string | null;
 }
@@ -71,6 +76,15 @@ export function resolveHotkey(e: KeyLike, ctx: HotkeyContext): HotkeyResult | nu
   // while someone is writing — or reading a dialog. The `?` sheet is the case
   // that proves the second half: pressing `c` to see what it does should not
   // make a page behind the list that just described it.
+  // Next/previous suggested change. Claimed while typing in the page editor,
+  // where someone reviewing changes has the caret; never in any other field or
+  // a dialog, where Option+[ and Option+] type “ and ‘ on a Mac.
+  if (e.altKey && !e.ctrlKey && !e.metaKey && !ctx.inDialog && (!ctx.typing || ctx.inEditor)) {
+    const k = e.code ?? e.key;
+    if (k === 'BracketRight' || k === ']') return { action: 'nextChange' };
+    if (k === 'BracketLeft' || k === '[') return { action: 'prevChange' };
+  }
+
   if (e.altKey || e.ctrlKey || e.metaKey) return null;
   if (ctx.typing || ctx.inDialog) return null;
 
@@ -108,6 +122,10 @@ export interface ShortcutGroup {
 export const MOD_LABEL = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || '')
   ? '⌘' : 'Ctrl';
 
+const ALT_LABEL = MOD_LABEL === '⌘' ? '⌥' : 'Alt';
+export const SHORTCUT_NEXT_CHANGE = `${ALT_LABEL} ]`;
+export const SHORTCUT_PREV_CHANGE = `${ALT_LABEL} [`;
+
 export const SHORTCUTS: ShortcutGroup[] = [
   {
     title: 'Anywhere',
@@ -144,6 +162,13 @@ export const SHORTCUTS: ShortcutGroup[] = [
       { keys: ['X'], label: 'Select it, to act on several at once' },
       { keys: [MOD_LABEL, 'click'], label: 'Pick a card on the board — shift-click for a run of rows' },
       { keys: ['Esc'], label: 'Clear the selection' },
+    ],
+  },
+  {
+    title: 'On a page with suggested changes',
+    rows: [
+      { keys: [ALT_LABEL, ']'], label: 'Next change' },
+      { keys: [ALT_LABEL, '['], label: 'Previous change' },
     ],
   },
 ];

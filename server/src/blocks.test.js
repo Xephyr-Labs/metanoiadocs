@@ -473,3 +473,48 @@ test('a code fence named after an Object builtin is just an unknown language', (
     assert.equal(code.get('prop:language'), null, lang);
   }
 });
+
+// ---- pending suggestions: every read sees the page with none accepted ----
+import { extractBlocks, lossyBlocks, pageLinksOf } from './blocks.js';
+import { suggestedState } from './suggest-fixture.js';
+
+test('docToMarkdown skips pending insertions and add blocks, keeps deletions and removes, un-types', () => {
+  const { markdown } = docToMarkdown(suggestedState());
+  assert.equal(markdown, 'keep OLD\n\nREMOVED\n\nRetyped');
+});
+
+test('docToMarkdown withPendingFor shows the author their own suggestions', () => {
+  const { markdown } = docToMarkdown(suggestedState(), { withPendingFor: 'u1' });
+  assert.equal(markdown, 'keep NEW\n\nADDED\n\n# Retyped');
+});
+
+test('extractText and extractBlocks read the same way', () => {
+  assert.equal(extractText(suggestedState()).text, 'keep OLD\nREMOVED\nRetyped');
+  assert.equal(extractText(suggestedState(), { withPendingFor: 'u1' }).text, 'keep NEW\nADDED\nRetyped');
+  const bs = extractBlocks(suggestedState()).blocks;
+  assert.deepEqual(bs.map((b) => [b.type, b.text]), [['text', 'keep OLD'], ['text', 'REMOVED'], ['text', 'Retyped']]);
+});
+
+test('a reference inside a pending insertion is not a link, and a pending add is not lossy', () => {
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, new Uint8Array(suggestedState()));
+  const t = [...doc.getMap('blocks').values()].find((b) => b.get('prop:text')?.toString().startsWith('keep')).get('prop:text');
+  t.insert(0, ' ', { reference: { type: 'LinkedPage', pageId: 'p9' }, mnSugg: { id: 's6', kind: 'ins', by: 'u1', at: 1 } });
+  assert.deepEqual(pageLinksOf(Y.encodeStateAsUpdate(doc)), []);
+  const db = [...doc.getMap('blocks').values()].find((b) => b.get('prop:text')?.toString() === 'ADDED');
+  db.set('sys:flavour', 'affine:database');
+  assert.deepEqual(lossyBlocks(Y.encodeStateAsUpdate(doc)), []);
+});
+
+test('pageLinksOf mirrors the editor: no links from a pending insertion or add block, kept elsewhere', () => {
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, new Uint8Array(suggestedState()));
+  const ref = (pageId, mnSugg) => ({ reference: { type: 'LinkedPage', pageId }, ...(mnSugg ? { mnSugg } : {}) });
+  const bs = [...doc.getMap('blocks').values()];
+  const keep = bs.find((b) => b.get('prop:text')?.toString().startsWith('keep')).get('prop:text');
+  keep.insert(0, ' ', ref('kept'));
+  keep.insert(0, ' ', ref('del-ref', { id: 'd', kind: 'del', by: 'u1', at: 1 }));
+  keep.insert(0, ' ', ref('ins-ref', { id: 'i', kind: 'ins', by: 'u1', at: 1 }));
+  bs.find((b) => b.get('prop:text')?.toString() === 'ADDED').get('prop:text').insert(0, ' ', ref('add-ref'));
+  assert.deepEqual(pageLinksOf(Y.encodeStateAsUpdate(doc)).sort(), ['del-ref', 'kept']);
+});

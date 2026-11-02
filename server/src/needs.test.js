@@ -6,6 +6,7 @@ import { needsQueries, needsDays, nextDay } from './needs.js';
 function fakePool(rows = {}) {
   const calls = [];
   const pick = (sql) => (/FROM doc_suggestions/.test(sql) ? 'review'
+    : /pending_suggestions/.test(sql) ? 'inline'
     : /FROM notifications/.test(sql) ? 'mentions'
     : /FROM tasks/.test(sql) ? 'overdue'
     : 'changed');
@@ -31,11 +32,11 @@ test('reader days: today and tomorrow follow the reader zone, not UTC', () => {
   assert.equal(nextDay('2028-02-28'), '2028-02-29');
 });
 
-test('four queries run, each scoped to access and space', async () => {
+test('five queries run, each scoped to access and space', async () => {
   const pool = fakePool();
   await needsQueries(pool, { userId: 'u1', spaceId: 's1', today: '2026-10-28' });
-  assert.equal(pool.calls.length, 4);
-  for (const k of ['review', 'changed', 'mentions']) {
+  assert.equal(pool.calls.length, 5);
+  for (const k of ['review', 'inline', 'changed', 'mentions']) {
     const { sql, params } = pool.sqlOf(k);
     assert.match(sql, /LEFT JOIN doc_access a ON a\.doc_id = d\.id AND a\.user_id = \$1/, k);
     assert.match(sql, /a\.user_id IS NOT NULL OR d\.visibility = 'team'/, k);
@@ -84,6 +85,30 @@ test('review: an Ask AI draft I authored still shows when I am its approver', as
   assert.doesNotMatch(sql, /author_id <> \$1 AND \(s\.approver_id/);
   assert.doesNotMatch(sql, /s\.status = 'submitted' AND s\.author_id/);
   assert.match(sql, /AND \(s\.approver_id = \$1 OR \(s\.author_id <> \$1/);
+});
+
+test('review: pages with inline suggestions by others that I can edit', async () => {
+  const pool = fakePool();
+  await needsQueries(pool, { userId: 'u1', spaceId: null, today: '2026-10-28' });
+  const sql = flat(pool.sqlOf('inline').sql);
+  assert.match(sql, /jsonb_array_elements\(d\.pending_suggestions\) WITH ORDINALITY/);
+  // The first suggestion by someone else, in page order; my own never count.
+  assert.match(sql, /WHERE e->>'by' IS DISTINCT FROM \$1 ORDER BY n LIMIT 1/);
+  assert.match(sql, /a\.role IN \('editor', 'owner'\)/);
+  assert.match(sql, /d\.visibility = 'team' AND d\.team_role NOT IN \('viewer', 'commenter', 'suggester'\)/);
+});
+
+test('review: drafts and inline rows merge newest first, counts add up', async () => {
+  const pool = fakePool({
+    review: [{ id: 'd-s', doc_id: 'd1', doc_title: 'Plan', author_name: 'Ann', writer_via: null, submitted_at: new Date('2026-10-27T10:00:00Z'), total: '1' }],
+    inline: [{ id: 'sg1', doc_id: 'd2', doc_title: 'Notes', author_name: 'Andy', via: null, at: String(Date.parse('2026-10-28T10:00:00Z')), total: '2' }],
+  });
+  const out = await needsQueries(pool, { userId: 'u1', spaceId: null, today: '2026-10-28' });
+  assert.equal(out.counts.review, 3);
+  assert.deepEqual(out.review.map((r) => r.suggestionId), ['sg1', 'd-s']);
+  assert.deepEqual(out.review[0], { suggestionId: 'sg1', docId: 'd2', docTitle: 'Notes', authorName: 'Andy', writerVia: null,
+    submittedAt: '2026-10-28T10:00:00.000Z', inline: true });
+  assert.equal(out.review[1].inline, undefined);
 });
 
 test('empty lists count zero, dueToday included', async () => {

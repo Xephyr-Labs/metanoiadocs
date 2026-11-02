@@ -13,6 +13,20 @@
 // The rule is Notion's: a click in the gap above or below a block that cannot
 // hold a caret opens an empty line on that side, or reuses one already there.
 import { TextSelection } from '@blocksuite/std';
+import { SUGGESTING_CLASS } from './suggest/suggestingInput';
+
+/** On an editor's mount root when the server refuses its direct writes (a
+ *  suggester on the live page: mountEditor's noDirect). */
+export const NO_DIRECT_ATTR = 'data-mn-no-direct';
+
+/**
+ * Whether the lines this file opens on its own (under a card, below the end)
+ * must not be written from inside `el`: a suggester's page, whose guard would
+ * refuse the unmarked block and reload their tab, or Suggesting mode, where
+ * every change is meant to be a marked suggestion. Moving the caret is fine.
+ */
+export const directWritesOff = (el: Element | null | undefined): boolean =>
+  !!el?.closest(`[${NO_DIRECT_ATTR}]`) || document.documentElement.classList.contains(SUGGESTING_CLASS);
 
 /** Room given to the first block above / the last block below, where there is
  *  no neighbour to measure the gap against. */
@@ -167,10 +181,12 @@ function altEnter(std: StdLike): boolean {
   const anchor = document.getSelection()?.anchorNode;
   const anchorEl = anchor instanceof Element ? anchor : anchor?.parentElement;
   if (anchorEl?.closest('[data-block-id]')?.getAttribute('data-block-id') !== block.id) return false;
-  const text = block.text as unknown as { delete(i: number, n: number): void; insert(s: string, i: number): void };
+  const text = block.text as unknown as { delete(i: number, n: number): void; insert(s: string, i: number, attributes?: Record<string, unknown>): void };
   std.store.captureSync?.();
   if (sel.from.length) text.delete(sel.from.index, sel.from.length);
-  text.insert('\n', sel.from.index);
+  // Attributes given, so Yjs does not hand the break the text before's, which
+  // may be someone's suggestion (suggest/suggestingInput.ts).
+  text.insert('\n', sel.from.index, {});
   std.selection.setGroup('note', [
     std.selection.create(TextSelection, { from: { blockId: block.id, index: sel.from.index + 1, length: 0 }, to: null }),
   ]);
@@ -185,7 +201,7 @@ export function attachBlockGaps(editor: Element & { std?: StdLike }): () => void
     const std = editor.std;
     const start = pressed;
     pressed = null;
-    if (!std || std.store.readonly || event.button !== 0 || event.detail > 1) return;
+    if (!std || std.store.readonly || directWritesOff(editor) || event.button !== 0 || event.detail > 1) return;
     if (event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return;
     if (!(event.target instanceof Node) || !editor.contains(event.target)) return;
     // Page mode only: on the canvas the space between blocks is the canvas.
@@ -225,7 +241,7 @@ export function attachBlockGaps(editor: Element & { std?: StdLike }): () => void
   // added a blank line at the top of the page instead.
   const onKeyDown = (event: KeyboardEvent) => {
     const std = editor.std;
-    if (!std || std.store.readonly || event.key !== 'Enter' || event.isComposing) return;
+    if (!std || std.store.readonly || directWritesOff(editor) || event.key !== 'Enter' || event.isComposing) return;
     if (event.target instanceof Node && !editor.contains(event.target) && event.target !== document.body) return;
     if (event.altKey && !event.shiftKey && !event.metaKey && !event.ctrlKey && altEnter(std)) {
       event.preventDefault();
@@ -279,7 +295,8 @@ export function attachBlockGaps(editor: Element & { std?: StdLike }): () => void
  * capture). Returns false when the click was not below the content.
  */
 export function focusDocEnd(editor: Element, clientY: number): boolean {
-  const std = (editor.querySelector('editor-host') as { std?: StdLike } | null)?.std;
+  const host = editor.querySelector('editor-host');
+  const std = (host as { std?: StdLike } | null)?.std;
   if (!std || std.store.readonly) return false;
   const root = (std.store as unknown as { root: ModelLike | null }).root;
   const note = root?.children.find((c) => c.flavour === 'affine:note');
@@ -300,6 +317,7 @@ export function focusDocEnd(editor: Element, clientY: number): boolean {
   let target = end && TEXT.has(end.flavour) && end.flavour !== 'affine:code' ? end : null;
   if (!target && folded) return false;
   if (!target) {
+    if (directWritesOff(host)) return false;
     std.store.captureSync?.();
     const id = std.store.addBlock('affine:paragraph', {}, note, note.children.length);
     target = std.store.getModelById(id);

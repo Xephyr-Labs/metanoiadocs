@@ -8,6 +8,7 @@
  * made until the person accepts, and the accepted ones are linked under a
  * "Tasks from this meeting" heading on the page.
  */
+import { blockView, pendingText, visibleOps } from './inline-suggest.js';
 import * as Y from 'yjs';
 import { appendMarkdownToDoc, bodyNote, docToMarkdown } from './blocks.js';
 import { pageStateFrom } from './suggestions.js';
@@ -84,7 +85,7 @@ export function parseTodo(text, { today, zone, known } = {}) {
 /** True when the text already carries a link to a task (`/db/...`). */
 function linkedToTask(text, baseUrl) {
   const abs = baseUrl ? `${String(baseUrl).replace(/\/+$/, '')}/db/` : null;
-  return text.toDelta().some((op) => {
+  return visibleOps(text).some((op) => {
     const link = op.attributes?.link;
     return typeof link === 'string' && (link.startsWith('/db/') || (abs && link.startsWith(abs)));
   });
@@ -106,10 +107,11 @@ export function openTodos(doc, baseUrl) {
     const b = blocks.get(id);
     if (!(b instanceof Y.Map)) return;
     const text = b.get('prop:text');
-    if (b.get('sys:flavour') === 'affine:list' && b.get('prop:type') === 'todo' && text instanceof Y.Text) {
-      const plain = text.toString();
+    const v = blockView(b);
+    if (v?.flavour === 'affine:list' && v.type === 'todo' && text instanceof Y.Text) {
+      const plain = pendingText(text);
       if (plain.trim()) {
-        if (b.get('prop:checked') || linkedToTask(text, baseUrl)) skipped++;
+        if (v.checked || linkedToTask(text, baseUrl)) skipped++;
         else todos.push({ blockId: id, text: plain });
       }
     }
@@ -227,7 +229,7 @@ function notesForAi(state, baseUrl) {
   const done = [];
   for (const [id, b] of blocks) {
     const t = b instanceof Y.Map ? b.get('prop:text') : null;
-    if (t instanceof Y.Text && linkedToTask(t, baseUrl)) { drop.add(id); done.push(t.toString().trim()); }
+    if (t instanceof Y.Text && linkedToTask(t, baseUrl)) { drop.add(id); done.push(pendingText(t).trim()); }
   }
   for (const [, b] of blocks) {
     const kids = b instanceof Y.Map ? b.get('sys:children') : null;

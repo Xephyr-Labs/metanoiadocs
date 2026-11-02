@@ -1128,6 +1128,10 @@ export async function initSchema() {
     ALTER TABLE user_calendar_tokens ADD COLUMN IF NOT EXISTS can_write BOOLEAN NOT NULL DEFAULT false;
   `);
 
+  // A page's pending inline suggestions ({ id, by, at, via? }, page order), kept
+  // by every save so Home's To review need not decode the Yjs state.
+  await pool.query(`ALTER TABLE docs ADD COLUMN IF NOT EXISTS pending_suggestions JSONB NOT NULL DEFAULT '[]'`);
+
   // One private notes page per person per event occurrence ("Start notes").
   await pool.query(`
     CREATE TABLE IF NOT EXISTS meeting_notes (
