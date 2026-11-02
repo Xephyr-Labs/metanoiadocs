@@ -8,29 +8,35 @@ const KINDS = new Set(['add', 'remove', 'type']);
 
 interface BlockEl extends Element {
   model?: {
+    yBlock?: { get(key: string): unknown };
     props?: { mnSugg?: { kind?: string } | null };
-    propsUpdated?: { subscribe(cb: () => void): { unsubscribe(): void } };
   };
 }
+
+const kindOf = (el: BlockEl): string | undefined => {
+  // The Y.Map first: BlockSuite's props proxy only forwards declared keys
+  // (see textSize.ts), so the proxy is a fallback, not the source of truth.
+  const v = (el.model?.yBlock?.get('prop:mnSugg') ?? el.model?.props?.mnSugg) as { kind?: string } | null | undefined;
+  return v?.kind;
+};
 
 /**
  * Mirror each block's `prop:mnSugg` kind onto its element as `data-mn-sugg`,
  * and keep doing so: blocks come and go as the page renders, and a remote
- * accept/reject changes the prop without touching the DOM (see textSize.ts).
+ * accept/reject changes the prop without touching the DOM. `onChange` is the
+ * document-update hook, as in textSize.ts.
  */
-export function paintSuggestionBlocks(host: Element): () => void {
-  const subs = new Map<BlockEl, { unsubscribe(): void }>();
+export function paintSuggestionBlocks(host: Element, onChange?: (cb: () => void) => () => void): () => void {
   let queued = false;
   const paint = () => {
     queued = false;
     for (const el of host.querySelectorAll<BlockEl>('[data-block-id]')) {
-      const kind = el.model?.props?.mnSugg?.kind;
+      const kind = kindOf(el);
       const want = kind && KINDS.has(kind) ? kind : null;
       if (el.getAttribute(ATTR) !== want) {
         if (want) el.setAttribute(ATTR, want);
         else el.removeAttribute(ATTR);
       }
-      if (!subs.has(el) && el.model?.propsUpdated) subs.set(el, el.model.propsUpdated.subscribe(schedule));
     }
   };
   const schedule = () => {
@@ -38,10 +44,10 @@ export function paintSuggestionBlocks(host: Element): () => void {
   };
   const mo = new MutationObserver(schedule);
   mo.observe(host, { childList: true, subtree: true });
+  const off = onChange?.(schedule);
   schedule();
   return () => {
     mo.disconnect();
-    for (const s of subs.values()) { try { s.unsubscribe(); } catch { /* noop */ } }
-    subs.clear();
+    try { off?.(); } catch { /* noop */ }
   };
 }

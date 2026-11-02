@@ -707,7 +707,7 @@ export async function mountEditor(
   // Block-level suggestions (add/remove/type) show as a bar; a share link or a
   // version preview shows the page without the pending insertions (CSS only).
   if (share || snapshot) editor.classList.add(CLEAN_VIEW_CLASS);
-  const detachSuggestionBlocks = paintSuggestionBlocks(editor);
+  const detachSuggestionBlocks = paintSuggestionBlocks(editor, (cb) => { doc.spaceDoc.on('update', cb); return () => doc.spaceDoc.off('update', cb); });
 
   // Render read-only diagram previews under ```mermaid code blocks. Mermaid is
   // dynamically imported inside here, so it only loads for docs that use it.
