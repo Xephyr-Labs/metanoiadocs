@@ -26,6 +26,7 @@ import { useReviewState } from '../../lib/reviewMode';
 import { SuggestingBanner } from '../review/SuggestingBanner';
 import { ReviewView } from '../review/ReviewView';
 import { useSuggestions } from '../../editor/suggest/rail';
+import { SUGGESTING_CLASS } from '../../editor/suggest/suggestingInput';
 import { SuggestionBar } from '../suggest/SuggestionBar';
 import { SuggestionLayer } from '../suggest/SuggestionRail';
 
@@ -88,6 +89,12 @@ export function EditorArea() {
   const suggestingOn = useRef(false);
   const userId = auth.user?.id ?? '';
   const suggesting = useMemo(() => ({ userId, on: () => suggestingOn.current }), [userId]);
+  // A new Suggesting session, not an old draft (see `draft` below).
+  const suggestingNow = !!pageId && review.mode === 'suggesting' && !review.myDraft;
+  useEffect(() => {
+    document.documentElement.classList.toggle(SUGGESTING_CLASS, suggestingNow);
+    return () => document.documentElement.classList.remove(SUGGESTING_CLASS);
+  }, [suggestingNow]);
   useEffect(() => {
     if (!editorEl || !pageId || !takeTitleFocus(pageId)) return;
     return focusDocTitle(editorEl);
@@ -134,7 +141,7 @@ export function EditorArea() {
   // Only a draft from before inline suggestions; a new Suggesting session
   // stays on the live page and marks what is typed there.
   const draft = review.mode === 'suggesting' ? review.myDraft?.draft : undefined;
-  suggestingOn.current = review.mode === 'suggesting' && !draft;
+  suggestingOn.current = suggestingNow;
   const editorRole = review.effectiveRole;
   const editorKey = `${page.id}:${rewriteKey}:${draft ?? editorRole ?? ''}`;
 

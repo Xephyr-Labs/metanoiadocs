@@ -1734,6 +1734,15 @@ affine-paragraph:has(> .affine-block-component > .affine-paragraph-block-contain
 .mn-sugg-clean [data-mn-sugg='add'] { display: none; }
 .mn-sugg-clean .mn-sugg-del { color: inherit; background: none; text-decoration: none; }
 .mn-sugg-clean [data-mn-sugg] { box-shadow: none; background: none; }
+/* Suggesting mode (suggest/suggestingInput.ts SUGGESTING_CLASS, ruling R11):
+ * no formatting or structure tools; comments use the floating bar instead. */
+html.mn-suggesting affine-toolbar-widget,
+html.mn-suggesting affine-slash-menu,
+html.mn-suggesting affine-linked-doc-popover,
+html.mn-suggesting affine-drag-handle-widget,
+html.mn-suggesting affine-keyboard-toolbar {
+  display: none !important;
+}
 
 /* Body text sizes (editor/textSize.ts). Child selectors all the way down: a
  * nested list item renders inside its parent's element, so a descendant

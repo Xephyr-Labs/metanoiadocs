@@ -631,7 +631,8 @@ export async function mountEditor(
     : share
       ? (guestComments ? attachComments(editor, docId, onDocUpdate, guestComments, { readonly: true }) : null)
       : attachComments(editor, docId, onDocUpdate, undefined, {
-        readonly: readonlyRole,
+        // Suggesting mode hides BlockSuite's toolbar, which carries Comment.
+        readonly: readonlyRole || (() => !!suggesting?.on()),
         // A viewer reads the threads; everyone above can start one.
         canComment: role !== 'viewer',
         canSuggest: !role || (role !== 'viewer' && role !== 'commenter'),

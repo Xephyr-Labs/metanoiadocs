@@ -2,7 +2,9 @@
 // someone's suggestion (ruling R6). Runs in node over a real store and the
 // paragraph's real inline editor (unmounted), as spike.test.ts does; the DOM
 // event wiring around these functions is checked live in a browser.
-import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
 import type * as Y from 'yjs';
 import { Container } from '@blocksuite/affine/global/di';
 import { StdIdentifier } from '@blocksuite/affine/std';
@@ -21,7 +23,7 @@ import { getTestStoreManager } from '@blocksuite/integration-test/store';
 import { onVBeforeinput, onVCompositionEnd } from '../../../node_modules/@blocksuite/affine-rich-text/src/hooks';
 import { suggestInlineExtensions } from './inlineSpec';
 import { listSuggestions } from './model';
-import { addSuggestedBlock, applyInput, type Ed, patchHooks, removeOwnAddedBlock } from './suggestingInput';
+import { addSuggestedBlock, applyInput, attachSuggestingInput, type Ed, patchHooks, refusedKey, removeOwnAddedBlock, SUGGESTING_CLASS, suggestableIn } from './suggestingInput';
 
 const ME = 'me';
 const THEM = { id: 't1', kind: 'ins', by: 'them', at: 1 } as const;
@@ -208,5 +210,62 @@ describe('typing outside Suggesting mode (ruling R6)', () => {
       { insert: 'llo', attributes: { mnSugg: THEM, bold: true } },
       { insert: 'x', attributes: { bold: true } },
     ]);
+  });
+});
+
+describe('what Suggesting mode refuses', () => {
+  const key = (k: string, mods: Partial<Record<'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey', boolean>> = {}) =>
+    ({ key: k, ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, ...mods });
+
+  it('Tab and formatting or structure chords; not copy, cut, paste, undo, redo, select all, find or moving', () => {
+    for (const k of [key('Tab'), key('Tab', { shiftKey: true }), key('b', { ctrlKey: true }), key('i', { metaKey: true }),
+      key('k', { ctrlKey: true }), key('1', { ctrlKey: true, altKey: true }), key('d', { ctrlKey: true })]) {
+      expect(refusedKey(k), JSON.stringify(k)).toBe(true);
+    }
+    for (const k of [key('c', { ctrlKey: true }), key('x', { metaKey: true }), key('v', { ctrlKey: true }), key('z', { ctrlKey: true }),
+      key('Z', { metaKey: true, shiftKey: true }), key('y', { ctrlKey: true }), key('a', { ctrlKey: true }), key('f', { ctrlKey: true }),
+      key('ArrowLeft', { ctrlKey: true, shiftKey: true }), key('Home', { ctrlKey: true }), key('End', { metaKey: true }), key('x'), key('Enter')]) {
+      expect(refusedKey(k), JSON.stringify(k)).toBe(false);
+    }
+  });
+
+  it('text inside a table or a database is not suggestable (ruling R12)', () => {
+    expect(suggestableIn(['affine:paragraph', 'affine:note', 'affine:page'])).toBe(true);
+    expect(suggestableIn(['affine:table', 'affine:note'])).toBe(false);
+    expect(suggestableIn(['affine:paragraph', 'affine:database'])).toBe(false);
+    expect(suggestableIn(['metanoia:database'])).toBe(false);
+  });
+
+  it('a composition in text that cannot hold a suggestion (code, latex, the title) is dropped, not written plain', () => {
+    const { ed, yText } = page('let x');
+    // The code block's schema: no mnSugg.
+    (ed as unknown as { setAttributeSchema(s: unknown): void }).setAttributeSchema(z.object({}));
+    patchHooks(ed, { userId: ME, on: () => true });
+    composeViaBlockSuite(ed, { index: 4, length: 1 }, 'y');
+    expect(yText.toString()).toBe('let x');
+  });
+
+  it('attaches its listeners for the editor it is given', () => {
+    const add = vi.fn();
+    const remove = vi.fn();
+    vi.stubGlobal('window', { addEventListener: add, removeEventListener: remove });
+    try {
+      const detach = attachSuggestingInput({} as Element, { userId: ME, on: () => true });
+      expect(add.mock.calls.map((c) => [c[0], c[2]])).toEqual(
+        ['beforeinput', 'compositionstart', 'keydown', 'cut', 'paste'].map((t) => [t, true]));
+      detach();
+      expect(remove).toHaveBeenCalledTimes(5);
+    } finally { vi.unstubAllGlobals(); }
+  });
+});
+
+describe('Suggesting mode hides the formatting and structure tools (ruling R11)', () => {
+  it('the format toolbar, slash menu, @ menu, drag handle and phone toolbar are hidden under the class', () => {
+    const css = readFileSync(new URL('../../index.css', import.meta.url), 'utf8');
+    const rule = css.match(new RegExp(`((?:html\\.${SUGGESTING_CLASS} [a-z-]+,?\\s*)+)\\{\\s*display: none !important;`));
+    expect(rule, 'hiding rule').toBeTruthy();
+    for (const el of ['affine-toolbar-widget', 'affine-slash-menu', 'affine-linked-doc-popover', 'affine-drag-handle-widget', 'affine-keyboard-toolbar']) {
+      expect(rule![1]).toContain(`html.${SUGGESTING_CLASS} ${el}`);
+    }
   });
 });

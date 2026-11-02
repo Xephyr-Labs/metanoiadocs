@@ -114,30 +114,26 @@ export function useReviewState(docId: string | null | undefined, role: string | 
     openReview(reviewId, docId);
   }, [docId]);
 
-  const allowed = modesFor(role);
-  const chosen = docId ? state.modes.get(docId) : undefined;
-  let mode = chosen && allowed.includes(chosen) ? chosen : defaultMode(role);
-  const drafts = (docId && state.drafts.get(docId)) || [];
-  const { myDraft, toReview } = pickDrafts(drafts, userId, role);
-  // Suggesting needs the draft; until it is made (a suggester's first open),
-  // the page shows read-only rather than editable-but-unsaved.
-  if (mode === 'suggesting' && !myDraft) mode = 'viewing';
-
-  // A suggester opening a page lands in Suggesting: make their draft.
-  const needsDraft = !!docId && !chosen && defaultMode(role) === 'suggesting' && !myDraft;
-  useEffect(() => {
-    if (needsDraft && docId) void setMode(docId, 'suggesting');
-  }, [needsDraft, docId]);
-
   return {
-    mode,
-    allowed,
-    myDraft,
-    toReview,
+    ...resolveReview(docId, role, userId),
     // Only on the page it belongs to: opening another page leaves the review.
     reviewing: state.reviewing && state.reviewing.docId === docId ? state.reviewing.sid : null,
+    setMode: useCallback((m: EditMode) => { if (docId) void setMode(docId, m); }, [docId]),
+  };
+}
+
+/** useReviewState's answer from the current state, without React. Suggesting
+ *  needs no draft: it marks the live page (editor/suggest/suggestingInput.ts). */
+export function resolveReview(docId: string | null | undefined, role: string | null | undefined, userId?: string | null) {
+  const mode = docId ? currentMode(docId, role) : defaultMode(role);
+  const drafts = (docId && state.drafts.get(docId)) || [];
+  const { myDraft, toReview } = pickDrafts(drafts, userId, role);
+  return {
+    mode,
+    allowed: modesFor(role),
+    myDraft,
+    toReview,
     /** The role the editor should open with in this mode. */
     effectiveRole: mode === 'viewing' ? (canCommentRole(role) ? 'commenter' : 'viewer') : role ?? undefined,
-    setMode: useCallback((m: EditMode) => { if (docId) void setMode(docId, m); }, [docId]),
   };
 }

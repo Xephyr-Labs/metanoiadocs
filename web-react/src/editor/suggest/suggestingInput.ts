@@ -132,6 +132,37 @@ function carriedFormat(ed: Ed, at: number): Attrs {
 /** This inline editor's schema keeps `mnSugg` (code blocks, latex and the title do not: ruling R7). */
 const canHold = (ed: Ed) => !!ed.normalizeAttributes({ mnSugg: mark({ id: 'probe', at: 0 }, 'ins', 'probe') })?.mnSugg;
 
+// Table and database cells hold their own text; suggesting there is out of v1 (ruling R12).
+const NOT_SUGGESTABLE = new Set(['affine:table', 'affine:database', 'metanoia:database']);
+/** False when the text sits in (or under) a table or database block. */
+export const suggestableIn = (flavours: string[]) => !flavours.some((f) => NOT_SUGGESTABLE.has(f));
+
+/** The flavours of every block the inline editor sits in, innermost first. */
+function enclosingFlavours(ed: Ed): string[] {
+  const out: string[] = [];
+  for (let el = ed.rootElement?.closest('[data-block-id]'); el; el = el.parentElement?.closest('[data-block-id]')) {
+    const f = (el as Element & { model?: { flavour?: string } }).model?.flavour;
+    if (f) out.push(f);
+  }
+  return out;
+}
+
+/** Text typed here can be marked as a suggestion. */
+const suggestable = (ed: Ed) => canHold(ed) && suggestableIn(enclosingFlavours(ed));
+
+const MOD_ALLOWED = new Set(['c', 'x', 'v', 'z', 'y', 'a', 'f', 'arrowleft', 'arrowright', 'arrowup', 'arrowdown', 'home', 'end']);
+/**
+ * Keys Suggesting mode refuses: Tab (indent) and every Ctrl/Meta chord that is
+ * not copy, cut, paste, undo, redo, select all, find or moving the caret —
+ * formatting, links, headings, duplicating are not suggestable in v1.
+ * Cut and paste go on to the cut/paste handlers below.
+ */
+export function refusedKey(e: { key: string; ctrlKey: boolean; metaKey: boolean }): boolean {
+  if (e.key === 'Tab') return true;
+  if (!e.ctrlKey && !e.metaKey) return false;
+  return !MOD_ALLOWED.has(e.key.toLowerCase()) && !['Backspace', 'Delete', 'Enter'].includes(e.key);
+}
+
 /**
  * Apply one input in Suggesting mode, given the inline range it acts on.
  * Returns where the caret goes, or null when the input changes nothing.
@@ -174,7 +205,14 @@ export function patchHooks(ed: Ed, { userId, on }: SuggestingOptions) {
   };
   ed.hooks.compositionEnd = (ctx) => {
     compositionEnd?.(ctx);
-    if (!on() || !canHold(ed)) {
+    if (on() && !suggestable(ed)) {
+      // Code, latex, the title, a table or database cell (rulings R7, R12):
+      // nothing can be suggested here, and a plain write would be a direct edit.
+      ctx.data = '';
+      ctx.inlineRange = { index: ctx.inlineRange.index, length: 0 };
+      return;
+    }
+    if (!on()) {
       ctx.attributes = { ...ctx.attributes, mnSugg: null };
       return;
     }
@@ -234,6 +272,12 @@ export function removeOwnAddedBlock(store: StoreLike, model: BlockModel, me: str
 
 // ---- DOM wiring -------------------------------------------------------------
 
+/** On <html> while Suggesting mode is on: index.css hides BlockSuite's format
+ *  toolbar, slash and @ menus, drag handle and phone toolbar (ruling R11) —
+ *  formatting and structure are not suggestable in v1. On <html> because the
+ *  menus render into document.body. */
+export const SUGGESTING_CLASS = 'mn-suggesting';
+
 type Root = Element & { inlineEditor?: Ed };
 
 /** The inline editor holding the whole selection, or null when it spans several (or none). */
@@ -277,7 +321,7 @@ const printable = (e: KeyboardEvent) => e.key.length === 1 && !e.ctrlKey && !e.m
  */
 export function attachSuggestingInput(editorEl: Element, opts: SuggestingOptions): () => void {
   const me = opts.userId;
-  const ready = (ed: Ed | null): ed is Ed => !!ed && !ed.isReadonly && canHold(ed);
+  const ready = (ed: Ed | null): ed is Ed => !!ed && !ed.isReadonly && suggestable(ed);
   const caret = (ed: Ed, at: number | null) => { if (at !== null) ed.setInlineRange({ index: at, length: 0 }); };
 
   const onBeforeInput = (ev: Event) => {
@@ -300,6 +344,13 @@ export function attachSuggestingInput(editorEl: Element, opts: SuggestingOptions
   const onKeyDown = (ev: Event) => {
     const e = ev as KeyboardEvent;
     if (!opts.on() || e.isComposing || e.keyCode === 229) return;
+    if (refusedKey(e)) {
+      stop(e);
+      // The app's own chords (palette, sidebar, theme) listen on window and
+      // would never see this one: hand them a copy, from outside the editor.
+      if (e.ctrlKey || e.metaKey) window.dispatchEvent(new KeyboardEvent('keydown', e));
+      return;
+    }
     const ed = editorAtSelection();
     const range = ed?.getInlineRange();
     if (e.key === 'Enter') {
@@ -323,8 +374,11 @@ export function attachSuggestingInput(editorEl: Element, opts: SuggestingOptions
       const parent = b.std.store.getParent(b.model);
       const prev = parent?.children[parent.children.indexOf(b.model) - 1];
       if (removeOwnAddedBlock(b.std.store, b.model, me) && prev?.props.text) focusTextModel(b.std as never, prev.id, prev.props.text.length);
-    } else if (!ed && printable(e)) {
-      stop(e); // typing over a selection across blocks
+    } else if (printable(e) && !e.altKey) { // Alt: Alt+[ / Alt+] step through changes (window hotkeys)
+      if (!ed) return stop(e); // typing over a selection across blocks
+      // Not to BlockSuite: its slash menu opens on keydown. The text itself
+      // arrives as the beforeinput that follows.
+      e.stopImmediatePropagation();
     }
   };
 

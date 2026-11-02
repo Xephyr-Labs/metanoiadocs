@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { docsApi, type SuggestionDraft } from './docsApi';
-import { currentMode, pickDrafts, setMode } from './reviewMode';
+import { canEditRole, docsApi, type SuggestionDraft } from './docsApi';
+import { currentMode, loadDrafts, pickDrafts, resolveReview, setMode } from './reviewMode';
 
 vi.mock('./docsApi', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./docsApi')>()),
@@ -46,5 +46,23 @@ describe('Suggesting mode is local state', () => {
     expect(currentMode('d2', 'suggester')).toBe('suggesting');
     await setMode('d3', 'suggesting');
     expect(currentMode('d3', 'viewer')).toBe('viewing');
+  });
+});
+
+describe('what the page shows (useReviewState)', () => {
+  it('an owner who picks Suggesting with no draft is in Suggesting, on a writable editor', async () => {
+    await setMode('d4', 'suggesting');
+    const r = resolveReview('d4', 'owner', 'me');
+    expect(r.mode).toBe('suggesting');
+    expect(r.myDraft).toBeNull();
+    // mountEditor opens the page writable for this role, and attaches suggestingInput (it skips only read-only editors).
+    expect(canEditRole(r.effectiveRole)).toBe(true);
+  });
+
+  it('a legacy draft of mine is still the one Suggesting opens', async () => {
+    vi.mocked(docsApi.suggestions).mockResolvedValueOnce([d({ id: 'old', docId: 'd5', status: 'draft' })]);
+    await loadDrafts('d5');
+    await setMode('d5', 'suggesting');
+    expect(resolveReview('d5', 'editor', 'me').myDraft?.id).toBe('old');
   });
 });
