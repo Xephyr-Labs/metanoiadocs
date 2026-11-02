@@ -367,3 +367,28 @@ test('R13b: a second suggester writing an item under someone else\'s pending tic
   assert.deepEqual(listSuggestions(doc).map((c) => [c.by, c.kind, c.before, c.after]),
     [['u2', 'replace', 'task', 'job'], ['andy', 'type', 'todo', 'todo']]);
 });
+
+test('R14: a type wish dropped under someone else\'s pending type mark is reported as skipped', () => {
+  const doc = page('## Retype me\n\nOther.\n');
+  const [id, h] = [...doc.getMap('blocks').entries()].find(([, b]) => b.get('prop:text')?.toString() === 'Retype me');
+  h.set('prop:type', 'h3');
+  h.set('prop:mnSugg', { id: 'u2-ty', kind: 'type', by: 'u2', at: 1, from: { flavour: 'affine:paragraph', type: 'h2' } });
+  const out = write(doc, '# Retype me\n\nOther.\n');
+  assert.deepEqual(out.skipped, [{ blockId: id, reason: 'someone else\'s change to this block\'s type is pending; yours was not written' }]);
+  assert.equal(h.get('prop:type'), 'h3');
+  // Wanting what is already pending, or what was read, loses nothing: not reported.
+  assert.equal(write(doc, '### Retype me\n\nOther.\n').skipped, undefined);
+  assert.equal(write(doc, '## Retype me\n\nOther.\n').skipped, undefined);
+});
+
+test('R14: a tick dropped under someone else\'s pending tick is reported; agreeing with it is not', () => {
+  const doc = page('- [ ] open task\n');
+  write(doc, '- [x] open task\n', { by: 'u2' });
+  assert.equal(write(doc, '- [x] open task\n').skipped, undefined);
+  const id = [...doc.getMap('blocks').entries()].find(([, b]) => b.get('prop:text')?.toString() === 'open task')[0];
+  const h = doc.getMap('blocks').get(id);
+  h.set('prop:type', 'numbered');
+  h.set('prop:mnSugg', { ...h.get('prop:mnSugg'), from: { flavour: 'affine:list', type: 'todo', checked: false } });
+  // u2 now suggests numbered+ticked; andy wants a bullet: dropped and reported.
+  assert.deepEqual(write(doc, '- open task\n').skipped?.map((s) => s.blockId), [id]);
+});

@@ -67,3 +67,15 @@ test('an inline suggestion links to the page at its first change', async () => {
     if (before === undefined) delete process.env.BASE_URL; else process.env.BASE_URL = before;
   }
 });
+
+test('R14: a write that skipped part of what was asked says so', async () => {
+  const w = await call('write_doc', { id: 'd1', markdown: 'x', mode: 'replace' },
+    { ok: true, suggested: true, changes: 0, link: '/d/d1', approverName: null, skipped: [{ blockId: 'b1', reason: 'r1' }] });
+  assert.match(w.text, /^Suggested 0 changes .*\nNot applied, because someone else's change is pending there \(tell whoever asked\): block b1: r1$/);
+});
+
+test('the standalone stdio package reports skipped parts the same way', () => {
+  const line = (file) => readFileSync(new URL(file, import.meta.url), 'utf8').match(/^\s*r\?\.skipped\?\.length .*$/m)?.[0].trim();
+  assert.ok(line('./mcp-tools.js'));
+  assert.equal(line('../../mcp/src/index.js'), line('./mcp-tools.js'));
+});

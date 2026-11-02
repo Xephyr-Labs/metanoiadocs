@@ -39,6 +39,10 @@ const agentChange = (c) => ({
 export const suggestedMessage = (r, publicBase = '') =>
   `Suggested ${r.changes} ${r.changes === 1 ? 'change' : 'changes'} for ${r.approverName || 'anyone who can edit the page'} to review: ${publicBase}${r.link ?? r.reviewUrl}`;
 
+/** What a write says about the parts of it that were not applied (R14), or ''. */
+export const notApplied = (r) =>
+  r?.skipped?.length ? `\nNot applied, because someone else's change is pending there (tell whoever asked): ${r.skipped.map((s) => `block ${s.blockId}: ${s.reason}`).join('; ')}` : '';
+
 const ok = (obj) => ({
   content: [{ type: 'text', text: typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2) }],
 });
@@ -205,7 +209,7 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
     {
       title: 'Read a doc',
       description:
-        "Get a doc's title and its body as markdown, by id — the same markdown write_doc and create_doc take, formatting included, with links to other docs as [[Title]] (or [[id|Title]] where two docs share the title). To edit a doc, change this markdown and write it back with mode=replace: text, formatting, lists, tables, panels, images and links you leave as they were come back unchanged. If the result has `lossy`, the page also holds things markdown cannot carry (database, canvas, attachment, equation, embed) and replace is refused — append or comment instead. If you have edits waiting for review on the page, you read your draft (with `pendingSuggestion`), so a further replace builds on it.",
+        "Get a doc's title and its body as markdown, by id — the same markdown write_doc and create_doc take, formatting included, with links to other docs as [[Title]] (or [[id|Title]] where two docs share the title). To change part of a doc, use edit_doc. For a full rewrite, change this markdown and write it back with write_doc mode=replace: text, formatting, lists, tables, panels, images and links you leave as they were come back unchanged. If the result has `lossy`, the page also holds things markdown cannot carry (database, canvas, attachment, equation, embed) and replace is refused — append or comment instead. If you have edits waiting for review on the page, you read your draft (with `pendingSuggestion`), so a further replace builds on it.",
       inputSchema: { id: z.string().describe('Document id') },
     },
     async ({ id }) => {
@@ -248,7 +252,7 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
     {
       title: 'Write to a doc',
       description:
-        "Append or replace a doc's content with markdown. mode=append (default) adds to the end; mode=replace overwrites. Same markdown as create_doc — panels (`> [!NOTE]`), text colour and highlight (`<span style=\"color: red\">`, `<mark>`), `<u>` and `<small>`/`<big>` line sizes included, and `[[Doc title]]` / `[[doc id]]` links to other docs. To edit part of a doc, read_doc it, change that markdown and send all of it back with mode=replace — never rewrite from memory or from plain text, which drops formatting and links. Any [[link]] that matched no doc is listed back in unresolvedLinks. Changes appear when the doc is next opened. An edit to an existing page may come back as a suggestion instead: a person reviews it before it lands, and you get a review link — share it with whoever asked.",
+        "Append or replace a doc's content with markdown. mode=append (default) adds to the end; mode=replace overwrites. Same markdown as create_doc — panels (`> [!NOTE]`), text colour and highlight (`<span style=\"color: red\">`, `<mark>`), `<u>` and `<small>`/`<big>` line sizes included, and `[[Doc title]]` / `[[doc id]]` links to other docs. To change part of a doc, use edit_doc instead: it changes only the passages you name. Use mode=replace only to rewrite the whole page: read_doc it, change that markdown and send all of it back — never rewrite from memory or from plain text, which drops formatting and links. Any [[link]] that matched no doc is listed back in unresolvedLinks. Changes appear when the doc is next opened. An edit to an existing page may come back as a suggestion instead: a person reviews it before it lands, and you get a review link — share it with whoever asked.",
       inputSchema: {
         id: z.string().describe('Document id'),
         markdown: z.string().describe('Markdown content'),
@@ -261,8 +265,39 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
           method: 'POST',
           body: { markdown, mode },
         });
-        if (r?.suggested) return ok(suggestedMessage(r, PUBLIC));
+        if (r?.suggested) return ok(suggestedMessage(r, PUBLIC) + notApplied(r));
         return ok(r?.unresolvedLinks ? { done: true, unresolvedLinks: r.unresolvedLinks } : 'Done.');
+      } catch (e) {
+        return fail(e);
+      }
+    }
+  );
+
+  server.registerTool(
+    'edit_doc',
+    {
+      title: 'Edit part of a doc',
+      description:
+        "Change part of a doc without rewriting it: each edit replaces one exact passage (`find`) with `replace`, and nothing else on the page changes. Use this for any change to part of a page, and change only what you were asked to. `find` is the text as it reads on the page (as read_doc shows it, without markdown syntax such as ** or #) inside one block: a paragraph, heading, list item or code block. It must occur exactly once; if it occurs more than once, include more of the surrounding text, or pass `occurrence` (1 = first match, in page order) or `under` (a heading's text, to search only that heading's section). `replace` is plain text and takes the formatting of the text it replaces; an empty `replace` deletes the passage. Edits apply in order, each to the text the earlier ones left. If any find is missing or found more than once, nothing is changed and the error lists which. To add or remove whole blocks or change formatting, use write_doc. Works on pages that write_doc mode=replace refuses. An edit to an existing page may come back as a suggestion instead: a person reviews it before it lands, and you get a review link — share it with whoever asked.",
+      inputSchema: {
+        id: z.string().describe('Document id'),
+        edits: z
+          .array(z.object({
+            find: z.string().min(1).describe('The exact text to change, as it reads on the page, inside one block'),
+            replace: z.string().describe('Its replacement, as plain text; empty deletes it'),
+            occurrence: z.number().int().min(1).optional().describe('Which match to change when find occurs more than once: 1 = first, in page order'),
+            under: z.string().optional().describe("A heading's text: search only that heading's section"),
+          }))
+          .min(1)
+          .max(100)
+          .describe('The passages to change, applied in order'),
+      },
+    },
+    async ({ id, edits }) => {
+      try {
+        const r = await api(`/docs/${encodeURIComponent(id)}/edits`, { method: 'POST', body: { edits } });
+        if (r?.suggested) return ok(suggestedMessage(r, PUBLIC) + notApplied(r));
+        return ok(`Done.${notApplied(r)}`);
       } catch (e) {
         return fail(e);
       }
@@ -1375,6 +1410,7 @@ export const MCP_TOOL_NAMES = [
   'read_doc',
   'create_doc',
   'write_doc',
+  'edit_doc',
   'create_slides',
   'add_slide',
   'list_slides',

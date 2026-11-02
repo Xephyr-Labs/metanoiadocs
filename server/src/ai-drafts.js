@@ -6,7 +6,7 @@ import * as Y from 'yjs';
 import { appendMarkdownToDoc, lossyBlocks, replaceBodyKeepingIds } from './blocks.js';
 import { computeChanges, docFromState, draftName, pending } from './suggestions.js';
 import { listSuggestions } from './inline-suggest.js';
-import { suggestMarkdown } from './suggest-writer.js';
+import { suggestEdits, suggestMarkdown } from './suggest-writer.js';
 
 const OPEN = `SELECT * FROM doc_suggestions
   WHERE doc_id = $1 AND author_id = $2 AND status <> 'closed'
@@ -42,9 +42,12 @@ export async function draftToRead({ pool, docId, authorId, approverId, writerVia
  * the draft (submitted, from the page as it is now) if there isn't one.
  * mode 'append' adds to the draft's body; 'replace' rewrites it keeping ids.
  *
- * @returns {{ sid: string, created: boolean, changes: number }} changes = still undecided.
+ * `edits` (edit_doc) are applied to the draft instead, as direct edits.
+ *
+ * @returns {{ sid: string, created: boolean, changes: number, miss: object|null }}
+ *   changes = still undecided; miss = editMiss() when an edit did not match.
  */
-export async function writeToDraft({ pool, hocuspocus, pageState, docId, title, authorId, approverId, writerVia, markdown, mode, resolve, notify }) {
+export async function writeToDraft({ pool, hocuspocus, pageState, docId, title, authorId, approverId, writerVia, markdown, mode, edits, resolve, notify }) {
   const key = { pool, docId, authorId, approverId, writerVia };
   let row = await openDraftFor(key);
   let created = false;
@@ -67,11 +70,14 @@ export async function writeToDraft({ pool, hocuspocus, pageState, docId, title, 
 
   const name = draftName(docId, row.id);
   let draftState;
+  let miss = null;
   try {
     const conn = await hocuspocus.openDirectConnection(name, { docId: name, user: { id: authorId } });
     try {
       let wrote = false;
       await conn.transact((doc) => {
+        // The draft is the writer's own copy: their edits land in it directly.
+        if (edits) { miss = editMiss(suggestEdits({ doc, edits, by: authorId, direct: true })); wrote = true; return; }
         wrote = mode === 'replace'
           ? replaceBodyKeepingIds(doc, title, markdown, resolve)
           : appendMarkdownToDoc(doc, markdown, resolve) || replaceBodyKeepingIds(doc, title, markdown, resolve);
@@ -101,7 +107,7 @@ export async function writeToDraft({ pool, hocuspocus, pageState, docId, title, 
       await notify({ userId: approverId ?? null, kind: 'ai_suggestion', docId, suggestionId: row.id });
     } catch (e) { console.error('[notify] ai suggestion:', e.message); }
   }
-  return { sid: row.id, created, changes };
+  return { sid: row.id, created, changes, miss };
 }
 
 /** The refusal for a replace that would delete what markdown cannot carry. */
@@ -109,6 +115,19 @@ export const lossyRefusal = (lossy) => ({
   error: `This page holds content markdown cannot carry (${lossy.join(', ')}); replacing it would delete that. Append instead, or leave a comment.`,
   lossy,
 });
+
+/** The refusal for edit_doc edits that did not match exactly once (nothing was written), or null. */
+export function editMiss({ notFound = [], ambiguous = [] }) {
+  if (!notFound.length && !ambiguous.length) return null;
+  const parts = [];
+  if (notFound.length) {
+    parts.push(`Not found: ${notFound.map((m) => `"${m.find}"${m.under ? ` under "${m.under}"` : ''}`).join('; ')}.`);
+  }
+  if (ambiguous.length) {
+    parts.push(`Found more than once (pass occurrence, or under to search one heading's section): ${ambiguous.map((m) => `"${m.find}" (${m.matches} times)`).join('; ')}.`);
+  }
+  return { error: `Nothing was changed. ${parts.join(' ')}`, notFound, ambiguous };
+}
 
 /**
  * Where a markdown write from POST /api/docs/:id/content goes. Null: straight
@@ -118,12 +137,15 @@ export const lossyRefusal = (lossy) => ({
  * authored by the writer (Ask AI: the asker, via 'ai'); a writer that still has
  * an open legacy draft here keeps writing into it, so it closes the old way.
  * `approver()` resolves who reviews, as `{ id, name }`, or null for any editor.
+ * `edits` (edit_doc, POST /api/docs/:id/edits) in place of markdown: targeted
+ * edits, decided the same way; they touch only what they match, so a page
+ * markdown cannot fully carry is no reason to refuse them.
  */
-export async function draftEdit({ policy, kind, via, pageState, approver, pool, hocuspocus, docId, title, authorId, markdown, mode, resolve, notify }) {
+export async function draftEdit({ policy, kind, via, pageState, approver, pool, hocuspocus, docId, title, authorId, markdown, mode, edits, resolve, notify }) {
   if (policy === 'direct' || kind === 'task') return null;
   const state = await pageState(docId);
   if (!state || !docFromState(state).getMap('blocks').size) return null;
-  const lossy = mode === 'replace' ? lossyBlocks(state) : [];
+  const lossy = mode === 'replace' && !edits ? lossyBlocks(state) : [];
   if (lossy.length) return { status: 409, body: lossyRefusal(lossy) };
   const who = await approver();
   const writerVia = via === 'ai' ? 'ai' : 'agent';
@@ -133,13 +155,14 @@ export async function draftEdit({ policy, kind, via, pageState, approver, pool, 
     let out;
     try {
       out = await writeToDraft({
-        pool, hocuspocus, pageState, docId, title, authorId, approverId: who?.id ?? null, writerVia, markdown, mode, resolve, notify,
+        pool, hocuspocus, pageState, docId, title, authorId, approverId: who?.id ?? null, writerVia, markdown, mode, edits, resolve, notify,
       });
     } catch (e) {
       if (e.message === 'no body') return noBody;
       throw e;
     }
-    const { sid, changes } = out;
+    const { sid, changes, miss } = out;
+    if (miss) return { status: 409, body: miss };
     return {
       status: 200,
       body: { ok: true, suggested: true, suggestionId: sid, reviewUrl: `/d/${docId}?review=${sid}`, approverName: who?.name ?? null, changes },
@@ -153,7 +176,10 @@ export async function draftEdit({ policy, kind, via, pageState, approver, pool, 
     try {
       await conn.transact((doc) => {
         hadPending = listSuggestions(doc).some((c) => c.by === authorId);
-        out = suggestMarkdown({ doc, markdown, mode, by: authorId, via: via === 'ai' ? 'ai' : undefined, title, resolve });
+        const aiVia = via === 'ai' ? 'ai' : undefined;
+        out = edits
+          ? suggestEdits({ doc, edits, by: authorId, via: aiVia })
+          : suggestMarkdown({ doc, markdown, mode, by: authorId, via: aiVia, title, resolve });
       });
     } finally {
       await conn.disconnect();
@@ -162,6 +188,8 @@ export async function draftEdit({ policy, kind, via, pageState, approver, pool, 
     if (e.message === 'no body') return noBody;
     throw e;
   }
+  const miss = edits && editMiss(out);
+  if (miss) return { status: 409, body: miss };
   // Told once, when this writer's first pending suggestion on the page lands
   // (what a new draft used to be). Ask AI's asker is the one reviewing.
   if (out.changes && !hadPending && via !== 'ai') {
@@ -175,6 +203,7 @@ export async function draftEdit({ policy, kind, via, pageState, approver, pool, 
       ok: true, suggested: true, changes: out.changes,
       link: out.ids.length ? `/d/${docId}?sugg=${encodeURIComponent(out.ids[0])}` : `/d/${docId}`,
       approverName: who?.name ?? null,
+      ...(out.skipped ? { skipped: out.skipped } : {}),
     },
   };
 }

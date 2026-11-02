@@ -7,7 +7,7 @@
 import crypto from 'node:crypto';
 import * as Y from 'yjs';
 import { blocksToMarkdown, bodyNote, buildDocState, copyTree, dropTree } from './blocks.js';
-import { listSuggestions } from './inline-suggest.js';
+import { blockView, listSuggestions } from './inline-suggest.js';
 import { renumberLists } from './suggestions.js';
 
 const KEY = 'mnSugg';
@@ -37,8 +37,9 @@ const kidsOf = (b) => {
  * while every pending suggestion stays where it is. Call inside the caller's
  * transaction so connected editors get it as one edit.
  *
- * @returns {{ changes: number, ids: string[] }} the writer's pending suggestions
- *   this write leaves (replace: all of theirs on the page; append: the new ones), in page order.
+ * @returns {{ changes: number, ids: string[], skipped?: {blockId: string, reason: string}[] }}
+ *   the writer's pending suggestions this write leaves (replace: all of theirs on
+ *   the page; append: the new ones), in page order; `skipped`: wishes not written (R14).
  */
 export function suggestMarkdown({ doc, markdown, mode = 'append', by, via, title = '', resolve, direct = false, at = Date.now() }) {
   const live = doc.getMap('blocks');
@@ -47,7 +48,7 @@ export function suggestMarkdown({ doc, markdown, mode = 'append', by, via, title
   const scratchDoc = new Y.Doc();
   Y.applyUpdate(scratchDoc, buildDocState(title, markdown, resolve));
   const scratch = scratchDoc.getMap('blocks');
-  const w = { live, scratch, by: direct ? null : by, via, at, direct, created: [], usedIds: new Set() };
+  const w = { live, scratch, by: direct ? null : by, via, at, direct, created: [], usedIds: new Set(), skipped: [] };
   const incoming = kidsOf(bodyNote(scratch)).filter((id) => keyOf(scratch, id, null) != null);
   doc.transact(() => {
     let kids = note.get('sys:children');
@@ -61,7 +62,7 @@ export function suggestMarkdown({ doc, markdown, mode = 'append', by, via, title
   });
   if (direct) return { changes: 0, ids: [] };
   const ids = mode === 'replace' ? listSuggestions(doc).filter((c) => c.by === by).map((c) => c.id) : w.created;
-  return { changes: ids.length, ids };
+  return { changes: ids.length, ids, ...(w.skipped.length ? { skipped: w.skipped } : {}) };
 }
 
 function mark(w, kind, keep = {}) {
@@ -179,9 +180,13 @@ function pairBlocks(w, oid, nid) {
   const differs = (f) => f.type !== type || (list && f.checked !== checked);
   if (s && !own(w, s)) {
     // ponytail: a suggester's own type/tick wish on a block someone else already retyped or ticked is not written; their mark stands.
+    // It is reported as skipped (R14), unless it is what is already pending there.
     // Direct: the base under their mark moves, the mark stays.
-    if (w.direct && s.kind === 'type' && s.from) {
-      const base = { type: s.from.type, checked: 'checked' in s.from ? !!s.from.checked : checkedOf(o) };
+    const base = s.kind === 'type' && s.from && { type: s.from.type, checked: 'checked' in s.from ? !!s.from.checked : checkedOf(o) };
+    if (base && !w.direct && differs(base) && differs({ type: o.get('prop:type'), checked: checkedOf(o) })) {
+      w.skipped.push({ blockId: oid, reason: 'someone else\'s change to this block\'s type is pending; yours was not written' });
+    }
+    if (w.direct && base) {
       if (differs(base)) {
         const from = { ...s.from, type, ...(list ? { checked } : {}) };
         if (!differs({ type: o.get('prop:type'), checked: checkedOf(o) })) o.delete(BLOCK_KEY);
@@ -425,4 +430,134 @@ function reconcileText(w, t, src) {
       }
     } else t.format(op.at, op.len, { [KEY]: op.fmt });
   }
+}
+
+// ── targeted edits (edit_doc) ───────────────────────────────────────────────
+
+/** A find copied from read_doc's markdown may carry its backslash escapes. */
+const unescapeMd = (s) => s.replace(/\\([\\`*_{}\[\]()#+\-.!|<>~])/g, '$1');
+
+/** Whether a unit with mark `s` is on the page as `by` reads it (null: nothing pending accepted). */
+const visible = (s, by) => !(s?.kind === 'ins' && s.by !== by) && !(s?.kind === 'del' && by != null && s.by === by);
+
+/** Fill an empty Y.Text with units, each with exactly its own attributes. */
+function fill(t, units) {
+  let at = 0;
+  for (const u of units) {
+    if (typeof u.insert === 'string') t.insert(at, u.insert, { ...u.attrs });
+    else t.insertEmbed(at, u.insert, { ...u.attrs });
+    at += typeof u.insert === 'string' ? u.insert.length : 1;
+  }
+}
+
+/**
+ * Targeted edits (edit_doc): each `{ find, replace, occurrence?, under? }`
+ * replaces one passage inside one block, matched against the page as `by`
+ * reads it — their own pending text counts, nobody else's does (a trusted
+ * writer, `direct`, reads it with nothing pending accepted). `under` limits
+ * the search to a heading's section; `occurrence` (1-based, page order) picks
+ * one of several matches. Edits apply in order, each to the text the earlier
+ * ones left. All or nothing: when any find is missing or ambiguous, nothing
+ * is written. Each changed block is then written with the text diff a replace
+ * uses, so only the edited passage changes; a code block, which cannot hold
+ * marks (R7), is suggested removed with an edited copy added.
+ *
+ * @returns {{ applied: number, changes: number, ids: string[],
+ *   notFound: {edit: number, find: string, under?: string}[],
+ *   ambiguous: {edit: number, find: string, matches: number}[] }}
+ */
+export function suggestEdits({ doc, edits, by, via, direct = false, at = Date.now() }) {
+  const live = doc.getMap('blocks');
+  const viewBy = direct ? null : by;
+  const w = { live, scratch: live, by: viewBy, via, at, direct, created: [], usedIds: new Set(), skipped: [] };
+  // The text blocks the writer sees, in page order, as units they read.
+  const entries = [];
+  const walk = (kids) => {
+    for (const id of kids.toArray()) {
+      const b = live.get(id);
+      if (!(b instanceof Y.Map) || !blockView(b, viewBy)) continue;
+      const t = b.get('prop:text');
+      if (t instanceof Y.Text) entries.push({ id, b, t, kids, units: unitsOf(t).filter((u) => visible(u.s, viewBy)) });
+      const k = b.get('sys:children');
+      if (k instanceof Y.Array) walk(k);
+    }
+  };
+  const top = bodyNote(live)?.get('sys:children');
+  if (top instanceof Y.Array) walk(top);
+
+  const str = (e) => e.units.map((u) => u.ch).join('');
+  const level = (e) => {
+    const v = blockView(e.b, viewBy);
+    return v.flavour === 'affine:paragraph' && /^h[1-6]$/.test(v.type || '') ? Number(v.type[1]) : 0;
+  };
+  // A section: the blocks after its heading up to the next heading of the same or a higher level.
+  const scope = (under) => {
+    if (!under) return entries;
+    const want = fold(String(under).replace(/^#+\s*/, ''));
+    const out = new Set();
+    entries.forEach((e, i) => {
+      const l = level(e);
+      if (!l || fold(str(e)) !== want) return;
+      for (let j = i + 1; j < entries.length && !(level(entries[j]) && level(entries[j]) <= l); j++) out.add(entries[j]);
+    });
+    return [...out];
+  };
+  // Quote and dash styles fold one character to one, so offsets still line up.
+  const search = (sc, needle) => {
+    const n = foldMarks(needle);
+    const hits = [];
+    for (const e of sc) {
+      const hay = foldMarks(str(e));
+      for (let i = hay.indexOf(n); i >= 0; i = hay.indexOf(n, i + n.length)) hits.push({ e, i });
+    }
+    return hits;
+  };
+
+  const notFound = [];
+  const ambiguous = [];
+  const changed = new Set();
+  edits.forEach((ed, k) => {
+    const sc = scope(ed.under);
+    let needle = String(ed.find ?? '');
+    let hits = needle ? search(sc, needle) : [];
+    if (!hits.length && unescapeMd(needle) !== needle) { needle = unescapeMd(needle); hits = search(sc, needle); }
+    const n = ed.occurrence;
+    const hit = n ? hits[n - 1] : hits.length === 1 ? hits[0] : null;
+    if (!hit) {
+      if (hits.length > 1 && !n) ambiguous.push({ edit: k, find: ed.find, matches: hits.length });
+      else notFound.push({ edit: k, find: ed.find, ...(ed.under ? { under: ed.under } : {}) });
+      return;
+    }
+    // The replacement is formatted like the start of what it replaces, as typing over a selection is.
+    const { reference, ...attrs } = hit.e.units[hit.i].attrs;
+    const rep = String(ed.replace ?? '').split('').map((ch) => ({ ch, insert: ch, attrs }));
+    hit.e.units.splice(hit.i, needle.length, ...rep);
+    changed.add(hit.e);
+  });
+  if (notFound.length || ambiguous.length) return { applied: 0, changes: 0, ids: [], notFound, ambiguous };
+
+  const touched = new Set();
+  doc.transact(() => {
+    for (const e of entries) {
+      if (!changed.has(e)) continue;
+      touched.add(e.id);
+      const s = sugg(e.b);
+      const ownAdd = s?.kind === 'add' && own(w, s);
+      if (direct || ownAdd || TEXTY.has(e.b.get('sys:flavour'))) {
+        const next = new Y.Doc().getText('t');
+        fill(next, e.units);
+        // The writer's own added block is all theirs already: edited as it stands.
+        reconcileText(ownAdd ? { ...w, direct: true, by: null } : w, e.t, next);
+      } else {
+        removeBlock(w, e.kids, e.id);
+        const copy = addBlock(w, e.kids, e.id, e.id);
+        const t = new Y.Text();
+        live.get(copy).set('prop:text', t);
+        fill(t, e.units);
+        touched.add(copy);
+      }
+    }
+  });
+  const ids = direct ? [] : listSuggestions(doc).filter((c) => c.by === by && touched.has(c.blockId)).map((c) => c.id);
+  return { applied: edits.length, changes: ids.length, ids, notFound, ambiguous };
 }
