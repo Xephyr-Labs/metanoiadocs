@@ -122,6 +122,25 @@ export function listSuggestions(doc) {
   return [...cards.values()];
 }
 
+/**
+ * The suggestions in `doc` that are not in `known` (ids seen at the last look)
+ * and were made by one of `authors` themselves — not Ask AI on their behalf,
+ * which notifies its own way. Keyed by author: { ids, text } with `text` what
+ * they add (where @mentions are looked for). Empty without a baseline.
+ */
+export function newSuggestionsBy(known, doc, authors) {
+  const out = new Map();
+  if (!known) return out;
+  for (const c of listSuggestions(doc)) {
+    if (known.has(c.id) || c.via || !authors.has(c.by)) continue;
+    const e = out.get(c.by) ?? { ids: [], text: '' };
+    e.ids.push(c.id);
+    e.text += ` ${c.after}`;
+    out.set(c.by, e);
+  }
+  return out;
+}
+
 function dropBlock(doc, id) {
   const blocks = doc.getMap('blocks');
   const b = blocks.get(id);

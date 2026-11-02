@@ -88,7 +88,7 @@ import { byJoinedFirst } from './spaces.js';
 import { ROLE_RANK, rankOf, canEdit, writePolicy, resolveApprover, untrusted, needsPerson, isPerson, pageSyncRole, mintAgentToken } from './approval.js';
 import { draftEdit, draftToRead, lossyRefusal } from './ai-drafts.js';
 import { registerDocEditRoutes } from './doc-edits.js';
-import { listSuggestions } from './inline-suggest.js';
+import { listSuggestions, newSuggestionsBy } from './inline-suggest.js';
 import { suggestMarkdown } from './suggest-writer.js';
 import OpenAI from 'openai';
 
@@ -3433,10 +3433,10 @@ async function notifyUser({ userId, actor, docId, commentId = null, suggestionId
     [rowId, userId, actor.id, actorName, docId, commentId, suggestionId, kind, String(body || '').slice(0, 280)]
   );
   const heading = title || `${actorName} ${NOTIFY_VERBS[kind] || 'updated'} "${docTitle}"`;
-  sendPush(userId, { title: heading, body: String(body || '').slice(0, 280), tag: rowId, docId, suggestionId })
+  sendPush(userId, { title: heading, body: String(body || '').slice(0, 280), tag: rowId, docId, suggestionId, kind })
     .catch((e) => console.error('[push] notify:', e.message));
   const { rows: [u] } = await pool.query('SELECT email FROM users WHERE id = $1', [userId]);
-  if (u?.email) sendNotificationEmail(u.email, heading, String(body || '').slice(0, 280), `${BASE_URL}${linkFor({ docId, suggestionId })}`);
+  if (u?.email) sendNotificationEmail(u.email, heading, String(body || '').slice(0, 280), `${BASE_URL}${linkFor({ docId, suggestionId, kind })}`);
 }
 const NOTIFY_VERBS = {
   suggestion_accepted: 'accepted your suggestion on',
@@ -3444,6 +3444,7 @@ const NOTIFY_VERBS = {
   review_requested: 'asked you to review changes to',
   review_done: 'reviewed your changes to',
   ai_suggestion: 'suggested changes to',
+  page_suggestion: 'suggested changes to',
 };
 
 // Rewrite a comment. The author's own only — an owner may delete a comment on
@@ -3581,6 +3582,46 @@ const DRAFT_AUTHOR = 'draft-author';
 // being connected sends none), emptied by the save that persists them.
 const unsavedEditors = new Map(); // doc id -> Set of user ids
 
+// A person's inline suggestions are made in the browser and reach the server
+// only as Yjs updates, so a save is where they are noticed: the suggestions on
+// the page now, against the ids seen when it was loaded or last saved, made by
+// someone whose own connection changed it since (unsavedAuthors). That user id
+// comes from the session that authenticated the socket, so nobody can make the
+// page notify in someone else's name; server-side direct connections (agents,
+// Ask AI) carry no role here and notify on their own write path (ai-drafts.js).
+const knownSuggestions = new Map(); // doc id -> Set of suggestion ids
+const unsavedAuthors = new Map(); // doc id -> Set of user ids
+
+/** Tell the page's owner, and anyone @mentioned in what they add, of a
+ *  person's new inline suggestions: once per author per page per 10 minutes. */
+async function notifyPageSuggestions(docId, doc, authors) {
+  const fresh = newSuggestionsBy(knownSuggestions.get(docId) ?? null, doc, authors);
+  knownSuggestions.set(docId, new Set(listSuggestions(doc).map((c) => c.id)));
+  for (const [by, { ids, text }] of fresh) {
+    const { rows: [actor] } = await pool.query('SELECT id, name, email, kind FROM users WHERE id = $1', [by]);
+    if (!actor || actor.kind === 'agent') continue;
+    const { rows: recent } = await pool.query(
+      `SELECT 1 FROM notifications WHERE doc_id = $1 AND actor_id = $2 AND kind = 'page_suggestion'
+          AND created_at > now() - interval '10 minutes' LIMIT 1`,
+      [docId, by]
+    );
+    if (recent.length) continue;
+    // Mentions reach as far as a comment mention does (notifyDocMentions).
+    const { rows: people } = await pool.query(
+      `SELECT u.id FROM users u
+        WHERE u.id <> $3 AND u.kind <> 'agent' AND (
+          EXISTS (SELECT 1 FROM doc_access a WHERE a.user_id = u.id AND a.doc_id = $1 AND a.role = 'owner')
+          OR (lower(u.username) = ANY($2)
+              AND (EXISTS (SELECT 1 FROM doc_access a WHERE a.user_id = u.id AND a.doc_id = $1)
+                   OR EXISTS (SELECT 1 FROM docs d WHERE d.id = $1 AND d.visibility = 'team'))))`,
+      [docId, mentionHandles(text), by]
+    );
+    for (const p of people) {
+      await notifyUser({ userId: p.id, actor, docId, kind: 'page_suggestion', suggestionId: ids[0], body: text.trim() || 'Suggested changes' });
+    }
+  }
+}
+
 const hocuspocus = new Hocuspocus({
   extensions: [
     {
@@ -3596,7 +3637,22 @@ const hocuspocus = new Hocuspocus({
         if (context?.docId && documentName !== context.docId) throw new Error('document mismatch');
         if (context?.role !== DRAFT_AUTHOR && !canEdit(context?.role)) connection.readOnly = true;
       },
+      // What a page's suggestions were when it was loaded: the baseline the
+      // first save compares against (notifyPageSuggestions).
+      async afterLoadDocument({ documentName, document }) {
+        if (!parseDraftName(documentName)) knownSuggestions.set(documentName, new Set(listSuggestions(document).map((c) => c.id)));
+      },
+      async afterUnloadDocument({ documentName }) {
+        knownSuggestions.delete(documentName);
+        unsavedAuthors.delete(documentName);
+      },
       async onChange({ context, documentName }) {
+        // Any signed-in role's own socket (a direct connection has no role).
+        const by = context?.user?.id;
+        if (by && by !== 'public' && context.role && !parseDraftName(documentName)) {
+          if (!unsavedAuthors.has(documentName)) unsavedAuthors.set(documentName, new Set());
+          unsavedAuthors.get(documentName).add(by);
+        }
         // A Suggesting-mode draft is not the page: its author is credited if
         // and when a reviewer accepts what they wrote. Server-side direct
         // connections have no user here and name theirs on the save instead.
@@ -3630,7 +3686,7 @@ const hocuspocus = new Hocuspocus({
         );
         return rows[0] ? new Uint8Array(rows[0].state) : null;
       },
-      store: async ({ documentName, state, context }) => {
+      store: async ({ documentName, state, context, document }) => {
         // Read-only viewers (public share links, or a 'viewer' doc_access grant)
         // must never persist edits — enforce server-side, not just client-side.
         // The same for every role that can't edit (commenter, suggester) —
@@ -3669,6 +3725,12 @@ const hocuspocus = new Hocuspocus({
         );
         notifyDocMentions(documentName, buf, actor).catch((err) =>
           console.error('[notify] doc mention:', err.message));
+        const authors = unsavedAuthors.get(documentName);
+        unsavedAuthors.delete(documentName);
+        if (authors) {
+          notifyPageSuggestions(documentName, document, authors).catch((err) =>
+            console.error('[notify] page suggestion:', err.message));
+        }
         // Auto-snapshot a version at most once per ~8 min of active editing, so
         // history accrues without a row per keystroke.
         const last = await pool.query(

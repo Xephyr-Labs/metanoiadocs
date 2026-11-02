@@ -5,7 +5,6 @@ import crypto from 'node:crypto';
 import * as Y from 'yjs';
 import { appendMarkdownToDoc, lossyBlocks, replaceBodyKeepingIds } from './blocks.js';
 import { computeChanges, docFromState, draftName, pending } from './suggestions.js';
-import { listSuggestions } from './inline-suggest.js';
 import { suggestEdits, suggestMarkdown } from './suggest-writer.js';
 
 const OPEN = `SELECT * FROM doc_suggestions
@@ -187,12 +186,10 @@ export async function draftEdit({ policy, kind, via, pageState, approver, pool, 
   }
 
   let out;
-  let hadPending = false;
   try {
     const conn = await hocuspocus.openDirectConnection(docId, { docId, user: { id: authorId } });
     try {
       await conn.transact((doc) => {
-        hadPending = listSuggestions(doc).some((c) => c.by === authorId);
         const aiVia = via === 'ai' ? 'ai' : undefined;
         out = edits
           ? suggestEdits({ doc, edits, by: authorId, via: aiVia })
@@ -207,12 +204,11 @@ export async function draftEdit({ policy, kind, via, pageState, approver, pool, 
   }
   const miss = edits && editMiss(out);
   if (miss) return { status: 409, body: miss };
-  // Told once, when this writer's first pending suggestion on the page lands
-  // (what a new draft used to be). Ask AI's asker is the one reviewing.
-  if (out.changes && !hadPending && via !== 'ai') {
-    // ponytail: no suggestionId — linkFor still builds ?review= links; the notification opens the page.
-    try { await notify({ userId: who?.id ?? null, kind: 'ai_suggestion', docId }); }
-    catch (e) { console.error('[notify] ai suggestion:', e.message); }
+  // The approver hears of each write once, however many changes it made, with
+  // a link to its first. Not an Ask AI asker, who approves their own ask.
+  if (out.changes && out.ids.length && who?.id !== authorId) {
+    try { await notify({ userId: who?.id ?? null, kind: 'page_suggestion', docId, suggestionId: out.ids[0] }); }
+    catch (e) { console.error('[notify] page suggestion:', e.message); }
   }
   return {
     status: 200,

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as Y from 'yjs';
 import { buildDocState } from './blocks.js';
-import { authorView, decide, decideAll, listSuggestions, pendingText } from './inline-suggest.js';
+import { authorView, decide, decideAll, listSuggestions, newSuggestionsBy, pendingText } from './inline-suggest.js';
 
 const S = (id, kind, by = 'u1') => ({ id, kind, by, at: 1 });
 
@@ -102,4 +102,22 @@ test('decideAll counts and leaves no mnSugg; filters by author', () => {
   assert.equal(decideAll(m.doc, 'accept'), 2);
   assert.equal(JSON.stringify(m.doc.getMap('blocks').toJSON()).includes('mnSugg'), false);
   assert.equal(m.t.toString(), 'abc');
+});
+
+test('newSuggestionsBy: a person\'s new suggestions since the last look, by author, with the text they add', () => {
+  const { doc, blocks, ids } = mk('Hello world', 'Second');
+  const t = text(blocks, ids[0]);
+  t.insert(5, ' big', { mnSugg: S('old', 'ins', 'p1') });
+  const known = new Set(listSuggestions(doc).map((c) => c.id));
+  t.insert(0, 'Hey @sam ', { mnSugg: S('n1', 'ins', 'p1') });
+  t.format(t.length - 5, 5, { mnSugg: S('n2', 'del', 'p1') });
+  text(blocks, ids[1]).insert(0, 'X', { mnSugg: S('n3', 'ins', 'p2') });
+  text(blocks, ids[1]).insert(0, 'AI', { mnSugg: { ...S('n4', 'ins', 'p1'), via: 'ai' } });
+  text(blocks, ids[1]).insert(0, 'Y', { mnSugg: S('n5', 'ins', 'andy') });
+  const out = newSuggestionsBy(known, doc, new Set(['p1', 'p2']));
+  assert.deepEqual([...out.keys()].sort(), ['p1', 'p2']);
+  assert.deepEqual(out.get('p1').ids, ['n1', 'n2'], 'not the old one, not an Ask AI one');
+  assert.match(out.get('p1').text, /@sam/);
+  assert.deepEqual(out.get('p2').ids, ['n3']);
+  assert.equal(newSuggestionsBy(null, doc, new Set(['p1'])).size, 0, 'no baseline: nothing is new');
 });

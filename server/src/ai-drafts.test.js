@@ -185,13 +185,16 @@ test('a suggested write lands on the page as inline suggestions and links to the
   assert.equal(docToMarkdown(Y.encodeStateAsUpdate(w.page)).markdown, 'Intro line.', 'nothing pending is accepted');
 });
 
-test('Ask AI suggestions carry via ai, are authored by the asker, and notify no one', async () => {
+test('Ask AI suggestions carry via ai, are authored by the asker, who is their approver and is not told of their own ask', async () => {
   const w = world();
   const notes = [];
-  const out = await edit(w, { via: 'ai', authorId: 'p1', notify: async (n) => { notes.push(n); } });
+  const out = await edit(w, { via: 'ai', authorId: 'p1', approver: async () => ({ id: 'p1', name: 'Pat' }), notify: async (n) => { notes.push(n); } });
   assert.equal(out.body.changes, 1);
   assert.deepEqual(listSuggestions(w.page).map((c) => [c.kind, c.by, c.via]), [['add', 'p1', 'ai']]);
   assert.equal(notes.length, 0);
+  // An Ask AI write routed to someone else tells them, like an agent's.
+  await edit(w, { via: 'ai', authorId: 'p1', markdown: 'More.\n', notify: async (n) => { notes.push(n); } });
+  assert.deepEqual(notes.map((n) => [n.userId, n.kind]), [['owner', 'page_suggestion']]);
 });
 
 test('a writer with an open legacy draft keeps writing into it until it is decided', async () => {
@@ -226,18 +229,21 @@ test('a lossy replace is refused before an approver is asked or a draft is made'
   assert.equal(w.rows.length, 0);
 });
 
-test('an agent edit with no approver is for any editor: notified once, when its first suggestion lands', async () => {
-  const w = world();
+test('an agent edit with no approver is for any editor: notified once per write, not per change, linking its first', async () => {
+  const w = world('Intro line.\n');
   const notes = [];
   const notify = async (n) => { notes.push(n); };
-  const out = await edit(w, { approver: async () => null, notify });
+  const out = await edit(w, { approver: async () => null, notify, mode: 'replace', markdown: 'Intro sentence.\n\nAI paragraph.\n' });
   assert.equal(out.status, 200);
   assert.equal(out.body.suggested, true);
+  assert.equal(out.body.changes, 2);
   assert.equal(out.body.approverName, null);
   assert.equal(w.rows.length, 0);
-  assert.deepEqual(notes, [{ userId: null, kind: 'ai_suggestion', docId: 'd1' }]);
+  const first = listSuggestions(w.page)[0].id;
+  assert.deepEqual(notes, [{ userId: null, kind: 'page_suggestion', docId: 'd1', suggestionId: first }]);
   await edit(w, { approver: async () => null, notify, markdown: 'Another.\n' });
-  assert.equal(notes.length, 1, 'still pending from the first: not notified again');
+  assert.equal(notes.length, 2, 'a second write is told too');
+  assert.notEqual(notes[1].suggestionId, first);
 });
 
 test('a write that changes nothing says so and notifies no one', async () => {
