@@ -48,6 +48,7 @@ import { attachFileDrop } from './fileDrop';
 import { imageToolbarExtensions } from './imageToolbar';
 import { pageViewportExtension } from './pageViewport';
 import { attachCalloutPanels, calloutExtensions } from './callout';
+import { CLEAN_VIEW_CLASS, paintSuggestionBlocks } from './suggest/blockMarks';
 import { stripSuggestionsOnCopyExtension, suggestInlineExtensions } from './suggest/inlineSpec';
 import { cancelVoiceNote, voiceNoteExtensions } from './voiceNote';
 import { closeTranscriptCard, voiceTranscriptExtensions } from './voiceTranscript';
@@ -703,6 +704,11 @@ export async function mountEditor(
     onChange: (cb) => { doc.spaceDoc.on('update', cb); return () => doc.spaceDoc.off('update', cb); },
   });
 
+  // Block-level suggestions (add/remove/type) show as a bar; a share link or a
+  // version preview shows the page without the pending insertions (CSS only).
+  if (share || snapshot) editor.classList.add(CLEAN_VIEW_CLASS);
+  const detachSuggestionBlocks = paintSuggestionBlocks(editor);
+
   // Render read-only diagram previews under ```mermaid code blocks. Mermaid is
   // dynamically imported inside here, so it only loads for docs that use it.
   const detachMermaid = attachMermaidPreviews({
@@ -809,6 +815,7 @@ export async function mountEditor(
       try { cancelVoiceNote(editor as unknown as Element); } catch { /* noop */ }
       try { closeTranscriptCard(); } catch { /* noop */ }
       try { detachTextSize(); } catch { /* noop */ }
+      try { detachSuggestionBlocks(); } catch { /* noop */ }
       try { detachMermaid(); } catch { /* noop */ }
       try { detachMarkdownPaste?.(); } catch { /* noop */ }
       try { detachForeignClipboard(); } catch { /* noop */ }
