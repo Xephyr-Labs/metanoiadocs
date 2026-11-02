@@ -103,6 +103,17 @@ function replaceMinimal(text, index, raw, replacement, lenientSpace = true) {
  * block is not the one it was about. Rows from before anchors fall back to
  * finding the quote by occurrence.
  */
+/** Whether `hit` in `text` touches a pending inline suggestion run (mnSugg). */
+function overlapsPending(text, hit) {
+  let at = 0;
+  for (const op of text.toDelta()) {
+    const len = typeof op.insert === 'string' ? op.insert.length : 1;
+    if (op.attributes?.mnSugg && at < hit.index + hit.length && hit.index < at + len) return true;
+    at += len;
+  }
+  return false;
+}
+
 export function applyTextSuggestion(doc, blockId, quote, replacement, occurrence = 0, anchors = null) {
   const block = doc.getMap('blocks').get(blockId);
   if (!(block instanceof Y.Map)) return false;
@@ -129,6 +140,9 @@ export function applyTextSuggestion(doc, blockId, quote, replacement, occurrence
     if (!hit && occurrence > 0 && !findQuote(raw, quote, 1)) hit = findQuote(raw, quote);
     if (!hit) return false;
   }
+  // Never through someone's pending inline suggestion: the change would land
+  // inside an insertion nobody has accepted, or undo a pending deletion.
+  if (overlapsPending(text, hit)) return false;
   // Anchored rows come from the raw-text composer; older ones were typed over
   // a quote with its whitespace collapsed, and are matched leniently.
   replaceMinimal(text, hit.index, raw.slice(hit.index, hit.index + hit.length), replacement || '', !(anchors?.start && anchors?.end));
@@ -596,7 +610,7 @@ export function registerSuggestionRoutes(app, { requireUser, wrap, pool, grantOn
     res.json(rows.map(summary));
   }));
 
-  /** Start Suggesting: your open draft of this page, made now if there isn't one. */
+  /** Your open legacy Suggesting draft of this page; new ones are no longer made (410). */
   app.post('/api/docs/:id/suggestions', requireUser, wrap(async (req, res) => {
     const docId = req.params.id;
     if (!canSuggest(await grantOn(docId, req.user.id))) {
@@ -608,26 +622,8 @@ export function registerSuggestionRoutes(app, { requireUser, wrap, pool, grantOn
       [docId, req.user.id]
     );
     if (open.rows[0]) return res.json(summary(open.rows[0]));
-    const state = await pageState(docId);
-    if (!state) return res.status(400).json({ error: 'Open the page once before suggesting changes to it.' });
-    const id = crypto.randomUUID();
-    try {
-      const { rows: [row] } = await pool.query(
-        `INSERT INTO doc_suggestions (id, doc_id, author_id, base_state, state)
-         VALUES ($1, $2, $3, $4, $4) RETURNING *`,
-        [id, docId, req.user.id, state]
-      );
-      res.json(summary({ ...row, author_name: req.user.name || req.user.email }));
-    } catch (e) {
-      // Two tabs starting at once: the unique index lets one in; hand the other the same draft.
-      const again = await pool.query(
-        `SELECT s.*, u.name AS author_name FROM doc_suggestions s JOIN users u ON u.id = s.author_id
-          WHERE s.doc_id = $1 AND s.author_id = $2 AND s.status <> 'closed' AND s.writer_via IS NULL`,
-        [docId, req.user.id]
-      );
-      if (!again.rows[0]) throw e;
-      res.json(summary(again.rows[0]));
-    }
+    // Suggesting mode marks the live page now (inline suggestions): no new drafts.
+    res.status(410).json({ error: 'Drafts are retired: turn on Suggesting mode to suggest changes in the page itself.' });
   }));
 
   /** A draft and the changes it still waits on a decision for. */

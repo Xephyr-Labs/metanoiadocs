@@ -403,15 +403,33 @@ test('an agent draft with no approver is reviewable by any editor, never by its 
   assert.equal(author.out.canReview, false);
 });
 
-test('an Ask-AI draft does not stand in for the author\'s own draft', async () => {
+test('new Suggesting-mode drafts are retired: 410, nothing inserted; an open one still loads', async () => {
   const rows = [aiRow({ author_id: 'u2', approver_id: 'u2' })];
   const { routes, calls } = fakeRoutes(rows);
+  let code; let out;
+  await routes['POST /api/docs/:id/suggestions']({ params: { id: 'd1' }, user: { id: 'u2' } }, { status(c) { code = c; return this; }, json(v) { out = v; } });
+  assert.equal(code, 410);
+  assert.match(out.error, /Suggesting mode/);
+  assert.equal(rows.length, 1, 'no draft inserted');
+  assert.ok(!calls.some((s) => /INSERT INTO doc_suggestions/.test(s)));
+  // A person's own open legacy draft is still handed back, so it can be finished.
+  const mine = [aiRow({ author_id: 'u3', writer_via: null, status: 'draft' })];
   const r = res();
-  await routes['POST /api/docs/:id/suggestions']({ params: { id: 'd1' }, user: { id: 'u2' } }, r);
-  assert.notEqual(r.out.id, 's1');
-  assert.equal(rows.length, 2, 'a person draft was inserted beside the AI one');
-  assert.ok(calls.some((s) => /writer_via IS NULL/.test(s)));
-  // And the v2 index lets both exist.
+  await fakeRoutes(mine).routes['POST /api/docs/:id/suggestions']({ params: { id: 'd1' }, user: { id: 'u3' } }, r);
+  assert.equal(r.out.id, 's1');
+});
+
+test('a legacy comment suggestion never lands inside a pending inline suggestion', () => {
+  const doc = docFromState(buildDocState('T', 'Hello world.\n'));
+  const { id, text } = textBlock(doc, 'Hello world.');
+  text.insert(6, 'big ', { mnSugg: { id: 's', kind: 'ins', by: 'u9', at: 1 } });
+  // "big wor" is only on the page as someone's pending insertion plus real text.
+  assert.equal(applyTextSuggestion(doc, id, 'big wor', 'x'), false);
+  // Text clear of pending runs still applies.
+  assert.equal(applyTextSuggestion(doc, id, 'Hello', 'Hi'), true);
+  assert.equal(text.toString(), 'Hi big world.');
+  text.format(10, 5, { mnSugg: { id: 't', kind: 'del', by: 'u9', at: 1 } });
+  assert.equal(applyTextSuggestion(doc, id, 'world', 'earth'), false, 'nor across a pending deletion');
 });
 
 test('applying an AI draft stamps the page as AI-edited by the approver', async () => {
