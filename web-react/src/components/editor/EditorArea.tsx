@@ -22,7 +22,7 @@ import { focusDocTitle, takeTitleFocus } from '../../lib/titleFocus';
 import { canEditRole } from '../../lib/docsApi';
 import { deadDocLink } from '../../lib/route';
 import * as prefs from '../../lib/docPrefs';
-import { useReviewState } from '../../lib/reviewMode';
+import { canDecideSuggestions, useReviewState } from '../../lib/reviewMode';
 import { SuggestingBanner } from '../review/SuggestingBanner';
 import { ReviewView } from '../review/ReviewView';
 import { useSuggestions } from '../../editor/suggest/rail';
@@ -144,6 +144,7 @@ export function EditorArea() {
   suggestingOn.current = suggestingNow;
   const editorRole = review.effectiveRole;
   const editorKey = `${page.id}:${rewriteKey}:${draft ?? editorRole ?? ''}`;
+  const canDecide = canDecideSuggestions(editorRole, auth.user?.kind);
 
   if (review.reviewing) {
     return (
@@ -181,7 +182,7 @@ export function EditorArea() {
         </div>
       )}
 
-      {!canvas && <SuggestionBar s={sugg} canDecide={canEditRole(page.role)} />}
+      {!canvas && <SuggestionBar s={sugg} canDecide={canDecide} />}
 
       <div className="relative min-h-0 flex-1">
         {canvas ? (
@@ -257,7 +258,7 @@ export function EditorArea() {
                       positioned either way, and rendering it first put every
                       comment pip ahead of the document in the tab order. */}
                   <CommentMarkers container={markerHost} fullWidth={ws.fullWidth} />
-                  <SuggestionLayer s={sugg} container={markerHost} canDecide={canEditRole(page.role)} fullWidth={ws.fullWidth} />
+                  <SuggestionLayer s={sugg} container={markerHost} canDecide={canDecide} fullWidth={ws.fullWidth} />
                   <LinkedPages docId={page.id} refreshKey={refreshKey} fullWidth={ws.fullWidth} onOpen={(id) => ws.select(id)} />
                 </div>
               </motion.div>

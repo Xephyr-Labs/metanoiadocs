@@ -33,7 +33,7 @@ import { TaskAgents } from './TaskAgents';
 import { TaskComments } from './TaskComments';
 import { CommentsTab } from '../panel/CommentsTab';
 import { onCommentRequest, useOpenCommentCount } from '../../editor/comments';
-import { canEditRole } from '../../lib/docsApi';
+import { canDecideSuggestions } from '../../lib/reviewMode';
 import { useSuggestions } from '../../editor/suggest/rail';
 import { SuggestionBar } from '../suggest/SuggestionBar';
 import { SuggestionLayer } from '../suggest/SuggestionRail';
@@ -601,7 +601,7 @@ export function TaskPeek({
                 it measured zero and folded everything. */}
             {docId && <div className="min-w-0 flex-1"><EditorBar editor={notesEl} mode="page" /></div>}
           </div>
-          {docId && <SuggestionBar s={sugg} canDecide={canEditRole(ws.pages[docId]?.role)} />}
+          {docId && <SuggestionBar s={sugg} canDecide={canDecideSuggestions(ws.pages[docId]?.role, auth.user?.kind)} />}
           {docId && (
             // A click under the last line puts the caret there. A task's notes
             // are often one short line, and a click anywhere else in the panel
@@ -640,7 +640,7 @@ export function TaskPeek({
               onEditor={setNotesEl}
             />
             {/* No margin in a peek: the cards go under their paragraphs. */}
-            <SuggestionLayer s={sugg} container={notesEl} canDecide={canEditRole(ws.pages[docId]?.role)} fullWidth />
+            <SuggestionLayer s={sugg} container={notesEl} canDecide={canDecideSuggestions(ws.pages[docId]?.role, auth.user?.kind)} fullWidth />
             </div>
           )}
         </section>

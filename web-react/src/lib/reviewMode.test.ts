@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { canEditRole, docsApi, opensWritable, type SuggestionDraft } from './docsApi';
-import { currentMode, loadDrafts, pickDrafts, resolveReview, setMode } from './reviewMode';
+import { canDecideSuggestions, currentMode, loadDrafts, pickDrafts, resolveReview, setMode } from './reviewMode';
 
 vi.mock('./docsApi', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./docsApi')>()),
@@ -78,5 +78,28 @@ describe('what the page shows (useReviewState)', () => {
     await loadDrafts('d5');
     await setMode('d5', 'suggesting');
     expect(resolveReview('d5', 'editor', 'me').myDraft?.id).toBe('old');
+  });
+});
+
+describe('who sees Accept and Reject (canDecideSuggestions)', () => {
+  it('an editor in Editing or Suggesting decides; the same editor in Viewing does not', async () => {
+    for (const role of ['owner', 'editor']) {
+      await setMode('d8', 'editing');
+      expect(canDecideSuggestions(resolveReview('d8', role, 'me').effectiveRole, 'person')).toBe(true);
+      await setMode('d8', 'suggesting');
+      expect(canDecideSuggestions(resolveReview('d8', role, 'me').effectiveRole, 'person')).toBe(true);
+      await setMode('d8', 'viewing');
+      expect(canDecideSuggestions(resolveReview('d8', role, 'me').effectiveRole, 'person')).toBe(false);
+    }
+  });
+
+  it('a suggester, commenter or viewer never decides', () => {
+    for (const role of ['suggester', 'commenter', 'viewer']) expect(canDecideSuggestions(resolveReview('d9', role, 'me').effectiveRole, 'person')).toBe(false);
+  });
+
+  it('an agent account never decides, even as an editor', () => {
+    expect(canDecideSuggestions('editor', 'agent')).toBe(false);
+    expect(canDecideSuggestions('owner', 'agent')).toBe(false);
+    expect(canDecideSuggestions('editor', undefined)).toBe(true);
   });
 });

@@ -28,6 +28,15 @@ const changed = () => listeners.forEach((l) => l());
 export const defaultMode = (role?: string | null): EditMode =>
   canEditRole(role) ? 'editing' : canSuggestRole(role) ? 'suggesting' : 'viewing';
 
+/**
+ * Whether Accept/Reject (and Accept all/Reject all) show: only in an editor
+ * that is open writable for this role, so never in Viewing mode (the role it
+ * opens with there is commenter or viewer), and never for an agent account,
+ * which suggests but does not decide.
+ */
+export const canDecideSuggestions = (openRole?: string | null, userKind?: string | null): boolean =>
+  canEditRole(openRole) && userKind !== 'agent';
+
 /** The modes a role may pick from. */
 export const modesFor = (role?: string | null): EditMode[] =>
   canEditRole(role) ? ['editing', 'suggesting', 'viewing'] : canSuggestRole(role) ? ['suggesting', 'viewing'] : ['viewing'];

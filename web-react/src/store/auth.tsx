@@ -7,6 +7,8 @@ export interface AuthUser {
   username: string;
   email: string;
   role?: string;
+  /** 'agent' for an account that acts for a person (publicUser on the server). */
+  kind?: 'person' | 'agent';
   /** The IANA zone the server has on file, or null before a browser has said.
    *  See reportZone: the server needs its own copy for the work it does when
    *  nobody's browser is open. */
