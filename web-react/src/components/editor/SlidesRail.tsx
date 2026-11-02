@@ -2,13 +2,15 @@
  * theme: project tokens (index.css) · states: default · hover · focus-visible ·
  * active (current slide) · disabled (editor not mounted) · empty (no slides)
  */
-import { Play, Plus, Trash2 } from 'lucide-react';
+import { FileDown, ImageDown, Play, Plus, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
+import { downloadPng, printSlides } from '../../editor/designExport';
 import {
-  addSlide, deleteSlide, focusSlide, isPresenting, listSlides, startPresenting, stopPresenting,
+  addSlide, deleteSlide, focusSlide, isPresenting, listSlides, renderSlides, startPresenting, stopPresenting,
   type Slide,
 } from '../../editor/slides';
 import { cn } from '../../lib/cn';
+import { toast } from '../../lib/toast';
 import { Button } from '../ui/Button';
 import { IconButton } from '../ui/IconButton';
 
@@ -91,6 +93,25 @@ export function SlidesRail({ editor }: Props) {
     read();
   };
 
+  // Rendering walks the viewport across the deck, so one export at a time.
+  const [exporting, setExporting] = useState(false);
+  const exportDeck = async (one?: Slide) => {
+    setExporting(true);
+    // Each slide takes a second or two to rasterise; say something meanwhile.
+    if (!one) toast(`Preparing ${slides.length} slide${slides.length === 1 ? '' : 's'}…`);
+    try {
+      const images = await renderSlides(editor, one && [one.id]);
+      if (!images) toast("Couldn't export the slides — try again");
+      else if (one) downloadPng(images[0], one.title);
+      else await printSlides(images, document.title);
+    } catch {
+      toast("Couldn't open the print dialog for the slides");
+    } finally {
+      setExporting(false);
+    }
+  };
+  const currentSlide = slides.find((s) => s.id === current) ?? slides[0];
+
   return (
     <aside className="flex h-full w-[196px] shrink-0 flex-col border-r border-line bg-surface-2">
       <div className="flex items-center gap-1 px-2 py-2">
@@ -98,6 +119,20 @@ export function SlidesRail({ editor }: Props) {
           New slide
         </Button>
         <span className="flex-1" />
+        <IconButton
+          size="sm"
+          icon={<ImageDown size={14} />}
+          label="Export current slide as PNG"
+          disabled={!editor || !currentSlide || exporting}
+          onClick={() => exportDeck(currentSlide)}
+        />
+        <IconButton
+          size="sm"
+          icon={<FileDown size={14} />}
+          label="Export slides as PDF"
+          disabled={!editor || slides.length === 0 || exporting}
+          onClick={() => exportDeck()}
+        />
         <IconButton
           size="sm"
           icon={<Play size={14} />}

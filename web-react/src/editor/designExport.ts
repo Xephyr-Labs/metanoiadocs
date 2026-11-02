@@ -34,3 +34,36 @@ export async function exportCanvasPng(editor: Element | null): Promise<boolean> 
     return false;
   }
 }
+
+/**
+ * Print slide images one per 16:9 page; the browser's print dialog is where
+ * "Save as PDF" lives, so this needs no PDF library. A hidden iframe rather than
+ * a new window, because the click's popup allowance is long gone by the time
+ * the slides have rendered.
+ */
+export async function printSlides(images: string[], title: string): Promise<void> {
+  const frame = document.createElement('iframe');
+  frame.style.cssText = 'position:fixed;width:0;height:0;border:0;visibility:hidden';
+  document.body.appendChild(frame);
+  const doc = frame.contentDocument!;
+  doc.open();
+  doc.write(
+    '<!doctype html><style>@page{size:1600px 900px;margin:0}html,body{margin:0}' +
+      'img{display:block;width:1600px;height:900px;object-fit:contain}img+img{break-before:page}</style>' +
+      images.map((src) => `<img src="${src}">`).join(''),
+  );
+  doc.close();
+  doc.title = title;
+  await Promise.all([...doc.images].map((img) => img.decode().catch(() => {})));
+  const win = frame.contentWindow!;
+  win.addEventListener('afterprint', () => frame.remove());
+  win.print();
+}
+
+/** Hand the browser one image to save. */
+export function downloadPng(dataUrl: string, name: string): void {
+  const a = document.createElement('a');
+  a.href = dataUrl;
+  a.download = `${name.replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'slide'}.png`;
+  a.click();
+}
