@@ -165,7 +165,29 @@ export function refusedKey(e: KeyLike): boolean {
   return !MOD_ALLOWED.has(e.key.toLowerCase()) && !['Backspace', 'Delete', 'Enter'].includes(e.key);
 }
 
-type KeyLike = { key: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean; shiftKey: boolean; getModifierState?(k: string): boolean };
+type KeyLike = { key: string; code?: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean; shiftKey: boolean; getModifierState?(k: string): boolean };
+
+/**
+ * The refused keys BlockSuite binds in a page (its keymaps: formatting,
+ * links, text conversions, moving blocks, indent). Only these keep their
+ * preventDefault when refused: anything else (Ctrl+P, Ctrl+R, Ctrl+S, zoom)
+ * is the browser's, and Suggesting mode only keeps BlockSuite out of it.
+ * Edgeless-only bindings (zoom, grouping) do not apply: Suggesting is page mode.
+ */
+const BLOCKSUITE_CHORDS = new Set([
+  'Mod-b', 'Mod-i', 'Mod-u', 'Mod-e', 'Mod-k', 'Mod-Shift-s', 'Mod-Shift-l',
+  ...['0', '1', '2', '3', '4', '5', '6', '8', '9', 'd'].flatMap((k) => [`Mod-Alt-${k}`, `Mod-Shift-${k}`]), 'Mod-Alt-c',
+  'Mod-Shift-ArrowUp', 'Mod-Shift-ArrowDown', 'Mod-Alt-ArrowUp', 'Mod-Alt-ArrowDown',
+]);
+export function blockSuiteBinds(e: KeyLike): boolean {
+  if (e.key === 'Tab') return true;
+  if (!e.ctrlKey && !e.metaKey) return false;
+  const mods = `Mod-${e.shiftKey ? 'Shift-' : ''}${e.altKey ? 'Alt-' : ''}`;
+  // Shift and Alt change the character (Shift+1 is "!", Option+b is "∫"): the physical key decides too.
+  const fromCode = /^(?:Key|Digit)(.)$/.exec(e.code ?? '')?.[1].toLowerCase();
+  const names = [e.key.length === 1 ? e.key.toLowerCase() : e.key, fromCode].filter(Boolean);
+  return names.some((n) => BLOCKSUITE_CHORDS.has(mods + n));
+}
 /** A character typed with AltGr: Windows reports it as Ctrl+Alt (@ { } [ ] € ł…).
  *  A plain letter or digit is a Ctrl+Alt chord instead (Ctrl+Alt+1 = Heading 1). */
 const altGr = (e: KeyLike) => [...e.key].length === 1 && !/^[a-z0-9]$/i.test(e.key)
@@ -381,10 +403,13 @@ export function attachSuggestingInput(editorEl: Element, opts: SuggestingOptions
     const e = ev as KeyboardEvent;
     if (!opts.on() || e.isComposing || e.keyCode === 229) return;
     if (refusedKey(e)) {
-      stop(e);
+      // Kept from BlockSuite always; from the browser only where BlockSuite
+      // would have taken it (blockSuiteBinds) or an app chord does below.
+      e.stopImmediatePropagation();
+      if (blockSuiteBinds(e)) e.preventDefault();
       // The app's own chords (palette, sidebar, theme) listen on window and
       // would never see this one: hand them a copy, from outside the editor.
-      if (e.ctrlKey || e.metaKey) window.dispatchEvent(new KeyboardEvent('keydown', e));
+      if ((e.ctrlKey || e.metaKey) && !window.dispatchEvent(new KeyboardEvent('keydown', e))) e.preventDefault();
       return;
     }
     const ed = editorAtSelection();

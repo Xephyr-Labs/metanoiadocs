@@ -23,7 +23,7 @@ import { getTestStoreManager } from '@blocksuite/integration-test/store';
 import { onVBeforeinput, onVCompositionEnd } from '../../../node_modules/@blocksuite/affine-rich-text/src/hooks';
 import { suggestInlineExtensions } from './inlineSpec';
 import { listSuggestions } from './model';
-import { addSuggestedBlock, applyInput, attachSuggestingInput, type Ed, patchHooks, refusedKey, removeOwnAddedBlock, SUGGESTING_CLASS, suggestableIn, suggestReplacement } from './suggestingInput';
+import { addSuggestedBlock, applyInput, attachSuggestingInput, blockSuiteBinds, type Ed, patchHooks, refusedKey, removeOwnAddedBlock, SUGGESTING_CLASS, suggestableIn, suggestReplacement } from './suggestingInput';
 
 const ME = 'me';
 const THEM = { id: 't1', kind: 'ins', by: 'them', at: 1 } as const;
@@ -227,6 +227,43 @@ describe('what Suggesting mode refuses', () => {
       key('ArrowLeft', { ctrlKey: true, shiftKey: true }), key('Home', { ctrlKey: true }), key('End', { metaKey: true }), key('x'), key('Enter')]) {
       expect(refusedKey(k), JSON.stringify(k)).toBe(false);
     }
+  });
+
+  it('a refused chord keeps the browser\'s default unless BlockSuite binds it (or an app chord takes it)', () => {
+    class El { closest() { return null; } }
+    let onKeyDown: ((e: unknown) => void) | undefined;
+    let appTakes = false;
+    vi.stubGlobal('Element', El);
+    vi.stubGlobal('KeyboardEvent', class { constructor(public type: string, init: object) { Object.assign(this, init); } });
+    vi.stubGlobal('window', {
+      addEventListener: (t: string, f: (e: unknown) => void) => { if (t === 'keydown') onKeyDown = f; },
+      removeEventListener: () => {},
+      dispatchEvent: () => !appTakes,
+    });
+    try {
+      const target = new El();
+      const detach = attachSuggestingInput({ contains: (x: unknown) => x === target } as unknown as Element, { userId: ME, on: () => true });
+      const press = (k: ReturnType<typeof key> & { code?: string }) => {
+        const e = { ...k, target, isComposing: false, keyCode: 0, prevented: false, stopped: false,
+          preventDefault() { this.prevented = true; }, stopImmediatePropagation() { this.stopped = true; } };
+        onKeyDown!(e);
+        return [e.stopped, e.prevented];
+      };
+      // The browser's: print, reload, save, zoom. Kept from BlockSuite, not from the browser.
+      for (const k of [key('p', { ctrlKey: true }), key('r', { metaKey: true }), key('s', { ctrlKey: true }), key('=', { ctrlKey: true }), key('-', { metaKey: true })]) {
+        expect(press(k), JSON.stringify(k)).toEqual([true, false]);
+      }
+      // BlockSuite's: bold, link, Heading 1 (Ctrl+Shift+1 arrives as "!"), indent.
+      for (const k of [key('b', { ctrlKey: true }), key('k', { metaKey: true }), { ...key('!', { ctrlKey: true, shiftKey: true }), code: 'Digit1' }, key('Tab')]) {
+        expect(press(k), JSON.stringify(k)).toEqual([true, true]);
+      }
+      appTakes = true; // Ctrl+J: the app's theme switch handled the copy
+      expect(press(key('j', { ctrlKey: true }))).toEqual([true, true]);
+      detach();
+    } finally { vi.unstubAllGlobals(); }
+    expect(blockSuiteBinds(key('p', { ctrlKey: true }))).toBe(false);
+    expect(blockSuiteBinds({ ...key('∫', { metaKey: true, altKey: true }), code: 'KeyB' })).toBe(false);
+    expect(blockSuiteBinds({ ...key('ç', { metaKey: true, altKey: true }), code: 'KeyC' })).toBe(true);
   });
 
   it('AltGr is typing, not a chord: @ { } [ ] \\ | € ~ and Polish or Czech letters', () => {
