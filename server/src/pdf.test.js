@@ -7,21 +7,47 @@ import { pdfToMarkdown } from './pdf.js';
  * offsets. A canned fixture file would test the same thing while hiding what it
  * contains; this way each test states the page it is about to read back.
  *
- * @param {{size: number, x: number, y: number, text: string}[]} runs
+ * @param {{size: number, x: number, y: number, text: string, font?: string}[] | object[][]} runs
+ *   one page of runs, or an array of pages; `font` is a standard-14 BaseFont
+ * @param {{encrypted?: boolean, links?: {rect: number[], url: string}[], toUnicode?: string}} opts
+ *   links go on the first page; toUnicode is a "<src> <dst>" bfchar pair given
+ *   to every font, to fake the private-use glyphs a Symbol font extracts as
  */
-function makePdf(runs, { encrypted = false } = {}) {
-  const content = runs
-    .map((r) => `BT /F1 ${r.size} Tf ${r.x} ${r.y} Td (${r.text.replace(/([()])/g, '\\$1')}) Tj ET`)
-    .join('\n');
+function makePdf(runs, { encrypted = false, links = [], toUnicode } = {}) {
+  const pages = Array.isArray(runs[0]) ? runs : [runs];
+  const fonts = [...new Set(['Helvetica', ...pages.flat().map((r) => r.font ?? 'Helvetica')])];
+  const fontRes = fonts.map((f, i) => `/F${i + 1} ${3 + i} 0 R`).join(' ');
+  const firstPage = 3 + fonts.length;
+  const annots = links.map((l) =>
+    `<< /Type /Annot /Subtype /Link /Rect [${l.rect.join(' ')}] /Border [0 0 0] /A << /S /URI /URI (${l.url}) >> >>`);
+  const firstAnnot = firstPage + pages.length * 2;
+  const cmapObj = firstAnnot + annots.length;
+  const cmap = toUnicode &&
+    '/CIDInit /ProcSet findresource begin 12 dict begin begincmap /CMapName /T def /CMapType 2 def ' +
+    `1 begincodespacerange <00> <FF> endcodespacerange 1 beginbfchar ${toUnicode} endbfchar ` +
+    'endcmap CMapName currentdict /CMap defineresource pop end end';
 
   const objects = [
     '<< /Type /Catalog /Pages 2 0 R >>',
-    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
-    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] ' +
-      '/Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>',
-    `<< /Length ${Buffer.byteLength(content)} >>\nstream\n${content}\nendstream`,
-    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>',
+    `<< /Type /Pages /Kids [${pages.map((_, i) => `${firstPage + i * 2} 0 R`).join(' ')}] /Count ${pages.length} >>`,
+    ...fonts.map((f) => `<< /Type /Font /Subtype /Type1 /BaseFont /${f} /Encoding /WinAnsiEncoding` +
+      `${cmap ? ` /ToUnicode ${cmapObj} 0 R` : ''} >>`),
   ];
+  pages.forEach((page, p) => {
+    const content = page
+      .map((r) => `BT /F${fonts.indexOf(r.font ?? 'Helvetica') + 1} ${r.size} Tf ${r.x} ${r.y} Td (${r.text.replace(/([()])/g, '\\$1')}) Tj ET`)
+      .join('\n');
+    const pageAnnots = p === 0 && annots.length
+      ? ` /Annots [${annots.map((_, i) => `${firstAnnot + i} 0 R`).join(' ')}]`
+      : '';
+    objects.push(
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] ` +
+        `/Resources << /Font << ${fontRes} >> >> /Contents ${firstPage + p * 2 + 1} 0 R${pageAnnots} >>`,
+      `<< /Length ${Buffer.byteLength(content)} >>\nstream\n${content}\nendstream`,
+    );
+  });
+  objects.push(...annots);
+  if (cmap) objects.push(`<< /Length ${cmap.length} >>\nstream\n${cmap}\nendstream`);
 
   let pdf = '%PDF-1.4\n';
   const offsets = [];
@@ -154,4 +180,115 @@ test('a password-protected PDF says so', async () => {
 
 test('a file that is not a PDF is refused', async () => {
   await assert.rejects(() => pdfToMarkdown(Buffer.from('this is plain text')), /not a readable PDF|could not be read/);
+});
+
+test('bold and italic fonts become markdown emphasis, headings stay plain', async () => {
+  const { markdown } = await pdfToMarkdown(
+    makePdf([
+      { size: 24, x: 72, y: 740, text: 'Bold Title', font: 'Helvetica-Bold' },
+      { size: 12, x: 72, y: 700, text: 'Plain ' },
+      { size: 12, x: 104, y: 700, text: 'strong', font: 'Helvetica-Bold' },
+      { size: 12, x: 142, y: 700, text: ' and ' },
+      { size: 12, x: 168, y: 700, text: 'slanted', font: 'Helvetica-Oblique' },
+      { size: 12, x: 206, y: 700, text: ' text, the rest of the body.' },
+    ]),
+  );
+  assert.match(markdown, /^# Bold Title$/m);
+  assert.match(markdown, /Plain \*\*strong\*\* and \*slanted\* text, the rest/);
+});
+
+test('runs that touch join without a space, runs with a gap get one', async () => {
+  // 'see the docs' in 12pt Helvetica is 68.04pt wide; the font switch keeps
+  // the next run a separate item, as after a link or a styled word.
+  const { markdown } = await pdfToMarkdown(
+    makePdf([
+      { size: 12, x: 72, y: 700, text: 'see the docs' },
+      { size: 12, x: 140.04, y: 700, text: '. Then', font: 'Times-Roman' },
+      { size: 12, x: 180, y: 700, text: 'more' },
+    ]),
+  );
+  assert.match(markdown, /see the docs\. Then more/);
+});
+
+test('link annotations become markdown links', async () => {
+  // 'Read ' in 12pt Helvetica is 32pt wide. The font switch keeps pdfjs from
+  // merging the two runs into one item, as a styled link would in practice.
+  const { markdown } = await pdfToMarkdown(
+    makePdf(
+      [
+        { size: 12, x: 72, y: 700, text: 'Read ' },
+        { size: 12, x: 104, y: 700, text: 'the guide', font: 'Times-Roman' },
+      ],
+      { links: [{ rect: [104, 696, 160, 712], url: 'https://example.com/guide' }] },
+    ),
+  );
+  assert.match(markdown, /^Read \[the guide\]\(https:\/\/example\.com\/guide\)$/m);
+});
+
+test('Symbol-font bullets, which extract as private-use glyphs, are bullets', async () => {
+  const { markdown } = await pdfToMarkdown(
+    makePdf(
+      [
+        { size: 12, x: 72, y: 700, text: '\\225 first item' },
+        { size: 12, x: 72, y: 686, text: '\\225 second item' },
+      ],
+      { toUnicode: '<95> <F0B7>' },
+    ),
+  );
+  assert.match(markdown, /^- first item\n- second item$/m);
+});
+
+test('a paragraph after a list is not swallowed into its last item', async () => {
+  const { markdown } = await pdfToMarkdown(
+    makePdf([
+      { size: 12, x: 72, y: 700, text: '1. step one' },
+      { size: 12, x: 72, y: 686, text: 'After the list.' },
+    ]),
+  );
+  assert.match(markdown, /^1\. step one\n\nAfter the list\.$/m);
+});
+
+test('aligned columns become a markdown table', async () => {
+  const { markdown } = await pdfToMarkdown(
+    makePdf([
+      { size: 12, x: 72, y: 700, text: 'Region' },
+      { size: 12, x: 200, y: 700, text: 'Revenue' },
+      { size: 12, x: 330, y: 700, text: 'Growth' },
+      { size: 12, x: 72, y: 680, text: 'North' },
+      { size: 12, x: 200, y: 680, text: '120' },
+      { size: 12, x: 330, y: 680, text: '5%' },
+      { size: 12, x: 72, y: 660, text: 'South' },
+      { size: 12, x: 200, y: 660, text: '98' },
+      { size: 12, x: 330, y: 660, text: '-2%' },
+    ]),
+  );
+  assert.match(
+    markdown,
+    /^\| Region \| Revenue \| Growth \|\n\| --- \| --- \| --- \|\n\| North \| 120 \| 5% \|\n\| South \| 98 \| -2% \|$/m,
+  );
+});
+
+test('two columns read left column first, not interleaved', async () => {
+  const left = ['Left column opens here and', 'keeps going down the page', 'until it ends at the foot.'];
+  const right = ['Right column starts later on', 'with its own run of prose', 'and finishes its sentence.'];
+  const { markdown } = await pdfToMarkdown(
+    makePdf([
+      ...left.map((text, i) => ({ size: 12, x: 72, y: 700 - i * 14, text })),
+      ...right.map((text, i) => ({ size: 12, x: 320, y: 695 - i * 14, text })),
+    ]),
+  );
+  assert.match(markdown, /^Left column opens here and keeps going down the page until it ends at the foot\.$/m);
+  assert.match(markdown, /^Right column starts later on with its own run of prose and finishes its sentence\.$/m);
+});
+
+test('running headers, footers and page numbers are dropped', async () => {
+  const page = (n, body) => [
+    { size: 9, x: 72, y: 760, text: 'ACME Quarterly Report' },
+    { size: 12, x: 72, y: 700, text: body },
+    { size: 9, x: 300, y: 40, text: String(n) },
+  ];
+  const { markdown } = await pdfToMarkdown(
+    makePdf([page(1, 'Body of the first page.'), page(2, 'Body of the second page.')]),
+  );
+  assert.equal(markdown, 'Body of the first page.\n\nBody of the second page.\n');
 });
