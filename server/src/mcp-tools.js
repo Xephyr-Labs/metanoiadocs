@@ -43,6 +43,14 @@ export const suggestedMessage = (r, publicBase = '') =>
 export const notApplied = (r) =>
   r?.skipped?.length ? `\nNot applied, because someone else's change is pending there (tell whoever asked): ${r.skipped.map((s) => `block ${s.blockId}: ${s.reason}`).join('; ')}` : '';
 
+/** edit_doc's 409 as the agent reads it: every edit that kept the batch from being applied. */
+const editMissMessage = (r) => [
+  'Nothing was changed: fix these edits and send them all again.',
+  ...(r.notFound || []).map((m) => `- edits[${m.edit}] not found: "${m.find}"${m.under ? ` under "${m.under}"` : ''}`),
+  ...(r.ambiguous || []).map((m) => `- edits[${m.edit}] found ${m.matches} times (add surrounding text, occurrence or under): "${m.find}"`),
+  ...(r.skipped || []).map((m) => `- edits[${m.edit}] not applied: "${m.find}" (${m.reason})`),
+].join('\n');
+
 const ok = (obj) => ({
   content: [{ type: 'text', text: typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2) }],
 });
@@ -114,7 +122,7 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
     } catch {
       data = text;
     }
-    if (!res.ok) throw new Error((data && data.error) || `HTTP ${res.status}`);
+    if (!res.ok) throw Object.assign(new Error((data && data.error) || `HTTP ${res.status}`), { data });
     return data;
   }
 
@@ -278,7 +286,7 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
     {
       title: 'Edit part of a doc',
       description:
-        "Change part of a doc without rewriting it: each edit replaces one exact passage (`find`) with `replace`, and nothing else on the page changes. Use this for any change to part of a page, and change only what you were asked to. `find` is the text as it reads on the page (as read_doc shows it, without markdown syntax such as ** or #) inside one block: a paragraph, heading, list item or code block. It must occur exactly once; if it occurs more than once, include more of the surrounding text, or pass `occurrence` (1 = first match, in page order) or `under` (a heading's text, to search only that heading's section). `replace` is plain text and takes the formatting of the text it replaces; an empty `replace` deletes the passage. Edits apply in order, each to the text the earlier ones left. If any find is missing or found more than once, nothing is changed and the error lists which. To add or remove whole blocks or change formatting, use write_doc. Works on pages that write_doc mode=replace refuses. An edit to an existing page may come back as a suggestion instead: a person reviews it before it lands, and you get a review link — share it with whoever asked.",
+        "Change part of a doc without rewriting it: each edit replaces one exact passage (`find`) with `replace`, and nothing else on the page changes. Use this for any change to part of a page, and change only what you were asked to. `find` is the text as it reads on the page (as read_doc shows it, without markdown syntax such as ** or #) inside one block: a paragraph, heading, list item or code block. It must occur exactly once; if it occurs more than once, include more of the surrounding text, or pass `occurrence` (1 = first match, in page order) or `under` (a heading's text, to search only that heading's section). `replace` is plain text and takes the formatting of the text it replaces; an empty `replace` deletes the passage. Edits apply in order, each to the text the earlier ones left. If any find is missing or found more than once, or an edit would cut through someone else's pending suggestion, nothing is changed and the result lists which edits to fix. To add or remove whole blocks or change formatting, use write_doc. Works on pages that write_doc mode=replace refuses. An edit to an existing page may come back as a suggestion instead: a person reviews it before it lands, and you get a review link — share it with whoever asked.",
       inputSchema: {
         id: z.string().describe('Document id'),
         edits: z
@@ -297,9 +305,9 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
       try {
         const r = await api(`/docs/${encodeURIComponent(id)}/edits`, { method: 'POST', body: { edits } });
         if (r?.suggested) return ok(suggestedMessage(r, PUBLIC) + notApplied(r));
-        return ok(`Done.${notApplied(r)}`);
+        return ok(`Done: ${r.applied} ${r.applied === 1 ? 'edit' : 'edits'} applied.${notApplied(r)}`);
       } catch (e) {
-        return fail(e);
+        return e.data?.notFound ? { isError: true, content: [{ type: 'text', text: editMissMessage(e.data) }] } : fail(e);
       }
     }
   );

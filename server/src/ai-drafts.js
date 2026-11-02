@@ -44,8 +44,8 @@ export async function draftToRead({ pool, docId, authorId, approverId, writerVia
  *
  * `edits` (edit_doc) are applied to the draft instead, as direct edits.
  *
- * @returns {{ sid: string, created: boolean, changes: number, miss: object|null }}
- *   changes = still undecided; miss = editMiss() when an edit did not match.
+ * @returns {{ sid: string, created: boolean, changes: number, edited?: object }}
+ *   changes = still undecided; edited = suggestEdits' result, for `edits`.
  */
 export async function writeToDraft({ pool, hocuspocus, pageState, docId, title, authorId, approverId, writerVia, markdown, mode, edits, resolve, notify }) {
   const key = { pool, docId, authorId, approverId, writerVia };
@@ -70,14 +70,14 @@ export async function writeToDraft({ pool, hocuspocus, pageState, docId, title, 
 
   const name = draftName(docId, row.id);
   let draftState;
-  let miss = null;
+  let edited;
   try {
     const conn = await hocuspocus.openDirectConnection(name, { docId: name, user: { id: authorId } });
     try {
       let wrote = false;
       await conn.transact((doc) => {
         // The draft is the writer's own copy: their edits land in it directly.
-        if (edits) { miss = editMiss(suggestEdits({ doc, edits, by: authorId, direct: true })); wrote = true; return; }
+        if (edits) { edited = suggestEdits({ doc, edits, by: authorId, direct: true }); wrote = true; return; }
         wrote = mode === 'replace'
           ? replaceBodyKeepingIds(doc, title, markdown, resolve)
           : appendMarkdownToDoc(doc, markdown, resolve) || replaceBodyKeepingIds(doc, title, markdown, resolve);
@@ -107,7 +107,7 @@ export async function writeToDraft({ pool, hocuspocus, pageState, docId, title, 
       await notify({ userId: approverId ?? null, kind: 'ai_suggestion', docId, suggestionId: row.id });
     } catch (e) { console.error('[notify] ai suggestion:', e.message); }
   }
-  return { sid: row.id, created, changes, miss };
+  return { sid: row.id, created, changes, ...(edited ? { edited } : {}) };
 }
 
 /** The refusal for a replace that would delete what markdown cannot carry. */
@@ -116,9 +116,19 @@ export const lossyRefusal = (lossy) => ({
   lossy,
 });
 
-/** The refusal for edit_doc edits that did not match exactly once (nothing was written), or null. */
-export function editMiss({ notFound = [], ambiguous = [] }) {
-  if (!notFound.length && !ambiguous.length) return null;
+/** R15: what every edit_doc response carries, from suggestEdits' result. */
+export const editFields = (out) => ({
+  applied: out.applied, notFound: out.notFound, ambiguous: out.ambiguous, skipped: out.skipped ?? [],
+});
+
+/**
+ * The 409 for edit_doc edits that were not all applied (a find missing or
+ * found more than once, or a direct edit across someone's pending suggestion):
+ * nothing was written. Null when every edit was applied.
+ */
+export function editMiss(out) {
+  const { notFound = [], ambiguous = [], skipped = [] } = out;
+  if (!notFound.length && !ambiguous.length && !skipped.length) return null;
   const parts = [];
   if (notFound.length) {
     parts.push(`Not found: ${notFound.map((m) => `"${m.find}"${m.under ? ` under "${m.under}"` : ''}`).join('; ')}.`);
@@ -126,7 +136,10 @@ export function editMiss({ notFound = [], ambiguous = [] }) {
   if (ambiguous.length) {
     parts.push(`Found more than once (pass occurrence, or under to search one heading's section): ${ambiguous.map((m) => `"${m.find}" (${m.matches} times)`).join('; ')}.`);
   }
-  return { error: `Nothing was changed. ${parts.join(' ')}`, notFound, ambiguous };
+  if (skipped.length) {
+    parts.push(`Not applied: ${skipped.map((m) => `"${m.find}" (${m.reason})`).join('; ')}.`);
+  }
+  return { error: `Nothing was changed. ${parts.join(' ')}`, suggested: false, ...editFields(out) };
 }
 
 /**
@@ -161,11 +174,15 @@ export async function draftEdit({ policy, kind, via, pageState, approver, pool, 
       if (e.message === 'no body') return noBody;
       throw e;
     }
-    const { sid, changes, miss } = out;
+    const { sid, changes, edited } = out;
+    const miss = edited && editMiss(edited);
     if (miss) return { status: 409, body: miss };
     return {
       status: 200,
-      body: { ok: true, suggested: true, suggestionId: sid, reviewUrl: `/d/${docId}?review=${sid}`, approverName: who?.name ?? null, changes },
+      body: {
+        ok: true, suggested: true, suggestionId: sid, reviewUrl: `/d/${docId}?review=${sid}`, approverName: who?.name ?? null, changes,
+        ...(edited ? editFields(edited) : {}),
+      },
     };
   }
 
@@ -203,7 +220,7 @@ export async function draftEdit({ policy, kind, via, pageState, approver, pool, 
       ok: true, suggested: true, changes: out.changes,
       link: out.ids.length ? `/d/${docId}?sugg=${encodeURIComponent(out.ids[0])}` : `/d/${docId}`,
       approverName: who?.name ?? null,
-      ...(out.skipped ? { skipped: out.skipped } : {}),
+      ...(edits ? editFields(out) : out.skipped ? { skipped: out.skipped } : {}),
     },
   };
 }

@@ -451,20 +451,42 @@ function fill(t, units) {
 }
 
 /**
+ * Who has a pending suggestion that a direct (unmarked) write of `src` over
+ * `t` would delete or split: the units inside each change's span, after the
+ * diff widens it to whole words, that carry anyone's mark.
+ */
+function overlapped(t, src) {
+  const units = unitsOf(t);
+  const baseAt = [];
+  units.forEach((u, i) => { if (u.s?.kind !== 'ins') baseAt.push(i); });
+  const who = new Set();
+  for (const h of hunks(baseAt.map((i) => units[i]), unitsOf(src))) {
+    if (h.be <= h.bs) continue;
+    for (let u = baseAt[h.bs]; u <= baseAt[h.be - 1]; u++) if (units[u].s) who.add(units[u].s.by);
+  }
+  return [...who];
+}
+
+/**
  * Targeted edits (edit_doc): each `{ find, replace, occurrence?, under? }`
- * replaces one passage inside one block, matched against the page as `by`
- * reads it — their own pending text counts, nobody else's does (a trusted
- * writer, `direct`, reads it with nothing pending accepted). `under` limits
+ * replaces one passage inside one block. A reviewed writer's find matches the
+ * page as they read it: their own pending text counts, nobody else's does.
+ * R16: a trusted writer (`direct`) matches the page with nothing pending
+ * accepted, the base Task 7's direct mode writes against, so their own
+ * pending insertions are not findable. A direct edit whose change would
+ * delete or split someone's pending suggestion is not applied: it is listed
+ * in `skipped` and, as with any miss, nothing is written. `under` limits
  * the search to a heading's section; `occurrence` (1-based, page order) picks
  * one of several matches. Edits apply in order, each to the text the earlier
- * ones left. All or nothing: when any find is missing or ambiguous, nothing
- * is written. Each changed block is then written with the text diff a replace
+ * ones left. All or nothing: when any find is missing, ambiguous or
+ * skipped, nothing is written. Each changed block is then written with the text diff a replace
  * uses, so only the edited passage changes; a code block, which cannot hold
  * marks (R7), is suggested removed with an edited copy added.
  *
  * @returns {{ applied: number, changes: number, ids: string[],
  *   notFound: {edit: number, find: string, under?: string}[],
- *   ambiguous: {edit: number, find: string, matches: number}[] }}
+ *   ambiguous: {edit: number, find: string, matches: number}[],
+ *   skipped: {edit: number, find: string, blockId: string, reason: string}[] }}
  */
 export function suggestEdits({ doc, edits, by, via, direct = false, at = Date.now() }) {
   const live = doc.getMap('blocks');
@@ -515,7 +537,7 @@ export function suggestEdits({ doc, edits, by, via, direct = false, at = Date.no
 
   const notFound = [];
   const ambiguous = [];
-  const changed = new Set();
+  const changed = new Map(); // entry → indices of the edits that changed it
   edits.forEach((ed, k) => {
     const sc = scope(ed.under);
     let needle = String(ed.find ?? '');
@@ -532,23 +554,38 @@ export function suggestEdits({ doc, edits, by, via, direct = false, at = Date.no
     const { reference, ...attrs } = hit.e.units[hit.i].attrs;
     const rep = String(ed.replace ?? '').split('').map((ch) => ({ ch, insert: ch, attrs }));
     hit.e.units.splice(hit.i, needle.length, ...rep);
-    changed.add(hit.e);
+    changed.set(hit.e, [...(changed.get(hit.e) || []), k]);
   });
-  if (notFound.length || ambiguous.length) return { applied: 0, changes: 0, ids: [], notFound, ambiguous };
+
+  // Plan each changed block; a direct write must not cut through anyone's pending text.
+  const skipped = [];
+  const plans = [];
+  for (const e of entries) {
+    if (!changed.has(e)) continue;
+    const s = sugg(e.b);
+    // The writer's own added block is all theirs already: edited as it stands.
+    const ownAdd = s?.kind === 'add' && own(w, s);
+    const plan = { e, inline: direct || ownAdd || TEXTY.has(e.b.get('sys:flavour')), w: ownAdd ? { ...w, direct: true, by: null } : w };
+    if (plan.inline) {
+      plan.next = new Y.Doc().getText('t');
+      fill(plan.next, e.units);
+      const who = plan.w.direct ? overlapped(e.t, plan.next) : [];
+      if (who.length) {
+        for (const k of changed.get(e)) {
+          skipped.push({ edit: k, find: edits[k].find, blockId: e.id, reason: `overlaps a pending suggestion by ${who.join(', ')}` });
+        }
+      }
+    }
+    plans.push(plan);
+  }
+  if (notFound.length || ambiguous.length || skipped.length) return { applied: 0, changes: 0, ids: [], notFound, ambiguous, skipped };
 
   const touched = new Set();
   doc.transact(() => {
-    for (const e of entries) {
-      if (!changed.has(e)) continue;
+    for (const { e, inline, w: pw, next } of plans) {
       touched.add(e.id);
-      const s = sugg(e.b);
-      const ownAdd = s?.kind === 'add' && own(w, s);
-      if (direct || ownAdd || TEXTY.has(e.b.get('sys:flavour'))) {
-        const next = new Y.Doc().getText('t');
-        fill(next, e.units);
-        // The writer's own added block is all theirs already: edited as it stands.
-        reconcileText(ownAdd ? { ...w, direct: true, by: null } : w, e.t, next);
-      } else {
+      if (inline) reconcileText(pw, e.t, next);
+      else {
         removeBlock(w, e.kids, e.id);
         const copy = addBlock(w, e.kids, e.id, e.id);
         const t = new Y.Text();
@@ -559,5 +596,5 @@ export function suggestEdits({ doc, edits, by, via, direct = false, at = Date.no
     }
   });
   const ids = direct ? [] : listSuggestions(doc).filter((c) => c.by === by && touched.has(c.blockId)).map((c) => c.id);
-  return { applied: edits.length, changes: ids.length, ids, notFound, ambiguous };
+  return { applied: edits.length, changes: ids.length, ids, notFound, ambiguous, skipped };
 }

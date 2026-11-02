@@ -79,3 +79,10 @@ test('the standalone stdio package reports skipped parts the same way', () => {
   assert.ok(line('./mcp-tools.js'));
   assert.equal(line('../../mcp/src/index.js'), line('./mcp-tools.js'));
 });
+
+test('the standalone stdio package reports an edit_doc miss the same way', () => {
+  const src = (file) => readFileSync(new URL(file, import.meta.url), 'utf8');
+  const block = (file) => src(file).match(/const editMissMessage = [\s\S]*?\.join\('\\n'\);/)?.[0];
+  assert.ok(block('./mcp-tools.js'));
+  assert.equal(block('../../mcp/src/index.js'), block('./mcp-tools.js'));
+});

@@ -86,9 +86,10 @@ import { startReminders } from './reminders.js';
 import { dayIn, isZone, zoneOf } from './timezone.js';
 import { byJoinedFirst } from './spaces.js';
 import { ROLE_RANK, rankOf, canEdit, writePolicy, resolveApprover, untrusted, needsPerson, isPerson, pageSyncRole, mintAgentToken } from './approval.js';
-import { draftEdit, draftToRead, editMiss, lossyRefusal } from './ai-drafts.js';
+import { draftEdit, draftToRead, lossyRefusal } from './ai-drafts.js';
+import { registerDocEditRoutes } from './doc-edits.js';
 import { listSuggestions } from './inline-suggest.js';
-import { suggestEdits, suggestMarkdown } from './suggest-writer.js';
+import { suggestMarkdown } from './suggest-writer.js';
 import OpenAI from 'openai';
 
 process.on('unhandledRejection', (e) => console.error('[proc] unhandledRejection', e?.message || e));
@@ -1374,54 +1375,11 @@ app.post('/api/docs/:id/content', requireUser, wrap(async (req, res) => {
   res.json({ ok: true, ...(unresolved.length ? { unresolvedLinks: [...new Set(unresolved)] } : {}) });
 }));
 
-// Targeted edits (edit_doc): `{ edits: [{ find, replace, occurrence?, under? }] }`,
-// each replacing one passage of text inside one block (suggest-writer.js
-// suggestEdits). Decided like /content: a reviewed writer's edits become
-// suggestions (or go into their open legacy draft); a trusted writer's land
-// directly, through the same live connection. They touch only what they
-// match, so a page markdown cannot fully carry still takes them. All or
-// nothing: a find missing or found more than once is a 409 and nothing changes.
-app.post('/api/docs/:id/edits', requireUser, wrap(async (req, res) => {
-  const docId = req.params.id;
-  if (!(await editGrant(docId, req.user.id))) return res.status(403).json({ error: 'forbidden' });
-  const raw = req.body?.edits;
-  if (!Array.isArray(raw) || !raw.length || raw.length > 100) {
-    return res.status(400).json({ error: 'edits must be a list of 1 to 100 { find, replace }' });
-  }
-  const edits = raw.map((e) => ({
-    find: String(e?.find ?? ''),
-    replace: String(e?.replace ?? ''),
-    ...(Number.isInteger(e?.occurrence) && e.occurrence > 0 ? { occurrence: e.occurrence } : {}),
-    ...(e?.under ? { under: String(e.under) } : {}),
-  }));
-  if (edits.some((e) => !e.find)) return res.status(400).json({ error: 'every edit needs a non-empty find' });
-  const d = await pool.query('SELECT title, kind FROM docs WHERE id = $1 AND deleted_at IS NULL', [docId]);
-  if (!d.rows[0]) return res.status(404).json({ error: 'not found' });
-
-  const drafted = await draftWrite(req, docId, d.rows[0], { edits });
-  if (drafted) return res.status(drafted.status).json(drafted.body);
-
-  let out;
-  let state;
-  const conn = await hocuspocus.openDirectConnection(docId, { docId, user: req.user });
-  try {
-    await conn.transact((doc) => {
-      out = suggestEdits({ doc, edits, by: req.user.id, direct: true });
-      state = Buffer.from(Y.encodeStateAsUpdate(doc));
-    });
-  } finally {
-    await conn.disconnect();
-  }
-  const miss = editMiss(out);
-  if (miss) return res.status(409).json(miss);
-  // As /content: a headless write refreshes the search text and links itself.
-  try {
-    const { text } = extractText(state);
-    await pool.query('UPDATE docs SET search_text = $1, updated_at = now(), updated_by = $3, updated_via = $4 WHERE id = $2', [text.slice(0, 100000), docId, req.user.id, req.via]);
-  } catch { /* an odd state still saves; only the search text goes stale */ }
-  await storeLinks(docId, pageLinksOf(state));
-  res.json({ ok: true, applied: out.applied });
-}));
+registerDocEditRoutes(app, {
+  requireUser, wrap, editGrant, pool, draftWrite, storeLinks,
+  // The sync server is built further down; the route only reaches it per request.
+  getHocuspocus: () => hocuspocus,
+});
 
 // ── slides ──────────────────────────────────────────────────────────────────
 // A deck is a page whose canvas holds frames (blocks.js Slides). Writes go
