@@ -117,8 +117,7 @@ function reconcileBlocks(w, children, newIds) {
       } else if (reticked(w, old[i], newIds[j])) {
         // R13: a tick cannot be a mark, so the item is removed and added as
         // ticked, under one id: one card, accepted or rejected as one.
-        after = removeBlock(w, children, old[i]) ?? after;
-        after = addBlock(w, children, after, newIds[j], sugg(live.get(old[i])));
+        after = retick(w, children, after, old[i], newIds[j]);
       } else break;
       i++; j++;
     }
@@ -176,6 +175,42 @@ function reticked(w, oid, nid) {
   const o = w.live.get(oid), nb = w.scratch.get(nid);
   return !w.direct && !sugg(o) && o.get('sys:flavour') === 'affine:list' && nb.get('sys:flavour') === 'affine:list'
     && checkedOf(o) !== checkedOf(nb);
+}
+
+/**
+ * The re-ticked copy starts from the old item's text, everyone else's pending
+ * runs included, so they survive whichever of the two blocks is kept (both
+ * carry the same ids, and a decision applies to both). The writer's own runs
+ * in the old item are withdrawn first; their text change is then written into
+ * the copy as plain text, since the copy as a whole is their suggestion.
+ */
+function retick(w, children, after, oid, nid) {
+  const o = w.live.get(oid);
+  const t = o.get('prop:text');
+  if (t instanceof Y.Text) withdrawOwn(w, t);
+  const id = addBlock(w, children, removeBlock(w, children, oid) ?? after, nid, sugg(o));
+  const nt = w.live.get(id).get('prop:text');
+  const src = w.scratch.get(nid).get('prop:text');
+  if (t instanceof Y.Text && nt instanceof Y.Text && src instanceof Y.Text) {
+    nt.delete(0, nt.length);
+    nt.applyDelta(t.toDelta(), { sanitize: false });
+    reconcileText({ ...w, by: null, direct: true }, nt, src);
+  }
+  return id;
+}
+
+/** Take back the writer's own inline suggestions in `t`: insertions go, deletions stay as text. */
+function withdrawOwn(w, t) {
+  let at = 0;
+  const runs = [];
+  for (const op of t.toDelta()) {
+    const len = typeof op.insert === 'string' ? op.insert.length : 1;
+    if (own(w, op.attributes?.[KEY])) runs.push({ at, len, ins: op.attributes[KEY].kind === 'ins' });
+    at += len;
+  }
+  for (const r of runs.reverse()) {
+    if (r.ins) t.delete(r.at, r.len); else t.format(r.at, r.len, { [KEY]: null });
+  }
 }
 
 function pairBlocks(w, oid, nid) {

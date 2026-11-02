@@ -89,8 +89,15 @@ export function listSuggestions(store: StoreLike): SuggestionCard[] {
     if (s.via) c.via = s.via;
     return c;
   };
-  for (const m of ordered(store)) {
-    for (const { s, text } of runsOf(m.text)) {
+  const models = ordered(store);
+  // A remove and an add under one id (a re-ticked item) carry the same inline
+  // runs; they are listed once, from the block being replaced (as the server).
+  const marks = models.map(blockSugg).filter((bs) => bs?.id);
+  const paired = new Set(marks.filter((bs) => bs!.kind === 'add' && marks.some((r) => r!.kind === 'remove' && r!.id === bs!.id)).map((bs) => bs!.id));
+  for (const m of models) {
+    const own = blockSugg(m);
+    const runs = own?.kind === 'add' && paired.has(own.id) ? [] : runsOf(m.text);
+    for (const { s, text } of runs) {
       const c = card(s, m.id, s.kind === 'del' ? 'delete' : 'insert');
       if (s.kind === 'del') c.before += text; else c.after += text;
       if ((s.kind === 'del' && c.after) || (s.kind === 'ins' && c.before)) c.kind = 'replace';

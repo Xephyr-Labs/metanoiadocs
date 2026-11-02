@@ -285,3 +285,34 @@ test('direct: editing a block someone suggested removing or retyping keeps their
   assert.deepEqual(listSuggestions(doc).map((c) => [c.id, c.kind]), [['u2-rm', 'remove'], ['u2-ty', 'type']]);
   assert.equal(h.get('prop:type'), 'h3');
 });
+
+test('R13: a tick keeps another user\'s pending ins and del inside the item, whichever way it is decided', () => {
+  for (const verdict of ['accept', 'reject']) {
+    const doc = page('- [ ] open task\n- [ ] other\n');
+    const t = texts(doc).find((x) => x.toString() === 'open task');
+    t.insert(0, 'big ', { mnSugg: { id: 'u2-ins', kind: 'ins', by: 'u2', at: 1 } });
+    t.format(9, 4, { mnSugg: { id: 'u2-del', kind: 'del', by: 'u2', at: 1 } }); // "task"
+    const theirs = cards(doc);
+    assert.deepEqual(theirs.map((c) => [c.kind, c.before, c.after]), [['insert', '', 'big '], ['delete', 'task', '']]);
+    const { ids } = write(doc, read(doc, 'andy').replace('- [ ] open', '- [x] open'));
+    assert.equal(ids.length, 1);
+    assert.deepEqual(cards(doc).filter((c) => c.by === 'u2'), theirs, 'listed once each while the tick is pending');
+    decide(doc, ids[0], verdict);
+    assert.deepEqual(cards(doc), theirs);
+    assert.equal(read(doc), `- [${verdict === 'accept' ? 'x' : ' '}] open task\n- [ ] other`);
+    assert.equal(decide(doc, 'u2-ins', 'accept'), true);
+    assert.equal(decide(doc, 'u2-del', 'accept'), true);
+    assert.equal(read(doc), `- [${verdict === 'accept' ? 'x' : ' '}] big open \n- [ ] other`); // "task" deleted, its space kept
+    assert.deepEqual(listSuggestions(doc), []);
+  }
+});
+
+test('R13: a tick withdraws the writer\'s own earlier text suggestion in that item into the new copy', () => {
+  const doc = page('- [ ] open task\n');
+  write(doc, '- [ ] open job\n');
+  const { ids } = write(doc, '- [x] open job\n');
+  assert.deepEqual(cards(doc).map((c) => [c.kind, c.before, c.after]), [['replace', 'open task', 'open job']]);
+  decide(doc, ids[0], 'reject');
+  assert.equal(read(doc, 'andy'), '- [ ] open task');
+  assert.deepEqual(listSuggestions(doc), []);
+});

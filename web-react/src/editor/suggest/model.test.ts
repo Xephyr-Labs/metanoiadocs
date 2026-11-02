@@ -120,6 +120,19 @@ describe('client suggestion model', () => {
     }
   });
 
+  it('runs a re-ticked pair both carry are listed once, from the replaced block (server R13)', () => {
+    const m = mk('big open', 'big open');
+    const [old, ticked] = m.ids;
+    for (const id of m.ids) m.yt(id).format(0, 4, { mnSugg: S('u2-ins', 'ins', 'u2') });
+    m.yb(old).set('prop:mnSugg', S('re', 'remove'));
+    m.yb(ticked).set('prop:mnSugg', S('re', 'add'));
+    const cards = listSuggestions(m.store);
+    expect(cards.map((x) => [x.id, x.kind, x.after])).toEqual([['u2-ins', 'insert', 'big '], ['re', 'replace', 'big open']]);
+    expect(cards[0].blockId).toBe(old);
+    decide(m.store, 're', 'accept');
+    expect(listSuggestions(m.store).map((x) => [x.id, x.after, x.blockId])).toEqual([['u2-ins', 'big ', ticked]]);
+  });
+
   it('decideAll counts and leaves no mnSugg; filters by author', () => {
     const m = abcd();
     m.yb(m.ids[0]).set('prop:mnSugg', S('add', 'add', 'u2'));

@@ -86,9 +86,15 @@ export function listSuggestions(doc) {
     if (s.via) c.via = s.via;
     return c;
   };
-  for (const [blockId, b] of orderedBlocks(doc)) {
+  const blocks = orderedBlocks(doc);
+  // A remove and an add under one id (a re-ticked item) carry the same inline
+  // runs; they are listed once, from the block being replaced.
+  const marks = blocks.map(([, b]) => b.get(BLOCK_KEY)).filter((bs) => bs?.id);
+  const paired = new Set(marks.filter((bs) => bs.kind === 'add' && marks.some((r) => r.kind === 'remove' && r.id === bs.id)).map((bs) => bs.id));
+  for (const [blockId, b] of blocks) {
     const t = textOf(b);
-    if (t) {
+    const bm = b.get(BLOCK_KEY);
+    if (t && !(bm?.kind === 'add' && paired.has(bm.id))) {
       for (const { s, text } of runsOf(t)) {
         const c = card(s, blockId, s.kind === 'del' ? 'delete' : 'insert');
         if (s.kind === 'del') c.before += text; else c.after += text;
