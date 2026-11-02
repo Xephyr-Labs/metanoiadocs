@@ -48,6 +48,7 @@ import { attachFileDrop } from './fileDrop';
 import { imageToolbarExtensions } from './imageToolbar';
 import { pageViewportExtension } from './pageViewport';
 import { attachCalloutPanels, calloutExtensions } from './callout';
+import { suggestInlineExtensions } from './suggest/inlineSpec';
 import { cancelVoiceNote, voiceNoteExtensions } from './voiceNote';
 import { closeTranscriptCard, voiceTranscriptExtensions } from './voiceTranscript';
 import { attachTextSize } from './textSize';
@@ -547,6 +548,10 @@ export async function mountEditor(
     // Panel colours are a property of the document, so a public viewer must see
     // them too; the toolbar they are set from never opens for them.
     ...calloutExtensions(),
+    // Suggested edits are a text attribute; without this BlockSuite strips it
+    // on the next edit. Overrides the paragraph's inline manager, so it stays
+    // after the view extensions. Everyone sees them, a public viewer included.
+    ...suggestInlineExtensions(),
     ...voiceNoteExtensions(),
     ...voiceTranscriptExtensions(),
     noLinkedDocConvertCanvasExtension(),
