@@ -204,11 +204,19 @@ export async function draftEdit({ policy, kind, via, pageState, approver, pool, 
   }
   const miss = edits && editMiss(out);
   if (miss) return { status: 409, body: miss };
-  // The approver hears of each write once, however many changes it made, with
-  // a link to its first. Not an Ask AI asker, who approves their own ask.
-  if (out.changes && out.ids.length && who?.id !== authorId) {
-    try { await notify({ userId: who?.id ?? null, kind: 'page_suggestion', docId, suggestionId: out.ids[0] }); }
-    catch (e) { console.error('[notify] page suggestion:', e.message); }
+  // The approver hears of a write that made new suggestions, once, linking its
+  // first new one; a write that only reworks pending ones is not news. Like a
+  // person's (notifyPageSuggestions), once per writer per page per 10 minutes.
+  // Not an Ask AI asker, who approves their own ask.
+  if (out.fresh.length && who?.id !== authorId) {
+    try {
+      const { rows: recent } = await pool.query(
+        `SELECT 1 FROM notifications WHERE doc_id = $1 AND actor_id = $2 AND kind = 'page_suggestion'
+            AND created_at > now() - interval '10 minutes' LIMIT 1`,
+        [docId, authorId]
+      );
+      if (!recent.length) await notify({ userId: who?.id ?? null, kind: 'page_suggestion', docId, suggestionId: out.fresh[0] });
+    } catch (e) { console.error('[notify] page suggestion:', e.message); }
   }
   return {
     status: 200,

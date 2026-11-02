@@ -37,9 +37,10 @@ const kidsOf = (b) => {
  * while every pending suggestion stays where it is. Call inside the caller's
  * transaction so connected editors get it as one edit.
  *
- * @returns {{ changes: number, ids: string[], skipped?: {blockId: string, reason: string}[] }}
- *   the writer's pending suggestions this write leaves (replace: all of theirs on
- *   the page; append: the new ones), in page order; `skipped`: wishes not written (R14).
+ * @returns {{ changes: number, ids: string[], fresh: string[], skipped?: {blockId: string, reason: string}[] }}
+ *   ids: the writer's pending suggestions this write leaves (replace: all of theirs on
+ *   the page; append: the new ones), in page order; fresh: those this write made;
+ *   changes: how many this write made or changed; `skipped`: wishes not written (R14).
  */
 export function suggestMarkdown({ doc, markdown, mode = 'append', by, via, title = '', resolve, direct = false, at = Date.now() }) {
   const live = doc.getMap('blocks');
@@ -50,6 +51,7 @@ export function suggestMarkdown({ doc, markdown, mode = 'append', by, via, title
   const scratch = scratchDoc.getMap('blocks');
   const w = { live, scratch, by: direct ? null : by, via, at, direct, created: [], usedIds: new Set(), skipped: [] };
   const incoming = kidsOf(bodyNote(scratch)).filter((id) => keyOf(scratch, id, null) != null);
+  const was = direct ? null : cardsBy(doc, by);
   doc.transact(() => {
     let kids = note.get('sys:children');
     if (!(kids instanceof Y.Array)) { kids = new Y.Array(); note.set('sys:children', kids); }
@@ -60,9 +62,18 @@ export function suggestMarkdown({ doc, markdown, mode = 'append', by, via, title
       renumberLists(live, kids.toArray());
     }
   });
-  if (direct) return { changes: 0, ids: [] };
+  if (direct) return { changes: 0, ids: [], fresh: [] };
   const ids = mode === 'replace' ? listSuggestions(doc).filter((c) => c.by === by).map((c) => c.id) : w.created;
-  return { changes: ids.length, ids, ...(w.skipped.length ? { skipped: w.skipped } : {}) };
+  return { ...madeBy(doc, by, was, ids), ...(w.skipped.length ? { skipped: w.skipped } : {}) };
+}
+
+/** `by`'s suggestion cards on the page, by id, as JSON: what a write is compared against. */
+const cardsBy = (doc, by) => new Map(listSuggestions(doc).filter((c) => c.by === by).map((c) => [c.id, JSON.stringify(c)]));
+
+/** Of `ids` after a write: those it made (`fresh`) and how many it made or changed (`changes`), against `was` before it. */
+function madeBy(doc, by, was, ids) {
+  const now = cardsBy(doc, by);
+  return { changes: ids.filter((id) => was.get(id) !== now.get(id)).length, ids, fresh: ids.filter((id) => !was.has(id)) };
 }
 
 function mark(w, kind, keep = {}) {
@@ -491,7 +502,7 @@ function overlapped(t, src, by) {
  * uses, so only the edited passage changes; a code block, which cannot hold
  * marks (R7), is suggested removed with an edited copy added.
  *
- * @returns {{ applied: number, changes: number, ids: string[],
+ * @returns {{ applied: number, changes: number, ids: string[], fresh: string[],
  *   notFound: {edit: number, find: string, under?: string}[],
  *   ambiguous: {edit: number, find: string, matches: number}[],
  *   skipped: {edit: number, find: string, blockId: string, reason: string}[] }}
@@ -586,8 +597,9 @@ export function suggestEdits({ doc, edits, by, via, direct = false, at = Date.no
     }
     plans.push(plan);
   }
-  if (notFound.length || ambiguous.length || skipped.length) return { applied: 0, changes: 0, ids: [], notFound, ambiguous, skipped };
+  if (notFound.length || ambiguous.length || skipped.length) return { applied: 0, changes: 0, ids: [], fresh: [], notFound, ambiguous, skipped };
 
+  const was = direct ? null : cardsBy(doc, by);
   const touched = new Set();
   doc.transact(() => {
     for (const { e, inline, w: pw, next } of plans) {
@@ -604,5 +616,6 @@ export function suggestEdits({ doc, edits, by, via, direct = false, at = Date.no
     }
   });
   const ids = direct ? [] : listSuggestions(doc).filter((c) => c.by === by && touched.has(c.blockId)).map((c) => c.id);
-  return { applied: edits.length, changes: ids.length, ids, notFound, ambiguous, skipped };
+  const made = direct ? { changes: 0, ids, fresh: [] } : madeBy(doc, by, was, ids);
+  return { applied: edits.length, ...made, notFound, ambiguous, skipped };
 }

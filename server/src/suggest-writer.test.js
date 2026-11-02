@@ -33,7 +33,7 @@ test('replace with read_doc\'s own output changes nothing', () => {
   const doc = page(RICH);
   let out;
   assert.equal(updates(doc, () => { out = write(doc, read(doc, 'andy')); }), 0);
-  assert.deepEqual(out, { changes: 0, ids: [] });
+  assert.deepEqual(out, { changes: 0, ids: [], fresh: [] });
 });
 
 test('changing one word is one replace card, and the page reads as before for everyone else', () => {
@@ -65,7 +65,7 @@ test('writing the same thing twice touches nothing the second time', () => {
   const a = write(doc, 'The slow brown fox jumps.\n\nAdded.\n');
   let b;
   assert.equal(updates(doc, () => { b = write(doc, read(doc, 'andy')); }), 0);
-  assert.deepEqual(b, a);
+  assert.deepEqual(b, { changes: 0, ids: a.ids, fresh: [] }, 'same pending ids; this write made and changed none');
 });
 
 test('a second write that reverts a word withdraws the earlier suggestion', () => {

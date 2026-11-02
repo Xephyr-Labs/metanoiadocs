@@ -12,7 +12,11 @@ function world(md = 'Intro line.\n') {
   const page = docFromState(buildDocState('Plan', md));
   const rows = [];
   const pool = {
+    sent: [], // page_suggestion notifications: { docId, actor, at }
     async query(sql, p) {
+      if (/FROM notifications/.test(sql)) {
+        return { rows: this.sent.filter((n) => n.docId === p[0] && n.actor === p[1] && Date.now() - n.at < 600_000) };
+      }
       if (/^\s*SELECT/.test(sql)) {
         if (/WHERE id = \$1/.test(sql)) return { rows: rows.filter((r) => r.id === p[0]) };
         if (/writer_via IS NOT NULL/.test(sql)) {
@@ -157,11 +161,13 @@ test('a notify that throws synchronously does not fail the saved write', async (
 
 // ── draftEdit: what POST /api/docs/:id/content does with a write ──────────────
 
-const edit = (w, over) => draftEdit({
+// notify records what the real notifyUser inserts, so the 10-minute dedupe sees it.
+const edit = (w, { notify = async () => {}, ...over } = {}) => draftEdit({
   policy: 'suggest', kind: 'doc', via: 'human', pool: w.pool, hocuspocus: w.hocuspocus,
   pageState: async () => Buffer.from(Y.encodeStateAsUpdate(w.page)),
-  approver: async () => ({ id: 'owner', name: 'Olive' }), notify: async () => {},
+  approver: async () => ({ id: 'owner', name: 'Olive' }),
   docId: 'd1', title: 'Plan', authorId: 'ai', markdown: 'AI paragraph.\n', mode: 'append', ...over,
+  notify: async (n) => { w.pool.sent.push({ docId: n.docId, actor: over.authorId ?? 'ai', at: Date.now() }); return notify(n); },
 });
 
 test('a direct writer, a task page and an empty page all go straight to the page', async () => {
@@ -241,9 +247,33 @@ test('an agent edit with no approver is for any editor: notified once per write,
   assert.equal(w.rows.length, 0);
   const first = listSuggestions(w.page)[0].id;
   assert.deepEqual(notes, [{ userId: null, kind: 'page_suggestion', docId: 'd1', suggestionId: first }]);
+});
+
+test('only a write that makes new suggestions notifies, at most once per writer per page per 10 minutes', async () => {
+  const w = world('Intro line.\n');
+  const notes = [];
+  const notify = async (n) => { notes.push(n); };
+  const md = 'Intro sentence.\n\nAI paragraph.\n';
+  await edit(w, { approver: async () => null, notify, mode: 'replace', markdown: md });
+  assert.equal(notes.length, 1);
+  w.pool.sent.forEach((n) => { n.at -= 11 * 60_000; }); // the dedupe window has passed
+  // The same replace again: all of Andy's suggestions still pending, none new.
+  const again = await edit(w, { approver: async () => null, notify, mode: 'replace', markdown: md });
+  assert.equal(again.body.changes, 0, 'counts what this write made or changed, not what is pending');
+  assert.equal(notes.length, 1, 'a no-op write is not news');
+  // Reworking a pending suggestion changes it but makes nothing new.
+  const rework = await edit(w, { approver: async () => null, notify, mode: 'replace', markdown: 'Intro paragraph.\n\nAI paragraph.\n' });
+  assert.equal(rework.body.changes, 1);
+  assert.equal(notes.length, 1, 'a reworked suggestion is not news');
+  // Something new, outside the window: told, linking the new one.
+  const before = new Set(listSuggestions(w.page).map((c) => c.id));
   await edit(w, { approver: async () => null, notify, markdown: 'Another.\n' });
-  assert.equal(notes.length, 2, 'a second write is told too');
-  assert.notEqual(notes[1].suggestionId, first);
+  assert.equal(notes.length, 2);
+  assert.ok(!before.has(notes[1].suggestionId));
+  // Something new again, inside the window: deduped.
+  const third = await edit(w, { approver: async () => null, notify, markdown: 'And one more.\n' });
+  assert.equal(third.body.changes, 1);
+  assert.equal(notes.length, 2, 'inside 10 minutes of the last one');
 });
 
 test('a write that changes nothing says so and notifies no one', async () => {
