@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as Y from 'yjs';
 import { buildDocState } from './blocks.js';
-import { authorView, decide, decideAll, listSuggestions, newSuggestionsBy, pendingText } from './inline-suggest.js';
+import { authorView, creditedSuggestions, decide, decideAll, listSuggestions, newSuggestionsBy, pendingText } from './inline-suggest.js';
 
 const S = (id, kind, by = 'u1') => ({ id, kind, by, at: 1 });
 
@@ -104,7 +104,17 @@ test('decideAll counts and leaves no mnSugg; filters by author', () => {
   assert.equal(m.t.toString(), 'abc');
 });
 
-test('newSuggestionsBy: a person\'s new suggestions since the last look, by author, with the text they add', () => {
+/** The update `fn` makes to `doc`. */
+function updateOf(doc, fn) {
+  let u;
+  const l = (x) => { u = x; };
+  doc.on('update', l);
+  doc.transact(fn);
+  doc.off('update', l);
+  return u;
+}
+
+test('newSuggestionsBy: new suggestions credited to their own author, with the text they add', () => {
   const { doc, blocks, ids } = mk('Hello world', 'Second');
   const t = text(blocks, ids[0]);
   t.insert(5, ' big', { mnSugg: S('old', 'ins', 'p1') });
@@ -114,10 +124,46 @@ test('newSuggestionsBy: a person\'s new suggestions since the last look, by auth
   text(blocks, ids[1]).insert(0, 'X', { mnSugg: S('n3', 'ins', 'p2') });
   text(blocks, ids[1]).insert(0, 'AI', { mnSugg: { ...S('n4', 'ins', 'p1'), via: 'ai' } });
   text(blocks, ids[1]).insert(0, 'Y', { mnSugg: S('n5', 'ins', 'andy') });
-  const out = newSuggestionsBy(known, doc, new Set(['p1', 'p2']));
+  const credits = new Map([['old', 'p1'], ['n1', 'p1'], ['n2', 'p1'], ['n3', 'p2'], ['n4', 'p1'], ['n5', 'p1']]);
+  const out = newSuggestionsBy(known, doc, credits);
   assert.deepEqual([...out.keys()].sort(), ['p1', 'p2']);
-  assert.deepEqual(out.get('p1').ids, ['n1', 'n2'], 'not the old one, not an Ask AI one');
+  assert.deepEqual(out.get('p1').ids, ['n1', 'n2'], 'not the old one, not Ask AI, not one credited to someone else');
   assert.match(out.get('p1').text, /@sam/);
   assert.deepEqual(out.get('p2').ids, ['n3']);
-  assert.equal(newSuggestionsBy(null, doc, new Set(['p1'])).size, 0, 'no baseline: nothing is new');
+  assert.equal(newSuggestionsBy(null, doc, credits).size, 0, 'no baseline: nothing is new');
+});
+
+test('creditedSuggestions: only the ids a socket\'s own update writes with by = that user', () => {
+  const { doc, blocks, ids } = mk('Hello world', 'Second');
+  const t = text(blocks, ids[0]);
+  // A writes a suggestion claiming to be B's (inline insert and a del format), while B is active.
+  const fromA = updateOf(doc, () => {
+    t.insert(0, 'Fake ', { mnSugg: S('a1', 'ins', 'B') });
+    t.format(t.length - 5, 5, { mnSugg: S('a2', 'del', 'B') });
+  });
+  assert.deepEqual(creditedSuggestions(fromA, 'A'), []);
+  // (The caller passes the sending socket's user, so B is never asked about A's update.)
+  // B's own update is credited to B.
+  const fromB = updateOf(doc, () => { text(blocks, ids[1]).insert(0, 'Real ', { mnSugg: S('b1', 'ins', 'B') }); });
+  assert.deepEqual(creditedSuggestions(fromB, 'B'), ['b1']);
+  // Block level: a prop:mnSugg set on an existing block, and on a new block.
+  const blockA = updateOf(doc, () => { blocks.get(ids[0]).set('prop:mnSugg', S('k1', 'remove', 'B')); });
+  assert.deepEqual(creditedSuggestions(blockA, 'A'), []);
+  const blockB = updateOf(doc, () => {
+    blocks.get(ids[1]).set('prop:mnSugg', S('k2', 'remove', 'B'));
+    const nb = new Y.Map();
+    blocks.set('nb', nb);
+    nb.set('sys:flavour', 'affine:paragraph');
+    nb.set('prop:mnSugg', S('k3', 'add', 'B'));
+    const note = [...blocks.values()].find((b) => b.get('sys:children')?.toArray().includes(ids[1]));
+    note.get('sys:children').push(['nb']);
+  });
+  assert.deepEqual(creditedSuggestions(blockB, 'B').sort(), ['k2', 'k3']);
+  // End-to-end with the credits: A's spoof is never told as B; B's own is.
+  const known = new Set();
+  const credits = new Map([...creditedSuggestions(fromA, 'A'), ...creditedSuggestions(blockA, 'A')].map((id) => [id, 'A']));
+  for (const id of [...creditedSuggestions(fromB, 'B'), ...creditedSuggestions(blockB, 'B')]) credits.set(id, 'B');
+  const out = newSuggestionsBy(known, doc, credits);
+  assert.deepEqual([...out.keys()], ['B']);
+  assert.deepEqual(out.get('B').ids.sort(), ['b1', 'k2', 'k3']);
 });

@@ -88,7 +88,7 @@ import { byJoinedFirst } from './spaces.js';
 import { ROLE_RANK, rankOf, canEdit, writePolicy, resolveApprover, untrusted, needsPerson, isPerson, pageSyncRole, mintAgentToken } from './approval.js';
 import { draftEdit, draftToRead, lossyRefusal } from './ai-drafts.js';
 import { registerDocEditRoutes } from './doc-edits.js';
-import { listSuggestions, newSuggestionsBy } from './inline-suggest.js';
+import { creditedSuggestions, listSuggestions, newSuggestionsBy } from './inline-suggest.js';
 import { suggestMarkdown } from './suggest-writer.js';
 import OpenAI from 'openai';
 
@@ -3584,18 +3584,20 @@ const unsavedEditors = new Map(); // doc id -> Set of user ids
 
 // A person's inline suggestions are made in the browser and reach the server
 // only as Yjs updates, so a save is where they are noticed: the suggestions on
-// the page now, against the ids seen when it was loaded or last saved, made by
-// someone whose own connection changed it since (unsavedAuthors). That user id
-// comes from the session that authenticated the socket, so nobody can make the
-// page notify in someone else's name; server-side direct connections (agents,
-// Ask AI) carry no role here and notify on their own write path (ai-drafts.js).
+// the page now, against the ids seen when it was loaded or last saved. Each one
+// counts only when it was credited to its own author: an update from a socket
+// signed in as X credits the suggestion ids it writes with by = X
+// (creditedSuggestions), so nobody can make the page notify in someone else's
+// name by writing their id into a suggestion. Server-side direct connections
+// (agents, Ask AI) carry no role here and notify on their own write path
+// (ai-drafts.js).
 const knownSuggestions = new Map(); // doc id -> Set of suggestion ids
-const unsavedAuthors = new Map(); // doc id -> Set of user ids
+const suggestionCredits = new Map(); // doc id -> Map of suggestion id -> user id, since the last save
 
 /** Tell the page's owner, and anyone @mentioned in what they add, of a
  *  person's new inline suggestions: once per author per page per 10 minutes. */
-async function notifyPageSuggestions(docId, doc, authors) {
-  const fresh = newSuggestionsBy(knownSuggestions.get(docId) ?? null, doc, authors);
+async function notifyPageSuggestions(docId, doc, credits) {
+  const fresh = newSuggestionsBy(knownSuggestions.get(docId) ?? null, doc, credits);
   knownSuggestions.set(docId, new Set(listSuggestions(doc).map((c) => c.id)));
   for (const [by, { ids, text }] of fresh) {
     const { rows: [actor] } = await pool.query('SELECT id, name, email, kind FROM users WHERE id = $1', [by]);
@@ -3644,14 +3646,17 @@ const hocuspocus = new Hocuspocus({
       },
       async afterUnloadDocument({ documentName }) {
         knownSuggestions.delete(documentName);
-        unsavedAuthors.delete(documentName);
+        suggestionCredits.delete(documentName);
       },
-      async onChange({ context, documentName }) {
-        // Any signed-in role's own socket (a direct connection has no role).
+      async onChange({ context, documentName, update }) {
+        // Any signed-in role's own socket (a direct connection has no role):
+        // the suggestions this very update writes as theirs.
         const by = context?.user?.id;
-        if (by && by !== 'public' && context.role && !parseDraftName(documentName)) {
-          if (!unsavedAuthors.has(documentName)) unsavedAuthors.set(documentName, new Set());
-          unsavedAuthors.get(documentName).add(by);
+        if (by && by !== 'public' && context.role && update && !parseDraftName(documentName)) {
+          let ids = [];
+          try { ids = creditedSuggestions(update, by); } catch { /* not ours to judge: the sync layer's */ }
+          if (ids.length && !suggestionCredits.has(documentName)) suggestionCredits.set(documentName, new Map());
+          for (const sid of ids) suggestionCredits.get(documentName).set(sid, by);
         }
         // A Suggesting-mode draft is not the page: its author is credited if
         // and when a reviewer accepts what they wrote. Server-side direct
@@ -3725,10 +3730,11 @@ const hocuspocus = new Hocuspocus({
         );
         notifyDocMentions(documentName, buf, actor).catch((err) =>
           console.error('[notify] doc mention:', err.message));
-        const authors = unsavedAuthors.get(documentName);
-        unsavedAuthors.delete(documentName);
-        if (authors) {
-          notifyPageSuggestions(documentName, document, authors).catch((err) =>
+        // Credits are used up by this save, whatever it finds.
+        const credits = suggestionCredits.get(documentName);
+        suggestionCredits.delete(documentName);
+        if (credits) {
+          notifyPageSuggestions(documentName, document, credits).catch((err) =>
             console.error('[notify] page suggestion:', err.message));
         }
         // Auto-snapshot a version at most once per ~8 min of active editing, so

@@ -123,16 +123,36 @@ export function listSuggestions(doc) {
 }
 
 /**
+ * The suggestion ids a Yjs `update` writes with `by === userId`: the `mnSugg`
+ * of text it inserts or formats (Y.Text keeps attributes as format items) and
+ * the `prop:mnSugg` it sets on blocks. Whoever sent the update is the only
+ * user its suggestions may be credited to (the update's mnSugg.by alone is
+ * whatever the sender wrote there).
+ */
+export function creditedSuggestions(update, userId) {
+  const ids = new Set();
+  for (const item of Y.decodeUpdate(update).structs) {
+    const c = item.content;
+    let v;
+    if (c instanceof Y.ContentFormat && c.key === KEY) v = c.value;
+    else if (item.parentSub === BLOCK_KEY && c instanceof Y.ContentAny) v = c.arr[0];
+    if (v?.id && v.by === userId) ids.add(v.id);
+  }
+  return [...ids];
+}
+
+/**
  * The suggestions in `doc` that are not in `known` (ids seen at the last look)
- * and were made by one of `authors` themselves — not Ask AI on their behalf,
+ * and whose id `credits` (id -> user, from creditedSuggestions) gives to their
+ * own `by` — so only what an author's own socket wrote; not Ask AI on their behalf,
  * which notifies its own way. Keyed by author: { ids, text } with `text` what
  * they add (where @mentions are looked for). Empty without a baseline.
  */
-export function newSuggestionsBy(known, doc, authors) {
+export function newSuggestionsBy(known, doc, credits) {
   const out = new Map();
   if (!known) return out;
   for (const c of listSuggestions(doc)) {
-    if (known.has(c.id) || c.via || !authors.has(c.by)) continue;
+    if (known.has(c.id) || c.via || credits.get(c.id) !== c.by) continue;
     const e = out.get(c.by) ?? { ids: [], text: '' };
     e.ids.push(c.id);
     e.text += ` ${c.after}`;
