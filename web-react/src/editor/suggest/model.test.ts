@@ -105,6 +105,21 @@ describe('client suggestion model', () => {
     expect(n.store.getBlock(n.noteId)!.model.children).toHaveLength(0);
   });
 
+  it('a block removed and one added under one id is one replace, decided as a unit (server R13)', () => {
+    for (const verdict of ['accept', 'reject'] as const) {
+      const m = mk('open task', 'open task', 'other');
+      const [old, ticked] = m.ids;
+      m.yb(old).set('prop:mnSugg', S('re', 'remove'));
+      m.yb(ticked).set('prop:mnSugg', S('re', 'add'));
+      const cards = listSuggestions(m.store);
+      expect(cards.map((x) => [x.id, x.kind, x.before, x.after])).toEqual([['re', 'replace', 'open task', 'open task']]);
+      expect(decide(m.store, 're', verdict)).toBe(true);
+      expect(!!m.store.getBlock(old)).toBe(verdict === 'reject');
+      expect(!!m.store.getBlock(ticked)).toBe(verdict === 'accept');
+      expect(listSuggestions(m.store)).toEqual([]);
+    }
+  });
+
   it('decideAll counts and leaves no mnSugg; filters by author', () => {
     const m = abcd();
     m.yb(m.ids[0]).set('prop:mnSugg', S('add', 'add', 'u2'));
