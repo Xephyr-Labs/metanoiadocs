@@ -90,6 +90,7 @@ import { draftEdit, draftToRead, lossyRefusal } from './ai-drafts.js';
 import { registerDocEditRoutes } from './doc-edits.js';
 import { creditedSuggestions, listSuggestions, newSuggestionsBy } from './inline-suggest.js';
 import { suggestMarkdown } from './suggest-writer.js';
+import { suggestGuard } from './suggest-guard.js';
 import OpenAI from 'openai';
 
 process.on('unhandledRejection', (e) => console.error('[proc] unhandledRejection', e?.message || e));
@@ -3574,6 +3575,11 @@ app.use((err, req, res, next) => {
 // The role a draft's own author connects with: the one person who may write
 // to that draft, whatever their role on the page itself.
 const DRAFT_AUTHOR = 'draft-author';
+// A person whose grant on the page is suggest-only (pageSyncRole). Their
+// connection writes to the live page, but every update they send is checked by
+// suggest-guard.js first (suggestGuard, below) and refused unless it only
+// suggests, as themselves.
+const SUGGESTER = 'suggester';
 
 // Who changed each open page since its last save. A save carries the context of
 // only the last connection to send an update, so two people typing in the same
@@ -3632,6 +3638,8 @@ async function notifyPageSuggestions(docId, doc, credits) {
 
 const hocuspocus = new Hocuspocus({
   extensions: [
+    // Checks every update a suggester's connection sends before it applies.
+    suggestGuard(SUGGESTER),
     {
       // Read-only is enforced by the sync server, not by trusting the client to
       // set its store readonly: an update from a connection that can't edit is
@@ -3643,7 +3651,7 @@ const hocuspocus = new Hocuspocus({
         // already in memory, so on its own it let a connection reach any page
         // someone else had open — and write to it with this one's role.
         if (context?.docId && documentName !== context.docId) throw new Error('document mismatch');
-        if (context?.role !== DRAFT_AUTHOR && !canEdit(context?.role)) connection.readOnly = true;
+        if (context?.role !== DRAFT_AUTHOR && context?.role !== SUGGESTER && !canEdit(context?.role)) connection.readOnly = true;
       },
       // What a page's suggestions were when it was loaded: the baseline the
       // first save compares against (notifyPageSuggestions).
@@ -3704,10 +3712,12 @@ const hocuspocus = new Hocuspocus({
       store: async ({ documentName, state, context, document }) => {
         // Read-only viewers (public share links, or a 'viewer' doc_access grant)
         // must never persist edits — enforce server-side, not just client-side.
-        // The same for every role that can't edit (commenter, suggester) —
-        // their connections are read-only below, and this is the second lock.
+        // The same for every role that can't edit (commenter) — their
+        // connections are read-only above, and this is the second lock.
         // Server-side direct connections carry no role and always persist.
-        if (context?.role && !canEdit(context.role) && context.role !== DRAFT_AUTHOR) return;
+        // A suggester's updates passed suggest-guard before they applied, so
+        // they are stored like anyone's.
+        if (context?.role && !canEdit(context.role) && context.role !== DRAFT_AUTHOR && context.role !== SUGGESTER) return;
         // Refuse to persist to any doc other than the one this connection was
         // authorized for at the WS upgrade.
         if (context?.docId && documentName !== context.docId) return;
@@ -3733,7 +3743,8 @@ const hocuspocus = new Hocuspocus({
         if (editors) await recordDocEditors(documentName, [...editors]);
         // Record who saved, so the activity feed can attribute a plain edit.
         // 'public' is the share-link guest — not a real user row.
-        const actor = context?.user?.id && context.user.id !== 'public' ? context.user.id : null;
+        // A suggester only suggested: the page's last editor stays who it was.
+        const actor = context?.user?.id && context.user.id !== 'public' && context.role !== SUGGESTER ? context.user.id : null;
         await pool.query(
           'UPDATE docs SET updated_at = now(), updated_by = coalesce($2, updated_by) WHERE id = $1',
           [documentName, actor]
