@@ -392,16 +392,28 @@ function fallbackParent(blocks) {
   return childrenOf(blocks.get(pageId)).find((k) => blocks.get(k)?.get?.('sys:flavour') === 'affine:note') ?? null;
 }
 
+/** Whether a block carries someone's pending inline suggestion: a block mark, or a marked run in its text. */
+function holdsPending(block) {
+  if (!(block instanceof Y.Map)) return false;
+  if (block.get('prop:mnSugg')) return true;
+  const t = block.get('prop:text');
+  return t instanceof Y.Text && t.toDelta().some((op) => op.attributes?.mnSugg);
+}
+
 /**
  * Apply one change (from computeChanges) to `mainDoc`. Call inside a
  * transaction on the live page. Returns false when there is nothing it can do
- * (the block it edits was deleted from the page meanwhile).
+ * (the block it edits was deleted from the page meanwhile), or when the block
+ * it would rewrite or remove holds a pending inline suggestion: syncText
+ * rewrites text without the marks, so accepting would wipe it (as
+ * applyTextSuggestion's overlapsPending, the change is skipped instead).
  */
 export function applyChange(mainDoc, draftDoc, baseDoc, change) {
   const main = mainDoc.getMap('blocks');
   const draft = draftDoc.getMap('blocks');
   const base = baseDoc.getMap('blocks');
   const { id } = change;
+  if ((change.kind === 'removed' || change.kind === 'modified') && holdsPending(main.get(id))) return false;
 
   if (change.kind === 'removed') {
     // Only the block itself goes. Whatever sits inside it on the page now —

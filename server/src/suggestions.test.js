@@ -512,3 +512,35 @@ test('GET /api/docs/:id/inline-suggestions: the live page\'s pending cards with 
   role = null;
   assert.equal((await get()).status, 403);
 });
+
+test('accepting a legacy draft change skips a block holding a newer inline suggestion, instead of wiping it', () => {
+  const { base, draft, main } = fork('Hello world, again.\n\nSecond.\n');
+  const baseDoc = docFromState(base);
+  // The legacy draft changes the last character of each paragraph.
+  textBlock(draft, 'Hello world, again.').text.delete(18, 1);
+  textBlock(draft, 'Hello world, again').text.insert(18, '!');
+  textBlock(draft, 'Second.').text.insert(6, ' line');
+  // Since then, Maya suggested inline on the live page, in the first paragraph only.
+  const t = textBlock(main, 'Hello world, again.').text;
+  t.insert(5, ' brave', { mnSugg: { id: 's1', kind: 'ins', by: 'maya', at: 1 } });
+  t.format(19, 6, { mnSugg: { id: 's2', kind: 'del', by: 'maya', at: 1 } });
+  const before = JSON.stringify(t.toDelta());
+  const changes = computeChanges(baseDoc, draft, main);
+  const results = changes.map((c) => [c.before, applyChange(main, draft, baseDoc, c)]);
+  assert.deepEqual(results.sort(), [['Hello world, again.', false], ['Second.', true]]);
+  assert.equal(JSON.stringify(t.toDelta()), before, 'Maya\'s suggestions are exactly as they were');
+  assert.ok(textBlock(main, 'Second line.'), 'the other change still applies');
+  // A block marked whole (an add, a remove, a type) is held the same way, removal included.
+  const f = fork('One.\n\nTwo.\n');
+  const two = textBlock(f.main, 'Two.');
+  two.block.set('prop:mnSugg', { id: 's3', kind: 'type', by: 'maya', at: 1, from: { flavour: 'affine:paragraph', type: 'text' } });
+  const dTwo = textBlock(f.draft, 'Two.');
+  for (const [, b] of f.draft.getMap('blocks')) {
+    const kids = b.get('sys:children');
+    if (kids instanceof Y.Array && kids.toArray().includes(dTwo.id)) kids.delete(kids.toArray().indexOf(dTwo.id), 1);
+  }
+  f.draft.getMap('blocks').delete(dTwo.id);
+  const removed = computeChanges(docFromState(f.base), f.draft, f.main).find((c) => c.kind === 'removed');
+  assert.equal(applyChange(f.main, f.draft, docFromState(f.base), removed), false);
+  assert.ok(textBlock(f.main, 'Two.'));
+});
