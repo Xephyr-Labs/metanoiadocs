@@ -31,6 +31,8 @@ import { KindIcon } from './TaskChip';
 import { PropertyCell } from './props/PropertyCell';
 import { TaskAgents } from './TaskAgents';
 import { TaskComments } from './TaskComments';
+import { CommentsTab } from '../panel/CommentsTab';
+import { onCommentRequest, useOpenCommentCount } from '../../editor/comments';
 
 interface Props {
   task: TaskRow | null;
@@ -166,6 +168,20 @@ export function TaskPeek({
   const [detail, setDetail] = useState<TaskDetail | null>(null);
   // The notes editor, once mounted: the formatting bar above it drives it.
   const [notesEl, setNotesEl] = useState<Element | null>(null);
+  // Comments on a passage of the page. The side panel that takes them on a
+  // page of its own isn't shown beside a board, so the peek holds them itself.
+  const [pageComments, setPageComments] = useState(false);
+  const pageCommentsRef = useRef<HTMLElement>(null);
+  const openThreads = useOpenCommentCount();
+  useEffect(() => {
+    setPageComments(false);
+    if (!docId) return;
+    return onCommentRequest((id) => {
+      if (id !== docId) return;
+      setPageComments(true);
+      requestAnimationFrame(() => pageCommentsRef.current?.scrollIntoView({ block: 'start' }));
+    });
+  }, [docId]);
   // A task's page is a page like any other, so it can be filed in a folder
   // straight from here rather than being hunted down in the sidebar first.
   const moveTo = useMoveToFolder(docId);
@@ -619,6 +635,13 @@ export function TaskPeek({
             </div>
           )}
         </section>
+
+        {docId && (pageComments || openThreads > 0) && (
+          <section ref={pageCommentsRef} className="border-t border-line">
+            <h3 className="px-4 pt-3 text-2xs font-semibold uppercase text-muted">On the page</h3>
+            <CommentsTab docId={docId} withTask={false} />
+          </section>
+        )}
       </div>
 
       <footer className="flex shrink-0 items-center gap-3 border-t border-line px-3 py-2.5">

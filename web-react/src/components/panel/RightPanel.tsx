@@ -30,7 +30,8 @@ export function RightPanel() {
   const isMobile = useMediaQuery('(max-width: 767px)');
 
   // The editor's floating "Comment" button lands here: open the comments tab.
-  useEffect(() => onCommentRequest(() => ws.setRightPanel('comments')), [ws]);
+  // Only for the page this panel is about — a task peek over it answers its own.
+  useEffect(() => onCommentRequest((id) => { if (id === ws.currentId) ws.setRightPanel('comments'); }), [ws]);
 
   return (
     <AnimatePresence>
