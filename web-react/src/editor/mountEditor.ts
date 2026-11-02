@@ -292,8 +292,9 @@ export async function mountEditor(
       });
 
   // Yjs cannot un-send a refused edit, so drop the local copy and start again
-  // from the server's state. Only on the server's own 4403 close after the
-  // notice: any peer can relay a stateless message, but not close our socket.
+  // from the server's state. Only on the server's 4403 close after its notice:
+  // only the server sends stateless messages (noClientBroadcast, R18), and the
+  // close is what makes the reload safe to do.
   let refused = false;
   provider?.on('close', ({ event }: { event: { code?: number } }) => {
     if (refused && event?.code === 4403) void (idb?.clearData() ?? Promise.resolve()).finally(() => location.reload());
