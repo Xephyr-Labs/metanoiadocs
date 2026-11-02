@@ -128,16 +128,26 @@ export function listSuggestions(doc) {
  * the `prop:mnSugg` it sets on blocks. Whoever sent the update is the only
  * user its suggestions may be credited to (the update's mnSugg.by alone is
  * whatever the sender wrote there).
+ *
+ * `seen` (per doc, kept until it unloads) holds every id any earlier update
+ * mentioned: the first update to mention an id decides it. Typing or formatting
+ * beside or inside a run makes Yjs write a closing format item restoring the
+ * neighbouring attribute, so B's own update can carry someone else's run — a
+ * spoof by A claiming to be B's, too. Every id here is added to `seen`.
  */
-export function creditedSuggestions(update, userId) {
+export function creditedSuggestions(update, userId, seen = new Set()) {
   const ids = new Set();
+  const mentioned = new Set();
   for (const item of Y.decodeUpdate(update).structs) {
     const c = item.content;
     let v;
     if (c instanceof Y.ContentFormat && c.key === KEY) v = c.value;
     else if (item.parentSub === BLOCK_KEY && c instanceof Y.ContentAny) v = c.arr[0];
-    if (v?.id && v.by === userId) ids.add(v.id);
+    if (!v?.id) continue;
+    mentioned.add(v.id);
+    if (userId && v.by === userId && !seen.has(v.id)) ids.add(v.id);
   }
+  for (const id of mentioned) seen.add(id);
   return [...ids];
 }
 

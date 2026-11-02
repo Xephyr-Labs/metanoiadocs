@@ -3593,6 +3593,12 @@ const unsavedEditors = new Map(); // doc id -> Set of user ids
 // (ai-drafts.js).
 const knownSuggestions = new Map(); // doc id -> Set of suggestion ids
 const suggestionCredits = new Map(); // doc id -> Map of suggestion id -> user id, since the last save
+// Every suggestion id any update to an open doc has mentioned, whoever sent it:
+// the first update to mention an id decides its credit (creditedSuggestions).
+// Kept until the doc unloads, not cleared per save: a spoof credited to nobody
+// triggers no notify pass, so the ids it brings are not yet in knownSuggestions,
+// and a later closing format item in the real author's update could claim them.
+const seenSuggestions = new Map(); // doc id -> Set of suggestion ids
 
 /** Tell the page's owner, and anyone @mentioned in what they add, of a
  *  person's new inline suggestions: once per author per page per 10 minutes. */
@@ -3647,14 +3653,18 @@ const hocuspocus = new Hocuspocus({
       async afterUnloadDocument({ documentName }) {
         knownSuggestions.delete(documentName);
         suggestionCredits.delete(documentName);
+        seenSuggestions.delete(documentName);
       },
       async onChange({ context, documentName, update }) {
-        // Any signed-in role's own socket (a direct connection has no role):
-        // the suggestions this very update writes as theirs.
-        const by = context?.user?.id;
-        if (by && by !== 'public' && context.role && update && !parseDraftName(documentName)) {
+        // Every update's ids go into `seen`, a direct connection's too; only a
+        // signed-in role's own socket (a direct connection has no role) is
+        // credited with the suggestions this very update writes as theirs.
+        const user = context?.user?.id;
+        const by = user && user !== 'public' && context.role ? user : null;
+        if (update && !parseDraftName(documentName)) {
           let ids = [];
-          try { ids = creditedSuggestions(update, by); } catch { /* not ours to judge: the sync layer's */ }
+          if (!seenSuggestions.has(documentName)) seenSuggestions.set(documentName, new Set());
+          try { ids = creditedSuggestions(update, by, seenSuggestions.get(documentName)); } catch { /* not ours to judge: the sync layer's */ }
           if (ids.length && !suggestionCredits.has(documentName)) suggestionCredits.set(documentName, new Map());
           for (const sid of ids) suggestionCredits.get(documentName).set(sid, by);
         }

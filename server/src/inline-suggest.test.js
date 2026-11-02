@@ -167,3 +167,21 @@ test('creditedSuggestions: only the ids a socket\'s own update writes with by = 
   assert.deepEqual([...out.keys()], ['B']);
   assert.deepEqual(out.get('B').ids.sort(), ['b1', 'k2', 'k3']);
 });
+
+test('creditedSuggestions: the first update to mention an id decides it; a closing format item in B\'s update never claims A\'s spoof', () => {
+  const { doc, blocks, ids } = mk('Hello world', 'Second');
+  const t = text(blocks, ids[0]);
+  const seen = new Set();
+  const credits = new Map();
+  const send = (user, fn) => { for (const id of creditedSuggestions(updateOf(doc, fn), user, seen)) credits.set(id, user); };
+  const known = new Set(listSuggestions(doc).map((c) => c.id));
+  // A writes a run claiming to be B's.
+  send('A', () => { t.insert(5, ' spoof', { mnSugg: S('s1', 'ins', 'B') }); });
+  // B types right after it (its update closes s1's run), then marks a del inside it.
+  send('B', () => { t.insert(11, ' mine', { mnSugg: S('b1', 'ins', 'B') }); });
+  send('B', () => { t.format(7, 2, { mnSugg: S('b2', 'del', 'B') }); });
+  assert.ok(!credits.has('s1'), 's1 was claimed by A\'s update first');
+  const out = newSuggestionsBy(known, doc, credits);
+  assert.deepEqual([...out.keys()], ['B']);
+  assert.deepEqual(out.get('B').ids.sort(), ['b1', 'b2'], 'B\'s genuine ones still notify; s1 never does');
+});
