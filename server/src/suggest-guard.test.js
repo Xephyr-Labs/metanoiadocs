@@ -414,3 +414,83 @@ test('no type (or remove) mark on a database row (R12)', () => {
   no(edit(s, () => s.blocks.get('row1').set('prop:mnSugg', S('r1', 'remove'))));
   ok(edit(s, () => s.blocks.get('db1').set('prop:mnSugg', S('r2', 'remove')))); // the whole database
 });
+
+/** A block built on the client and synced to the server unchecked (a direct writer made it). */
+function seedBlock(s, id, flavour, parentId, props = {}) {
+  const up = [];
+  const h = (u) => up.push(u);
+  s.client.on('update', h);
+  s.client.transact(() => {
+    const b = new Y.Map();
+    s.blocks.set(id, b);
+    b.set('sys:id', id); b.set('sys:flavour', flavour); b.set('sys:version', 1);
+    b.set('sys:children', new Y.Array());
+    for (const [k, v] of Object.entries(props)) b.set(k, v);
+    s.blocks.get(parentId).get('sys:children').push([id]);
+  });
+  s.client.off('update', h);
+  Y.applyUpdate(s.server, Y.mergeUpdates(up));
+}
+
+// Every write the app or BlockSuite makes on its own (not as typed text) in a
+// suggester's writable editor on the live page: each is either allowed here, or
+// never sent, because the client gates it on noDirect (mountEditor.ts) or
+// directWritesOff (suggestingInput.ts). A write the guard refuses reloads the
+// suggester's tab and loses what they typed since the last sync.
+test('every auto-write on a suggester\'s page is either allowed or never sent', () => {
+  const columns = () => {
+    const s = setup('## Heading\n\nbody\n\n- item\n  - child\n');
+    seedBlock(s, 'row', 'metanoia:columns', s.nid);
+    seedBlock(s, 'col', 'metanoia:column', 'row', { 'prop:width': 0.5 });
+    seedBlock(s, 'inCol', 'affine:paragraph', 'col', { 'prop:type': 'text', 'prop:text': new Y.Text('in a column') });
+    seedBlock(s, 'call', 'affine:callout', s.nid, { 'prop:emoji': '!' });
+    seedBlock(s, 'inCall', 'affine:paragraph', 'call', { 'prop:type': 'text', 'prop:text': new Y.Text('in a callout') });
+    return s;
+  };
+  const heading = (s) => s.by('affine:paragraph')[1];
+  const allowed = {
+    // affine-block-paragraph paragraph-block.js updateCollapsed (heading fold toggle).
+    'fold a heading': (s) => heading(s).set('prop:collapsed', true),
+    // affine-block-list list-block.js toggle (a list item with children).
+    'fold a list item': (s) => s.list.set('prop:collapsed', true),
+    // suggestingInput.ts Enter at the end of a text block: a marked add beside it,
+    // under whatever holds it (addSuggestedBlock).
+    'Enter in a column': (s) => addBlock(s, 'inCol', S('a1', 'add'), 'affine:paragraph', 'col'),
+    'Enter in a callout': (s) => addBlock(s, 'inCall', S('a2', 'add'), 'affine:paragraph', 'call'),
+    'Enter in a nested list': (s) => addBlock(s, s.lid, S('a3', 'add'), 'affine:list', s.lid),
+  };
+  for (const [name, fn] of Object.entries(allowed)) {
+    const r = edit(columns(), fn);
+    assert.deepEqual(r, { ok: true }, `${name}: ${r.reason}`);
+  }
+  const plainBlock = (s, id, flavour, parentId) => {
+    const b = new Y.Map();
+    s.blocks.set(id, b);
+    b.set('sys:id', id); b.set('sys:flavour', flavour); b.set('sys:version', 1);
+    b.set('sys:children', new Y.Array());
+    if (flavour === 'affine:paragraph') b.set('prop:text', new Y.Text());
+    s.blocks.get(parentId).get('sys:children').push([id]);
+  };
+  const neverSent = {
+    // mountEditor.ts seeding an empty page, surface heal: `!noDirect` only.
+    'seed a page / heal the surface': (s) => plainBlock(s, 'surf', 'affine:surface', s.by('affine:page')[0]),
+    // mountEditor.ts title reconcile: `noDirect` returns early.
+    'reconcile the title': (s) => s.by('affine:page')[1].get('prop:title').insert(0, 'x'),
+    // blockGaps.ts openLine and focusDocEnd: an unmarked paragraph (directWritesOff).
+    'open a line under a card / click below the end': (s) => plainBlock(s, 'gap', 'affine:paragraph', s.nid),
+    // columns-attach.ts tidyColumns sweep and column drops: not attached for noDirect.
+    'tidy an emptied column row': (s) => {
+      const kids = s.note.get('sys:children');
+      kids.delete(kids.toArray().indexOf('row'), 1);
+      s.blocks.delete('row');
+    },
+    'resize a column': (s) => s.blocks.get('col').set('prop:width', 0.3),
+    // fileDrop.ts: not attached for noDirect.
+    'drop a file': (s) => plainBlock(s, 'img', 'affine:image', s.nid),
+  };
+  for (const [name, fn] of Object.entries(neverSent)) {
+    const r = edit(columns(), fn);
+    assert.equal(r.ok, false, name);
+    assert.doesNotMatch(r.reason, /unreadable/, name);
+  }
+});

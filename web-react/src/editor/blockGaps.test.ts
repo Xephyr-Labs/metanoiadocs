@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
-import { gapAt, type GapBlock } from './blockGaps';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { focusDocEnd, gapAt, NO_DIRECT_ATTR, type GapBlock } from './blockGaps';
+import { SUGGESTING_CLASS } from './suggest/suggestingInput';
 
 const block = (id: string, top: number, bottom: number, card = false): GapBlock =>
   ({ id, top, bottom, left: 0, right: 700, card });
@@ -34,5 +35,41 @@ describe('gapAt', () => {
 
   it('ignores a point outside the block horizontally', () => {
     expect(gapAt(page, 900, 130)).toBeNull();
+  });
+});
+
+describe('focusDocEnd: a click below a page that ends in a card', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  /** A page whose last block is an image, on a host inside `marks` (attributes up the tree) under <html> classes `html`. */
+  function page({ marks = [] as string[], html = [] as string[] } = {}) {
+    vi.stubGlobal('document', { documentElement: { classList: { contains: (c: string) => html.includes(c) } } });
+    vi.stubGlobal('requestAnimationFrame', () => 0);
+    const image = { id: 'img', flavour: 'affine:image', text: null, children: [] };
+    const note = { id: 'note', flavour: 'affine:note', children: [image] as unknown[] };
+    const addBlock = vi.fn(() => 'p1');
+    const drawn = { getBoundingClientRect: () => ({ bottom: 100 }), getClientRects: () => [1] };
+    const std = {
+      store: { readonly: false, root: { children: [note] }, addBlock, getModelById: () => ({ id: 'p1', text: { length: 0 } }) },
+      view: { getBlock: () => drawn },
+      selection: { create: () => ({}), setGroup: () => {} },
+      event: { active: false },
+    };
+    const host = { std, closest: (sel: string) => (marks.some((m) => sel === `[${m}]`) ? {} : null) };
+    const editor = { querySelector: () => host } as unknown as Element;
+    return { editor, addBlock };
+  }
+
+  it('an editor gets a new line there', () => {
+    const p = page();
+    expect(focusDocEnd(p.editor, 500)).toBe(true);
+    expect(p.addBlock).toHaveBeenCalledTimes(1);
+  });
+
+  it('a suggester (noDirect) or anyone in Suggesting mode does not: the unmarked line is never sent', () => {
+    for (const p of [page({ marks: [NO_DIRECT_ATTR] }), page({ html: [SUGGESTING_CLASS] })]) {
+      expect(focusDocEnd(p.editor, 500)).toBe(false);
+      expect(p.addBlock).not.toHaveBeenCalled();
+    }
   });
 });

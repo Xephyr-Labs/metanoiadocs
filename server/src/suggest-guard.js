@@ -16,6 +16,8 @@
 // - setting, changing or withdrawing my own `type` on a paragraph/list outside
 //   tables and databases (it may change flavour/type/checked in place, with
 //   `from` holding what it was: R13b, ticks included).
+// - folding or unfolding a heading or list item (prop:collapsed): view state
+//   BlockSuite's toggle writes straight to the block; it changes no content.
 // Text only in paragraph/list text outside tables and databases (R7, R12).
 import { isDeepStrictEqual } from 'node:util';
 import * as Y from 'yjs';
@@ -25,7 +27,11 @@ import { listSuggestions } from './inline-suggest.js';
 const KEY = 'mnSugg';
 const BLOCK_KEY = 'prop:mnSugg';
 const TEXT_FLAVOURS = new Set(['affine:paragraph', 'affine:list']);
-const CONTAINERS = new Set(['affine:note', 'affine:paragraph', 'affine:list', 'affine:callout']);
+// Where a paragraph or list item may be added: what their schemas name as a
+// parent (affine-model paragraph/list), plus the app's columns (columns-model.ts).
+// Not databases (NO_SUGGEST), nor the canvas-only edgeless-text and the unused
+// transcription block: Suggesting is page mode.
+const CONTAINERS = new Set(['affine:note', 'affine:paragraph', 'affine:list', 'affine:callout', 'metanoia:column']);
 const NO_SUGGEST = new Set(['affine:table', 'affine:database', 'metanoia:database']);
 const TYPE_KEYS = new Set(['sys:flavour', 'prop:type', 'prop:checked']);
 // Accepting a remove on these would drop the page's own structure.
@@ -145,6 +151,12 @@ function checkRemovedBlock(b, ctx) {
 
 /** Block-level marks on an existing block: my own `remove` or `type`, never anyone else's or an `add`. */
 function checkBlockMark(id, bb, ba, keys, ctx) {
+  if (keys.has('prop:collapsed')) {
+    // Shared view state, as an editor's fold is; refusing it reloaded the suggester's tab and lost their unsynced typing.
+    if (!TEXT_FLAVOURS.has(ba.get('sys:flavour')) || !['boolean', 'undefined'].includes(typeof ba.get('prop:collapsed'))) refuse('cannot change prop:collapsed');
+    keys = new Set([...keys].filter((k) => k !== 'prop:collapsed'));
+    if (!keys.size) return;
+  }
   for (const k of keys) if (k !== BLOCK_KEY && !TYPE_KEYS.has(k)) refuse(`cannot change ${k}`);
   const prev = bb.get(BLOCK_KEY);
   const next = ba.get(BLOCK_KEY);

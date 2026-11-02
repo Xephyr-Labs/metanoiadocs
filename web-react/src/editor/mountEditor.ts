@@ -41,7 +41,7 @@ import { blockLinkExtensions } from './blockLinks';
 import { socialEmbedExtensions } from './socialEmbeds';
 import { attachNoLinkedDocShortcut, dropDatabaseRowDoc, dropNewDocSlashItem, noLinkedDocConvertCanvasExtension } from './noLinkedDocConvert';
 import { attachImageAlign } from './imageAlign';
-import { attachBlockGaps } from './blockGaps';
+import { attachBlockGaps, NO_DIRECT_ATTR } from './blockGaps';
 import { attachTableFormat } from './tableFormat';
 import { attachTableDrag } from './tableDrag';
 import { attachSelectAll } from './selectAll';
@@ -681,14 +681,17 @@ export async function mountEditor(
 
   // Side-drop a block to make columns, plus the sweep that keeps a row from
   // stranding an empty column (see columns/columns-dnd.ts).
-  const detachColumns = attachColumns({
+  // Not for a suggester: its drops and sweeps are direct writes the server refuses.
+  const detachColumns = noDirect ? () => {} : attachColumns({
     editor,
     store: store as unknown as Parameters<typeof attachColumns>[0]['store'],
     onChange: (cb) => { doc.spaceDoc.on('update', cb); return () => doc.spaceDoc.off('update', cb); },
   });
 
   // A click in the gap above or below an image opens a line there, instead of
-  // sending the caret to the top of the page (see blockGaps.ts).
+  // sending the caret to the top of the page (see blockGaps.ts). Never for a
+  // suggester (NO_DIRECT_ATTR), whose server refuses the unmarked line.
+  root.toggleAttribute(NO_DIRECT_ATTR, noDirect);
   const detachBlockGaps = attachBlockGaps(editor as unknown as Parameters<typeof attachBlockGaps>[0]);
   // "Create Linked Doc" lost a page's text to a doc that was never saved
   // (noLinkedDocConvert.ts).
