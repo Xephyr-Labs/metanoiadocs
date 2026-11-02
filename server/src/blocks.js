@@ -1330,3 +1330,296 @@ export function stateWithValidTableKeys(state) {
   Y.applyUpdate(doc, new Uint8Array(state));
   return fixTableOrderKeys(doc) ? Buffer.from(Y.encodeStateAsUpdate(doc)) : state;
 }
+
+// ── Slides ──────────────────────────────────────────────────────────────────
+//
+// A slide is what web-react/src/editor/slides.ts addSlide() makes: an
+// affine:frame on the surface, 1600x900, a white sheet titled in prop:title,
+// with an affine:edgeless-text holding an h1 inside its bound and listed in the
+// frame's childElementIds. Slides sit in a row, 160 apart, ordered by
+// prop:presentationIndex. The props below are the 0.22.4 schema defaults the
+// editor writes for those two flavours, so a slide built here is the same
+// blocks as one made by the Slides button.
+
+export const SLIDE_W = 1600;
+export const SLIDE_H = 900;
+const SLIDE_GAP = 160;
+const TITLE_PAD = 110;
+const TITLE_H = 120;
+/** Top of the body box: under the title, inside the slide's margins. */
+const BODY_Y = TITLE_PAD + TITLE_H + 40;
+
+const DIGITS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+const intPart = (key) => {
+  const h = key.charCodeAt(0);
+  return key.slice(0, h >= 97 ? h - 97 + 2 : 90 - h + 2);
+};
+/** fractional-indexing's integer step, up (+1) or down (-1). */
+function stepInteger(x, dir) {
+  const [head, ...digs] = x;
+  const edge = dir > 0 ? 'z' : '0';
+  let i = digs.length - 1;
+  for (; i >= 0 && digs[i] === edge; i--) digs[i] = dir > 0 ? '0' : 'z';
+  if (i >= 0) {
+    digs[i] = DIGITS[DIGITS.indexOf(digs[i]) + dir];
+    return head + digs.join('');
+  }
+  // Carried out of the digits: the head moves and the integer grows or shrinks.
+  if (dir > 0 && head === 'Z') return 'a0';
+  if (dir < 0 && head === 'a') return 'Zz';
+  const h = String.fromCharCode(head.charCodeAt(0) + dir);
+  if (dir > 0 ? h > 'a' : h < 'Z') digs.push(dir > 0 ? '0' : 'z');
+  else digs.pop();
+  return h + digs.join('');
+}
+/** generateKeyBetween(a, null) and generateKeyBetween(null, b).
+ *  ponytail: no insert-between; slides are only ever appended. */
+export const keyAfter = (a) => (a ? stepInteger(intPart(a), 1) : 'a0');
+export const keyBefore = (b) => {
+  if (!b) return 'a0';
+  const ib = intPart(b);
+  return ib < b ? ib : stepInteger(ib, -1);
+};
+/** BlockSuite's generateKeyBetweenV2(last, null): an integer key, '0', 32 random chars. */
+function presentationKeyAfter(last) {
+  const sub = last && last.length > 33 ? last.slice(0, -33) : last;
+  const chars = '123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+  const tail = [...crypto.randomBytes(32)].map((n) => chars[n % chars.length]).join('');
+  return keyAfter(sub || null) + '0' + tail;
+}
+
+const xywhOf = (s) => {
+  try {
+    const a = JSON.parse(s);
+    return Array.isArray(a) && a.length === 4 && a.every(Number.isFinite) ? a : null;
+  } catch {
+    return null;
+  }
+};
+
+/** The page's surface, made if the page has none. */
+function surfaceOf(blocks) {
+  const found = [...blocks.values()].find((b) => b instanceof Y.Map && b.get('sys:flavour') === 'affine:surface');
+  if (found) return found;
+  const page = [...blocks.values()].find((b) => b instanceof Y.Map && b.get('sys:flavour') === 'affine:page');
+  if (!page) throw new Error('not a page');
+  const id = makeSurface(blocks);
+  page.get('sys:children').insert(0, [id]);
+  return blocks.get(id);
+}
+
+/** Every z-index (sorted) and bound on the canvas: notes, surface blocks, surface elements. */
+function canvasExtent(blocks, surface) {
+  const indexes = [];
+  const bounds = [];
+  const take = (index, xywh) => {
+    if (validOrderKey(index)) indexes.push(index);
+    const r = xywhOf(xywh);
+    if (r) bounds.push(r);
+  };
+  const onSurface = new Set(kidsOf(surface));
+  for (const [id, b] of blocks) {
+    if (b instanceof Y.Map && (b.get('sys:flavour') === 'affine:note' || onSurface.has(id))) {
+      take(b.get('prop:index'), b.get('prop:xywh'));
+    }
+  }
+  const els = surface.get('prop:elements');
+  const value = els instanceof Y.Map ? els.get('value') : null;
+  if (value instanceof Y.Map) for (const [, e] of value) if (e instanceof Y.Map) take(e.get('index'), e.get('xywh'));
+  indexes.sort();
+  return { indexes, bounds };
+}
+
+/** Frames in presentation order: EdgelessFrameManager.framePresentationComparator. */
+function framesOf(blocks) {
+  const frames = [...blocks.values()].filter((b) => b instanceof Y.Map && b.get('sys:flavour') === 'affine:frame');
+  const cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+  return frames.sort((a, b) => {
+    const pa = a.get('prop:presentationIndex');
+    const pb = b.get('prop:presentationIndex');
+    if (pa && pb) return cmp(pa, pb);
+    if (pa || pb) return pa ? -1 : 1;
+    return cmp(String(a.get('prop:index')), String(b.get('prop:index')));
+  });
+}
+
+const themed = (light, dark) => {
+  const m = new Y.Map();
+  m.set('light', light);
+  m.set('dark', dark);
+  return m;
+};
+
+/** An affine:edgeless-text on the surface holding `childIds`, with the schema's defaults. */
+function makeEdgelessText(blocks, surface, xywh, index, childIds, hasMaxWidth) {
+  const id = blockId();
+  const t = new Y.Map();
+  t.set('sys:id', id);
+  t.set('sys:flavour', 'affine:edgeless-text');
+  t.set('sys:version', 1);
+  const kids = new Y.Array();
+  kids.push(childIds);
+  t.set('sys:children', kids);
+  t.set('prop:xywh', `[${xywh.join(',')}]`);
+  t.set('prop:index', index);
+  t.set('prop:lockedBySelf', false);
+  t.set('prop:scale', 1);
+  t.set('prop:rotate', 0);
+  t.set('prop:hasMaxWidth', hasMaxWidth);
+  t.set('prop:color', themed('#000000', '#ffffff'));
+  t.set('prop:fontFamily', 'blocksuite:surface:Inter');
+  t.set('prop:fontStyle', 'normal');
+  t.set('prop:fontWeight', '400');
+  t.set('prop:textAlign', 'left');
+  blocks.set(id, t);
+  surface.get('sys:children').push([id]);
+  return id;
+}
+
+/** Markdown as what an edgeless-text may hold (its schema's children); the rest as text. */
+const slideBodyDescs = (markdown) => parseMarkdown(markdown).flatMap((d) => {
+  if (d.flavour === 'affine:paragraph' || d.flavour === 'affine:list' || d.flavour === 'affine:code') return [d];
+  if (d.flavour === 'affine:callout') return [calloutAsQuote(d)];
+  if (d.flavour === 'affine:image') return [imageAsParagraph(d)];
+  if (d.flavour === 'affine:table') return d.rows.map((r) => ({ flavour: 'affine:paragraph', type: 'text', text: r.join(' | ') }));
+  return []; // a divider has no place in a text box
+});
+
+/** The body box under a slide's title, filled with `markdown`. */
+function addSlideBody(blocks, surface, frame, markdown, resolveLink) {
+  const descs = slideBodyDescs(markdown);
+  if (!descs.length) return null;
+  const [x, y, w, h] = xywhOf(frame.get('prop:xywh'));
+  const pending = [];
+  const ids = makeBlocks(blocks, descs, resolveLink, pending);
+  const { indexes } = canvasExtent(blocks, surface);
+  const id = makeEdgelessText(blocks, surface, [x + TITLE_PAD, y + BODY_Y, w - TITLE_PAD * 2, h - BODY_Y - TITLE_PAD],
+    keyAfter(indexes.at(-1)), ids, true);
+  applyMarks(pending);
+  numberLists(blocks);
+  frame.get('prop:childElementIds').set(id, true);
+  return id;
+}
+
+/**
+ * Append a slide to a LIVE doc (the same contract as appendMarkdownToDoc): a
+ * frame after the last one, or clear of whatever is on the canvas, with the
+ * title box addSlide() makes, its h1 holding `title`, and `body` markdown in a
+ * text box below it. Returns the frame id.
+ */
+export function addSlideToDoc(doc, { title, body } = {}, resolveLink) {
+  const blocks = doc.getMap('blocks');
+  const surface = surfaceOf(blocks);
+  const frames = framesOf(blocks);
+  const last = frames.at(-1);
+  const { indexes, bounds } = canvasExtent(blocks, surface);
+  let x = 0;
+  let y = 0;
+  const prev = last && xywhOf(last.get('prop:xywh'));
+  if (prev) {
+    x = prev[0] + prev[2] + SLIDE_GAP;
+    y = prev[1];
+  } else if (bounds.length) {
+    // Clear of the page's note, as addSlide does with gfx.elementsBound.
+    x = Math.max(...bounds.map((r) => r[0] + r[2])) + SLIDE_GAP;
+    y = Math.min(...bounds.map((r) => r[1]));
+  }
+  // Numbered past the highest "Slide N" there has been, as addSlide does.
+  const highest = frames.reduce((max, f) => {
+    const n = /^Slide (\d+)$/.exec(String(f.get('prop:title') ?? '').trim())?.[1];
+    return n ? Math.max(max, Number(n)) : max;
+  }, frames.length);
+  const name = String(title ?? '').trim();
+
+  const id = blockId();
+  const frame = new Y.Map();
+  frame.set('sys:id', id);
+  frame.set('sys:flavour', 'affine:frame');
+  frame.set('sys:version', 1);
+  frame.set('sys:children', new Y.Array());
+  frame.set('prop:title', plainYText(name || `Slide ${highest + 1}`));
+  frame.set('prop:background', themed('#ffffff', '#252525'));
+  frame.set('prop:xywh', `[${x},${y},${SLIDE_W},${SLIDE_H}]`);
+  // Under everything else, as gfx.layer.generateIndex(true) puts a frame.
+  frame.set('prop:index', keyBefore(indexes[0]));
+  frame.set('prop:childElementIds', new Y.Map());
+  frame.set('prop:presentationIndex', presentationKeyAfter(last?.get('prop:presentationIndex') || null));
+  frame.set('prop:lockedBySelf', false);
+  blocks.set(id, frame);
+  surface.get('sys:children').push([id]);
+
+  const h1 = makeBlock(blocks, { flavour: 'affine:paragraph', type: 'h1', text: '' }, null, null);
+  blocks.get(h1).get('prop:text').insert(0, name);
+  const titleBox = makeEdgelessText(blocks, surface, [x + TITLE_PAD, y + TITLE_PAD, SLIDE_W - TITLE_PAD * 2, TITLE_H],
+    keyAfter(indexes.at(-1)), [h1], false);
+  frame.get('prop:childElementIds').set(titleBox, true);
+  if (body) addSlideBody(blocks, surface, frame, body, resolveLink);
+  return id;
+}
+
+/** A slide's text boxes, top first: the title box (first h1 box) and the rest. */
+function slideBoxes(blocks, frame) {
+  const owned = frame.get('prop:childElementIds');
+  const boxes = (owned instanceof Y.Map ? [...owned.keys()] : [])
+    .map((id) => blocks.get(id))
+    .filter((b) => b instanceof Y.Map && b.get('sys:flavour') === 'affine:edgeless-text')
+    .sort((a, b) => (xywhOf(a.get('prop:xywh'))?.[1] ?? 0) - (xywhOf(b.get('prop:xywh'))?.[1] ?? 0));
+  const titleBox = boxes.find((b) => {
+    const first = blocks.get(kidsOf(b)[0]);
+    return first?.get('sys:flavour') === 'affine:paragraph' && first.get('prop:type') === 'h1';
+  }) ?? null;
+  return { titleBox, bodyBoxes: boxes.filter((b) => b !== titleBox) };
+}
+
+/** Every slide in presentation order, as { id, title, body } with the body as markdown. */
+export function listSlides(existing) {
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, new Uint8Array(existing));
+  const blocks = doc.getMap('blocks');
+  return framesOf(blocks).map((f, i) => ({
+    id: f.get('sys:id'),
+    title: String(f.get('prop:title') ?? '').trim() || `Slide ${i + 1}`,
+    body: slideBoxes(blocks, f).bodyBoxes.map((b) => blocksToMarkdown(blocks, kidsOf(b))).filter(Boolean).join('\n\n'),
+  }));
+}
+
+/**
+ * Change a slide's title and/or body in a LIVE doc. A title goes to the frame
+ * (what the deck rail shows) and its title box; a body replaces every other
+ * text box the slide owns. False when `slideId` is not a slide.
+ */
+export function updateSlideInDoc(doc, slideId, { title, body } = {}, resolveLink) {
+  const blocks = doc.getMap('blocks');
+  const frame = blocks.get(slideId);
+  if (!(frame instanceof Y.Map) || frame.get('sys:flavour') !== 'affine:frame') return false;
+  const surface = surfaceOf(blocks);
+  const { titleBox, bodyBoxes } = slideBoxes(blocks, frame);
+  if (typeof title === 'string') {
+    frame.set('prop:title', plainYText(title.trim()));
+    const t = titleBox && blocks.get(kidsOf(titleBox)[0])?.get('prop:text');
+    if (t instanceof Y.Text) {
+      t.delete(0, t.length);
+      t.insert(0, title.trim());
+    }
+  }
+  if (typeof body === 'string') {
+    const kids = surface.get('sys:children');
+    for (const box of bodyBoxes) {
+      const id = box.get('sys:id');
+      const at = kids.toArray().indexOf(id);
+      if (at >= 0) kids.delete(at, 1);
+      frame.get('prop:childElementIds').delete(id);
+      dropTree(blocks, id);
+    }
+    addSlideBody(blocks, surface, frame, body, resolveLink);
+  }
+  return true;
+}
+
+/** A new deck: buildDocState's page, then `slides` appended. */
+export function buildDeckState(title, markdown, slides, resolveLink) {
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, buildDocState(title, markdown, resolveLink));
+  for (const s of slides) addSlideToDoc(doc, s, resolveLink);
+  return Y.encodeStateAsUpdate(doc);
+}
