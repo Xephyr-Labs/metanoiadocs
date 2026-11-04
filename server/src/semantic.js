@@ -23,9 +23,7 @@ export const EMBED_MODEL = 'nvidia/nemotron-3-embed-1b';
 const CHUNK_CHARS = 1600;
 const OVERLAP_CHARS = 200;
 
-// Separators tried in order, coarsest first. Adapted from Sim's TextChunker
-// (simstudioai/sim, apps/sim/lib/chunkers/text-chunker.ts, Apache-2.0),
-// rewritten in plain JS with character rather than token budgets.
+// Separators tried in order, coarsest first.
 const SEPARATORS = ['\n# ', '\n## ', '\n### ', '\n\n', '\n', '. ', '! ', '? ', '; ', ', ', ' '];
 
 /** Cut text into chunks of at most CHUNK_CHARS, splitting at the coarsest boundary that fits. */
