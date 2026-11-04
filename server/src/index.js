@@ -83,6 +83,7 @@ import { registerTemplateRoutes } from './templates.js';
 import { registerCsvRoutes } from './csv-import.js';
 import { TRASH_RETENTION_DAYS, startTrashSweeper } from './retention.js';
 import { startReminders } from './reminders.js';
+import { initSemantic, startEmbeddingSweeper, semanticSearch, rrf } from './semantic.js';
 import { dayIn, isZone, zoneOf } from './timezone.js';
 import { byJoinedFirst } from './spaces.js';
 import { ROLE_RANK, rankOf, canEdit, writePolicy, resolveApprover, untrusted, needsPerson, isPerson, pageSyncRole, mintAgentToken } from './approval.js';
@@ -104,6 +105,7 @@ const WEB_DIST = path.resolve(__dirname, '../../web-react/dist');
 const STALE_MONTHS = Number(process.env.STALE_MONTHS || 6);
 
 await initSchema();
+await initSemantic();
 // Before the server listens: see data-migrations.js.
 await runDataMigrations(pool);
 
@@ -2416,6 +2418,8 @@ app.get('/api/search', requireUser, wrap(async (req, res) => {
   // The space the asker is in: its hits rank first, ahead of the LIMIT, so a
   // busy other space cannot crowd them out. Nothing is dropped.
   const prefer = req.query.prefer ? String(req.query.prefer) : null;
+  // Meaning matches, fetched alongside the keyword query and merged below.
+  const nearP = semanticSearch({ userId: req.user.id, q, spaceId });
 
   // Co-occurrence query expansion: pull the strongest terms that co-occur with
   // the query's own terms across the corpus, OR them in to widen recall (must
@@ -2474,7 +2478,15 @@ app.get('/api/search', requireUser, wrap(async (req, res) => {
   // Spaces only reorder results (joined first) and flag them; nothing is dropped.
   const joined = new Set((await pool.query('SELECT space_id FROM space_members WHERE user_id = $1', [req.user.id]))
     .rows.map((r) => r.space_id));
-  const docs = byJoinedFirst(rows, joined).map((r) => ({
+  // Keyword and meaning hits fused into one order; the asker's space still
+  // leads, as the keyword query alone ranked it.
+  const near = await nearP;
+  const byId = new Map([...near, ...rows].map((r) => [r.id, r]));
+  const fused = rrf([rows.map((r) => r.id), near.map((r) => r.id)])
+    .map((id) => byId.get(id))
+    .sort((a, b) => (prefer ? (b.space_id === prefer) - (a.space_id === prefer) : 0))
+    .slice(0, 20);
+  const docs = byJoinedFirst(fused, joined).map((r) => ({
     kind: 'doc', id: r.id, title: r.title, snippet: r.snippet, space_id: r.space_id, inJoinedSpace: joined.has(r.space_id),
   }));
 
@@ -3844,5 +3856,6 @@ server.listen(PORT, '0.0.0.0', () => {
   startTrashSweeper();
   startIntegrityScan(pool, { canSee: async (docId, userId) => !!(await grantOn(docId, userId)) });
   startReminders();
+startEmbeddingSweeper();
 startAutomationSweeper();
 });
