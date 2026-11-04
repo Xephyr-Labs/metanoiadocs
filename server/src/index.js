@@ -1895,6 +1895,9 @@ app.delete('/api/docs/:id', requireUser, async (req, res) => {
   // the doc may remove it — team docs by any member, private docs by the owner
   // or anyone it's shared with. Matches the team-editable model (grantOn).
   if (!(await editGrant(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
+  // Removing a page cannot be a suggestion for someone to review, so an AI or an
+  // untrusted agent (whose edits to a page are all reviewed first) may not do it.
+  if (untrusted(req)) return res.status(403).json({ error: 'This needs a person or a trusted agent: an AI assistant or untrusted agent cannot move a page to the trash, since its changes are reviewed first.' });
   // Detach children then soft-delete atomically, so a crash between the two can't
   // leave children orphaned under a still-live parent.
   const client = await pool.connect();

@@ -9,6 +9,7 @@
 // locally; server/src/mcp-http.test.js asserts the two tool lists stay
 // identical, so this file and that one cannot drift apart unnoticed.
 
+import { createHash } from 'node:crypto';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { DEFAULT_ZONE, dayIn } from './timezone.js';
@@ -50,6 +51,32 @@ const editMissMessage = (r) => [
   ...(r.ambiguous || []).map((m) => `- edits[${m.edit}] found ${m.matches} times (add surrounding text, occurrence or under): "${m.find}"`),
   ...(r.skipped || []).map((m) => `- edits[${m.edit}] not applied: "${m.find}" (${m.reason})`),
 ].join('\n');
+
+/** Largest file upload_attachment takes. The server allows 25 MB; an agent's base64 argument is the real limit. */
+export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+
+/** base64 -> bytes, refusing what is too big or not base64 before any request is made. */
+export function decodeAttachment(b64) {
+  const s = String(b64 || '').replace(/\s+/g, '');
+  if (!s || s.length % 4 === 1 || !/^[A-Za-z0-9+/_-]+={0,2}$/.test(s)) throw new Error('contentBase64 is not valid base64.');
+  if (s.length * 0.75 > MAX_ATTACHMENT_BYTES + 3) throw new Error(`The file is over the ${MAX_ATTACHMENT_BYTES / 1048576} MB limit.`);
+  const bytes = Buffer.from(s, 'base64');
+  if (!bytes.length) throw new Error('The file is empty.');
+  if (bytes.length > MAX_ATTACHMENT_BYTES) throw new Error(`The file is over the ${MAX_ATTACHMENT_BYTES / 1048576} MB limit.`);
+  return bytes;
+}
+
+/**
+ * The markdown line that puts an uploaded blob on a page: a picture for an
+ * image (write_doc turns a line of only `![](/api/blob/<key>)` into a real
+ * image block), otherwise a link that downloads under its own name. Brackets
+ * and parentheses are dropped from the name so it cannot end the link early.
+ */
+export function attachmentMarkdown(key, filename, mime) {
+  const name = String(filename).replace(/[[\]()<>\r\n]+/g, ' ').replace(/\s+/g, ' ').trim() || 'file';
+  if (/^image\/(png|jpe?g|gif|webp|svg\+xml)$/i.test(String(mime))) return `![${name}](/api/blob/${key})`;
+  return `[${name}](/api/blob/${key}?name=${encodeURIComponent(name)})`;
+}
 
 const ok = (obj) => ({
   content: [{ type: 'text', text: typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2) }],
@@ -105,7 +132,7 @@ const fieldsInput = z
 export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZONE }) {
   const origin = String(base || '').replace(/\/+$/, '');
 
-  async function api(path, { method = 'GET', body, headers: extra } = {}) {
+  async function api(path, { method = 'GET', body, raw, headers: extra } = {}) {
     const res = await fetch(`${origin}/api${path}`, {
       method,
       headers: {
@@ -113,7 +140,7 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
         ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
         ...extra,
       },
-      body: body !== undefined ? JSON.stringify(body) : undefined,
+      body: raw !== undefined ? raw : body !== undefined ? JSON.stringify(body) : undefined,
     });
     const text = await res.text();
     let data;
@@ -1395,6 +1422,124 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
     },
   );
 
+  // ── comments: close / reopen a thread ──
+  const setResolved = (resolved) => async ({ commentId }) => {
+    try {
+      await api(`/comments/${encodeURIComponent(commentId)}/resolve`, { method: 'POST', body: { resolved } });
+      return ok(resolved ? 'Resolved.' : 'Reopened.');
+    } catch (e) {
+      return fail(e);
+    }
+  };
+
+  server.registerTool(
+    'resolve_comment',
+    {
+      title: 'Resolve a comment thread',
+      description:
+        "Mark a comment thread on a page as resolved (handled), with its replies. Take the id from read_comments. The server decides who may: the thread's author, or anyone who can edit the page. This does not change the page. A suggestion card is decided by accepting or rejecting it, not by this.",
+      inputSchema: { commentId: z.string().describe('Id of the thread root, from read_comments') },
+    },
+    setResolved(true),
+  );
+
+  server.registerTool(
+    'reopen_comment',
+    {
+      title: 'Reopen a comment thread',
+      description:
+        'Reopen a resolved comment thread (with its replies). Use read_comments with includeResolved to find it. Same permission as resolve_comment.',
+      inputSchema: { commentId: z.string().describe('Id of the thread root, from read_comments') },
+    },
+    setResolved(false),
+  );
+
+  // ── trash: never a hard delete ──
+  server.registerTool(
+    'delete_doc',
+    {
+      title: 'Move a doc to the trash',
+      description:
+        'Move a page to the trash, where it stays recoverable (restore_doc, or the Trash in the app) until the retention window passes. It is never a permanent delete, and there is no tool for that. Works only where you could delete the page in the app (you can edit it). Its sub-pages move to the top level. An AI assistant or an untrusted agent account is refused: removing a page is not a suggestion a person can review.',
+      inputSchema: { id: z.string().describe('Document id') },
+    },
+    async ({ id }) => {
+      try {
+        await api(`/docs/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        return ok('Moved to the trash. restore_doc brings it back.');
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    'restore_doc',
+    {
+      title: 'Restore a doc from the trash',
+      description: 'Bring a trashed page back (ids from list_trash). Allowed for anyone who could have deleted it.',
+      inputSchema: { id: z.string().describe('Document id') },
+    },
+    async ({ id }) => {
+      try {
+        await api(`/docs/${encodeURIComponent(id)}/restore`, { method: 'POST' });
+        return ok('Restored.');
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    'list_trash',
+    {
+      title: 'List the trash',
+      description: 'Pages in the trash that you could see, newest first: id, title, when deleted and when they will be purged for good.',
+      inputSchema: {},
+    },
+    async () => {
+      try {
+        const t = await api('/docs/trash');
+        return ok({
+          retentionDays: t.retentionDays,
+          pages: (t.rows || []).map((r) => ({ id: r.id, title: r.title, deletedAt: r.deleted_at, purgeAt: r.purge_at })),
+        });
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    'upload_attachment',
+    {
+      title: 'Attach a file to a doc',
+      description:
+        `Upload a file (base64 \`contentBase64\`, up to ${MAX_ATTACHMENT_BYTES / 1048576} MB) and add it at the end of a page: an image (png, jpeg, gif, webp, svg) shows as a picture, any other file as a download link. It is added exactly like write_doc mode=append, so on an existing page an AI assistant's or untrusted agent's attachment comes back as a suggestion for a person to review, with a link. The file itself is stored either way; an unreferenced one is cleaned up later.`,
+      inputSchema: {
+        id: z.string().describe('Document id'),
+        filename: z.string().min(1).max(200).describe('File name, e.g. diagram.png'),
+        mime: z.string().describe('Media type, e.g. image/png or application/pdf'),
+        contentBase64: z.string().describe('The file, base64 encoded'),
+      },
+    },
+    async ({ id, filename, mime, contentBase64 }) => {
+      try {
+        const bytes = decodeAttachment(contentBase64);
+        const key = createHash('sha256').update(bytes).digest('hex');
+        await api(`/blob/${key}`, { method: 'PUT', raw: bytes, headers: { 'Content-Type': String(mime).split(';')[0].trim().toLowerCase() || 'application/octet-stream' } });
+        const r = await api(`/docs/${encodeURIComponent(id)}/content`, {
+          method: 'POST',
+          body: { markdown: attachmentMarkdown(key, filename, mime), mode: 'append' },
+        });
+        if (r?.suggested) return ok(suggestedMessage(r, PUBLIC) + notApplied(r));
+        return ok('Done.');
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
   server.registerTool(
     'workspace_overview',
     {
@@ -1454,5 +1599,11 @@ export const MCP_TOOL_NAMES = [
   'delete_sprint',
   'add_task_dependency',
   'remove_task_dependency',
+  'resolve_comment',
+  'reopen_comment',
+  'delete_doc',
+  'restore_doc',
+  'list_trash',
+  'upload_attachment',
   'workspace_overview',
 ];
