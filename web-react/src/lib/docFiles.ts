@@ -43,27 +43,64 @@ export function printDoc(id: string): void {
   window.open(`/api/docs/${encodeURIComponent(id)}/print`, '_blank', 'noopener');
 }
 
-/**
- * Ask for files to import. Resolves empty when the picker is dismissed — on
- * browsers without a `cancel` event that just means the promise is dropped,
- * which costs nothing.
- */
-export function pickImportFiles(): Promise<File[]> {
+/** The zip sources the picker offers beyond single files. */
+export type ArchiveKind = 'confluence' | 'obsidian' | 'markdown';
+
+/** A whole space or vault is mostly attachments; matches server MAX_ARCHIVE_BYTES. */
+export const MAX_ARCHIVE_BYTES = 100 * 1024 * 1024;
+
+export interface ImportSource {
+  id: 'files' | ArchiveKind;
+  label: string;
+  /** One line on how to get the file out of the other tool. */
+  how: string;
+  accept: string;
+}
+
+export const IMPORT_SOURCES: ImportSource[] = [
+  { id: 'files', label: 'Documents', how: 'Markdown, Word, PDF or text files — pick as many as you like.', accept: IMPORT_ACCEPT },
+  { id: 'confluence', label: 'Confluence space', how: 'In the space: Space tools → Content tools → Export → HTML, then pick the .zip.', accept: '.zip,application/zip' },
+  { id: 'obsidian', label: 'Obsidian vault', how: 'Zip the vault folder (links, embeds and attachments come across; .obsidian is skipped).', accept: '.zip,application/zip' },
+  { id: 'markdown', label: 'Markdown folder (Slab, wikis)', how: 'Slab: Settings → Export. Any folder of .md files with relative links works — zip it.', accept: '.zip,application/zip' },
+];
+
+// Which archive source a picked file came from. A WeakMap rather than a field
+// on File, so the six places that call pickImportFiles() and hand the result
+// to importFiles() stay exactly as they were.
+const archiveKinds = new WeakMap<File, ArchiveKind>();
+export const archiveKindOf = (file: File): ArchiveKind | undefined => archiveKinds.get(file);
+
+/** Event the ImportSourceDialog (mounted once, in App) answers. */
+export const IMPORT_PICKER_EVENT = 'import-picker';
+export interface ImportPickerRequest { resolve: (files: File[]) => void }
+
+/** Open the browser's file chooser for one source. Needs the click that called it. */
+export function chooseFiles(source: ImportSource): Promise<File[]> {
   return new Promise((resolve) => {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = IMPORT_ACCEPT;
-    input.multiple = true;
+    input.accept = source.accept;
+    input.multiple = source.id === 'files';
     input.style.display = 'none';
     const done = (files: File[]) => {
       input.remove();
+      if (source.id !== 'files') for (const f of files) archiveKinds.set(f, source.id);
       resolve(files);
     };
     input.onchange = () => done(input.files ? [...input.files] : []);
     input.oncancel = () => done([]);
-    // Attached, not floating: a detached file input is ignored outright by some
-    // browsers, and the picker never opens.
     document.body.appendChild(input);
     input.click();
+  });
+}
+
+/**
+ * Ask what to import, then for the files. Resolves empty when the dialog or
+ * the chooser is dismissed — on browsers without a `cancel` event that just
+ * means the promise is dropped, which costs nothing.
+ */
+export function pickImportFiles(): Promise<File[]> {
+  return new Promise((resolve) => {
+    window.dispatchEvent(new CustomEvent<ImportPickerRequest>(IMPORT_PICKER_EVENT, { detail: { resolve } }));
   });
 }

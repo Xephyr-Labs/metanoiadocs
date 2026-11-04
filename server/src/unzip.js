@@ -15,6 +15,30 @@ const CENTRAL_SIG = 0x02014b50;
 const EOCD_SIG = 0x06054b50;
 const ZIP64_LOCATOR_SIG = 0x07064b50;
 
+/**
+ * What an archive may expand to. The upload cap bounds the compressed bytes,
+ * not what they inflate into, so a few kilobytes of zeroes could otherwise ask
+ * for gigabytes. Generous for a space or vault export (thousands of pages,
+ * a few hundred MB of attachments), far below what would hurt the server.
+ */
+export const ZIP_LIMITS = { maxEntries: 10_000, maxEntryBytes: 50 * 1024 * 1024, maxTotalBytes: 300 * 1024 * 1024 };
+
+const mb = (n) => `${Math.round(n / 1024 / 1024)} MB`;
+
+/**
+ * Zip-slip: a name that climbs out of the archive (`../x`), or is absolute or
+ * drive-rooted, is how a hostile archive aims at a path outside it. Nothing
+ * here writes entries to disk, but callers build page paths from these names
+ * and a later one might, so the archive is refused outright rather than
+ * having the entry quietly skipped.
+ */
+function assertSafeName(name) {
+  const parts = name.replace(/\\/g, '/').split('/');
+  if (name.startsWith('/') || name.startsWith('\\') || /^[a-zA-Z]:/.test(name) || parts.includes('..') || name.includes('\0')) {
+    throw new Error(`ZIP entry "${name.replace(/[^\x20-\x7e]/g, '?').slice(0, 80)}" has an unsafe path.`);
+  }
+}
+
 /** Scan back from the end for the end-of-central-directory record. */
 function findEocd(buf) {
   // The record is 22 bytes plus a comment of up to 64KB. Walk back over that
@@ -31,9 +55,10 @@ function findEocd(buf) {
  *
  * @param {Buffer} buf
  * @returns {Map<string, Buffer>} path inside the archive → its bytes
- * @throws if the archive is malformed, encrypted, or uses zip64
+ * @throws if the archive is malformed, encrypted, uses zip64, has an unsafe
+ *         entry path, or inflates past `limits`
  */
-export function unzipSync(buf) {
+export function unzipSync(buf, limits = ZIP_LIMITS) {
   if (!Buffer.isBuffer(buf) || buf.length < 22) throw new Error('Not a ZIP archive.');
   // A ZIP opens with a local file header, or — when it holds nothing — with the
   // end record itself. Checking here means a PDF or an old .doc renamed to
@@ -48,6 +73,8 @@ export function unzipSync(buf) {
   }
 
   const count = buf.readUInt16LE(eocd + 10);
+  if (count > limits.maxEntries) throw new Error(`This archive has ${count} files; ${limits.maxEntries} is the most one import takes.`);
+  let total = 0;
   let p = buf.readUInt32LE(eocd + 16);
   const files = new Map();
 
@@ -64,6 +91,7 @@ export function unzipSync(buf) {
     const localOffset = buf.readUInt32LE(p + 42);
     const name = buf.toString('utf8', p + 46, p + 46 + nameLen);
 
+    assertSafeName(name);
     if (flags & 0x1) throw new Error('This file is password-protected.');
     if (compressedSize === 0xffffffff || localOffset === 0xffffffff) {
       throw new Error('This archive uses zip64, which is not supported.');
@@ -82,9 +110,22 @@ export function unzipSync(buf) {
       if (dataEnd > buf.length) throw new Error(`ZIP entry "${name}" is truncated.`);
       const body = buf.subarray(dataStart, dataEnd);
 
-      if (method === 0) files.set(name, Buffer.from(body));
-      else if (method === 8) files.set(name, inflateRawSync(body));
-      else throw new Error(`ZIP entry "${name}" uses an unsupported compression method.`);
+      // The declared size is only a hint — it is the archive's own claim — so
+      // the inflate itself is capped too. Both ceilings are the smaller of the
+      // per-file limit and what is left of the total.
+      const room = Math.min(limits.maxEntryBytes, limits.maxTotalBytes - total);
+      const tooBig = () => new Error(
+        `"${name}" or the archive as a whole expands past ${mb(room < limits.maxEntryBytes ? limits.maxTotalBytes : limits.maxEntryBytes)}.`);
+      if (buf.readUInt32LE(p + 24) > room) throw tooBig();
+      let data;
+      if (method === 0) data = Buffer.from(body);
+      else if (method === 8) {
+        try { data = inflateRawSync(body, { maxOutputLength: Math.max(room, 1) }); } catch (e) {
+          throw e?.code === 'ERR_BUFFER_TOO_LARGE' ? tooBig() : e;
+        }
+      } else throw new Error(`ZIP entry "${name}" uses an unsupported compression method.`);
+      total += data.length;
+      files.set(name, data);
     }
 
     p += 46 + nameLen + extraLen + commentLen;

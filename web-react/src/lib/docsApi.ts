@@ -399,6 +399,17 @@ export const docsApi = {
       headers: { 'Content-Type': 'application/octet-stream' },
     });
   },
+  /**
+   * Import a zip — a Confluence space export, an Obsidian vault or a folder of
+   * Markdown — as folders and pages. The reply's `warnings` are the summary
+   * (pages, folders, attachments, unresolved links, unknown macros).
+   */
+  importArchive: (file: File, kind: string, folderId: string | null, spaceId?: string): Promise<{ id: string; folderId: string; warnings: string[] }> => {
+    const q = new URLSearchParams({ name: file.name, kind });
+    if (folderId) q.set('folderId', folderId);
+    if (spaceId) q.set('spaceId', spaceId);
+    return req(`/docs/import-archive?${q}`, { method: 'POST', body: file, headers: { 'Content-Type': 'application/octet-stream' } });
+  },
   /** `content` is markdown, built into real blocks server-side (used by import). */
   create: (body: { title?: string; icon?: string; folderId?: string | null; content?: string; kind?: 'doc' | 'design'; spaceId?: string }): Promise<DocRow> =>
     req('/docs', { method: 'POST', body: JSON.stringify(body) }),
