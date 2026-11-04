@@ -74,6 +74,7 @@ import { registerFolderRoutes, visibleFolder } from './folders-routes.js';
 import { registerSpaceMoveRoutes, inTransaction, spaceOf, spaceForNew, reparentInto, OWNED_PAGE } from './space-move.js';
 import { registerSpaceRoutes } from './spaces-routes.js';
 import { registerWebhookRoutes, emit, startWebhookWorker } from './webhooks.js';
+import { registerDriveRoutes, startDriveSync } from './drive.js';
 import { registerGuestCommentRoutes, shareAccess } from './guest-comments.js';
 import { commentAnchors } from './text-match.js';
 import { registerAgentRoutes, enqueueRun } from './agent-runs.js';
@@ -3511,6 +3512,7 @@ registerFolderRoutes(app, { requireUser, wrap });
 registerSpaceMoveRoutes(app, { requireUser, wrap, editGrant });
 registerSpaceRoutes(app, { requireUser, wrap });
 registerWebhookRoutes(app, { requireUser, requireAdmin, wrap });
+registerDriveRoutes(app, { requireUser, requireAdmin, wrap });
 registerFormRoutes(app, { requireUser, wrap, baseUrl: BASE_URL });
 // Marking or unmarking a template goes by the page's own grant: the template
 // rule must not let someone who was given view access un-template the page.
@@ -3858,4 +3860,5 @@ server.listen(PORT, '0.0.0.0', () => {
   startReminders();
 startEmbeddingSweeper();
 startAutomationSweeper();
+  startDriveSync();
 });
