@@ -87,7 +87,7 @@ function AgentEditor({ agent, aiReady, folders, spaces, skills, onChanged }: {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<AgentInput & { trigger: AgentTrigger }>(() => ({
     name: agent.name, instructions: agent.instructions, trigger: agent.trigger, targetDocId: agent.target_doc_id,
-    outputMode: agent.output_mode, skillIds: agent.skill_ids,
+    outputMode: agent.output_mode, skillIds: agent.skills.map((k) => k.id),
   }));
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
@@ -99,6 +99,12 @@ function AgentEditor({ agent, aiReady, folders, spaces, skills, onChanged }: {
     () => Object.values(ws.pages).filter((p) => p.kind === 'doc').sort((a, b) => a.title.localeCompare(b.title)),
     [ws.pages],
   );
+  // A skill edited since it was attached: runs still use the attached copy
+  // until the owner has looked and taken the new one.
+  const stale = agent.skills.filter((k) => {
+    const now = skills.find((x) => x.id === k.id);
+    return now && new Date(now.updated_at) > new Date(k.updated_at);
+  });
   const t = draft.trigger;
   const placeName = t.kind === 'page_changed'
     ? folders.find((f) => f.id === t.folderId)?.name ?? spaces.find((s) => s.id === t.spaceId)?.name
@@ -114,6 +120,7 @@ function AgentEditor({ agent, aiReady, folders, spaces, skills, onChanged }: {
     setSaving(true);
     setError(null);
     try {
+      // Attached skills keep their copies (the server re-copies only on refreshSkills).
       await docsApi.patchAgent(agent.id, draft);
       onChanged();
     } catch (e) {
@@ -269,6 +276,26 @@ function AgentEditor({ agent, aiReady, folders, spaces, skills, onChanged }: {
             </div>
           )}
 
+          {stale.length > 0 && (
+            <div className="rounded-lg border border-line bg-surface p-2.5 text-xs text-muted">
+              <p>
+                {stale.map((k) => <span key={k.id} className="font-mono text-ink">/{k.name} </span>)}
+                {stale.length === 1 ? 'was' : 'were'} edited since you attached {stale.length === 1 ? 'it' : 'them'}.
+                This agent still runs the version you attached — review the change under Settings → Skills.
+              </p>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="mt-1.5"
+                onClick={async () => {
+                  await docsApi.patchAgent(agent.id, { skillIds: agent.skills.map((k) => k.id), refreshSkills: true }).catch((e) => toast(e.message));
+                  onChanged();
+                }}
+              >
+                Use the new version
+              </Button>
+            </div>
+          )}
           {error && <p className="text-xs text-danger-strong">{error}</p>}
           <div className="flex flex-wrap items-center gap-2">
             <Button size="sm" variant="primary" disabled={saving} onClick={save} leftIcon={saving ? <Loader2 size={14} className="animate-spin" /> : undefined}>

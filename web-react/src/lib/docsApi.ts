@@ -388,7 +388,8 @@ export interface AgentRow {
   target_doc_id: string | null;
   target_title?: string | null;
   output_mode: 'suggest' | 'comment';
-  skill_ids: string[];
+  /** The attached skills as copied when attached: runs use these, not the live skill. */
+  skills: { id: string; name: string; body: string; updated_at: string }[];
   enabled: boolean;
   next_run_at: string | null;
   last_run?: Pick<AgentRunRow, 'id' | 'status' | 'started_at' | 'finished_at' | 'error'> | null;
@@ -397,6 +398,8 @@ export interface AgentRow {
 export interface AgentInput {
   name?: string; instructions?: string; trigger?: AgentTrigger; targetDocId?: string | null;
   outputMode?: 'suggest' | 'comment'; skillIds?: string[]; enabled?: boolean;
+  /** Re-copy attached skills from their current text (after reviewing an edit). */
+  refreshSkills?: boolean;
 }
 
 /** A workspace skill: named instructions agents and Ask AI (`/name`) can use. */

@@ -19,7 +19,7 @@
 import crypto from 'node:crypto';
 import OpenAI from 'openai';
 import { aiTools } from './ai-tools.js';
-import { isPerson } from './approval.js';
+import { needsPerson } from './approval.js';
 import { dayIn, wallTimeIn, zoneOf } from './timezone.js';
 
 /** As Ask AI (index.js AI_MAX_TOOL_ROUNDS): a stop for a model that has lost the plot. */
@@ -29,6 +29,14 @@ const RUN_TIMEOUT_MS = Number(process.env.AGENT_RUN_TIMEOUT_MS) || 5 * 60_000;
 /** Workspace-wide. A page_changed agent whose answer someone keeps accepting
  *  into its own folder is a loop with a person in it; this is the floor under it. */
 const RUNS_PER_HOUR = Number(process.env.AGENT_RUNS_PER_HOUR) || 60;
+/** The same per owner, so one person's looping agent cannot spend the workspace's hour. */
+const RUNS_PER_OWNER_HOUR = Number(process.env.AGENT_RUNS_PER_OWNER_HOUR) || 20;
+/** A run still 'running' this long after its timeout is a run whose process died. */
+const STALE_RUN_MS = RUN_TIMEOUT_MS + 5 * 60_000;
+/** A schedule missed by more than this (the server was down) is skipped, not run late. */
+const MISSED_MS = 2 * 60 * 60_000;
+/** Edits that never stop still fire this long after the first. */
+const MAX_WAIT_MS = Number(process.env.AGENT_MAX_WAIT_MS) || 60 * 60_000;
 /** A typing session is one change: page_changed waits this long after the last edit. */
 const QUIET_MS = Number(process.env.AGENT_QUIET_MS) || 10 * 60_000;
 /** How often the sweeper looks for due schedules and quiet pages. */
@@ -64,12 +72,34 @@ export function nextRunAt(schedule, zone, after = Date.now()) {
     const [y, mo, d] = day.split('-').map(Number);
     const weekday = new Date(Date.UTC(y, mo - 1, d)).getUTCDay();
     if (!schedule.days.length || schedule.days.includes(weekday)) {
-      const at = wallTimeIn(zone, day, h * 60 + m);
+      const at = firstAtOrAfter(zone, day, h * 60 + m);
       if (at > after) return at;
     }
     day = new Date(Date.UTC(y, mo - 1, d + 1)).toISOString().slice(0, 10);
   }
   return null;
+}
+
+const hmFormat = new Map();
+/** Minutes past midnight on a zone's clock at instant `ms`. */
+function clockMinutes(zone, ms) {
+  let f = hmFormat.get(zone);
+  if (!f) hmFormat.set(zone, (f = new Intl.DateTimeFormat('en-US', { timeZone: zone, hourCycle: 'h23', hour: 'numeric', minute: 'numeric' })));
+  const p = Object.fromEntries(f.formatToParts(new Date(ms)).map((x) => [x.type, x.value]));
+  return Number(p.hour) * 60 + Number(p.minute);
+}
+
+/**
+ * The instant a zone's clock reads `minutes` on `day` — or, when the clocks
+ * jump over it (02:30 on a spring-forward night), the first instant after the
+ * jump, so the run happens that morning rather than an hour early.
+ */
+function firstAtOrAfter(zone, day, minutes) {
+  let at = wallTimeIn(zone, day, minutes);
+  if (clockMinutes(zone, at) === minutes) return at;
+  // In the gap: wallTimeIn landed before it. Walk forward to the jump.
+  for (let i = 0; i < 180 && clockMinutes(zone, at) < minutes; i++) at += 60_000;
+  return at;
 }
 
 /**
@@ -94,17 +124,18 @@ export function cleanTrigger(raw) {
 
 /**
  * Edits in, one firing per quiet period out. `note` on every save; `due` hands
- * back each key whose last edit is `quietMs` old, with the pages it touched,
- * and forgets it.
+ * back each key whose last edit is `quietMs` old (or whose first is
+ * `maxWaitMs` old: a page edited all day is not one long typing session),
+ * with the pages it touched, and forgets it.
  *
  * ponytail: in memory, so a restart drops changes still waiting out their
  * quiet period. A DB row per agent if that ever matters.
  */
-export function createDebouncer(quietMs) {
+export function createDebouncer(quietMs, maxWaitMs = Infinity) {
   const pending = new Map();
   return {
     note(key, doc, now = Date.now()) {
-      const p = pending.get(key) ?? { last: now, docs: new Set() };
+      const p = pending.get(key) ?? { first: now, last: now, docs: new Set() };
       p.last = now;
       if (p.docs.size < 20) p.docs.add(doc);
       pending.set(key, p);
@@ -112,7 +143,7 @@ export function createDebouncer(quietMs) {
     due(now = Date.now()) {
       const out = [];
       for (const [key, p] of pending) {
-        if (now - p.last < quietMs) continue;
+        if (now - p.last < quietMs && now - p.first < maxWaitMs) continue;
         out.push({ key, docs: [...p.docs] });
         pending.delete(key);
       }
@@ -135,6 +166,40 @@ export function ownerProblem(owner, agent, { manual = false } = {}) {
   if (!owner) return 'Its owner is no longer in the workspace.';
   if (!agent.enabled && !manual) return 'This agent is switched off.';
   return null;
+}
+
+/**
+ * The tools an unattended run is offered: reads, suggestions (write_doc and
+ * edit_doc land as suggestions for a run), comments (its own target page only,
+ * enforced by agentRunMay) and other agents. Nothing that shares, moves,
+ * deletes, creates or changes who can see what: a page the agent reads can
+ * tell it to, and nobody is watching to say no. Interactive Ask AI keeps the
+ * whole surface; its asker is there.
+ */
+export const AGENT_TOOLS = new Set([
+  'search_docs', 'list_spaces', 'list_docs', 'read_doc', 'list_slides', 'read_comments', 'read_suggestions',
+  'read_task_comments', 'list_members', 'list_folders', 'list_boards', 'list_tasks', 'list_task_kinds',
+  'list_sprints', 'workspace_overview', 'list_agents', 'list_skills',
+  'write_doc', 'edit_doc', 'comment_on_doc', 'run_agent',
+]);
+
+/** Reads that are still not a run's business: credentials and outgoing hooks. */
+const RUN_UNREADABLE = /^\/api\/(admin|tokens|calendar\/token|webhooks|settings)(\/|$)/;
+
+/**
+ * May a request made with a run credential go through? The server-side half of
+ * AGENT_TOOLS: hiding a tool is not a lock, so requireUser asks this for every
+ * call a run makes. Reads, suggestion writes (draftWrite refuses the ones that
+ * would land directly), a comment on the agent's own target page, and running
+ * another agent. Everything else is 403.
+ */
+export function agentRunMay(method, path, run) {
+  if (method === 'GET' || method === 'HEAD') return !RUN_UNREADABLE.test(path);
+  if (method !== 'POST') return false;
+  if (/^\/api\/docs\/[^/]+\/(content|edits)$/.test(path)) return true;
+  if (/^\/api\/workspace-agents\/[^/]+\/run$/.test(path)) return true;
+  const c = /^\/api\/docs\/([^/]+)\/comments$/.exec(path);
+  return !!c && !!run?.targetDocId && decodeURIComponent(c[1]) === run.targetDocId;
 }
 
 // ── run credentials ──────────────────────────────────────────────────────────
@@ -227,7 +292,7 @@ export function skillCommand(text) {
 // ── the runner, the sweeper and the routes ───────────────────────────────────
 
 const AGENT_COLUMNS = `a.id, a.name, a.instructions, a.trigger_spec AS trigger, a.target_doc_id, a.output_mode,
-  a.skill_ids, a.enabled, a.next_run_at, a.created_at, a.updated_at`;
+  a.skills, a.enabled, a.next_run_at, a.created_at, a.updated_at`;
 
 /**
  * @param {object} deps
@@ -239,7 +304,7 @@ const AGENT_COLUMNS = `a.id, a.name, a.instructions, a.trigger_spec AS trigger, 
  * @param {(n: object) => Promise<void>} deps.notify  notifyUser.
  */
 export function workspaceAgents({ pool, getSetting, port, grantOn, hasBody, notify, makeClient = (cfg) => new OpenAI({ baseURL: cfg.baseUrl, apiKey: cfg.apiKey, maxRetries: 0 }) }) {
-  const debouncer = createDebouncer(QUIET_MS);
+  const debouncer = createDebouncer(QUIET_MS, MAX_WAIT_MS);
 
   /** The page an agent's answer goes to, as its owner sees it; null when they cannot. */
   async function targetFor(agent, ownerId) {
@@ -299,36 +364,53 @@ export function workspaceAgents({ pool, getSetting, port, grantOn, hasBody, noti
     const visible = [];
     for (const d of docIds) if (await grantOn(d, owner.id)) visible.push(d);
     if (trigger === 'page_changed' && !visible.length) return null;
-    const { rows: [{ n }] } = await pool.query("SELECT count(*)::int AS n FROM workspace_agent_runs WHERE started_at > now() - interval '1 hour'");
-    if (n >= RUNS_PER_HOUR) throw fail(429, `The workspace has run ${RUNS_PER_HOUR} agents in the last hour, its limit. Try again later.`);
-
     const runId = crypto.randomUUID();
+    // Count and insert under one lock: two triggers at once must not both
+    // read 59 and both start. The partial unique index is the one-run-per-agent lock.
+    const db = await pool.connect();
     try {
-      // The partial unique index is the one-run-per-agent lock.
-      await pool.query(
+      await db.query('BEGIN');
+      await db.query("SELECT pg_advisory_xact_lock(hashtext('workspace_agent_runs'))");
+      const { rows: [c] } = await db.query(
+        `SELECT count(*)::int AS n, count(*) FILTER (WHERE a.owner_id = $1)::int AS mine
+           FROM workspace_agent_runs r JOIN workspace_agents a ON a.id = r.agent_id
+          WHERE r.started_at > now() - interval '1 hour'`, [owner.id]);
+      if (c.n >= RUNS_PER_HOUR) throw fail(429, `The workspace has run ${RUNS_PER_HOUR} agents in the last hour, its limit. Try again later.`);
+      if (c.mine >= RUNS_PER_OWNER_HOUR) throw fail(429, `Your agents have run ${RUNS_PER_OWNER_HOUR} times in the last hour, the limit per person. Try again later.`);
+      await db.query(
         `INSERT INTO workspace_agent_runs (id, agent_id, trigger_kind, doc_ids) VALUES ($1, $2, $3, $4)`,
         [runId, agent.id, trigger, JSON.stringify(visible)]);
+      await db.query('COMMIT');
     } catch (e) {
+      await db.query('ROLLBACK').catch(() => {});
       if (e.code === '23505') throw fail(409, 'This agent is already running.');
       throw e;
+    } finally {
+      db.release();
     }
     return { runId, done: execute(runId, agent, owner, cfg, { trigger, docIds: visible, chain, input }) };
   }
 
   async function execute(runId, agent, owner, cfg, { trigger, docIds, chain, input }) {
     const zone = zoneOf(owner);
-    const secret = mintRunCredential({ userId: owner.id, agentId: agent.id, name: agent.name, chain: [...chain, agent.id] }, RUN_TIMEOUT_MS + 60_000);
-    const tools = aiTools({ base: `http://127.0.0.1:${port}`, zone, headers: { Authorization: `Bearer ${secret}` } });
+    const secret = mintRunCredential({
+      userId: owner.id, agentId: agent.id, name: agent.name, chain: [...chain, agent.id], targetDocId: agent.target_doc_id ?? null,
+    }, RUN_TIMEOUT_MS + 60_000);
     const ctrl = new AbortController();
+    const tools = aiTools({ base: `http://127.0.0.1:${port}`, zone, headers: { Authorization: `Bearer ${secret}` }, signal: ctrl.signal });
     // Not AbortSignal.timeout: see ai-complete.js.
     const timer = setTimeout(() => ctrl.abort(), RUN_TIMEOUT_MS);
+    // Whatever the run is waiting on — the model, a tool, another agent — the
+    // timeout ends it: the row is closed and the agent's slot freed.
+    const timedOut = new Promise((_, reject) => ctrl.signal.addEventListener('abort', () => reject(new Error('Run timed out'))));
+    timedOut.catch(() => {});
     let result = { status: 'done', output: '', calls: [], error: null };
     try {
+      await Promise.race([timedOut, (async () => {
       const target = await targetFor(agent, owner.id);
-      const ids = Array.isArray(agent.skill_ids) ? agent.skill_ids : [];
-      const { rows: skills } = ids.length
-        ? await pool.query('SELECT name, body FROM workspace_skills WHERE id = ANY($1) ORDER BY name', [ids])
-        : { rows: [] };
+      // The skills as they were when the owner attached them: a skill edited
+      // since is not what they agreed to run with their access.
+      const skills = Array.isArray(agent.skills) ? agent.skills : [];
       const client = makeClient(cfg);
       const { text, calls } = await runToolLoop({
         create: (body) => client.chat.completions.create({ model: cfg.model, max_tokens: 4096, ...body }, { signal: ctrl.signal })
@@ -337,8 +419,9 @@ export function workspaceAgents({ pool, getSetting, port, grantOn, hasBody, noti
           { role: 'system', content: systemPrompt(agent, owner, target, skills, zone) },
           { role: 'user', content: await triggerNote(trigger, docIds, input) },
         ],
-        specs: await tools.specs(),
-        run: (name, args) => tools.run(name, args),
+        specs: (await tools.specs()).filter((t) => AGENT_TOOLS.has(t.function.name)),
+        // Offering fewer tools is not enough: a model can name one it was not offered.
+        run: (name, args) => (AGENT_TOOLS.has(name) ? tools.run(name, args) : { error: `${name} is not available to an agent running on its own.` }),
         signal: ctrl.signal,
       });
       result = { ...result, output: text, calls };
@@ -350,6 +433,7 @@ export function workspaceAgents({ pool, getSetting, port, grantOn, hasBody, noti
           : await tools.run('write_doc', JSON.stringify({ id: target.id, markdown: text, mode: 'append' }));
         if (out?.error) throw new Error(`Could not post to "${target.title}": ${out.error}`);
       }
+      })()]);
     } catch (e) {
       result = { ...result, status: 'failed', error: String(e.message || e).slice(0, 1000) };
     } finally {
@@ -361,18 +445,19 @@ export function workspaceAgents({ pool, getSetting, port, grantOn, hasBody, noti
       `UPDATE workspace_agent_runs SET status = $2, output = $3, tool_calls = $4, error = $5, finished_at = now()
         WHERE id = $1 RETURNING *`,
       [runId, result.status, result.output.slice(0, 50000), JSON.stringify(result.calls), result.error]);
-    if (result.status === 'failed') {
+    if (result.status === 'failed' && row) {
       await notify({
         userId: owner.id, actor: { id: null, name: `Agent · ${agent.name}` }, docId: agent.target_doc_id ?? null,
         kind: 'agent_failed', body: `Agent "${agent.name}" failed: ${result.error}`, title: `Agent "${agent.name}" failed`,
       }).catch((e) => console.error('[agents] failure notice:', e.message));
     }
-    return row;
+    // No row: the agent was deleted while it ran, and its runs with it.
+    return row ?? { id: runId, status: 'failed', output: result.output, tool_calls: result.calls, error: 'The agent was deleted during its run.' };
   }
 
-  /** Fire and forget: a trigger is logged, never thrown at whatever noticed it. */
+  /** Start a run and leave it going: a trigger is logged, never thrown at whatever noticed it. */
   const kick = (agentId, opts) => start(agentId, opts)
-    .then((s) => s?.done)
+    .then((s) => { s?.done.catch((e) => console.error('[agents] run failed:', e.message)); })
     .catch((e) => console.log(`[agents] ${opts.trigger} run of ${agentId} not started: ${e.message}`));
 
   /** Schedules come round; quiet pages fire. One pass. */
@@ -387,9 +472,17 @@ export function workspaceAgents({ pool, getSetting, port, grantOn, hasBody, noti
       const { rowCount } = await pool.query(
         'UPDATE workspace_agents SET next_run_at = $3 WHERE id = $1 AND next_run_at <= $2',
         [a.id, new Date(now), next == null ? null : new Date(next)]);
-      if (rowCount) kick(a.id, { trigger: 'schedule' });
+      // Missed by hours (the server was down): skip to the next one rather
+      // than send Monday's summary on Monday night.
+      if (rowCount && now - new Date(a.next_run_at).getTime() <= MISSED_MS) await kick(a.id, { trigger: 'schedule' });
     }
-    for (const { key, docs } of debouncer.due(now)) kick(key, { trigger: 'page_changed', docIds: docs });
+    for (const { key, docs } of debouncer.due(now)) await kick(key, { trigger: 'page_changed', docIds: docs });
+    // A run still open long past its timeout belongs to a process that died:
+    // close it, so its agent can run again. Age, not boot: another instance
+    // may still be running its own during a deploy.
+    await pool.query(
+      `UPDATE workspace_agent_runs SET status = 'failed', error = 'The run stopped answering (the server restarted?).', finished_at = now()
+        WHERE status = 'running' AND started_at < $1`, [new Date(now - STALE_RUN_MS)]);
   }
 
   /**
@@ -418,7 +511,7 @@ export function workspaceAgents({ pool, getSetting, port, grantOn, hasBody, noti
   }
 
   /** Body fields → columns. Checks the caller can see what the agent will point at. */
-  async function fields(b, user, partial) {
+  async function fields(b, user, partial, attached = []) {
     const out = {};
     if (!partial || b.name !== undefined) {
       const name = String(b.name ?? '').trim().slice(0, 80);
@@ -438,9 +531,18 @@ export function workspaceAgents({ pool, getSetting, port, grantOn, hasBody, noti
     }
     if (b.outputMode !== undefined) out.output_mode = b.outputMode === 'comment' ? 'comment' : 'suggest';
     if (b.skillIds !== undefined) {
+      // Attaching copies the skill: runs use this copy until the owner
+      // attaches again, so an edit by the skill's author cannot change what
+      // the agent does with the owner's access behind their back.
+      // A skill already attached keeps its copy unless the owner asks for the
+      // new version (refreshSkills, after reviewing it).
       const ids = Array.isArray(b.skillIds) ? b.skillIds.filter((x) => typeof x === 'string').slice(0, 20) : [];
-      const { rows } = ids.length ? await pool.query('SELECT id FROM workspace_skills WHERE id = ANY($1)', [ids]) : { rows: [] };
-      out.skill_ids = JSON.stringify(rows.map((r) => r.id));
+      const keep = b.refreshSkills ? [] : attached.filter((k) => ids.includes(k.id));
+      const fresh = ids.filter((id) => !keep.some((k) => k.id === id));
+      const { rows } = fresh.length
+        ? await pool.query('SELECT id, name, body, updated_at FROM workspace_skills WHERE id = ANY($1)', [fresh])
+        : { rows: [] };
+      out.skills = JSON.stringify([...keep, ...rows].sort((x, y) => x.name.localeCompare(y.name)));
     }
     if (b.enabled !== undefined) out.enabled = !!b.enabled;
     return out;
@@ -449,10 +551,9 @@ export function workspaceAgents({ pool, getSetting, port, grantOn, hasBody, noti
   const ownAgent = async (id, userId) =>
     (await pool.query(`SELECT ${AGENT_COLUMNS} FROM workspace_agents a WHERE a.id = $1 AND a.owner_id = $2`, [id, userId])).rows[0];
 
-  /** Ask AI may run an agent; it may not make, change or delete one (a page could ask it to). */
-  const notAi = (req, res, next) => (req.via === 'ai'
-    ? res.status(403).json({ error: 'Ask AI and agents cannot create or change agents or skills — a person does that.' })
-    : next());
+  // Ask AI, a run and an agent account may run an agent; only a person makes,
+  // changes or deletes agents and skills (a page could ask a model to).
+  const notAi = needsPerson;
 
   function registerRoutes(app, { requireUser, wrap }) {
     // An agent is its owner's: only they see it, change it or run it. Anyone
@@ -472,17 +573,17 @@ export function workspaceAgents({ pool, getSetting, port, grantOn, hasBody, noti
       const f = await fields({ outputMode: 'suggest', enabled: true, ...req.body }, req.user, false);
       const next = f.enabled ? await nextFor(f.trigger_spec, req.user.id) : null;
       const { rows: [row] } = await pool.query(
-        `INSERT INTO workspace_agents (id, owner_id, name, instructions, trigger_spec, target_doc_id, output_mode, skill_ids, enabled, next_run_at)
+        `INSERT INTO workspace_agents (id, owner_id, name, instructions, trigger_spec, target_doc_id, output_mode, skills, enabled, next_run_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, coalesce($8::jsonb, '[]'), $9, $10) RETURNING id`,
         [crypto.randomUUID(), req.user.id, f.name, f.instructions, f.trigger_spec, f.target_doc_id ?? null,
-          f.output_mode, f.skill_ids ?? null, f.enabled, next]);
+          f.output_mode, f.skills ?? null, f.enabled, next]);
       res.json(await ownAgent(row.id, req.user.id));
     }));
 
     app.patch('/api/workspace-agents/:id', requireUser, notAi, wrap(async (req, res) => {
       const agent = await ownAgent(req.params.id, req.user.id);
       if (!agent) return res.status(404).json({ error: 'not found' });
-      const f = await fields(req.body || {}, req.user, true);
+      const f = await fields(req.body || {}, req.user, true, Array.isArray(agent.skills) ? agent.skills : []);
       // Any change to when it runs, or whether, starts the schedule over from now.
       const trigger = f.trigger_spec ?? agent.trigger;
       const enabled = f.enabled ?? agent.enabled;
@@ -527,7 +628,8 @@ export function workspaceAgents({ pool, getSetting, port, grantOn, hasBody, noti
         started.done.catch((e) => console.error('[agents] run failed:', e.message));
         return res.json({ runId: started.runId });
       }
-      res.json(await started.done);
+      const row = await started.done;
+      res.json(row);
     }));
 
     // ── skills ──
@@ -558,8 +660,8 @@ export function workspaceAgents({ pool, getSetting, port, grantOn, hasBody, noti
     const mayChangeSkill = async (id, req) => {
       const { rows: [s] } = await pool.query('SELECT created_by FROM workspace_skills WHERE id = $1', [id]);
       if (!s) throw fail(404, 'not found');
-      // An admin's say-so is a person's: an agent account with the admin role is not one.
-      const admin = req.user.role === 'admin' && isPerson(req);
+      // needsPerson guards every skill write, so this admin is a person, not an agent account.
+      const admin = req.user.role === 'admin';
       if (s.created_by !== req.user.id && !admin) throw fail(403, 'Only its author or an admin can change this skill.');
     };
 
@@ -587,10 +689,8 @@ export function workspaceAgents({ pool, getSetting, port, grantOn, hasBody, noti
     }));
   }
 
-  /** Clean up after a restart, then sweep every minute. */
+  /** Sweep every minute (stale runs are closed by age, in sweep). */
   async function startSweeper() {
-    await pool.query(
-      "UPDATE workspace_agent_runs SET status = 'failed', error = 'The server restarted during this run.', finished_at = now() WHERE status = 'running'");
     let running = false;
     const tick = () => {
       if (running) return;

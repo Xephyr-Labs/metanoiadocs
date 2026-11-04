@@ -1127,7 +1127,7 @@ server.registerTool(
   async ({ id, input }) => {
     try {
       const r = await api(`/workspace-agents/${encodeURIComponent(id)}/run`, { method: 'POST', body: { wait: true, input } });
-      if (r.status === 'failed') return fail(new Error(`The agent failed: ${r.error}`));
+      if (!r || r.status === 'failed') return fail(new Error(`The agent failed: ${r?.error ?? 'no result'}`));
       return ok({ status: r.status, output: r.output, toolCalls: r.tool_calls });
     } catch (e) {
       return fail(e);

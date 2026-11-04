@@ -91,7 +91,7 @@ import { draftEdit, draftToRead, lossyRefusal } from './ai-drafts.js';
 import { registerDocEditRoutes } from './doc-edits.js';
 import { creditedSuggestions, listSuggestions, newSuggestionsBy, pendingJson } from './inline-suggest.js';
 import { suggestMarkdown } from './suggest-writer.js';
-import { isRunSecret, runCredential, skillCommand, skillsPrompt, workspaceAgents } from './workspace-agents.js';
+import { agentRunMay, isRunSecret, runCredential, skillCommand, skillsPrompt, workspaceAgents } from './workspace-agents.js';
 import { noClientBroadcast, suggestGuard } from './suggest-guard.js';
 import OpenAI from 'openai';
 
@@ -228,7 +228,15 @@ async function requireUser(req, res, next) {
   // nothing that needs a person is open to it — whatever headers it sent.
   req.agentRun = user.agent_run ?? null;
   delete user.agent_run;
-  if (req.agentRun) req.via = 'ai';
+  if (req.agentRun) {
+    req.via = 'ai';
+    // Nobody watches an unattended run: it reads, suggests, comments on its own
+    // target page and runs agents. Sharing, visibility, deleting, moving,
+    // creating, tags, task writes, tokens, hooks: refused here, not just hidden.
+    if (!agentRunMay(req.method, req.originalUrl.split('?')[0], req.agentRun)) {
+      return res.status(403).json({ error: 'An agent running on its own can only read, suggest edits, comment on its own page and run other agents.' });
+    }
+  }
   req.user = user;
   next();
 }
@@ -1291,7 +1299,7 @@ app.get('/api/docs/:id/print', requireUser, async (req, res) => {
  * draftEdit for a write by this request's caller: null to write straight onto
  * the page, else the response to send (shared by /content and /edits).
  */
-const draftWrite = (req, docId, doc, write) => draftEdit({
+const draftWrite = async (req, docId, doc, write) => (await draftEdit({
   policy: writePolicy({ user: req.user, via: req.via, token: req.token }), kind: doc.kind, via: req.via,
   agent: req.agentRun ? String(req.agentRun.name).slice(0, 80) : undefined,
   pageState: pageStateFrom(pool, () => hocuspocus), approver: () => approverFor(req),
@@ -1299,7 +1307,11 @@ const draftWrite = (req, docId, doc, write) => draftEdit({
   notify: async (n) => {
     for (const userId of n.userId ? [n.userId] : await pageEditors(docId, req.user.id)) await notifyUser({ ...n, userId, actor: req.user });
   },
-});
+})) ?? (req.agentRun
+  // A write that would land directly (a task's page, a page with no body yet):
+  // an unattended run only ever suggests.
+  ? { status: 403, body: { error: 'An agent running on its own only suggests edits, and this page cannot take a suggestion. Comment instead.' } }
+  : null);
 
 // Write markdown content to a doc: mode 'append' (default) or 'replace'.
 //

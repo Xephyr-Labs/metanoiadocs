@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   chainProblem, cleanSchedule, cleanTrigger, createDebouncer, mintRunCredential, nextRunAt,
-  revokeRunCredential, runCredential, runToolLoop, ownerProblem, skillCommand, skillName,
+  revokeRunCredential, runCredential, runToolLoop, ownerProblem, skillCommand, skillName, agentRunMay, AGENT_TOOLS,
 } from './workspace-agents.js';
 
 const iso = (ms) => new Date(ms).toISOString();
@@ -54,9 +54,10 @@ test('09:00 stays 09:00 local across a DST change', () => {
   assert.equal(iso(nextRunAt(s, 'America/New_York', Date.parse('2026-10-30T12:00:00Z'))), '2026-10-30T13:00:00.000Z');
   // And into DST on 2026-03-08: 09:00 EST = 14:00Z before, 09:00 EDT = 13:00Z on the day.
   assert.equal(iso(nextRunAt(s, 'America/New_York', Date.parse('2026-03-07T15:00:00Z'))), '2026-03-08T13:00:00.000Z');
-  // A time inside the spring-forward gap (02:30 does not exist) still runs that day, not never.
-  const gap = nextRunAt({ time: '02:30', days: [] }, 'America/New_York', Date.parse('2026-03-08T05:00:00Z'));
-  assert.ok(gap > Date.parse('2026-03-08T05:00:00Z') && gap < Date.parse('2026-03-08T09:00:00Z'), iso(gap));
+  // 02:30 does not exist that day: it runs at the first instant after the gap, 03:00 EDT.
+  assert.equal(iso(nextRunAt({ time: '02:30', days: [] }, 'America/New_York', Date.parse('2026-03-08T05:00:00Z'))), '2026-03-08T07:00:00.000Z');
+  // And on an ordinary day 02:30 is 02:30.
+  assert.equal(iso(nextRunAt({ time: '02:30', days: [] }, 'America/New_York', Date.parse('2026-03-09T05:00:00Z'))), '2026-03-09T06:30:00.000Z');
 });
 
 // ── triggers ─────────────────────────────────────────────────────────────────
@@ -83,6 +84,12 @@ test('a typing session fires once, after the quiet period, with the pages it tou
   const fired = d.due(t0 + 18 * 60_000);
   assert.deepEqual(fired, [{ key: 'agent1', docs: ['docA', 'docB'] }]);
   assert.deepEqual(d.due(t0 + 60 * 60_000), [], 'and only once');
+});
+
+test('edits that never stop still fire once the max wait is up', () => {
+  const d = createDebouncer(10, 100);
+  for (let t = 0; t < 100; t += 5) { d.note('a', 'x', t); assert.deepEqual(d.due(t), []); }
+  assert.deepEqual(d.due(100).map((f) => f.key), ['a']);
 });
 
 test('each agent keeps its own quiet clock', () => {
@@ -180,4 +187,36 @@ test('/skill-name at the start of an Ask AI message picks a skill', () => {
   assert.equal(skillCommand('use /tone here'), null);
   assert.equal(skillCommand('/Not_A_Skill x'), null);
   assert.equal(skillName('  Weekly Risks!! '), 'weekly-risks');
+});
+
+// ── what an unattended run may do ────────────────────────────────────────────
+
+test('a run credential reads, suggests, comments on its own target, and runs agents — nothing else', () => {
+  const run = { targetDocId: 'target' };
+  const may = (m, p) => agentRunMay(m, p, run);
+  for (const [m, p] of [
+    ['GET', '/api/docs/d1/markdown'], ['GET', '/api/search'], ['GET', '/api/docs'], ['GET', '/api/tasks'],
+    ['POST', '/api/docs/d1/content'], ['POST', '/api/docs/d1/edits'],
+    ['POST', '/api/docs/target/comments'], ['POST', '/api/workspace-agents/a1/run'],
+  ]) assert.equal(may(m, p), true, `${m} ${p}`);
+  for (const [m, p] of [
+    ['POST', '/api/docs/d1/share'], ['PUT', '/api/docs/d1/visibility'], ['PUT', '/api/docs/d1/access/u2'],
+    ['DELETE', '/api/docs/d1/access/u2'], ['PUT', '/api/docs/d1/team-role'], ['DELETE', '/api/docs/d1'],
+    ['DELETE', '/api/docs/d1/permanent'], ['PATCH', '/api/docs/d1'], ['POST', '/api/docs'], ['POST', '/api/docs/d1/children'],
+    ['POST', '/api/docs/d1/tags'], ['POST', '/api/tags'], ['POST', '/api/docs/d1/public'],
+    ['POST', '/api/docs/other/comments'], ['POST', '/api/projects'], ['PATCH', '/api/projects/p1'],
+    ['POST', '/api/tasks'], ['PATCH', '/api/tasks/t1'], ['DELETE', '/api/tasks/t1'], ['POST', '/api/tasks/t1/comments'],
+    ['PATCH', '/api/sprints/s1'], ['POST', '/api/webhooks'], ['POST', '/api/tokens'], ['GET', '/api/tokens'],
+    ['GET', '/api/admin/tokens'], ['GET', '/api/calendar/token'], ['GET', '/api/webhooks'],
+    ['POST', '/api/workspace-agents'], ['PATCH', '/api/workspace-agents/a1'], ['POST', '/api/skills'],
+    ['POST', '/api/docs/d1/slides'], ['POST', '/mcp'],
+  ]) assert.equal(may(m, p), false, `${m} ${p}`);
+  assert.equal(agentRunMay('POST', '/api/docs/target/comments', { targetDocId: null }), false, 'no target, no comments');
+});
+
+test('an unattended run is offered reads, suggestions, comments and run_agent only', () => {
+  for (const t of ['share_doc', 'set_visibility', 'create_doc', 'move_doc', 'add_tag', 'delete_task', 'archive_board', 'create_task', 'update_task', 'create_sprint', 'link_docs', 'add_slide']) {
+    assert.ok(!AGENT_TOOLS.has(t), t);
+  }
+  for (const t of ['search_docs', 'read_doc', 'write_doc', 'edit_doc', 'comment_on_doc', 'run_agent', 'list_tasks']) assert.ok(AGENT_TOOLS.has(t), t);
 });

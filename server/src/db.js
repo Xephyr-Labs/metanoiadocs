@@ -1167,7 +1167,8 @@ export async function initSchema() {
       trigger_spec  JSONB NOT NULL DEFAULT '{"kind":"manual"}',
       target_doc_id TEXT REFERENCES docs(id) ON DELETE SET NULL,
       output_mode   TEXT NOT NULL DEFAULT 'suggest',  -- suggest | comment
-      skill_ids     JSONB NOT NULL DEFAULT '[]',
+      -- The attached skills as they were when attached: [{ id, name, body, updated_at }].
+      skills        JSONB NOT NULL DEFAULT '[]',
       enabled       BOOLEAN NOT NULL DEFAULT true,
       next_run_at   TIMESTAMPTZ,
       created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),

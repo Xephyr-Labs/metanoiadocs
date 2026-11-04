@@ -102,7 +102,7 @@ const fieldsInput = z
   .optional()
   .describe("The board's own columns by label, e.g. { Reviewer: ['Amy', 'cal@example.com'], Priority: 'High' }. People are names, usernames or emails; selects take an option label; null clears.");
 
-export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZONE }) {
+export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZONE, signal }) {
   const origin = String(base || '').replace(/\/+$/, '');
 
   async function api(path, { method = 'GET', body, headers: extra } = {}) {
@@ -114,6 +114,7 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
         ...extra,
       },
       body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal,
     });
     const text = await res.text();
     let data;
@@ -1451,7 +1452,7 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
     async ({ id, input }) => {
       try {
         const r = await api(`/workspace-agents/${encodeURIComponent(id)}/run`, { method: 'POST', body: { wait: true, input } });
-        if (r.status === 'failed') return fail(new Error(`The agent failed: ${r.error}`));
+        if (!r || r.status === 'failed') return fail(new Error(`The agent failed: ${r?.error ?? 'no result'}`));
         return ok({ status: r.status, output: r.output, toolCalls: r.tool_calls });
       } catch (e) {
         return fail(e);

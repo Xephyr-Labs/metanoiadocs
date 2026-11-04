@@ -115,3 +115,19 @@ test('a failing call comes back as a result the model can read, not a throw', as
     },
   );
 });
+
+test('a run’s abort signal ends a tool call that never answers', async () => {
+  const server = http.createServer(() => { /* never answers */ });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const ac = new AbortController();
+  const tools = aiTools({ base: `http://127.0.0.1:${server.address().port}`, signal: ac.signal });
+  try {
+    setTimeout(() => ac.abort(), 50);
+    const out = await tools.run('search_docs', JSON.stringify({ query: 'x' }));
+    assert.ok(out.error, 'the hung call comes back as an error');
+  } finally {
+    await tools.close();
+    server.closeAllConnections();
+    server.close();
+  }
+});

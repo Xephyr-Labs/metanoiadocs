@@ -34,8 +34,9 @@ function toFunctionParameters(schema) {
  * @param {string} opts.base     Origin to call, no trailing slash.
  * @param {Record<string,string>} opts.headers  Auth headers forwarded on every call.
  * @param {string} [opts.zone]   The caller's IANA zone, for tools that ask what day it is.
+ * @param {AbortSignal} [opts.signal]  Ends every tool's API call in flight (a workspace agent's run timeout).
  */
-export function aiTools({ base, headers = {}, zone }) {
+export function aiTools({ base, headers = {}, zone, signal }) {
   let server = null;
   let client = null;
   let connecting = null;
@@ -43,7 +44,7 @@ export function aiTools({ base, headers = {}, zone }) {
   function connect() {
     if (connecting) return connecting;
     connecting = (async () => {
-      server = createMetanoiaMcpServer({ base, headers, zone });
+      server = createMetanoiaMcpServer({ base, headers, zone, signal });
       const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
       client = new Client({ name: 'metanoiadocs-copilot', version: '1.0.0' });
       await Promise.all([server.connect(serverSide), client.connect(clientSide)]);
