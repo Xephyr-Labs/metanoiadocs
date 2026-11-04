@@ -196,7 +196,7 @@ function AgentEditor({ agent, aiReady, folders, spaces, skills, onChanged }: {
                     </button>
                   );
                 })}
-                <input type="time" value={t.time} onChange={(e) => setDraft({ ...draft, trigger: { ...t, time: e.target.value } })} className={cn(field, 'ml-1 w-28')} aria-label="Time" />
+                <input type="time" value={t.time} onChange={(e) => setDraft({ ...draft, trigger: { ...t, time: e.target.value } })} className={cn(field, 'ml-1 w-32')} aria-label="Time" />
                 <span className="w-full text-2xs text-faint">No days ticked means every day. Your own time zone.</span>
               </div>
             )}
