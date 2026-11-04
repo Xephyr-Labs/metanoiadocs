@@ -793,6 +793,47 @@ server.registerTool(
 );
 
 server.registerTool(
+  'chart_tasks',
+  {
+    title: 'Chart a board',
+    description:
+      "Count (or sum, or average) one board's tasks grouped by one field — the numbers a chart view draws, counted by the server. `groupBy` is status, assignee, type, sprint, or a date (created, due, done) bucketed by `unit`. A task on two people counts once for each. Returns buckets largest first (dates in order), keyed by status / type key, person name, sprint name or bucket start date; '' is \"not set\" and \"Other\" folds in everything past twenty buckets.",
+    inputSchema: {
+      board: z.string().describe('Board name or id'),
+      groupBy: z.enum(['status', 'assignee', 'type', 'sprint', 'created', 'due', 'done']).optional().describe('Default status'),
+      unit: z.enum(['day', 'week', 'month']).optional().describe('For a date groupBy; default week'),
+      measure: z.enum(['count', 'sum', 'avg']).optional().describe('Default count'),
+      of: z.enum(['points', 'priority', 'progress', 'estimate']).optional().describe('The number a sum or average reads'),
+    },
+  },
+  async ({ board, groupBy, unit, measure, of }) => {
+    try {
+      const found = await findBoard(board);
+      const X = { status: 'status', assignee: 'assignee_id', type: 'kind', sprint: 'sprint_id', created: 'created_at', due: 'due_at', done: 'done_at' };
+      const OF = { points: 'points', priority: 'priority', progress: 'progress', estimate: 'estimate_h' };
+      const x = X[groupBy ?? 'status'];
+      const data = await api(`/projects/${encodeURIComponent(found.id)}/chart`, {
+        method: 'POST',
+        body: { chart: { type: 'bar', x, unit, measure: of ? measure ?? 'sum' : 'count', of: of ? OF[of] : null } },
+      });
+      // Ids mean nothing to a reader; the names the board shows do.
+      const names = x === 'assignee_id'
+        ? new Map((await api('/users')).map((u) => [u.id, u.name || u.username]))
+        : x === 'sprint_id'
+          ? new Map((await api(`/projects/${encodeURIComponent(found.id)}/sprints`)).map((s) => [s.id, s.name]))
+          : new Map();
+      return ok({
+        board: found.name,
+        tasks: data.tasks,
+        buckets: data.buckets.map((b) => ({ key: b.key === '__other__' ? 'Other' : names.get(b.key) ?? b.key, value: b.value })),
+      });
+    } catch (e) {
+      return fail(e);
+    }
+  },
+);
+
+server.registerTool(
   'create_task',
   {
     title: 'Create a task',

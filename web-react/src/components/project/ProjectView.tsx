@@ -21,6 +21,7 @@ import { BulkBar } from './BulkBar';
 import { Board } from './Board';
 import { addDays } from '../../lib/gantt';
 import { Calendar } from './Calendar';
+import { ChartView } from './ChartView';
 import { Dashboard } from './Dashboard';
 import { FilterBar } from './FilterBar';
 import { SortBar } from './SortBar';
@@ -56,7 +57,7 @@ const EMPTY_IDS: string[] = [];
 
 /** Backlog, Board and Gantt read status, sprints and start/due dates, which a
  *  data database does not have. */
-const DATA_KINDS: ViewKind[] = ['table', 'calendar', 'gallery'];
+const DATA_KINDS: ViewKind[] = ['table', 'calendar', 'gallery', 'chart'];
 
 /** Views that draw properties on a card or in a column — the backlog is a
  *  planning list, not a grid of values. */
@@ -342,7 +343,7 @@ export function ProjectView() {
           <TagFilter tags={ws.allTags} filters={d.filters} onChange={d.setFilters} />
           <FilterBar fields={d.fields} filters={d.filters} onChange={d.setFilters} />
           {/* A chart has no row order, so there is nothing for a sort to do. */}
-          {d.kind !== 'dashboard' && <SortBar fields={d.fields} sort={d.sort} onChange={d.setSort} />}
+          {d.kind !== 'dashboard' && d.kind !== 'chart' && <SortBar fields={d.fields} sort={d.sort} onChange={d.setSort} />}
           {(d.kind === 'board' || d.kind === 'table') && (
             <GroupBy fields={d.groupFields} value={d.groupField?.key ?? null} onChange={d.setGroupBy} optional={d.kind === 'table'} />
           )}
@@ -432,6 +433,22 @@ export function ProjectView() {
           // The same filtered list every other view reads, so narrowing the
           // view narrows the charts.
           <Dashboard tasks={d.tasks} sprints={p.sprints} scope={d.scope} statusColors={d.statusColors} />
+        ) : d.kind === 'chart' ? (
+          <ChartView
+            projectId={project.id}
+            mode={project.mode}
+            chart={d.config.chart}
+            filters={d.filters}
+            scope={d.scope}
+            fields={d.fields}
+            props={p.props}
+            kinds={p.kinds}
+            statusColors={d.statusColors}
+            tasks={d.tasks}
+            version={p.tasks}
+            onSave={d.setChart}
+            onOpen={setOpen}
+          />
         ) : d.kind === 'gallery' ? (
           <Gallery
             tasks={d.tasks}

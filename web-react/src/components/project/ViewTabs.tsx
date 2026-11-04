@@ -7,7 +7,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import {
-  CalendarDays, ChevronDown, Copy, GanttChartSquare, KanbanSquare, LayoutGrid,
+  BarChart3, CalendarDays, ChevronDown, Copy, GanttChartSquare, KanbanSquare, LayoutGrid,
   ListTodo, Pencil, Plus, PieChart, Shapes, Table2, Trash2,
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
@@ -23,6 +23,7 @@ const ICON: Record<ViewKind, typeof Table2> = {
   calendar: CalendarDays,
   gallery: LayoutGrid,
   dashboard: PieChart,
+  chart: BarChart3,
 };
 
 interface Props {

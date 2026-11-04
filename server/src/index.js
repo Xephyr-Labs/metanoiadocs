@@ -66,6 +66,7 @@ import { registerTaskRoutes, kindsFor, isStatus, createTaskRow } from './tasks.j
 import { insertTaskComment, registerTaskCommentRoutes } from './task-comments.js';
 import { registerPropRoutes } from './props-routes.js';
 import { registerViewRoutes } from './views.js';
+import { registerChartRoutes } from './chart.js';
 import { registerDocPropRoutes } from './doc-props.js';
 import { registerHomeRoutes } from './home.js';
 import { registerPushRoutes, sendPush } from './push.js';
@@ -3504,6 +3505,7 @@ registerTaskRoutes(app, { requireUser, wrap, createDocRow });
 registerTaskCommentRoutes(app, { requireUser, wrap });
 registerPropRoutes(app, { requireUser, wrap });
 registerViewRoutes(app, { requireUser, wrap });
+registerChartRoutes(app, { requireUser, wrap });
 registerDocPropRoutes(app, { requireUser, wrap, grantOn, editGrant });
 registerHomeRoutes(app, { requireUser, wrap });
 registerPushRoutes(app, { requireUser, wrap });
