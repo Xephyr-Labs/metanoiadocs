@@ -700,7 +700,25 @@ export function extractText(existing, opts = {}) {
   return { title, text: lines.join('\n') };
 }
 
-/** Decode a doc_states buffer to {title, blocks[]} with flavour/type/checked, tree order. */
+/** Blocks that only hold other blocks: walked through, never listed themselves. */
+const CONTAINERS = new Set(['affine:page', 'affine:note', 'affine:surface', 'affine:callout', 'affine:frame']);
+
+/** A non-text block's props as one comparable string — what it is, not where. */
+function blockSig(b) {
+  const out = [];
+  for (const [k, v] of b) {
+    if (!k.startsWith('prop:') || k === 'prop:mnSugg') continue;
+    out.push([k, v instanceof Y.AbstractType ? v.toJSON() : v]);
+  }
+  return JSON.stringify(out.sort((x, y) => (x[0] < y[0] ? -1 : 1)));
+}
+
+/**
+ * Decode a doc_states buffer to {title, blocks[]} with id/flavour/type/checked, tree order.
+ * `opts.all` also lists the non-text blocks (images, tables, databases,
+ * embeds…) with `sig`, a fingerprint of their props, so the History diff can
+ * say one changed without reading inside it.
+ */
 export function extractBlocks(existing, opts = {}) {
   const me = opts.withPendingFor ?? null;
   const doc = new Y.Doc();
@@ -729,11 +747,14 @@ export function extractBlocks(existing, opts = {}) {
     const fl = v.flavour;
     if (fl === 'affine:paragraph' || fl === 'affine:list' || fl === 'affine:code') {
       out.push({
+        id: b.get('sys:id'),
         flavour: fl,
         type: v.type || 'text',
         checked: v.checked,
         text: textOf(b),
       });
+    } else if (opts.all && !CONTAINERS.has(fl)) {
+      out.push({ id: b.get('sys:id'), flavour: fl, type: v.type ?? null, checked: false, text: '', sig: blockSig(b) });
     }
     const kids = b.get('sys:children');
     if (kids instanceof Y.Array) for (const c of kids.toArray()) walk(c);

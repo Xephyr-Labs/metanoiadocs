@@ -11,7 +11,7 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { ArrowLeft, Check, ChevronDown, Copy, History, Loader2, MoreHorizontal, RotateCcw, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { docsApi, type VersionRow } from '../../lib/docsApi';
+import { docsApi, type VersionDiff, type VersionRow } from '../../lib/docsApi';
 import { avatarFor } from '../../lib/avatar';
 import { groupByDay, timeLabel } from '../../lib/versionGroups';
 import { cn } from '../../lib/cn';
@@ -25,6 +25,8 @@ import { IconButton } from '../ui/IconButton';
 import { Menu } from '../ui/Menu';
 import { Modal } from '../ui/Modal';
 import { PageSkeleton } from '../ui/Skeleton';
+import { SegmentedControl } from '../ui/SegmentedControl';
+import { DiffStats, VersionDiffView } from './VersionDiffView';
 
 /** A snapshot's own label, sentence-cased — the server writes 'autosave'. */
 const labelOf = (v: VersionRow) => {
@@ -113,6 +115,12 @@ function HistoryPanel({ docId }: { docId: string }) {
   // or the page would be too narrow to read.
   const isMobile = useMediaQuery('(max-width: 767px)');
   const [pane, setPane] = useState<'list' | 'preview'>('list');
+  // Picking a version shows what that save changed; the page itself, or the
+  // comparison with the page as it is now, are one toggle away.
+  const [view, setView] = useState<'changes' | 'page'>('changes');
+  const [against, setAgainst] = useState<'previous' | 'current'>('previous');
+  const [diff, setDiff] = useState<VersionDiff | null>(null);
+  const [diffErr, setDiffErr] = useState<string | null>(null);
 
   const load = useCallback(
     async (keepSelection = false) => {
@@ -147,7 +155,26 @@ function HistoryPanel({ docId }: { docId: string }) {
     return () => { alive = false; };
   }, [docId, selectedId]);
 
+  useEffect(() => {
+    if (!selectedId || view !== 'changes') return;
+    let alive = true;
+    setDiff(null);
+    setDiffErr(null);
+    docsApi
+      .versionDiff(docId, selectedId, against)
+      .then((d) => { if (alive) setDiff(d); })
+      .catch((e) => { if (alive) setDiffErr(e instanceof Error ? e.message : 'Could not compare that version.'); });
+    return () => { alive = false; };
+  }, [docId, selectedId, view, against]);
+
+  const pick = (id: string) => { setSelectedId(id); setAgainst('previous'); setPane('preview'); };
+
   const selected = versions?.find((v) => v.id === selectedId) ?? null;
+  const who = (v: { author: string | null; author_email: string | null } | null) => v?.author || v?.author_email || null;
+  /** "Saved by Ana · compared with 3:12 PM" — what the diff is between. */
+  const diffCaption = !diff ? null
+    : diff.against === 'current' ? 'From this version to the page now'
+    : diff.from ? `Since the version at ${timeLabel(new Date(diff.from.created_at))}` : 'The first version kept: all of it is new';
 
   const restoreInPlace = async () => {
     if (!selectedId) return;
@@ -260,9 +287,37 @@ function HistoryPanel({ docId }: { docId: string }) {
                     {timeLabel(new Date(selected.created_at))}
                   </span>
                 )}
+                {selected && who(selected) && (
+                  <span className="hidden min-w-0 truncate text-2xs text-faint sm:inline">saved by {who(selected)}</span>
+                )}
+                <span className="ml-auto shrink-0">
+                  <SegmentedControl
+                    aria-label="Show"
+                    value={view}
+                    onChange={(v) => setView(v as 'changes' | 'page')}
+                    segments={[{ value: 'changes', label: 'Changes' }, { value: 'page', label: 'Page' }]}
+                  />
+                </span>
               </div>
+              {view === 'changes' && selected && (
+                <div className="flex min-h-[2.25rem] shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-line px-3 py-1">
+                  <SegmentedControl
+                    aria-label="Compare with"
+                    value={against}
+                    onChange={(v) => setAgainst(v as 'previous' | 'current')}
+                    segments={[{ value: 'previous', label: 'Previous version' }, { value: 'current', label: 'Current page' }]}
+                  />
+                  {diff && <DiffStats stats={diff.stats} />}
+                  {diffCaption && <span className="min-w-0 truncate text-2xs text-faint">{diffCaption}</span>}
+                </div>
+              )}
 
               <div className="scrollarea min-h-0 flex-1 overflow-y-auto">
+                {view === 'changes' ? (
+                  diffErr ? <p className="mt-6 px-6 text-sm text-danger-strong">{diffErr}</p>
+                  : !diff ? <div className="px-6 pt-8"><PageSkeleton /></div>
+                  : <VersionDiffView key={`${selectedId}:${against}`} diff={diff} pageTitle={page?.title ?? 'Untitled'} />
+                ) : <>
                 {err && !loadingState && <p className="mt-6 px-6 text-sm text-danger-strong">{err}</p>}
                 {loadingState || !state ? (
                   !err && <div className="px-6 pt-8"><PageSkeleton /></div>
@@ -293,6 +348,7 @@ function HistoryPanel({ docId }: { docId: string }) {
                     />
                   </motion.div>
                 )}
+                </>}
               </div>
             </div>
           </div>
@@ -363,7 +419,7 @@ function HistoryPanel({ docId }: { docId: string }) {
                               key={v.id}
                               version={v}
                               selected={v.id === selectedId}
-                              onSelect={() => { setSelectedId(v.id); setPane('preview'); }}
+                              onSelect={() => pick(v.id)}
                             />
                           ))}
                         </div>
@@ -406,7 +462,7 @@ function HistoryPanel({ docId }: { docId: string }) {
               leftIcon={busy === 'restore' ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />}
               onClick={() => setConfirming(true)}
             >
-              <span className="hidden sm:inline">Restore current version</span>
+              <span className="hidden sm:inline">Restore this version</span>
               <span className="sm:hidden">Restore</span>
             </Button>
           </div>

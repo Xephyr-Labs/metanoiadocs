@@ -89,6 +89,7 @@ import { byJoinedFirst } from './spaces.js';
 import { ROLE_RANK, rankOf, canEdit, writePolicy, resolveApprover, untrusted, needsPerson, isPerson, pageSyncRole, mintAgentToken } from './approval.js';
 import { draftEdit, draftToRead, lossyRefusal } from './ai-drafts.js';
 import { registerDocEditRoutes } from './doc-edits.js';
+import { diffStates } from './version-diff.js';
 import { creditedSuggestions, listSuggestions, newSuggestionsBy, pendingJson } from './inline-suggest.js';
 import { suggestMarkdown } from './suggest-writer.js';
 import { noClientBroadcast, suggestGuard } from './suggest-guard.js';
@@ -2890,6 +2891,44 @@ app.get('/api/docs/:id/versions/:vid/state', requireUser, wrap(async (req, res) 
   res.type('application/octet-stream').send(Buffer.from(v.rows[0].state));
 }));
 
+// What changed in a version: by default against the version saved just before
+// it ("what this save did"), or with ?against=current, from it to the page as it
+// is now ("what has happened since"). The diff is worked out here and sent as
+// rows the History panel only has to paint (version-diff.js).
+app.get('/api/docs/:id/versions/:vid/diff', requireUser, wrap(async (req, res) => {
+  if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
+  const docId = req.params.id;
+  const cols = `v.id, v.label, v.created_at, v.state, u.name AS author, u.email AS author_email
+                  FROM doc_versions v LEFT JOIN users u ON u.id = v.created_by`;
+  const v = (await pool.query(`SELECT ${cols} WHERE v.id = $1 AND v.doc_id = $2`, [req.params.vid, docId])).rows[0];
+  if (!v) return res.status(404).json({ error: 'version not found' });
+  const meta = ({ state, ...row }) => row;
+  const against = req.query.against === 'current' ? 'current' : 'previous';
+  let from, to, before, after;
+  if (against === 'previous') {
+    const prev = (await pool.query(
+      `SELECT ${cols} WHERE v.doc_id = $1 AND (v.created_at, v.id) < ($2, $3)
+        ORDER BY v.created_at DESC, v.id DESC LIMIT 1`,
+      [docId, v.created_at, v.id]
+    )).rows[0];
+    // The oldest version kept has nothing before it: all of it reads as new.
+    from = prev ? meta(prev) : null; before = prev?.state ?? null;
+    to = meta(v); after = v.state;
+  } else {
+    // The live document when one is open — doc_states lags it by the save debounce.
+    const live = hocuspocus.documents.get(docId);
+    const cur = live ? Buffer.from(Y.encodeStateAsUpdate(live))
+      : (await pool.query('SELECT state FROM doc_states WHERE doc_id = $1', [docId])).rows[0]?.state;
+    if (!cur) return res.status(400).json({ error: 'nothing to compare with yet' });
+    from = meta(v); before = v.state;
+    to = { current: true }; after = cur;
+  }
+  let diff;
+  try { diff = diffStates(before, after); }
+  catch { return res.status(400).json({ error: 'could not read that version' }); }
+  res.json({ against, from, to, ...diff });
+}));
+
 /** Save `state` as a named version of the page, for undoing what comes next.
  *  Keeps the same 50-version cap the autosave does: without it, restoring or
  *  replacing repeatedly on a page nobody is editing would grow the history
@@ -3772,8 +3811,9 @@ const hocuspocus = new Hocuspocus({
         const stale = !last.rows[0] || (Date.now() - new Date(last.rows[0].created_at)) > 8 * 60 * 1000;
         if (stale) {
           await pool.query(
-            'INSERT INTO doc_versions (id, doc_id, state, label) VALUES ($1, $2, $3, $4)',
-            [crypto.randomUUID(), documentName, buf, 'autosave']
+            'INSERT INTO doc_versions (id, doc_id, state, label, created_by) VALUES ($1, $2, $3, $4, $5)',
+            // Who saved it, so History can say whose edits a version holds.
+            [crypto.randomUUID(), documentName, buf, 'autosave', actor]
           );
           await pruneVersions(documentName);
         }
