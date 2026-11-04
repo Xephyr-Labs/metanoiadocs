@@ -2,6 +2,7 @@
 // so the session cookie authenticates every call.
 import type { Reaction } from './emoji';
 import type { StoredFile } from './uploads';
+import type { Verification } from './types';
 
 async function req(path: string, opts: RequestInit = {}): Promise<any> {
   const res = await fetch(`/api${path}`, {
@@ -60,6 +61,8 @@ export interface DocRow {
    *  team's shelf) — a love says nothing about where the page lives. */
   loved?: boolean;
   love_count?: number;
+  /** Absent from a server that predates verified pages. */
+  verify?: Verification;
   shared: boolean;
   favorite: boolean;
   /** Pinned for everyone. Distinct from `favorite`, which is per person. */
@@ -259,6 +262,8 @@ export interface SearchRow {
    *  send it yet, in which case the hit shows its status dot instead. */
   taskKind?: string;
   space_id?: string | null;
+  /** Pages only — verified and not due for review. */
+  verified?: boolean;
   /** Tasks only — the task the query's key names (it stays first). */
   named?: boolean;
 }
@@ -288,7 +293,7 @@ export interface InboxRow {
    *  person, so they carry a body that already reads as a sentence and no
    *  actor to name. See server/src/reminders.js. */
   kind: 'mention' | 'comment' | 'reply' | 'reply_to_you' | 'suggestion' | 'suggestion_accepted' | 'suggestion_rejected'
-    | 'review_requested' | 'review_done' | 'ai_suggestion' | 'page_suggestion' | 'assigned' | 'due_soon' | 'due_today' | 'overdue' | 'digest';
+    | 'review_requested' | 'review_done' | 'ai_suggestion' | 'page_suggestion' | 'assigned' | 'due_soon' | 'due_today' | 'overdue' | 'digest' | 'verify_review';
   /** The comment that triggered it — null for notifications with no thread. */
   comment_id: string | null;
   /** Null for anything the system raised rather than a person. */
@@ -497,6 +502,11 @@ export const docsApi = {
   mintUserToken: (id: string, name?: string): Promise<{ id: string; name: string; token: string }> =>
     req(`/admin/users/${id}/tokens`, { method: 'POST', body: JSON.stringify({ name }) }),
   removeUser: (id: string) => req(`/users/${id}`, { method: 'DELETE' }),
+
+  /** Vouch for a page (or again). `ownerId` defaults to you; `every` is 30, 90, 180 or 0 (never). */
+  verify: (id: string, body: { every?: number; ownerId?: string }): Promise<Verification> =>
+    req(`/docs/${id}/verify`, { method: 'PUT', body: JSON.stringify(body) }),
+  unverify: (id: string): Promise<Verification> => req(`/docs/${id}/verify`, { method: 'DELETE' }),
 
   love: (id: string, loved: boolean): Promise<{ count: number; loved: boolean }> =>
     req(`/docs/${id}/love`, { method: 'PUT', body: JSON.stringify({ loved }) }),

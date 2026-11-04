@@ -1,4 +1,4 @@
-import { Bell, CalendarClock, Inbox, ListChecks, Loader2, TriangleAlert, X, type LucideIcon } from 'lucide-react';
+import { BadgeCheck, Bell, CalendarClock, Inbox, ListChecks, Loader2, TriangleAlert, X, type LucideIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { cn } from '../../lib/cn';
 import { docsApi, type InboxRow } from '../../lib/docsApi';
@@ -104,6 +104,7 @@ const SYSTEM: Record<string, { icon: LucideIcon; tone: string }> = {
   due_today: { icon: CalendarClock, tone: 'text-accent-strong' },
   overdue: { icon: TriangleAlert, tone: 'text-danger-strong' },
   digest: { icon: ListChecks, tone: 'text-muted' },
+  verify_review: { icon: BadgeCheck, tone: 'text-amber-600 dark:text-amber-400' },
 };
 
 
@@ -168,6 +169,10 @@ export function InboxDialog() {
     // forty cards on it is not an answer to "which one was late" or "what did
     // I just get", and a comment on a task belongs to the task's own thread
     // rather than to whatever page it was eventually given.
+    if (it.kind === 'verify_review' && it.doc_id) {
+      ws.select(it.doc_id);
+      return;
+    }
     if (SYSTEM[it.kind] || it.task_id) {
       if (it.project_id) ws.openProject(it.project_id, it.task_id ?? undefined);
       return;

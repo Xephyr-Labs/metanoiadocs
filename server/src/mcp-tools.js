@@ -217,7 +217,7 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
     {
       title: 'Read a doc',
       description:
-        "Get a doc's title and its body as markdown, by id — the same markdown write_doc and create_doc take, formatting included, with links to other docs as [[Title]] (or [[id|Title]] where two docs share the title). To change part of a doc, use edit_doc. For a full rewrite, change this markdown and write it back with write_doc mode=replace: text, formatting, lists, tables, panels, images and links you leave as they were come back unchanged. If the result has `lossy`, the page also holds things markdown cannot carry (database, canvas, attachment, equation, embed) and replace is refused — append or comment instead. If you have edits waiting for review on the page, you read your draft (with `pendingSuggestion`), so a further replace builds on it.",
+        "Get a doc's title and its body as markdown, by id — the same markdown write_doc and create_doc take, formatting included, with links to other docs as [[Title]] (or [[id|Title]] where two docs share the title). To change part of a doc, use edit_doc. For a full rewrite, change this markdown and write it back with write_doc mode=replace: text, formatting, lists, tables, panels, images and links you leave as they were come back unchanged. If the result has `lossy`, the page also holds things markdown cannot carry (database, canvas, attachment, equation, embed) and replace is refused — append or comment instead. `verification` says whether anyone has vouched for the page — state unverified, verified or needs_review (its interval passed or someone edited it since), and who verified it when — so you know how far to trust it. If you have edits waiting for review on the page, you read your draft (with `pendingSuggestion`), so a further replace builds on it.",
       inputSchema: { id: z.string().describe('Document id') },
     },
     async ({ id }) => {
@@ -697,6 +697,31 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
         return fail(e);
       }
     }
+  );
+
+  server.registerTool(
+    'verify_doc',
+    {
+      title: 'Verify a doc',
+      description:
+        "Vouch that a page is accurate, so readers (and read_doc's `verification`) see Verified by you and the date. A page goes back to Needs review when its interval passes (`every`: 30, 90 or 180 days, or 0 for never; default 90) or when anyone other than the verifier edits it, and its owner is notified once. Calling it again re-verifies and resets the clock. `owner` (name, username or email) is who is responsible for keeping it right; it defaults to the verifier. `remove: true` takes the verification off. Only verify what you have actually checked: an AI assistant or an untrusted agent is refused, and a page you cannot edit is refused.",
+      inputSchema: {
+        id: z.string().describe('Document id'),
+        every: z.union([z.literal(30), z.literal(90), z.literal(180), z.literal(0)]).optional().describe('Days between reviews; 0 = never. Default 90, or the page\'s current setting'),
+        owner: z.string().optional().describe('Who keeps this page right: name, username or email. Default: you'),
+        remove: z.boolean().optional().describe('Remove the verification instead'),
+      },
+    },
+    async ({ id, every, owner, remove }) => {
+      try {
+        const path = `/docs/${encodeURIComponent(id)}/verify`;
+        if (remove) return ok(await api(path, { method: 'DELETE' }));
+        const ownerId = owner ? findPerson(await api('/users'), owner).id : undefined;
+        return ok(await api(path, { method: 'PUT', body: { every, ownerId } }));
+      } catch (e) {
+        return fail(e);
+      }
+    },
   );
 
   server.registerTool(
@@ -1440,6 +1465,7 @@ export const MCP_TOOL_NAMES = [
   'move_doc',
   'link_docs',
   'share_doc',
+  'verify_doc',
   'list_boards',
   'create_board',
   'archive_board',

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, useRef } from 'react';
-import { ChevronDown, ChevronLeft, ChevronRight, FileText, MoreHorizontal, Plus, RefreshCw, Upload } from 'lucide-react';
+import { BadgeCheck, ChevronDown, ChevronLeft, ChevronRight, FileText, MoreHorizontal, Plus, RefreshCw, Upload } from 'lucide-react';
 import { useDocMenu } from '../../hooks/useDocMenu';
 import { useAuth } from '../../store/auth';
 import { useWorkspace } from '../../store/workspace';
@@ -220,6 +220,27 @@ export function Home() {
           </div>
         ) : (
           <>
+            {!!data.reviewPages?.length && (
+              <section className="mb-8" aria-label="Pages to review">
+                <div className="mb-3 flex items-baseline justify-between gap-4">
+                  <h2 className="text-sm font-semibold text-ink">Pages to review</h2>
+                  <span className="text-2xs text-faint">Pages you own that need another look</span>
+                </div>
+                <div className="space-y-px">
+                  {data.reviewPages.map((p) => (
+                    <button key={p.id} type="button" onClick={() => ws.select(p.id)}
+                      className="flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-left hover:bg-hover">
+                      <BadgeCheck size={16} className="shrink-0 text-amber-600 dark:text-amber-400" />
+                      <span className="min-w-0 flex-1 truncate text-sm text-ink">{p.title || 'Untitled'}</span>
+                      <span className="shrink-0 text-2xs text-faint">
+                        {p.reason === 'edited' ? 'Edited since verified' : 'Review date passed'} · verified {relativeTime(p.verifiedAt)}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            )}
+
             {recents.length > 0 && (
               <section className="mb-8">
                 <div className="mb-3 flex items-baseline justify-between gap-4">

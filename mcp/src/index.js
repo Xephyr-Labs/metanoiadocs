@@ -127,7 +127,7 @@ server.registerTool(
   'read_doc',
   {
     title: 'Read a doc',
-    description: 'Get a doc\'s title and its body as markdown (links to other docs as [[Title]]) by id. To change part of a doc, use edit_doc; for a full rewrite, edit that markdown and write it back with write_doc mode=replace. If you have edits waiting for review on the page, you read your draft (with `pendingSuggestion`).',
+    description: 'Get a doc\'s title and its body as markdown (links to other docs as [[Title]]) by id. To change part of a doc, use edit_doc; for a full rewrite, edit that markdown and write it back with write_doc mode=replace. `verification` says whether anyone has vouched for the page (unverified, verified or needs_review). If you have edits waiting for review on the page, you read your draft (with `pendingSuggestion`).',
     inputSchema: { id: z.string().describe('Document id') },
   },
   async ({ id }) => {
@@ -490,6 +490,31 @@ server.registerTool(
       const r = await api(`/docs/${encodeURIComponent(parentId)}/links`, { method: 'POST', body: { childId } });
       return ok(r?.already ? 'Already linked.' : 'Linked.');
     } catch (e) { return fail(e); }
+  },
+);
+
+server.registerTool(
+  'verify_doc',
+  {
+    title: 'Verify a doc',
+    description:
+      "Vouch that a page is accurate, so readers (and read_doc's `verification`) see Verified by you and the date. A page goes back to Needs review when its interval passes (`every`: 30, 90 or 180 days, or 0 for never; default 90) or when anyone other than the verifier edits it, and its owner is notified once. Calling it again re-verifies and resets the clock. `owner` (name, username or email) is who is responsible for keeping it right; it defaults to the verifier. `remove: true` takes the verification off. Only verify what you have actually checked: an AI assistant or an untrusted agent is refused, and a page you cannot edit is refused.",
+    inputSchema: {
+      id: z.string().describe('Document id'),
+      every: z.union([z.literal(30), z.literal(90), z.literal(180), z.literal(0)]).optional().describe('Days between reviews; 0 = never. Default 90, or the page\'s current setting'),
+      owner: z.string().optional().describe('Who keeps this page right: name, username or email. Default: you'),
+      remove: z.boolean().optional().describe('Remove the verification instead'),
+    },
+  },
+  async ({ id, every, owner, remove }) => {
+    try {
+      const path = `/docs/${encodeURIComponent(id)}/verify`;
+      if (remove) return ok(await api(path, { method: 'DELETE' }));
+      const ownerId = owner ? findPerson(await api('/users'), owner).id : undefined;
+      return ok(await api(path, { method: 'PUT', body: { every, ownerId } }));
+    } catch (e) {
+      return fail(e);
+    }
   },
 );
 
