@@ -21,6 +21,7 @@ import {
   Check,
   AlertCircle,
   Loader2,
+  Wand2,
 } from 'lucide-react';
 import { useEffect, useId, useState, type ReactNode } from 'react';
 import { ActorMark } from '../ui/ActorMark';
@@ -53,6 +54,8 @@ import { Modal } from '../ui/Modal';
 import { SegmentedControl } from '../ui/SegmentedControl';
 import { Switch } from '../ui/Switch';
 import { Webhooks } from './Webhooks';
+import { Agents } from './Agents';
+import { Skills } from './Skills';
 import { copyText } from '../../lib/clipboard';
 import { setTranscriptionEnabled, transcriptsApi } from '../../lib/transcripts';
 import { toast } from '../../lib/toast';
@@ -66,7 +69,7 @@ function Avatar({ name, size = 32 }: { name: string; size?: number }) {
   );
 }
 
-type SectionId = 'account' | 'preferences' | 'mycalendar' | 'tokens' | 'members' | 'ai' | 'transcription' | 'calendar' | 'webhooks' | 'about';
+type SectionId = 'account' | 'preferences' | 'mycalendar' | 'tokens' | 'agents' | 'members' | 'ai' | 'skills' | 'transcription' | 'calendar' | 'webhooks' | 'about';
 
 /** A section only an admin may open at all. Everything else is shown to
  *  everyone — the AI panel, for instance, is readable by all and editable by
@@ -83,6 +86,7 @@ const NAV: { group: string; items: { id: SectionId; label: string; icon: typeof 
       { id: 'preferences', label: 'Preferences', icon: Settings2 },
       { id: 'mycalendar', label: 'Calendar', icon: CalendarDays },
       { id: 'tokens', label: 'API tokens', icon: KeyRound },
+      { id: 'agents', label: 'Agents', icon: Bot },
     ],
   },
   {
@@ -90,6 +94,7 @@ const NAV: { group: string; items: { id: SectionId; label: string; icon: typeof 
     items: [
       { id: 'members', label: 'Members', icon: Users },
       { id: 'ai', label: 'AI', icon: Sparkles },
+      { id: 'skills', label: 'Skills', icon: Wand2 },
       { id: 'transcription', label: 'Voice transcription', icon: AudioLines },
       { id: 'calendar', label: 'Google Calendar', icon: CalendarDays },
       { id: 'webhooks', label: 'Webhooks', icon: Webhook },
@@ -1393,8 +1398,10 @@ const BODIES: Record<SectionId, () => JSX.Element> = {
   preferences: Preferences,
   mycalendar: MyCalendar,
   tokens: Tokens,
+  agents: Agents,
   members: Members,
   ai: AiSettings,
+  skills: Skills,
   transcription: TranscriptionSettingsSection,
   calendar: CalendarSettingsSection,
   webhooks: Webhooks,

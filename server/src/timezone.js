@@ -98,7 +98,14 @@ function offsetMs(zone, ms) {
 
 /** The instant (ms) at which calendar day 'YYYY-MM-DD' begins in a zone. Two passes settle DST changes. */
 export function startOfDayIn(zone, day) {
+  return wallTimeIn(zone, day, 0);
+}
+
+/** The instant (ms) a zone's clocks read `minutes` past midnight on 'YYYY-MM-DD'.
+ *  Offset from the wall clock, not from midnight, so 09:00 is 09:00 on the day
+ *  DST changes too. A time inside a spring-forward gap lands near it. */
+export function wallTimeIn(zone, day, minutes) {
   const [y, m, d] = day.split('-').map(Number);
-  const utc = Date.UTC(y, m - 1, d);
+  const utc = Date.UTC(y, m - 1, d) + minutes * 60_000;
   return utc - offsetMs(zone, utc - offsetMs(zone, utc));
 }

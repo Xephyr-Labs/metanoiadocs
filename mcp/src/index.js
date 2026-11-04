@@ -1089,5 +1089,69 @@ server.registerTool(
   },
 );
 
+server.registerTool(
+  'list_agents',
+  {
+    title: 'List your agents',
+    description:
+      "Your own workspace agents: saved instructions that run on a schedule, when pages change, or on demand. Returns id, name, trigger, whether each is on, and how its last run went. Use run_agent to run one.",
+    inputSchema: {},
+  },
+  async () => {
+    try {
+      const { agents, aiReady } = await api('/workspace-agents');
+      return ok({
+        aiReady,
+        agents: agents.map((a) => ({
+          id: a.id, name: a.name, trigger: a.trigger, enabled: a.enabled, targetPage: a.target_title ?? null,
+          lastRun: a.last_run ? { status: a.last_run.status, at: a.last_run.started_at, error: a.last_run.error ?? undefined } : null,
+        })),
+      });
+    } catch (e) {
+      return fail(e);
+    }
+  },
+);
+
+server.registerTool(
+  'run_agent',
+  {
+    title: 'Run one of your agents',
+    description:
+      "Run one of your own workspace agents now and wait for its answer. It acts with your access, and its page edits become suggestions. An agent running inside another may not call a third, and none may call itself.",
+    inputSchema: {
+      id: z.string().describe("The agent's id or exact name (from list_agents)"),
+      input: z.string().optional().describe('Anything extra to tell it for this run'),
+    },
+  },
+  async ({ id, input }) => {
+    try {
+      const r = await api(`/workspace-agents/${encodeURIComponent(id)}/run`, { method: 'POST', body: { wait: true, input } });
+      if (r.status === 'failed') return fail(new Error(`The agent failed: ${r.error}`));
+      return ok({ status: r.status, output: r.output, toolCalls: r.tool_calls });
+    } catch (e) {
+      return fail(e);
+    }
+  },
+);
+
+server.registerTool(
+  'list_skills',
+  {
+    title: 'List skills',
+    description:
+      "The workspace's skills: named, reusable instructions (a house style, a review checklist). Returns each one's name, description and text, to follow when asked to use one.",
+    inputSchema: {},
+  },
+  async () => {
+    try {
+      const rows = await api('/skills');
+      return ok(rows.map((s) => ({ name: s.name, description: s.description, body: s.body })));
+    } catch (e) {
+      return fail(e);
+    }
+  },
+);
+
 await server.connect(new StdioServerTransport());
 console.error('metanoiadocs-mcp connected via stdio →', BASE);

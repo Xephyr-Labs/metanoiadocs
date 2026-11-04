@@ -1,4 +1,4 @@
-import { Bell, CalendarClock, Inbox, ListChecks, Loader2, TriangleAlert, X, type LucideIcon } from 'lucide-react';
+import { Bell, Bot, CalendarClock, Inbox, ListChecks, Loader2, TriangleAlert, X, type LucideIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { cn } from '../../lib/cn';
 import { docsApi, type InboxRow } from '../../lib/docsApi';
@@ -11,6 +11,7 @@ import { openReview } from '../../lib/reviewMode';
 import { focusCommentOnPage } from '../../editor/comments';
 import { focusSuggestion } from '../../editor/suggest/rail';
 import { useWorkspace } from '../../store/workspace';
+import { wantSettingsSection } from '../../lib/calendar';
 import { EmptyState } from '../ui/EmptyState';
 import { Modal, ModalBody } from '../ui/Modal';
 
@@ -104,6 +105,7 @@ const SYSTEM: Record<string, { icon: LucideIcon; tone: string }> = {
   due_today: { icon: CalendarClock, tone: 'text-accent-strong' },
   overdue: { icon: TriangleAlert, tone: 'text-danger-strong' },
   digest: { icon: ListChecks, tone: 'text-muted' },
+  agent_failed: { icon: Bot, tone: 'text-danger-strong' },
 };
 
 
@@ -164,6 +166,12 @@ export function InboxDialog() {
       ws.openTasks();
       return;
     }
+    // A failed agent run: its log, with the error, is under Settings → Agents.
+    if (it.kind === 'agent_failed') {
+      wantSettingsSection('agents');
+      ws.setSettingsOpen(true);
+      return;
+    }
     // Straight to the task a row names — an assignment included: a board with
     // forty cards on it is not an answer to "which one was late" or "what did
     // I just get", and a comment on a task belongs to the task's own thread
@@ -216,7 +224,7 @@ export function InboxDialog() {
                     {unread && <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-canvas bg-accent" />}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className={cn('text-sm leading-snug', it.kind === 'overdue' ? 'text-danger-strong' : 'text-ink')}>
+                    <p className={cn('text-sm leading-snug', it.kind === 'overdue' || it.kind === 'agent_failed' ? 'text-danger-strong' : 'text-ink')}>
                       {it.body}
                     </p>
                     <p className="mt-0.5 text-2xs text-faint">{relativeTime(it.created_at)}</p>

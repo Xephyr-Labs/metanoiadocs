@@ -1143,6 +1143,56 @@ export async function initSchema() {
     );
   `);
 
+  // ── workspace agents (workspace-agents.js) ──────────────────────────────────
+  // A saved Ask AI request that runs by itself, as its owner. Not agent_runs:
+  // that queue hands work to an agent account on someone's own machine.
+  // trigger_spec: { kind: 'manual' } | { kind: 'schedule', time, days } |
+  // { kind: 'page_changed', folderId | spaceId }. next_run_at is set for an
+  // enabled schedule only, and moved on by whichever sweep claims the run.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS workspace_skills (
+      id          TEXT PRIMARY KEY,
+      name        TEXT NOT NULL UNIQUE,
+      description TEXT NOT NULL DEFAULT '',
+      body        TEXT NOT NULL DEFAULT '',
+      created_by  TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE TABLE IF NOT EXISTS workspace_agents (
+      id            TEXT PRIMARY KEY,
+      owner_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name          TEXT NOT NULL,
+      instructions  TEXT NOT NULL DEFAULT '',
+      trigger_spec  JSONB NOT NULL DEFAULT '{"kind":"manual"}',
+      target_doc_id TEXT REFERENCES docs(id) ON DELETE SET NULL,
+      output_mode   TEXT NOT NULL DEFAULT 'suggest',  -- suggest | comment
+      skill_ids     JSONB NOT NULL DEFAULT '[]',
+      enabled       BOOLEAN NOT NULL DEFAULT true,
+      next_run_at   TIMESTAMPTZ,
+      created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS workspace_agents_owner_idx ON workspace_agents(owner_id);
+    CREATE INDEX IF NOT EXISTS workspace_agents_due_idx ON workspace_agents(next_run_at) WHERE enabled AND next_run_at IS NOT NULL;
+    CREATE TABLE IF NOT EXISTS workspace_agent_runs (
+      id           TEXT PRIMARY KEY,
+      agent_id     TEXT NOT NULL REFERENCES workspace_agents(id) ON DELETE CASCADE,
+      trigger_kind TEXT NOT NULL,                    -- schedule | page_changed | manual | agent
+      doc_ids      JSONB NOT NULL DEFAULT '[]',      -- the pages that set it off
+      status       TEXT NOT NULL DEFAULT 'running',  -- running | done | failed
+      tool_calls   JSONB NOT NULL DEFAULT '[]',      -- [{ name, hint, error? }]
+      output       TEXT NOT NULL DEFAULT '',
+      error        TEXT,
+      started_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+      finished_at  TIMESTAMPTZ
+    );
+    CREATE INDEX IF NOT EXISTS workspace_agent_runs_agent_idx ON workspace_agent_runs(agent_id, started_at DESC);
+    CREATE INDEX IF NOT EXISTS workspace_agent_runs_started_idx ON workspace_agent_runs(started_at);
+    -- One run per agent at a time: the insert is the lock.
+    CREATE UNIQUE INDEX IF NOT EXISTS workspace_agent_runs_one_idx ON workspace_agent_runs(agent_id) WHERE status = 'running';
+  `);
+
   await normalizeLegacyFolderImport();
   await relaxFavoritesKey();
   await seedTaskAssignees();

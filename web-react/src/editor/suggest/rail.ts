@@ -7,7 +7,7 @@ import { readRoute } from '../../lib/route';
 import { decide as decideOne, decideAll as decideEvery, describeCard, listSuggestions, type StoreLike, type SuggestionCard, type Verdict } from './model';
 
 export interface Card extends SuggestionCard {
-  /** Who it reads as from: their name, or "Ask AI · <asker>" (ruling R3). */
+  /** Who it reads as from: their name, "Ask AI · <asker>" (ruling R3), or "Agent · <name>" for a workspace agent's run. */
   author: string;
   /** What it does, in words. */
   text: string;
@@ -20,7 +20,7 @@ export const isBlockCard = (c: SuggestionCard) => BLOCK_KINDS.has(c.kind);
 export function toCards(list: SuggestionCard[], nameOf: (id: string) => string | undefined): Card[] {
   return list.map((c) => {
     const name = nameOf(c.by) || 'Someone';
-    return { ...c, author: c.via === 'ai' ? `Ask AI · ${name}` : name, text: describeCard(c) };
+    return { ...c, author: c.via === 'ai' ? (c.agent ? `Agent · ${c.agent}` : `Ask AI · ${name}`) : name, text: describeCard(c) };
   });
 }
 

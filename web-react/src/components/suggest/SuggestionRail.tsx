@@ -30,7 +30,7 @@ export function SuggestionRail({ cards, active, canDecide, onDecide, onHover, on
   return (
     <>
       {cards.map((c) => {
-        const a = avatarFor(c.via === 'ai' ? 'Ask AI' : c.author);
+        const a = avatarFor(c.via === 'ai' ? (c.agent ? 'Agent' : 'Ask AI') : c.author);
         return (
           <div
             key={c.id}

@@ -159,6 +159,15 @@ test('Ask AI marks carry via ai; accepting them gives the asked-for text', () =>
   assert.equal(read(doc), 'The slow brown fox.');
 });
 
+test('a workspace agent\'s marks name the agent, appended blocks included', () => {
+  const doc = page('The quick brown fox.\n');
+  write(doc, 'The slow brown fox.\n', { by: 'p1', via: 'ai', agent: 'Weekly' });
+  suggestMarkdown({ doc, markdown: 'A new line.', mode: 'append', by: 'p1', via: 'ai', agent: 'Weekly', title: 'T' });
+  const all = listSuggestions(doc);
+  assert.ok(all.length >= 2);
+  assert.ok(all.every((c) => c.via === 'ai' && c.agent === 'Weekly'), JSON.stringify(all));
+});
+
 test('inserted text takes its own formatting, not its neighbour\'s', () => {
   const doc = page('Some **bold** words.\n');
   write(doc, 'Some **bold** plain words.\n');

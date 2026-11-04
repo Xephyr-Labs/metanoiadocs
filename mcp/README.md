@@ -48,6 +48,9 @@ team/private access.
 | `add_task_dependency` | Mark a task as blocked by another |
 | `remove_task_dependency` | Drop that link |
 | `workspace_overview` | The home dashboard as data — stats, your tasks, activity |
+| `list_agents` | Your workspace agents: trigger, on/off, last run |
+| `run_agent` | Run one of your agents and wait for its answer (two deep at most, no cycles) |
+| `list_skills` | The workspace's reusable instructions |
 
 People and boards are named the way you would say them: `assignee: "sam"`, a
 username, an email, or `board: "Lattu"`. An ambiguous name is refused rather
