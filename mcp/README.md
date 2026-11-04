@@ -9,7 +9,7 @@ team/private access.
 
 | Tool | What it does |
 |---|---|
-| `search_docs` | Full-text search → id, title, snippet |
+| `search_docs` | Search pages (words and meaning) and connected Google Drive files → id, title, snippet; Drive hits carry `source: "drive"` for `read_drive_file` |
 | `list_docs` | List accessible docs |
 | `list_folders` | Workspace folders (for `move_doc`) |
 | `move_doc` | Move a doc into a folder, or out to the top level |

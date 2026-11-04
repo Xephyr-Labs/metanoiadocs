@@ -136,7 +136,7 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
     {
       title: 'Search docs',
       description:
-        'Full-text search across the docs you can access. Returns id, title, and a snippet for each match.',
+        'Search the docs you can access, by words and by meaning, plus the files in the connected Google Drive. Returns id, title, and a snippet for each match. A Drive file comes back with source "drive": pass its id as fileId to read_drive_file for its text.',
       inputSchema: {
         query: z.string().describe('Search terms'),
         spaceId: z.string().optional().describe('Only items in this space (id from list_spaces).'),
@@ -149,6 +149,7 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
         );
         return ok(
           rows.map((r) => ({
+            ...(r.kind === 'drive' ? { source: 'drive', mimeType: r.mimeType, url: r.url } : {}),
             id: r.id,
             title: r.title,
             snippet: (r.snippet || '').replace(/<\/?b>/g, ''),

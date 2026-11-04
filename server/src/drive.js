@@ -27,7 +27,7 @@ const FILE_FIELDS =
  *  wants the start and the fact that there is more, not the whole thing. */
 export const READ_MAX_CHARS = 200_000;
 /** Downloads bigger than this are refused before a byte is fetched. */
-const READ_MAX_BYTES = 25 * 1024 * 1024;
+export const READ_MAX_BYTES = 25 * 1024 * 1024;
 
 /** The two fields of a service-account key file we use, or an error that says
  *  what was pasted instead. */
@@ -71,7 +71,7 @@ async function accessToken(sa, fetchImpl = fetch) {
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok || !body.access_token) {
-    throw new Error(`Google refused the key: ${body.error_description || body.error || res.status}`);
+    throw Object.assign(new Error(`Google refused the key: ${body.error_description || body.error || res.status}`), { auth: true });
   }
   cachedToken = { email: sa.client_email, token: body.access_token, expMs: Date.now() + body.expires_in * 1000 };
   return body.access_token;
@@ -329,7 +329,7 @@ export function startDriveSync() {
 }
 
 /** A file's text, for read_drive_file. */
-async function fileText(sa, row) {
+export async function fileText(sa, row) {
   const route = textRoute(row.mime_type);
   if (!route) {
     const what = row.mime_type === FOLDER ? 'That is a folder' : `A ${row.mime_type} file has no text to read`;

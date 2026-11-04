@@ -245,7 +245,7 @@ export interface VersionRow {
  * render every hit as a task. Absent means page.
  */
 export interface SearchRow {
-  kind?: 'doc' | 'task';
+  kind?: 'doc' | 'task' | 'drive';
   id: string;
   title: string;
   /** The matching words for a page; the database's name for a task. */
@@ -261,6 +261,9 @@ export interface SearchRow {
   space_id?: string | null;
   /** Tasks only — the task the query's key names (it stays first). */
   named?: boolean;
+  /** Drive files only — where the file opens in Google Drive. */
+  url?: string | null;
+  mimeType?: string;
 }
 
 export interface TrashRow {
