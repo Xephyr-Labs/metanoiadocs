@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { indexable, planDrive, transient } from './external.js';
+import { embedBackoffMs, indexable, itemChunks, MAX_CHUNKS_PER_ITEM, planDrive, transient } from './external.js';
 
 const DOC = 'application/vnd.google-apps.document';
 const file = (id, modified_at, extra = {}) => ({ id, name: id, mime_type: DOC, size: null, modified_at, ...extra });
@@ -47,4 +47,25 @@ test('transient: retry a refused key, a rate limit, an outage or no network; not
   assert.equal(transient(new TypeError('fetch failed')), true);
   assert.equal(transient(Object.assign(new Error('x'), { status: 403 })), false);
   assert.equal(transient(new Error('bad PDF')), false);
+});
+
+test('transient: a 403 that is Drive rate-limiting is retried, a 403 refusal is not', () => {
+  assert.equal(transient(Object.assign(new Error('Rate Limit Exceeded'), { status: 403, reason: 'userRateLimitExceeded' })), true);
+  assert.equal(transient(Object.assign(new Error('x'), { status: 403, reason: 'rateLimitExceeded' })), true);
+  assert.equal(transient(Object.assign(new Error('User rate limit exceeded.'), { status: 403 })), true);
+  assert.equal(transient(Object.assign(new Error('The caller does not have permission'), { status: 403, reason: 'forbidden' })), false);
+});
+
+test('embedBackoffMs: 30 minutes, doubling, capped at a day', () => {
+  const min = 60_000;
+  assert.equal(embedBackoffMs(1), 30 * min);
+  assert.equal(embedBackoffMs(2), 60 * min);
+  assert.equal(embedBackoffMs(4), 240 * min);
+  assert.equal(embedBackoffMs(20), 24 * 60 * min);
+});
+
+test('itemChunks embeds at most the first MAX_CHUNKS_PER_ITEM chunks', () => {
+  const long = Array.from({ length: 400 }, (_, i) => `Paragraph ${i} ${'word '.repeat(60)}`).join('\n\n');
+  assert.equal(itemChunks('Big', long).length, MAX_CHUNKS_PER_ITEM);
+  assert.equal(itemChunks('Small', 'one line').length, 1);
 });

@@ -86,6 +86,8 @@ async function gapi(sa, path, params = {}, { raw = false } = {}) {
     const body = await res.json().catch(() => ({}));
     const err = new Error(body.error?.message || `Google Drive answered ${res.status}`);
     err.status = res.status;
+    // Drive says "rate limited" as a 403 too; the reason tells it from a refusal.
+    err.reason = body.error?.errors?.[0]?.reason;
     throw err;
   }
   return raw ? res : res.json();

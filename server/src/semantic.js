@@ -149,7 +149,7 @@ const hashOf = (title, text) => crypto.createHash('sha256').update(`${title}\n${
 // Pages per sweep and inputs per request. Small: the free NIM tier is rate
 // limited, and a backfill of the whole workspace has all day.
 const DOCS_PER_SWEEP = 8;
-const BATCH = 16;
+export const BATCH = 16;
 
 /** Embed the pages whose text changed since they were last embedded. Returns how many. */
 export async function sweepEmbeddings() {

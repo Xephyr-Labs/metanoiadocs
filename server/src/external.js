@@ -21,7 +21,7 @@
 // every member sees the Drive view — so neither does Drive search.
 import { pool, getSetting } from './db.js';
 import { READ_MAX_BYTES, fileText, textRoute } from './drive.js';
-import { chunkText, embedPassages, EMBED_MODEL, provider, queryVector, semanticOn, vec } from './semantic.js';
+import { BATCH, chunkText, embedPassages, EMBED_MODEL, provider, queryVector, semanticOn, vec } from './semantic.js';
 
 /** Create the tables. external_items is plain Postgres, so keyword search over
  *  Drive works without pgvector; the chunk table needs the extension. */
@@ -38,6 +38,9 @@ export async function initExternal() {
       -- The version and model the chunks were embedded from; NULL until then.
       embedded_version TEXT,
       embed_model      TEXT,
+      -- Failed embeds in a row, and when the next try is allowed (backoff).
+      embed_attempts   INT NOT NULL DEFAULT 0,
+      embed_retry_at   TIMESTAMPTZ,
       indexed_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
       PRIMARY KEY (source, item_id)
     );
@@ -85,11 +88,26 @@ export function planDrive(files, indexed, limit) {
 // and a first sweep over a big drive has all day. ~240 files an hour.
 const FILES_PER_SWEEP = 4;
 const ITEMS_PER_EMBED = 4;
+// Embedding requests per sweep (one a minute). The page sweeper may make 8+
+// every 30s on the same rate-limited provider; Drive stays well under half.
+const EMBED_REQUESTS_PER_SWEEP = 3;
+// ponytail: only the start of a long file is embedded — 40 chunks, ~64k
+// characters, 3 requests. The whole text stays keyword-searchable; embed the
+// rest when a provider with headroom makes it worth the requests.
+export const MAX_CHUNKS_PER_ITEM = 40;
+
+/** The chunks embedded for an item. */
+export const itemChunks = (title, text) => chunkText(`${title}\n${text}`).slice(0, MAX_CHUNKS_PER_ITEM);
+
+/** How long a failing item waits before its next embed try: 30 minutes,
+ *  doubling with each failure in a row, at most a day. */
+export const embedBackoffMs = (attempts) => Math.min(30 * 60_000 * 2 ** (attempts - 1), 24 * 3600_000);
 
 /** A read failure worth trying again next sweep — the key refused, a rate
  *  limit, Google down, no network (fetch's TypeError) — rather than recording
  *  the file as having no text. */
-export const transient = (e) => !!e.auth || e.status === 429 || e.status >= 500 || e instanceof TypeError;
+export const transient = (e) => !!e.auth || e.status === 429 || e.status >= 500 || e instanceof TypeError
+  || (e.status === 403 && /rate ?limit/i.test(`${e.reason || ''} ${e.message || ''}`));
 
 /**
  * One pass: drop what left the drive, read what changed, embed what was read.
@@ -118,7 +136,7 @@ export async function sweepExternal({ readText = fileText } = {}) {
       `INSERT INTO external_items (source, item_id, version, title, text, indexed_at)
        VALUES ('drive', $1, $2, $3, $4, now())
        ON CONFLICT (source, item_id) DO UPDATE SET version = EXCLUDED.version, title = EXCLUDED.title,
-         text = EXCLUDED.text, indexed_at = now()`,
+         text = EXCLUDED.text, indexed_at = now(), embed_attempts = 0, embed_retry_at = NULL`,
       // Postgres text cannot hold NUL, which a stray PDF byte sometimes is.
       [f.id, versionOf(f), f.name, text.replace(/\0/g, '')],
     );
@@ -127,20 +145,42 @@ export async function sweepExternal({ readText = fileText } = {}) {
   return { removed: plan.remove.length, read, embedded: await embedPending() };
 }
 
-/** Embed the items whose text changed since their chunks were made. */
+/**
+ * Embed the items whose text changed since their chunks were made, within
+ * EMBED_REQUESTS_PER_SWEEP. An item that fails (a 429 halfway through) backs
+ * off on its own, so it cannot hold the queue: the next sweep takes others.
+ */
 async function embedPending() {
   if (!semanticOn()) return 0;
   const cfg = await provider();
   if (!cfg) return 0;
   const { rows } = await pool.query(
-    `SELECT source, item_id, version, title, text FROM external_items
-      WHERE embedded_version IS DISTINCT FROM version OR embed_model IS DISTINCT FROM $1
+    `SELECT source, item_id, version, title, text, embed_attempts FROM external_items
+      WHERE (embedded_version IS DISTINCT FROM version OR embed_model IS DISTINCT FROM $1)
+        AND (embed_retry_at IS NULL OR embed_retry_at <= now())
       ORDER BY indexed_at DESC LIMIT $2`,
     [EMBED_MODEL, ITEMS_PER_EMBED],
   );
+  let requests = 0;
+  let done = 0;
   for (const it of rows) {
-    const chunks = chunkText(`${it.title}\n${it.text}`);
-    const vectors = await embedPassages(cfg, chunks);
+    const chunks = itemChunks(it.title, it.text);
+    const cost = Math.ceil(chunks.length / BATCH);
+    if (done && requests + cost > EMBED_REQUESTS_PER_SWEEP) break;
+    requests += cost;
+    let vectors;
+    try {
+      vectors = await embedPassages(cfg, chunks);
+    } catch (e) {
+      console.warn('[external] embed failed, backing off:', it.item_id, e.message);
+      await pool.query(
+        `UPDATE external_items SET embed_attempts = embed_attempts + 1,
+                embed_retry_at = now() + make_interval(secs => $3 / 1000.0)
+          WHERE source = $1 AND item_id = $2`,
+        [it.source, it.item_id, embedBackoffMs(it.embed_attempts + 1)],
+      );
+      continue;
+    }
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
@@ -156,7 +196,7 @@ async function embedPending() {
       // keeps its newer text marked as not embedded yet. The row may also have
       // been deleted meanwhile, which takes the chunks with it.
       await client.query(
-        `UPDATE external_items SET embedded_version = version, embed_model = $3
+        `UPDATE external_items SET embedded_version = version, embed_model = $3, embed_attempts = 0, embed_retry_at = NULL
           WHERE source = $1 AND item_id = $2 AND version = $4`,
         [it.source, it.item_id, EMBED_MODEL, it.version],
       );
@@ -167,8 +207,9 @@ async function embedPending() {
     } finally {
       client.release();
     }
+    done++;
   }
-  return rows.length;
+  return done;
 }
 
 const SWEEP_MS = 60_000;
