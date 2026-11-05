@@ -328,7 +328,7 @@ export interface InboxRow {
    *  person, so they carry a body that already reads as a sentence and no
    *  actor to name. See server/src/reminders.js. */
   kind: 'mention' | 'comment' | 'reply' | 'reply_to_you' | 'suggestion' | 'suggestion_accepted' | 'suggestion_rejected'
-    | 'review_requested' | 'review_done' | 'ai_suggestion' | 'page_suggestion' | 'assigned' | 'due_soon' | 'due_today' | 'overdue' | 'digest' | 'verify_review';
+    | 'review_requested' | 'review_done' | 'ai_suggestion' | 'page_suggestion' | 'assigned' | 'due_soon' | 'due_today' | 'overdue' | 'digest' | 'verify_review' | 'agent_failed' | 'agent_suggested';
   /** The comment that triggered it — null for notifications with no thread. */
   comment_id: string | null;
   /** Null for anything the system raised rather than a person. */
@@ -400,6 +400,57 @@ export interface DeliveryRow {
   attempts: number;
   ok: boolean;
   created_at: string;
+}
+
+/** When a workspace agent runs. No cron: a time, and the weekdays it runs on. */
+export type AgentTrigger =
+  | { kind: 'manual' }
+  | { kind: 'schedule'; time: string; /** 0 = Sunday; empty = every day. */ days: number[] }
+  | { kind: 'page_changed'; folderId?: string; spaceId?: string };
+
+export interface AgentRunRow {
+  id: string;
+  trigger_kind: 'schedule' | 'page_changed' | 'manual' | 'agent';
+  status: 'running' | 'done' | 'failed';
+  tool_calls: { name: string; hint: string; error?: string }[];
+  output: string;
+  error: string | null;
+  started_at: string;
+  finished_at: string | null;
+}
+
+/** A saved agent, its owner's own (nobody else sees it). */
+export interface AgentRow {
+  id: string;
+  name: string;
+  instructions: string;
+  trigger: AgentTrigger;
+  target_doc_id: string | null;
+  target_title?: string | null;
+  output_mode: 'suggest' | 'comment';
+  /** The attached skills as copied when attached: runs use these, not the live skill. */
+  skills: { id: string; name: string; body: string; updated_at: string }[];
+  enabled: boolean;
+  next_run_at: string | null;
+  last_run?: Pick<AgentRunRow, 'id' | 'status' | 'started_at' | 'finished_at' | 'error'> | null;
+}
+
+export interface AgentInput {
+  name?: string; instructions?: string; trigger?: AgentTrigger; targetDocId?: string | null;
+  outputMode?: 'suggest' | 'comment'; skillIds?: string[]; enabled?: boolean;
+  /** Re-copy attached skills from their current text (after reviewing an edit). */
+  refreshSkills?: boolean;
+}
+
+/** A workspace skill: named instructions agents and Ask AI (`/name`) can use. */
+export interface SkillRow {
+  id: string;
+  name: string;
+  description: string;
+  body: string;
+  created_by: string | null;
+  author_name: string | null;
+  updated_at: string;
 }
 
 export type AdminToken = {
@@ -645,6 +696,21 @@ export const docsApi = {
   testWebhook: (id: string): Promise<{ ok: boolean; statusCode: number | null; attempts: number; error?: string }> =>
     req(`/webhooks/${id}/test`, { method: 'POST' }),
   webhookDeliveries: (id: string): Promise<DeliveryRow[]> => req(`/webhooks/${id}/deliveries`),
+
+  agents: (): Promise<{ aiReady: boolean; agents: AgentRow[] }> => req('/workspace-agents'),
+  createAgent: (b: AgentInput): Promise<AgentRow> => req('/workspace-agents', { method: 'POST', body: JSON.stringify(b) }),
+  patchAgent: (id: string, b: AgentInput): Promise<AgentRow> =>
+    req(`/workspace-agents/${id}`, { method: 'PATCH', body: JSON.stringify(b) }),
+  deleteAgent: (id: string) => req(`/workspace-agents/${id}`, { method: 'DELETE' }),
+  /** Starts a run and returns at once; the run shows in agentRuns. */
+  runAgent: (id: string): Promise<{ runId: string }> => req(`/workspace-agents/${id}/run`, { method: 'POST', body: '{}' }),
+  agentRuns: (id: string): Promise<AgentRunRow[]> => req(`/workspace-agents/${id}/runs`),
+  skills: (): Promise<SkillRow[]> => req('/skills'),
+  createSkill: (b: { name: string; description: string; body: string }): Promise<SkillRow> =>
+    req('/skills', { method: 'POST', body: JSON.stringify(b) }),
+  patchSkill: (id: string, b: { name: string; description: string; body: string }): Promise<SkillRow> =>
+    req(`/skills/${id}`, { method: 'PATCH', body: JSON.stringify(b) }),
+  deleteSkill: (id: string) => req(`/skills/${id}`, { method: 'DELETE' }),
 
   aiConfig: (): Promise<{ baseUrl: string; model: string; enabled: boolean; keySet: boolean }> =>
     req('/settings/ai'),

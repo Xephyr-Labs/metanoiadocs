@@ -79,6 +79,11 @@ describe('SuggestionRail', () => {
     expect(toCards([{ id: 'x', by: 'ghost', at: 1, blockId: 'b', blockIds: ['b'], kind: 'insert', before: '', after: 'y' }], () => undefined)[0].author).toBe('Someone');
   });
 
+  it('labels a workspace agent\'s change with the agent', () => {
+    const [c] = toCards([{ id: 'x', by: 'u1', at: 1, via: 'ai', agent: 'Weekly risks', blockId: 'b', blockIds: ['b'], kind: 'insert', before: '', after: 'y' }], () => 'Sara');
+    expect(c.author).toBe('Agent · Weekly risks');
+  });
+
   it('a viewer sees the cards without accept or reject', () => {
     const cards = cardsOf(page());
     const html = renderToStaticMarkup(rail(cards, { canDecide: false }));

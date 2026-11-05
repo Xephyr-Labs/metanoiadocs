@@ -1,5 +1,6 @@
 // Server model for inline suggestions, in plain Yjs (no BlockSuite runtime).
-// Inline: Y.Text attribute `mnSugg` = { id, kind: 'ins'|'del', by, at, via? }.
+// Inline: Y.Text attribute `mnSugg` = { id, kind: 'ins'|'del', by, at, via?, agent? }.
+// (`agent`: the workspace agent, by name, whose run made an Ask AI suggestion.)
 // Block: block prop `prop:mnSugg` = { id, kind: 'add'|'remove'|'type', by, at, via?, from? }.
 // A `type` mark's `from` = { flavour, type, checked? }: a retype, a tick or an
 // untick (R13b), suggested in place on the same block.
@@ -94,6 +95,7 @@ export function listSuggestions(doc) {
       cards.set(s.id, c);
     }
     if (s.via) c.via = s.via;
+    if (s.agent) c.agent = s.agent;
     return c;
   };
   for (const [blockId, b] of orderedBlocks(doc)) {

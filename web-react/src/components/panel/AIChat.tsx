@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   ArrowUp,
+  Bot,
   Check,
   Copy,
   FileText,
@@ -20,10 +21,11 @@ import {
   Square,
   Tag,
   Users,
+  Wand2,
   X,
 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { aiStream, type AiToolStep } from '../../lib/docsApi';
+import { aiStream, docsApi, type AiToolStep, type SkillRow } from '../../lib/docsApi';
 import { copyText } from '../../lib/clipboard';
 import { toast } from '../../lib/toast';
 import { cn } from '../../lib/cn';
@@ -58,6 +60,9 @@ const TOOL_UI: Record<string, { icon: typeof Search; running: string; done: stri
   move_doc: { icon: FolderInput, running: 'Moving a page', done: 'Moved' },
   link_docs: { icon: Link2, running: 'Linking pages', done: 'Linked' },
   share_doc: { icon: Share2, running: 'Sharing with', done: 'Shared with' },
+  list_agents: { icon: Bot, running: 'Checking your agents', done: 'Checked your agents' },
+  run_agent: { icon: Bot, running: 'Running agent', done: 'Ran agent' },
+  list_skills: { icon: Wand2, running: 'Checking skills', done: 'Checked skills' },
 };
 
 /**
@@ -74,6 +79,7 @@ const MUTATING = new Set([
   'move_doc',
   'link_docs',
   'share_doc',
+  'run_agent',
 ]);
 
 function stepLabel(s: AiToolStep): string {
@@ -185,6 +191,14 @@ export function AIChat() {
   const taRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const touched = useRef(false);
+  // Workspace skills, offered while the draft is a bare `/name` (the server
+  // reads a leading /name as the skill to apply). Loaded once, on first use.
+  const [skills, setSkills] = useState<SkillRow[] | null>(null);
+  const slash = /^\/([a-z0-9-]*)$/.exec(input);
+  const wantsSkills = !!slash;
+  useEffect(() => { if (wantsSkills && skills === null) docsApi.skills().then(setSkills).catch(() => setSkills([])); }, [wantsSkills, skills]);
+  const skillMatches = slash && skills ? skills.filter((s) => s.name.startsWith(slash[1])).slice(0, 6) : [];
+  const pickSkill = (s: SkillRow) => { setInput(`/${s.name} `); taRef.current?.focus(); };
 
   // Opening a different page re-attaches it: the chat follows what you are
   // looking at, which is the whole point of attaching it in the first place.
@@ -326,6 +340,23 @@ export function AIChat() {
               </motion.div>
             )}
           </AnimatePresence>
+          {skillMatches.length > 0 && (
+            <div role="listbox" aria-label="Skills" className="border-b border-line p-1">
+              {skillMatches.map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  role="option"
+                  aria-selected={false}
+                  onClick={() => pickSkill(s)}
+                  className="flex w-full items-baseline gap-2 rounded-md px-2 py-1 text-left transition-colors hover:bg-hover"
+                >
+                  <span className="shrink-0 font-mono text-xs text-ink">/{s.name}</span>
+                  <span className="min-w-0 truncate text-2xs text-faint">{s.description}</span>
+                </button>
+              ))}
+            </div>
+          )}
           <div className="flex items-end gap-1 p-1.5">
             <textarea
               ref={taRef}
@@ -333,6 +364,11 @@ export function AIChat() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
+                if ((e.key === 'Enter' || e.key === 'Tab') && !e.shiftKey && skillMatches.length) {
+                  e.preventDefault();
+                  pickSkill(skillMatches[0]);
+                  return;
+                }
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
                   send();
@@ -341,6 +377,18 @@ export function AIChat() {
               placeholder={page && attached ? 'Ask about this page…' : 'Ask AI anything…'}
               className="min-h-[28px] flex-1 resize-none bg-transparent px-1.5 py-1 text-sm leading-relaxed text-ink outline-none placeholder:text-faint"
             />
+            {!input && (
+              <Tooltip label="Use a skill">
+                <button
+                  type="button"
+                  onClick={() => { setInput('/'); taRef.current?.focus(); }}
+                  aria-label="Use a skill"
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-faint transition-colors hover:bg-hover hover:text-ink"
+                >
+                  <Wand2 size={16} />
+                </button>
+              </Tooltip>
+            )}
             {page && !attached && (
               <Tooltip label="Attach this page">
                 <button
