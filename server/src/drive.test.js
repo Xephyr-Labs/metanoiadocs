@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import { fileRow, parseServiceAccount, publicFile, signedAssertion, textRoute } from './drive.js';
+import { fileRow, parseServiceAccount, publicFile, signedAssertion, textRoute, asText } from './drive.js';
 
 const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
 const sa = {
@@ -45,4 +45,12 @@ test('each kind of file has the right way to text, or none', () => {
   assert.deepEqual(textRoute('text/markdown'), { download: true });
   assert.equal(textRoute('image/png'), null);
   assert.equal(textRoute('application/vnd.google-apps.folder'), null);
+});
+
+test('asText: a reader result becomes plain text whatever its shape', () => {
+  assert.equal(asText('plain'), 'plain');
+  // pdfToMarkdown answers { markdown, warnings }, not a string.
+  assert.equal(asText({ markdown: '# Deck', warnings: [] }), '# Deck');
+  assert.equal(asText(undefined), '');
+  assert.equal(asText(null), '');
 });
