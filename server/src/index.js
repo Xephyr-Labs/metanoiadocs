@@ -85,6 +85,7 @@ import { registerAutomationRoutes, startAutomationSweeper } from './automations.
 import { registerFormRoutes } from './forms.js';
 import { registerTemplateRoutes } from './templates.js';
 import { registerCsvRoutes } from './csv-import.js';
+import { registerArchiveRoutes, MAX_ARCHIVE_BYTES } from './archive-import.js';
 import { TRASH_RETENTION_DAYS, startTrashSweeper } from './retention.js';
 import { startReminders } from './reminders.js';
 import { initSemantic, startEmbeddingSweeper, semanticSearch, rrf } from './semantic.js';
@@ -842,9 +843,10 @@ app.post('/api/docs/reorder', requireUser, wrap(async (req, res) => {
  * transaction, so a failure part-way cannot leave a doc row with no content.
  * Shared by the JSON create route and the file import below.
  */
-async function createDocRow({ title, icon, userId, folderId, visibility, kind, content, spaceId, slides }) {
-  const id = crypto.randomUUID();
-  const links = content || slides ? await docLinkContext(userId) : null;
+async function createDocRow({ title, icon, userId, folderId, visibility, kind, content, spaceId, slides, id = crypto.randomUUID(), links: given }) {
+  // An archive import names its pages up front (so they can link to each other
+  // before any exists) and resolves links only among themselves.
+  const links = given ?? (content || slides ? await docLinkContext(userId) : null);
   let state = null;
   const client = await pool.connect();
   try {
@@ -907,10 +909,23 @@ app.post('/api/docs', requireUser, async (req, res) => {
 });
 
 const IMAGE_MIME = {
+  '.pdf': 'application/pdf', '.mp4': 'video/mp4', '.webm': 'video/webm', '.mp3': 'audio/mpeg', '.wav': 'audio/wav',
   '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif',
   '.webp': 'image/webp', '.bmp': 'image/bmp', '.tif': 'image/tiff', '.tiff': 'image/tiff',
   '.svg': 'image/svg+xml', '.emf': 'image/emf', '.wmf': 'image/wmf',
 };
+
+// Files pulled out of a .docx or an archive go into the same blob table the
+// editor uses, keyed by content hash so a document that repeats a logo stores it once.
+async function saveBlob(bytes, filename) {
+  const key = crypto.createHash('sha256').update(bytes).digest('hex');
+  const ext = (/\.[^.]+$/.exec(filename || '')?.[0] || '').toLowerCase();
+  await pool.query(
+    `INSERT INTO blobs (key, mime, data) VALUES ($1, $2, $3) ON CONFLICT (key) DO NOTHING`,
+    [key, IMAGE_MIME[ext] || 'application/octet-stream', bytes]
+  );
+  return `/api/blob/${key}`;
+}
 
 /**
  * Import one file as a new doc: .md, .txt, .docx or .pdf.
@@ -927,21 +942,9 @@ app.post('/api/docs/import', requireUser, express.raw({ type: '*/*', limit: '25m
     return res.status(403).json({ error: 'folder not accessible' });
   }
 
-  // Pictures pulled out of a .docx go into the same blob table the editor uses,
-  // keyed by content hash so a document that repeats a logo stores it once.
-  const saveImage = async (bytes, filename) => {
-    const key = crypto.createHash('sha256').update(bytes).digest('hex');
-    const ext = (/\.[^.]+$/.exec(filename || '')?.[0] || '').toLowerCase();
-    await pool.query(
-      `INSERT INTO blobs (key, mime, data) VALUES ($1, $2, $3) ON CONFLICT (key) DO NOTHING`,
-      [key, IMAGE_MIME[ext] || 'application/octet-stream', bytes]
-    );
-    return `/api/blob/${key}`;
-  };
-
   let file;
   try {
-    file = await fileToMarkdown({ name, bytes: req.body, saveImage });
+    file = await fileToMarkdown({ name, bytes: req.body, saveImage: saveBlob });
   } catch (e) {
     // 415: the request was fine, the file was not. The message is written for
     // the person who chose it, so it goes back verbatim.
@@ -3619,6 +3622,10 @@ registerTemplateRoutes(app, {
   templateGrant: async (docId, user, person) =>
     (user.role === 'admin' && person) || (await pageGrant(docId, user.id)) === 'owner',
 });
+registerArchiveRoutes(app, {
+  requireUser, wrap, createDocRow, storeLinks, saveBlob, visibleFolder,
+  raw: express.raw({ type: '*/*', limit: MAX_ARCHIVE_BYTES }),
+});
 registerCsvRoutes(app, {
   requireUser, wrap, createDocRow,
   // One file per request, same shape and same ceiling as the document import.
@@ -3666,7 +3673,10 @@ app.use(bodyError);
 app.use((err, req, res, next) => {
   console.error('[api] unhandled route error', err?.message || err);
   if (res.headersSent) return next(err);
-  res.status(500).json({ error: 'internal error' });
+  // A 4xx the framework raised (body too large, bad JSON) is the client's to
+  // hear about; anything else stays an opaque 500.
+  const status = err?.status >= 400 && err.status < 500 ? err.status : 500;
+  res.status(status).json({ error: status === 500 ? 'internal error' : err.message || 'bad request' });
 });
 
 // ── realtime sync ─────────────────────────────────────────────────────────

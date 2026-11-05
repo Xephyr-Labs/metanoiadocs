@@ -15,7 +15,7 @@ import { spacesApi, type MoveType, type SpaceRow } from '../lib/spacesApi';
 import { currentSpaceFrom, groupBySpace, pageSiblings, spaceOf } from '../lib/spaceTree';
 import { setPendingSeed } from '../editor/pendingSeed';
 import { toast } from '../lib/toast';
-import { MAX_IMPORT_BYTES } from '../lib/docFiles';
+import { MAX_ARCHIVE_BYTES, MAX_IMPORT_BYTES, archiveKindOf } from '../lib/docFiles';
 import { readRoute, showDatabase, showDoc, showFolder, showHome, showSpace } from '../lib/route';
 import { folderChain } from '../lib/folderPath';
 import { useDocSaveTick } from '../lib/docSignal';
@@ -1052,9 +1052,14 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     const warnings: string[] = [];
     for (const file of files) {
       try {
-        if (file.size > MAX_IMPORT_BYTES) throw new Error(`it is bigger than 25 MB`);
-        const row = await docsApi.import(file, folderId, await here(spaceId));
+        const kind = archiveKindOf(file);
+        if (file.size > (kind ? MAX_ARCHIVE_BYTES : MAX_IMPORT_BYTES)) throw new Error(`it is bigger than ${kind ? 100 : 25} MB`);
+        // A zip lands as a new folder of pages; open that folder so they show.
+        const row = kind
+          ? await docsApi.importArchive(file, kind, folderId, await here(spaceId))
+          : await docsApi.import(file, folderId, await here(spaceId));
         warnings.push(...(row.warnings ?? []));
+        if (kind && 'folderId' in row) folderExpandedRef.current.add(row.folderId);
         first ??= row.id;
       } catch (e) {
         failed.push(`${file.name} — ${e instanceof Error ? e.message : 'could not be imported'}`);
