@@ -54,6 +54,16 @@ export function verifyState(row, now = new Date()) {
 export const markStale = (n) =>
   `verify_stale_at = CASE WHEN verified_at IS NOT NULL AND verify_stale_at IS NULL AND $${n}::text IS NOT NULL AND $${n}::text IS DISTINCT FROM verified_by THEN now() ELSE verify_stale_at END`;
 
+/**
+ * The same, for a Hocuspocus save, where `$n` is every user id that changed the
+ * page since the last save (index.js unsavedEditors: only connections that may
+ * edit). A save's own context is just the LAST connection to send an update, so
+ * someone else's edit followed 200 ms later by the verifier's typing would have
+ * been missed.
+ */
+export const markStaleBy = (n) =>
+  `verify_stale_at = CASE WHEN verified_at IS NOT NULL AND verify_stale_at IS NULL AND EXISTS (SELECT 1 FROM unnest($${n}::text[]) e WHERE e IS DISTINCT FROM verified_by) THEN now() ELSE verify_stale_at END`;
+
 /** The columns verifyView reads, with the verifier's and owner's names. */
 export const VERIFY_COLUMNS = `d.verified_by, d.verified_at, d.verify_every, d.verify_owner, d.verify_stale_at,
   vb.name AS verified_by_name, vo.name AS verify_owner_name`;
@@ -78,7 +88,7 @@ export function pendingNotices(rows, now = new Date()) {
   for (const r of rows) {
     if (r.verify_notified_at) continue;
     const s = verifyState(r, now);
-    if (s.state === 'needs_review') out.push({ id: r.id, title: r.title, ownerId: r.verify_owner || r.verified_by, reason: s.reason });
+    if (s.state === 'needs_review') out.push({ id: r.id, title: r.title, ownerId: r.verify_owner || r.verified_by, verifierId: r.verified_by, reason: s.reason });
   }
   return out;
 }
@@ -104,7 +114,7 @@ async function tellOwner(n) {
  * overlapping sweep that read the same row loses the claim and sends nothing;
  * re-verifying clears the claim for the next lapse.
  */
-export async function sweepVerifications({ db = pool, notify = tellOwner, now = new Date() } = {}) {
+export async function sweepVerifications({ db = pool, notify = tellOwner, canSee = async () => true, now = new Date() } = {}) {
   const { rows } = await db.query(
     `SELECT id, title, verified_by, verified_at, verify_every, verify_owner, verify_stale_at, verify_notified_at
        FROM docs
@@ -116,7 +126,11 @@ export async function sweepVerifications({ db = pool, notify = tellOwner, now = 
       'UPDATE docs SET verify_notified_at = now() WHERE id = $1 AND verify_notified_at IS NULL', [n.id]);
     if (!claim.rowCount) continue;
     try {
-      await notify(n);
+      // Never tell someone about a page they cannot open: the verifier, if the
+      // owner has since lost access, else nobody.
+      const to = (await canSee(n.id, n.ownerId)) ? n.ownerId : n.verifierId && (await canSee(n.id, n.verifierId)) ? n.verifierId : null;
+      if (!to) continue;
+      await notify({ ...n, ownerId: to });
       told += 1;
     } catch (e) {
       // An owner who no longer exists must not make the page retry forever.
@@ -126,7 +140,7 @@ export async function sweepVerifications({ db = pool, notify = tellOwner, now = 
   return told;
 }
 
-export function registerVerifyRoutes(app, { requireUser, wrap, editGrant, untrusted }) {
+export function registerVerifyRoutes(app, { requireUser, wrap, editGrant, grantOn, untrusted }) {
   const view = async (id) => {
     const { rows } = await pool.query(`SELECT ${VERIFY_COLUMNS} FROM docs d ${VERIFY_JOINS} WHERE d.id = $1`, [id]);
     return verifyView(rows[0]);
@@ -146,7 +160,8 @@ export function registerVerifyRoutes(app, { requireUser, wrap, editGrant, untrus
     let owner = null;
     if (req.body?.ownerId) {
       const u = await pool.query("SELECT 1 FROM users WHERE id = $1 AND kind <> 'agent'", [String(req.body.ownerId)]);
-      if (!u.rowCount) return res.status(400).json({ error: 'The owner must be a member of the workspace.' });
+      // The owner is told when the page needs review, so they must be able to open it.
+      if (!u.rowCount || !(await grantOn(req.params.id, String(req.body.ownerId)))) return res.status(400).json({ error: 'The owner must be a member who can open this page.' });
       owner = String(req.body.ownerId);
     }
     await pool.query(
@@ -170,12 +185,12 @@ export function registerVerifyRoutes(app, { requireUser, wrap, editGrant, untrus
 }
 
 /** Hourly: cheap (one indexed-ish scan of verified pages), and it only ever acts once per lapse. */
-export function startVerifyReviews() {
+export function startVerifyReviews(canSee) {
   let running = false;
   const run = () => {
     if (running) return;
     running = true;
-    sweepVerifications()
+    sweepVerifications({ canSee })
       .then((n) => { if (n) console.log(`[verify] ${n} page(s) need review`); })
       .catch((e) => console.error('[verify] sweep failed', e))
       .finally(() => { running = false; });

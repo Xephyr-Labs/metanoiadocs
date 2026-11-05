@@ -18,6 +18,7 @@ import { cloneValue } from './restore.js';
 import { isPerson } from './approval.js';
 import { findQuote, normalizeQuote } from './text-match.js';
 import { listSuggestions } from './inline-suggest.js';
+import { markStale } from './verify.js';
 
 // ── suggestion cards ───────────────────────────────────────────────────────
 
@@ -787,8 +788,8 @@ export function registerSuggestionRoutes(app, { requireUser, wrap, pool, grantOn
     );
     if (applied) {
       // An AI draft's edit is the approver's, made through AI.
-      if (v.row.writer_via) await pool.query(`UPDATE docs SET updated_at = now(), updated_by = $2, updated_via = 'ai' WHERE id = $1`, [docId, req.user.id]);
-      else await pool.query('UPDATE docs SET updated_at = now(), updated_by = $2 WHERE id = $1', [docId, req.user.id]);
+      if (v.row.writer_via) await pool.query(`UPDATE docs SET updated_at = now(), updated_by = $2, updated_via = 'ai', ${markStale(2)} WHERE id = $1`, [docId, req.user.id]);
+      else await pool.query(`UPDATE docs SET updated_at = now(), updated_by = $2, ${markStale(2)} WHERE id = $1`, [docId, req.user.id]);
       // What was applied was written in the draft by its author: they edited
       // the page as much as the reviewer who let it in.
       await recordDocEditors(docId, [v.row.author_id]);

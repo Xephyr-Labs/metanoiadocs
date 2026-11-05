@@ -68,7 +68,7 @@ import { registerPropRoutes } from './props-routes.js';
 import { registerViewRoutes } from './views.js';
 import { registerDocPropRoutes } from './doc-props.js';
 import { registerHomeRoutes } from './home.js';
-import { markStale, registerVerifyRoutes, startVerifyReviews, verifyView, VERIFY_COLUMNS, VERIFY_JOINS } from './verify.js';
+import { markStale, markStaleBy, registerVerifyRoutes, startVerifyReviews, verifyView, VERIFY_COLUMNS, VERIFY_JOINS } from './verify.js';
 import { registerPushRoutes, sendPush } from './push.js';
 import { linkFor } from './push-rules.js';
 import { registerFolderRoutes, visibleFolder } from './folders-routes.js';
@@ -3422,7 +3422,7 @@ app.post('/api/comments/:cid/decision', requireUser, wrap(async (req, res) => {
         error: 'The text this suggestion changes has been edited since, so it can no longer be applied. Reject it, or make the change by hand.',
       });
     }
-    await pool.query('UPDATE docs SET updated_at = now(), updated_by = $2, updated_via = $3 WHERE id = $1', [c.doc_id, req.user.id, req.via]);
+    await pool.query(`UPDATE docs SET updated_at = now(), updated_by = $2, updated_via = $3, ${markStale(2)} WHERE id = $1`, [c.doc_id, req.user.id, req.via]);
     // The words now on the page are the suggester's, so they are an editor of
     // it too, not only the person who pressed Accept.
     await recordDocEditors(c.doc_id, [c.author_id]);
@@ -3521,7 +3521,7 @@ registerPropRoutes(app, { requireUser, wrap });
 registerViewRoutes(app, { requireUser, wrap });
 registerDocPropRoutes(app, { requireUser, wrap, grantOn, editGrant });
 registerHomeRoutes(app, { requireUser, wrap });
-registerVerifyRoutes(app, { requireUser, wrap, editGrant, untrusted });
+registerVerifyRoutes(app, { requireUser, wrap, editGrant, grantOn, untrusted });
 registerPushRoutes(app, { requireUser, wrap });
 registerFolderRoutes(app, { requireUser, wrap });
 registerSpaceMoveRoutes(app, { requireUser, wrap, editGrant });
@@ -3767,8 +3767,8 @@ const hocuspocus = new Hocuspocus({
         // A suggester only suggested: the page's last editor stays who it was.
         const actor = context?.user?.id && context.user.id !== 'public' && context.role !== SUGGESTER ? context.user.id : null;
         await pool.query(
-          `UPDATE docs SET updated_at = now(), updated_by = coalesce($2, updated_by), pending_suggestions = coalesce($3::jsonb, pending_suggestions), ${markStale(2)} WHERE id = $1`,
-          [documentName, actor, pendingJson(document)]
+          `UPDATE docs SET updated_at = now(), updated_by = coalesce($2, updated_by), pending_suggestions = coalesce($3::jsonb, pending_suggestions), ${markStaleBy(4)} WHERE id = $1`,
+          [documentName, actor, pendingJson(document), editors ? [...editors] : []]
         );
         notifyDocMentions(documentName, buf, actor).catch((err) =>
           console.error('[notify] doc mention:', err.message));
@@ -3872,7 +3872,7 @@ server.listen(PORT, '0.0.0.0', () => {
   startTrashSweeper();
   startIntegrityScan(pool, { canSee: async (docId, userId) => !!(await grantOn(docId, userId)) });
   startReminders();
-startVerifyReviews();
+startVerifyReviews(async (docId, userId) => !!(await grantOn(docId, userId)));
 startEmbeddingSweeper();
 startAutomationSweeper();
 });

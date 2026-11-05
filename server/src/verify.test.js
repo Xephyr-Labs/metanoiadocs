@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import * as V from './verify.js';
 import { REVIEW_AFTER, markStale, pendingNotices, sweepVerifications, verifyState } from './verify.js';
 
 const DAY = 86400000;
@@ -138,4 +139,23 @@ test('verify_doc calls the verify route as the caller, resolving the owner by na
   } finally {
     globalThis.fetch = realFetch;
   }
+});
+
+test('the stale marker for a save names every editor, so a late verifier keystroke cannot hide another editor', () => {
+  const { markStaleBy } = V;
+  const sql = markStaleBy(2);
+  assert.match(sql, /unnest\(\$2::text\[\]\)/);
+  assert.match(sql, /e IS DISTINCT FROM verified_by/);
+});
+
+test('the sweep tells the owner only if they can open the page, else the verifier, else nobody', async () => {
+  const mk = () => ({ id: 'a', title: 'Secret', ...row(), verify_owner: 'bob', verify_notified_at: null });
+  const run = async (canSee) => {
+    const sent = [];
+    await sweepVerifications({ db: fakeDb([mk()]), notify: async (n) => { sent.push(n.ownerId); }, canSee, now: later(100) });
+    return sent;
+  };
+  assert.deepEqual(await run(async () => true), ['bob']);
+  assert.deepEqual(await run(async (_d, u) => u === 'u1'), ['u1']);
+  assert.deepEqual(await run(async () => false), []);
 });
