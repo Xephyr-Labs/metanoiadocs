@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chartQuery, cleanChart, rollUp, OTHER, MAX_BUCKETS } from './chart.js';
+import { chartQuery, cleanChart, pgZone, rollUp, OTHER, MAX_BUCKETS } from './chart.js';
 import { cleanConfig } from './views.js';
 
 const PROPS = [
@@ -172,4 +172,45 @@ test('dates bucket by week or month, in order, with the empty weeks drawn', () =
 
 test('nothing to chart is an empty answer, not an error', () => {
   assert.deepEqual(rollUp([], cleanChart({})), { buckets: [], series: [] });
+});
+
+test('only bars stack: a line or a donut ignores a saved stack-by', () => {
+  for (const type of ['line', 'donut']) {
+    const q = chartQuery({ projectId: 'P', chart: cleanChart({ type, x: 'assignee_id', stack: 'status' }), props: [], zone: 'UTC' });
+    assert.doesNotMatch(q.text, /AS s\(k\)|\) s$/m, type);
+    assert.match(q.text, /'' AS s/, type);
+  }
+  const bar = chartQuery({ projectId: 'P', chart: cleanChart({ type: 'bar', x: 'assignee_id', stack: 'status' }), props: [], zone: 'UTC' });
+  assert.match(bar.text, /coalesce\(s\.k, ''\) AS s/);
+});
+
+test('a field named after an Object prototype key is not a field', () => {
+  const q = chartQuery({
+    projectId: 'P',
+    chart: cleanChart({ x: 'constructor', of: 'toString', measure: 'sum' }),
+    filters: [{ id: 'f', field: 'toString', op: 'is', value: 'x' }],
+    props: [],
+    zone: 'UTC',
+  });
+  assert.deepEqual(q.ignored, ['f']);
+  assert.match(q.text, /t\.status/); // fell back to the default axis
+});
+
+test('a zone Postgres does not know falls back to UTC', () => {
+  assert.equal(pgZone('America/New_York', new Set(['America/New_York', 'UTC'])), 'America/New_York');
+  assert.equal(pgZone('Etc/Unknown', new Set(['UTC'])), 'UTC');
+});
+
+test('chart_tasks refuses a sum or an average with nothing to read', async () => {
+  const { createMetanoiaMcpServer } = await import('./mcp-tools.js');
+  const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+  const { InMemoryTransport } = await import('@modelcontextprotocol/sdk/inMemory.js');
+  const server = createMetanoiaMcpServer({ base: 'http://127.0.0.1:1', headers: {} });
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: 't', version: '1' });
+  await Promise.all([server.connect(b), client.connect(a)]);
+  const r = await client.callTool({ name: 'chart_tasks', arguments: { board: 'x', measure: 'avg' } });
+  assert.equal(r.isError, true);
+  assert.match(r.content[0].text, /needs `of`/);
+  await client.close();
 });

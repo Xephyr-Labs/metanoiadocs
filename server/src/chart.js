@@ -102,7 +102,8 @@ function resolve(key, props, param) {
       day: kind === 'date' ? `(CASE WHEN (${ref} #>> '{}') ~ '^\\d{4}-\\d{2}-\\d{2}' THEN left(${ref} #>> '{}', 10) END)` : null,
     };
   }
-  const col = COLUMNS[key];
+  // Own keys only: `COLUMNS.constructor` is a function, not a column.
+  const col = Object.hasOwn(COLUMNS, key) ? COLUMNS[key] : null;
   if (!col) return null;
   const sql = col.ts ? `to_char(${col.ts} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS')` : col.sql;
   return {
@@ -225,12 +226,17 @@ export function chartQuery({ projectId, chart, filters = [], scope = 'all', prop
   const countValues = [...values];
   const whereSql = where.join('\n     AND ');
 
-  const x = resolve(chart.x, props, param);
-  const xField = x && (x.kind === 'date' || CATEGORY_KINDS.has(x.kind)) ? x : resolve('status', props, param);
-  const s = chart.stack ? resolve(chart.stack, props, param) : null;
-  // A donut has one ring, and stacked averages would add up to nothing.
-  const sField = s && CATEGORY_KINDS.has(s.kind) && chart.type !== 'donut' && chart.measure !== 'avg' ? s : null;
-  const m = chart.measure !== 'count' ? resolve(chart.of, props, param) : null;
+  // Each field is checked before it is bound: a property id bound for a
+  // field that is then refused is a parameter the SQL never mentions, and
+  // Postgres rejects a query whose parameter types it cannot infer.
+  const kindOf = (key) => resolve(key, props, () => 'NULL')?.kind;
+  const xKind = kindOf(chart.x);
+  const xField = resolve(xKind === 'date' || CATEGORY_KINDS.has(xKind) ? chart.x : 'status', props, param);
+  // Only bars stack: a donut has one ring, a line draws one series, and
+  // stacked averages would add up to nothing.
+  const stacks = (chart.type === 'bar' || chart.type === 'hbar') && chart.measure !== 'avg';
+  const sField = stacks && chart.stack && CATEGORY_KINDS.has(kindOf(chart.stack)) ? resolve(chart.stack, props, param) : null;
+  const m = chart.measure !== 'count' && kindOf(chart.of) === 'number' ? resolve(chart.of, props, param) : null;
 
   const text = `
     SELECT coalesce(x.k, '') AS x, ${sField ? "coalesce(s.k, '')" : "''"} AS s,
@@ -332,6 +338,18 @@ export function rollUp(rows, chart, { dates = false } = {}) {
  * route that read the saved row would race the save it is meant to reflect.
  * Readable by whoever can read the task list, which is exactly the rows it counts.
  */
+/**
+ * The reader's zone, if Postgres knows it, else UTC.
+ *
+ * The browser's zone list (Intl, which `isZone` checks) and Postgres' tzdata
+ * are two copies that can disagree — a zone newer than the database image
+ * would fail the whole query on `AT TIME ZONE`.
+ */
+export function pgZone(zone, known) {
+  return known.has(zone) ? zone : 'UTC';
+}
+let knownZones = null;
+
 export function registerChartRoutes(app, { requireUser, wrap }) {
   app.post('/api/projects/:id/chart', requireUser, wrap(async (req, res) => {
     const chart = cleanChart(req.body?.chart ?? {});
@@ -340,8 +358,11 @@ export function registerChartRoutes(app, { requireUser, wrap }) {
     const { rows: project } = await pool.query('SELECT id FROM projects WHERE id = $1', [req.params.id]);
     if (!project[0]) return res.status(404).json({ error: 'not found' });
     const { rows: props } = await pool.query('SELECT id, type FROM db_props WHERE project_id = $1', [req.params.id]);
+    // ponytail: read once per process; a restart picks up a tzdata upgrade.
+    knownZones ??= new Set((await pool.query('SELECT name FROM pg_timezone_names')).rows.map((r) => r.name));
     const q = chartQuery({
-      projectId: req.params.id, chart, filters: config.filters, scope: config.scope, props, zone: zoneOf(req.user),
+      projectId: req.params.id, chart, filters: config.filters, scope: config.scope, props,
+      zone: pgZone(zoneOf(req.user), knownZones),
     });
     const [grouped, counted] = await Promise.all([
       pool.query(q.text, q.values),

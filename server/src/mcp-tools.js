@@ -1110,6 +1110,7 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
     },
     async ({ board, groupBy, unit, measure, of }) => {
       try {
+        if (measure && measure !== 'count' && !of) throw new Error(`A ${measure === 'avg' ? 'average' : 'sum'} needs \`of\`: points, priority, progress or estimate.`);
         const found = await findBoard(board);
         const X = { status: 'status', assignee: 'assignee_id', type: 'kind', sprint: 'sprint_id', created: 'created_at', due: 'due_at', done: 'done_at' };
         const OF = { points: 'points', priority: 'priority', progress: 'progress', estimate: 'estimate_h' };

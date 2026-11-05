@@ -74,7 +74,10 @@ export function ChartView({
   const [error, setError] = useState<string | null>(null);
   // One string, so the effect re-runs when what is asked changes and not
   // whenever a parent re-renders with an equal but new filters array.
-  const ask = JSON.stringify({ chart: { ...chart, x: x?.key ?? chart.x }, filters, scope });
+  // The stack goes only where it is drawn. A stacked bar switched to a line
+  // keeps its saved stack-by (switching back restores it), but the line must
+  // not be asked for one series per status.
+  const ask = JSON.stringify({ chart: { ...chart, x: x?.key ?? chart.x, stack: stack?.key ?? null }, filters, scope });
   useEffect(() => {
     let live = true;
     setError(null);
@@ -426,7 +429,7 @@ function Line({ data, w, h, labelOf, handlers }: {
   return (
     <>
       <Grid top={top} step={step} horizontal={false} from={pad.l} to={pad.l + pw} at={yAt} edge={pad.l - 6} />
-      {/* One series always: a line is never stacked (see `stackable`). */}
+      {/* One series always: the chart never sends a stack for a line (see `stackable` and `ask`), and the server ignores one. */}
       {data.series.map((s) => (
         <g key={s.key} className="text-accent">
           <polyline
