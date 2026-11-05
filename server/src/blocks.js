@@ -812,8 +812,8 @@ const escapeLead = (md) => {
   return /^(#{1,6}\s|>|[-+]\s|-{3,}\s*$|_{3,}\s*$|\||```|\$\$)/.test(md) ? `\\${md}` : md;
 };
 
-/** A table block's flat prop keys → a markdown pipe table. */
-function tableMarkdown(b, opts) {
+/** A table block's row and column ids, each in the order the editor shows them. */
+export function tableAxes(b) {
   const rows = [];
   const cols = [];
   for (const key of b.keys()) {
@@ -822,12 +822,16 @@ function tableMarkdown(b, opts) {
     m = key.match(/^prop:columns\.(.+)\.order$/);
     if (m) cols.push({ id: m[1], order: String(b.get(key) ?? '') });
   }
-  if (!rows.length || !cols.length) return '';
   // By code point, as the editor sorts them (table-data-manager.ts). Fractional
   // keys mix cases — 'aZ' sorts before 'aa' — and localeCompare flips those.
   const byOrder = (x, y) => (x.order > y.order ? 1 : -1);
-  rows.sort(byOrder);
-  cols.sort(byOrder);
+  return { rows: rows.sort(byOrder), cols: cols.sort(byOrder) };
+}
+
+/** A table block's flat prop keys → a markdown pipe table. */
+function tableMarkdown(b, opts) {
+  const { rows, cols } = tableAxes(b);
+  if (!rows.length || !cols.length) return '';
   // A cell may hold newlines and pipes; both would break the row apart.
   const cell = (r, c) =>
     inlineMarkdown(b.get(`prop:cells.${r}:${c}.text`), opts).replace(/\|/g, '\\|').replace(/\n+/g, ' ').trim();
