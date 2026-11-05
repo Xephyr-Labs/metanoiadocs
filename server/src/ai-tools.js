@@ -16,6 +16,9 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 
 import { createMetanoiaMcpServer } from './mcp-tools.js';
 
+/** Removing and restoring pages is for people and trusted tokens, not Ask AI. */
+const NOT_FOR_AI = new Set(['delete_doc', 'restore_doc']);
+
 /** A doc pasted whole into the prompt is mostly waste past this point. */
 const MAX_TOOL_CHARS = 12000;
 
@@ -57,7 +60,7 @@ export function aiTools({ base, headers = {}, zone }) {
     async specs() {
       const c = await connect();
       const { tools } = await c.listTools();
-      return tools.map((t) => ({
+      return tools.filter((t) => !NOT_FOR_AI.has(t.name)).map((t) => ({
         type: 'function',
         function: {
           name: t.name,
@@ -73,6 +76,7 @@ export function aiTools({ base, headers = {}, zone }) {
      * stream the user is watching.
      */
     async run(name, argsJson) {
+      if (NOT_FOR_AI.has(name)) return { error: `${name} is not available to Ask AI.` };
       let args;
       try {
         args = argsJson ? JSON.parse(argsJson) : {};

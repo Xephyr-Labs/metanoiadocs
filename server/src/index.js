@@ -59,7 +59,9 @@ import { wouldFolderCycle } from './folders.js';
 import { bodyHtml, printHtml } from './print.js';
 import { docxFromMarkdown } from './docx.js';
 import { fileToMarkdown, IMPORT_EXTENSIONS } from './import.js';
-import { registerMcpRoute } from './mcp-http.js';
+import { bodyError, jsonUnlessMcp, registerMcpRoute } from './mcp-http.js';
+import { attachmentDisposition, keyMatchesBytes } from './blob-rules.js';
+import { resolveVerdict } from './comment-resolve.js';
 import { topTerms, extractSignals, findMentions, simhash, hamming, keyphrases, summarize, tokenize, coalesceByKey, blocksFromText } from './intelligence.js';
 import { docKind } from './props.js';
 import { registerTaskRoutes, kindsFor, isStatus, createTaskRow } from './tasks.js';
@@ -156,7 +158,7 @@ for (const method of ['get', 'post', 'put', 'patch', 'delete']) {
   app[method] = (path, ...handlers) =>
     orig(path, ...handlers.map((h) => (typeof h === 'function' ? wrap(h) : h)));
 }
-app.use(express.json());
+app.use(jsonUnlessMcp);
 // Set on every request, not just authenticated ones: a route that reaches a
 // write without requireUser would otherwise put NULL into a NOT NULL column.
 // Unforgeable — see actorVia.
@@ -1849,6 +1851,7 @@ async function editGrant(docId, userId) {
 // Restore a trashed doc — whoever could have edited it, the same people who
 // could have deleted it.
 app.post('/api/docs/:id/restore', requireUser, async (req, res) => {
+  if (untrusted(req)) return res.status(403).json({ error: 'This needs a person or a trusted agent: an AI assistant or untrusted agent cannot restore a page.' });
   if (!canEdit(await trashGrantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
   await pool.query('UPDATE docs SET deleted_at = NULL, updated_at = now(), updated_by = $2, updated_via = $3 WHERE id = $1', [req.params.id, req.user.id, req.via]);
   res.json({ ok: true });
@@ -1895,6 +1898,9 @@ app.delete('/api/docs/:id', requireUser, async (req, res) => {
   // the doc may remove it — team docs by any member, private docs by the owner
   // or anyone it's shared with. Matches the team-editable model (grantOn).
   if (!(await editGrant(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
+  // Removing a page cannot be a suggestion for someone to review, so an AI or an
+  // untrusted agent (whose edits to a page are all reviewed first) may not do it.
+  if (untrusted(req)) return res.status(403).json({ error: 'This needs a person or a trusted agent: an AI assistant or untrusted agent cannot move a page to the trash, since its changes are reviewed first.' });
   // Detach children then soft-delete atomically, so a crash between the two can't
   // leave children orphaned under a still-live parent.
   const client = await pool.connect();
@@ -2702,6 +2708,11 @@ app.get('/api/docs/:id/intelligence', requireUser, wrap(async (req, res) => {
 // blowing up a Postgres row.
 app.put('/api/blob/:key', requireUser, express.raw({ type: '*/*', limit: '25mb' }), async (req, res) => {
   const mime = baseMime(req.headers['content-type']);
+  // The key is the hash of the bytes (blob-rules.js), so nobody can claim a key
+  // other pages will use with different content.
+  if (!Buffer.isBuffer(req.body) || !keyMatchesBytes(req.params.key, req.body)) {
+    return res.status(400).json({ error: 'The blob key must be the sha256 of its content.' });
+  }
   const { rowCount } = await pool.query(
     `INSERT INTO blobs (key, mime, data, created_by) VALUES ($1, $2, $3, $4)
      ON CONFLICT (key) DO NOTHING`,
@@ -2769,8 +2780,7 @@ app.get('/api/blob/:key', async (req, res) => {
     // `?name=` is the file's own name, so a download is not called by its
     // sha256. Quotes and control characters are stripped rather than escaped —
     // a header is not the place to be clever about a filename.
-    const wanted = String(req.query.name || '').replace(/[^\w.\-() ]+/g, '').slice(0, 120);
-    res.setHeader('Content-Disposition', wanted ? `attachment; filename="${wanted}"` : 'attachment');
+    res.setHeader('Content-Disposition', attachmentDisposition(req.query.name));
   }
   res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
 
@@ -3338,15 +3348,18 @@ const commentOwner = async (row, userId) => {
 };
 
 app.post('/api/comments/:cid/resolve', requireUser, async (req, res) => {
-  const c = await pool.query('SELECT doc_id, task_id, author_id FROM comments WHERE id = $1', [req.params.cid]);
+  const c = await pool.query('SELECT doc_id, task_id, author_id, kind FROM comments WHERE id = $1', [req.params.cid]);
   const row = c.rows[0];
   if (!row) return res.status(403).json({ error: 'forbidden' });
   // A page thread is closed by whoever started it or by someone who can edit
   // the page — not by every reader, which is what a bare grant check allowed.
-  const allowed = row.task_id
-    ? row.author_id === req.user.id
-    : row.author_id === req.user.id || canEdit(await grantOn(row.doc_id, req.user.id));
-  if (!allowed) return res.status(403).json({ error: 'forbidden' });
+  // Not a suggestion card (decided, not resolved), and an AI or untrusted agent
+  // only its own threads (comment-resolve.js).
+  const verdict = resolveVerdict({
+    kind: row.kind, authorId: row.author_id, taskId: row.task_id, userId: req.user.id, untrusted: untrusted(req),
+    canEditPage: !row.task_id && canEdit(await grantOn(row.doc_id, req.user.id)),
+  });
+  if (verdict) return res.status(verdict.status).json({ error: verdict.error });
   await pool.query('UPDATE comments SET resolved = $1 WHERE id = $2 OR parent_id = $2',
     [req.body?.resolved !== false, req.params.cid]);
   if (row.doc_id) commentsChanged(row.doc_id);
@@ -3568,6 +3581,7 @@ app.get(/^\/assets\//, (_req, res) => res.status(404).type('text/plain').send('N
 app.get('*', (_req, res) => res.sendFile(path.join(WEB_DIST, 'index.html')));
 
 // Last-resort error handler so a thrown/rejected route returns 500 instead of crashing.
+app.use(bodyError);
 app.use((err, req, res, next) => {
   console.error('[api] unhandled route error', err?.message || err);
   if (res.headersSent) return next(err);

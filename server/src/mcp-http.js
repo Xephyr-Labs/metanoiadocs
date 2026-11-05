@@ -9,10 +9,31 @@
 // table. Each request carries its own credentials, several server replicas can
 // serve the same client, and there is no session to leak or expire.
 
+import express from 'express';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 
 import { createMetanoiaMcpServer } from './mcp-tools.js';
 import { zoneOf } from './timezone.js';
+
+/**
+ * The app-wide JSON parser, except on /mcp. Its 100 KB limit would refuse
+ * upload_attachment (a base64 file inside a tool call) long before the file
+ * cap; /mcp gets its own larger parser in registerMcpRoute.
+ */
+const globalJson = express.json();
+export const jsonUnlessMcp = (req, res, next) => (req.path === '/mcp' ? next() : globalJson(req, res, next));
+
+/** 15 MB: a 10 MB attachment is ~13.4 MB of base64. */
+const mcpJson = express.json({ limit: '15mb' });
+
+/** A body the parser refused is the client's mistake: say so (413 for too large), not 500. */
+export function bodyError(err, _req, res, next) {
+  const status = Number(err?.status);
+  if (status >= 400 && status < 500 && !res.headersSent) {
+    return res.status(status).json({ error: status === 413 ? 'Request body too large.' : 'Bad request body.' });
+  }
+  return next(err);
+}
 
 export function registerMcpRoute(app, { requireUser, port }) {
   const base = `http://127.0.0.1:${port}`;
@@ -45,7 +66,7 @@ export function registerMcpRoute(app, { requireUser, port }) {
     }
   };
 
-  app.post('/mcp', requireUser, handle);
+  app.post('/mcp', requireUser, mcpJson, handle);
 
   // Stateless mode has no server-initiated stream and no session to delete.
   // Answer rather than fall through to the SPA catch-all, which would hand an
