@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { randomBytes } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { zipSync } from './zip.js';
 import { unzipSync } from './unzip.js';
@@ -219,4 +220,36 @@ test('zip bomb: declared and real expansion are both capped', () => {
 test('an archive with no pages is refused', async () => {
   await assert.rejects(plan('obsidian', entries({ 'x.png': PNG })), /no Markdown/);
   await assert.rejects(plan('nope', entries({ 'x.md': 'x' })), /Unknown import source/);
+});
+
+test('stored entries are checked at their real length, and inconsistent sizes are refused', () => {
+  const lim = { maxEntries: 10, maxEntryBytes: 1024, maxTotalBytes: 4096 };
+  const zip = zipSync([{ name: 'a.bin', data: randomBytes(2000) }]);
+  // Lie in the central directory: declared uncompressed size 1.
+  const lie = Buffer.from(zip);
+  const cd = lie.lastIndexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02]));
+  assert.equal(lie.readUInt16LE(cd + 10), 0, 'fixture must be stored');
+  lie.writeUInt32LE(1, cd + 24);
+  assert.throws(() => unzipSync(lie, lim), /expands past/);
+  // Local and central compressed sizes disagree.
+  const split = Buffer.from(zip);
+  split.writeUInt32LE(5, 18);
+  assert.throws(() => unzipSync(split, { ...lim, maxEntryBytes: 1e6 }), /inconsistent sizes/);
+});
+
+test('many entries pointing at one stored blob hit the total cap', () => {
+  const blob = randomBytes(1000);
+  const zip = zipSync([{ name: 'a', data: blob }]);
+  const cdAt = zip.lastIndexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02]));
+  const eocd = zip.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+  const cd = zip.subarray(cdAt, eocd);
+  const copies = [0, 1, 2, 3, 4].map((i) => { const c = Buffer.from(cd); c.write(String(i), 46); return c; });
+  const head = zip.subarray(0, cdAt);
+  const end = Buffer.from(zip.subarray(eocd));
+  end.writeUInt16LE(5, 8); end.writeUInt16LE(5, 10);
+  end.writeUInt32LE(copies.reduce((n, c) => n + c.length, 0), 12);
+  end.writeUInt32LE(head.length, 16);
+  const evil = Buffer.concat([head, ...copies, end]);
+  assert.equal(unzipSync(evil, { maxEntries: 9, maxEntryBytes: 1e6, maxTotalBytes: 1e7 }).size, 5);
+  assert.throws(() => unzipSync(evil, { maxEntries: 9, maxEntryBytes: 1e6, maxTotalBytes: 3500 }), /expands past/);
 });

@@ -275,6 +275,9 @@ export function summaryLines(s) {
 
 // ── route ──────────────────────────────────────────────────────────────────
 
+// Each import holds the upload and its expanded contents in memory, so one at a time.
+let importing = false;
+
 export function registerArchiveRoutes(app, { requireUser, wrap, createDocRow, storeLinks, saveBlob, visibleFolder, raw }) {
   /**
    * Import a zip as a tree of pages. Raw bytes like every other import here;
@@ -292,6 +295,9 @@ export function registerArchiveRoutes(app, { requireUser, wrap, createDocRow, st
     const folderId = typeof req.query.folderId === 'string' && req.query.folderId ? req.query.folderId : null;
     if (folderId && !(await visibleFolder(folderId, req.user.id))) return res.status(403).json({ error: 'folder not accessible' });
 
+    if (importing) return res.status(429).json({ error: 'Another import is running, try again in a minute.' });
+    importing = true;
+    try {
     let plan;
     try {
       const files = unzipSync(req.body);
@@ -318,11 +324,13 @@ export function registerArchiveRoutes(app, { requireUser, wrap, createDocRow, st
       // title lookup would tie an imported "Roadmap" to whichever page already had that name.
       const links = { resolve: (key) => { const id = String(key).split('|')[0].trim(); return planned.has(id) ? id : null; } };
       for (const p of plan.pages) {
+        // Listed first: createDocRow commits before it returns, and a failure
+        // after that must still find the page when rolling back.
+        pageIds.push(p.id);
         await createDocRow({
           id: p.id, title: p.title, icon: '📄', userId: req.user.id, folderId: p.folderId, spaceId,
           visibility: 'team', kind: 'doc', content: p.markdown, links,
         });
-        pageIds.push(p.id);
       }
       // Targets did not exist yet when each page was written, so their link rows
       // and nesting are recorded now that all of them do.
@@ -337,5 +345,6 @@ export function registerArchiveRoutes(app, { requireUser, wrap, createDocRow, st
       throw e;
     }
     res.json({ id: plan.pages[0].id, folderId: plan.folders[0].id, summary: plan.summary, warnings: summaryLines(plan.summary) });
+    } finally { importing = false; }
   }));
 }

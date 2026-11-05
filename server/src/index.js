@@ -3578,7 +3578,10 @@ app.get('*', (_req, res) => res.sendFile(path.join(WEB_DIST, 'index.html')));
 app.use((err, req, res, next) => {
   console.error('[api] unhandled route error', err?.message || err);
   if (res.headersSent) return next(err);
-  res.status(500).json({ error: 'internal error' });
+  // A 4xx the framework raised (body too large, bad JSON) is the client's to
+  // hear about; anything else stays an opaque 500.
+  const status = err?.status >= 400 && err.status < 500 ? err.status : 500;
+  res.status(status).json({ error: status === 500 ? 'internal error' : err.message || 'bad request' });
 });
 
 // ── realtime sync ─────────────────────────────────────────────────────────

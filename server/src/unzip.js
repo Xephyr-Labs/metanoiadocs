@@ -118,7 +118,16 @@ export function unzipSync(buf, limits = ZIP_LIMITS) {
         `"${name}" or the archive as a whole expands past ${mb(room < limits.maxEntryBytes ? limits.maxTotalBytes : limits.maxEntryBytes)}.`);
       if (buf.readUInt32LE(p + 24) > room) throw tooBig();
       let data;
-      if (method === 0) data = Buffer.from(body);
+      // Without a data descriptor the local header repeats the sizes; a
+      // disagreement means the archive describes itself two ways. A stored body
+      // is also checked at its real length, not the declared one.
+      if (!(flags & 0x8) && buf.readUInt32LE(localOffset + 18) !== compressedSize) {
+        throw new Error(`ZIP entry "${name}" has inconsistent sizes.`);
+      }
+      if (method === 0) {
+        if (body.length > room || buf.readUInt32LE(p + 24) !== body.length) throw tooBig();
+        data = Buffer.from(body);
+      }
       else if (method === 8) {
         try { data = inflateRawSync(body, { maxOutputLength: Math.max(room, 1) }); } catch (e) {
           throw e?.code === 'ERR_BUFFER_TOO_LARGE' ? tooBig() : e;
