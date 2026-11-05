@@ -91,7 +91,7 @@ import { draftEdit, draftToRead, lossyRefusal } from './ai-drafts.js';
 import { registerDocEditRoutes } from './doc-edits.js';
 import { creditedSuggestions, listSuggestions, newSuggestionsBy, pendingJson } from './inline-suggest.js';
 import { suggestMarkdown } from './suggest-writer.js';
-import { agentRunMay, isRunSecret, runCredential, skillCommand, skillsPrompt, workspaceAgents } from './workspace-agents.js';
+import { agentRunMay, askAiSkill, isRunSecret, runCredential, skillCommand, workspaceAgents } from './workspace-agents.js';
 import { noClientBroadcast, suggestGuard } from './suggest-guard.js';
 import OpenAI from 'openai';
 
@@ -233,7 +233,7 @@ async function requireUser(req, res, next) {
     // Nobody watches an unattended run: it reads, suggests, comments on its own
     // target page and runs agents. Sharing, visibility, deleting, moving,
     // creating, tags, task writes, tokens, hooks: refused here, not just hidden.
-    if (!agentRunMay(req.method, req.originalUrl.split('?')[0], req.agentRun)) {
+    if (!agentRunMay(req.method, (req.baseUrl || '') + req.path, req.agentRun)) {
       return res.status(403).json({ error: 'An agent running on its own can only read, suggest edits, comment on its own page and run other agents.' });
     }
   }
@@ -2117,6 +2117,9 @@ app.post('/api/ai', requireUser, async (req, res) => {
   // and nothing else; handing it search and write tools would let "fix the
   // grammar here" wander off into the rest of the workspace.
   let toolSpecs = null;
+  // Which tools this request may run: all of them, unless it follows a skill
+  // someone else wrote (askAiSkill).
+  let toolAllowed = () => true;
   // The copilot's tools are the MCP surface — the same tools, descriptions and
   // access checks an MCP client gets at POST /mcp, over an in-memory transport.
   // Both credentials, like the MCP route: a caller who authenticated with a
@@ -2140,16 +2143,11 @@ app.post('/api/ai', requireUser, async (req, res) => {
       role: m.role === 'assistant' ? 'assistant' : 'user',
       content: String(m.content || '').slice(0, 20000),
     }));
-    // `/skill-name …` opening the last message: that workspace skill's text
-    // joins the system prompt, and the model reads the rest as the ask.
-    let skillText = '';
+    // `/skill-name …` opening the last message: the workspace skill to apply,
+    // and the rest is the ask. See askAiSkill for whose text goes where.
     const last = history.at(-1);
     const cmd = last?.role === 'user' ? skillCommand(last.content) : null;
     const skill = cmd ? await agents.skillByName(cmd.name) : null;
-    if (skill) {
-      skillText = skillsPrompt([skill]);
-      last.content = cmd.rest || `Apply the ${skill.name} skill.`;
-    }
     const docContext = String(req.body?.selection || '').slice(0, 20000);
     // The pane sends which doc is open, not its contents: the text is already
     // here in Postgres, and loading it through the same access-checked route as
@@ -2165,6 +2163,14 @@ app.post('/api/ai', requireUser, async (req, res) => {
       }
     }
     toolSpecs = await tools.specs();
+    let skillText = '';
+    if (skill) {
+      const use = askAiSkill(skill, req.user.id, toolSpecs);
+      skillText = use.system;
+      toolSpecs = use.specs;
+      toolAllowed = use.allowed;
+      last.content = use.userBlock + (cmd.rest || `Apply the ${skill.name} skill.`);
+    }
     chatMessages = [
       {
         role: 'system',
@@ -2275,7 +2281,8 @@ app.post('/api/ai', requireUser, async (req, res) => {
           if (key) hint = String(parsed[key]).slice(0, 80);
         } catch { /* the model sent junk; the tool will say so */ }
         res.write(`data: ${JSON.stringify({ tool: { i, name: c.name, hint } })}\n\n`);
-        const out = await tools.run(c.name, c.args);
+        // A tool it was not offered is refused, not run: naming one is not access to it.
+        const out = toolAllowed(c.name) ? await tools.run(c.name, c.args) : { error: `${c.name} is not available while following someone else's skill.` };
         watchdog.alive(); // a slow search is progress, not silence
         res.write(`data: ${JSON.stringify({
           tool: {

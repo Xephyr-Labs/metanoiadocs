@@ -120,6 +120,7 @@ const INBOX_VERBS: Partial<Record<string, string>> = {
   review_requested: 'asked you to review changes to',
   ai_suggestion: 'suggested changes to',
   page_suggestion: 'suggested changes to',
+  agent_suggested: 'suggested changes to',
   review_done: 'reviewed your changes to',
   integrity: 'found a problem in',
 };
@@ -187,6 +188,8 @@ export function InboxDialog() {
       focusSuggestion(it.suggestion_id);
       return;
     }
+    // An agent's run: the page, where its suggestions wait in the margin.
+    if (it.kind === 'agent_suggested') return;
     if (it.kind === 'ai_suggestion' && it.suggestion_id) {
       openReview(it.suggestion_id, it.doc_id);
       return;

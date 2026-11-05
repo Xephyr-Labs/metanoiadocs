@@ -288,7 +288,7 @@ export interface InboxRow {
    *  person, so they carry a body that already reads as a sentence and no
    *  actor to name. See server/src/reminders.js. */
   kind: 'mention' | 'comment' | 'reply' | 'reply_to_you' | 'suggestion' | 'suggestion_accepted' | 'suggestion_rejected'
-    | 'review_requested' | 'review_done' | 'ai_suggestion' | 'page_suggestion' | 'assigned' | 'due_soon' | 'due_today' | 'overdue' | 'digest' | 'agent_failed';
+    | 'review_requested' | 'review_done' | 'ai_suggestion' | 'page_suggestion' | 'assigned' | 'due_soon' | 'due_today' | 'overdue' | 'digest' | 'agent_failed' | 'agent_suggested';
   /** The comment that triggered it — null for notifications with no thread. */
   comment_id: string | null;
   /** Null for anything the system raised rather than a person. */
