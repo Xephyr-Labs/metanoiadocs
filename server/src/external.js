@@ -20,7 +20,7 @@
 // sweep gets round to deleting its rows. drive_files has no per-user rule —
 // every member sees the Drive view — so neither does Drive search.
 import { pool, getSetting } from './db.js';
-import { READ_MAX_BYTES, fileText, textRoute } from './drive.js';
+import { READ_MAX_BYTES, asText, fileText, textRoute } from './drive.js';
 import { BATCH, chunkText, embedPassages, EMBED_MODEL, provider, queryVector, semanticOn, vec } from './semantic.js';
 
 /** Create the tables. external_items is plain Postgres, so keyword search over
@@ -126,7 +126,8 @@ export async function sweepExternal({ readText = fileText } = {}) {
   for (const f of cfg.sa ? plan.read : []) {
     let text = '';
     try {
-      text = (await readText(cfg.sa, f)).text;
+      // asText: one reader handing back the wrong shape must not stop the sweep.
+      text = asText((await readText(cfg.sa, f)).text);
     } catch (e) {
       if (transient(e)) { console.warn('[external] drive read deferred:', e.message); break; }
       // A file Drive will not export (permissions, a broken PDF): recorded with

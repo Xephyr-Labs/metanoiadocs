@@ -331,6 +331,12 @@ export function startDriveSync() {
 }
 
 /** A file's text, for read_drive_file. */
+/** A reader's result as plain text: the PDF reader answers { markdown, warnings }. */
+export function asText(v) {
+  if (typeof v === 'string') return v;
+  return typeof v?.markdown === 'string' ? v.markdown : '';
+}
+
 export async function fileText(sa, row) {
   const route = textRoute(row.mime_type);
   if (!route) {
@@ -347,7 +353,7 @@ export async function fileText(sa, row) {
     const res = await gapi(sa, `/files/${encodeURIComponent(row.id)}`, { alt: 'media', supportsAllDrives: true }, { raw: true });
     if (route.pdf) {
       const { pdfToMarkdown } = await import('./pdf.js');
-      text = await pdfToMarkdown(Buffer.from(await res.arrayBuffer()));
+      text = asText(await pdfToMarkdown(Buffer.from(await res.arrayBuffer())));
     } else {
       text = await res.text();
     }
