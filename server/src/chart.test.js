@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chartQuery, cleanChart, pgZone, rollUp, OTHER, MAX_BUCKETS } from './chart.js';
+import { chartQuery, chartDenied, cleanChart, pgZone, rollUp, OTHER, MAX_BUCKETS } from './chart.js';
 import { cleanConfig } from './views.js';
 
 const PROPS = [
@@ -213,4 +213,11 @@ test('chart_tasks refuses a sum or an average with nothing to read', async () =>
   assert.equal(r.isError, true);
   assert.match(r.content[0].text, /needs `of`/);
   await client.close();
+});
+
+test('chartDenied: only members of the board space (and admins) may chart it', () => {
+  assert.equal(chartDenied({ spaceId: null }), null);
+  assert.equal(chartDenied({ spaceId: 's1', spaceName: 'Sales', member: true }), null);
+  assert.equal(chartDenied({ spaceId: 's1', spaceName: 'Sales', member: false, admin: true }), null);
+  assert.equal(chartDenied({ spaceId: 's1', spaceName: 'Sales', member: false }), 'Join the Sales space to see this chart.');
 });

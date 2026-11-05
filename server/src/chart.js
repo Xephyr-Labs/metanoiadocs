@@ -10,6 +10,7 @@
 // evaluate here (a formula, a rollup — computed in the browser) is not
 // guessed at: the route names it, and the chart says it was left out.
 import { pool } from './db.js';
+import { isPerson } from './approval.js';
 import { cleanConfig } from './views.js';
 import { bucketOf, nextBucket, zoneOf } from './timezone.js';
 
@@ -350,13 +351,37 @@ export function pgZone(zone, known) {
 }
 let knownZones = null;
 
+/**
+ * Why `user` may not chart a board, or null when they may. A chart sums up a
+ * whole board at once, so it is held to the board's space: its members (and
+ * admins) see it, anyone else is told which space to join. A board in no space
+ * is the whole workspace's.
+ */
+export function chartDenied({ spaceId, spaceName, member = false, admin = false }) {
+  if (!spaceId || member || admin) return null;
+  return `Join the ${spaceName || 'board\'s'} space to see this chart.`;
+}
+
 export function registerChartRoutes(app, { requireUser, wrap }) {
   app.post('/api/projects/:id/chart', requireUser, wrap(async (req, res) => {
     const chart = cleanChart(req.body?.chart ?? {});
     const config = cleanConfig({ filters: req.body?.filters ?? [], scope: req.body?.scope ?? 'all' });
     if (!config) return res.status(400).json({ error: 'bad config' });
-    const { rows: project } = await pool.query('SELECT id FROM projects WHERE id = $1', [req.params.id]);
+    const { rows: project } = await pool.query(
+      `SELECT p.id, p.space_id, s.name AS space_name, (m.user_id IS NOT NULL) AS member
+         FROM projects p
+         LEFT JOIN spaces s ON s.id = p.space_id
+         LEFT JOIN space_members m ON m.space_id = p.space_id AND m.user_id = $2
+        WHERE p.id = $1`,
+      [req.params.id, req.user.id],
+    );
     if (!project[0]) return res.status(404).json({ error: 'not found' });
+    const denied = chartDenied({
+      spaceId: project[0].space_id, spaceName: project[0].space_name,
+      // An admin's agents and Ask AI are held to the space like anyone else.
+      member: project[0].member, admin: req.user.role === 'admin' && isPerson(req),
+    });
+    if (denied) return res.status(403).json({ error: denied });
     const { rows: props } = await pool.query('SELECT id, type FROM db_props WHERE project_id = $1', [req.params.id]);
     // ponytail: read once per process; a restart picks up a tzdata upgrade.
     knownZones ??= new Set((await pool.query('SELECT name FROM pg_timezone_names')).rows.map((r) => r.name));
