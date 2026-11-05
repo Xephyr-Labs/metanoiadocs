@@ -238,6 +238,41 @@ export interface VersionRow {
   author_email: string | null;
 }
 
+/** One word run of a changed text block: `del` struck through, `ins` underlined. */
+export interface DiffWord { op: 'eq' | 'del' | 'ins'; text: string }
+
+/** One block in a version diff, in the newer page's reading order. */
+export interface DiffBlock {
+  op: 'same' | 'added' | 'removed' | 'changed' | 'moved';
+  id: string;
+  flavour: string;
+  type: string | null;
+  checked: boolean;
+  /** Text blocks: what the block reads (the newer side; the older for `removed`). */
+  text?: string;
+  /** Non-text blocks (image, table…): what to call it — never diffed inside. */
+  label?: string;
+  /** A changed (or moved-and-edited) text block's word diff. */
+  words?: DiffWord[];
+  /** The block's earlier shape when it was retyped or ticked. */
+  was?: { flavour: string; type: string | null; checked: boolean };
+}
+
+export type VersionMeta = Pick<VersionRow, 'id' | 'label' | 'created_at' | 'author' | 'author_email'>;
+
+export interface VersionDiff {
+  against: 'previous' | 'current';
+  /** The older side; null when the version is the first one kept. */
+  from: VersionMeta | null;
+  to: VersionMeta | { current: true };
+  /** The title's word diff, or null when it did not change. */
+  title: DiffWord[] | null;
+  /** The title as the newer side reads it — the version's own, not the page's now. */
+  titleText: string;
+  blocks: DiffBlock[];
+  stats: { added: number; removed: number; changed: number; moved: number };
+}
+
 /**
  * One hit from the palette's search. Pages and tasks come back in one list,
  * ordered by the server — a query that names a task ("MD-14") is answered with
@@ -560,6 +595,9 @@ export const docsApi = {
   /** A snapshot's plain text, for previewing it before restoring. */
   versionText: (id: string, vid: string): Promise<{ id: string; text: string }> =>
     req(`/docs/${id}/versions/${vid}/text`),
+  /** What changed in a version: against the one before it, or from it to the page now. */
+  versionDiff: (id: string, vid: string, against: 'previous' | 'current'): Promise<VersionDiff> =>
+    req(`/docs/${id}/versions/${vid}/diff?against=${against}`),
   /** A snapshot's raw Yjs state — the History view renders it as the real page. */
   versionState: async (id: string, vid: string): Promise<Uint8Array> => {
     const res = await fetch(`/api/docs/${id}/versions/${vid}/state`, { credentials: 'include' });
