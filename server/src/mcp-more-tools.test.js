@@ -79,3 +79,85 @@ test('upload_attachment refuses an oversize or non-base64 file before any reques
   assert.equal(b.res.isError, true);
   assert.equal(b.seen.length, 0);
 });
+
+import { attachmentDisposition, keyMatchesBytes } from './blob-rules.js';
+import { resolveVerdict } from './comment-resolve.js';
+import { aiTools } from './ai-tools.js';
+import { bodyError, jsonUnlessMcp } from './mcp-http.js';
+
+test('a blob key must be the sha256 of its bytes, in either encoding', () => {
+  const b = Buffer.from('hello');
+  const d = createHash('sha256').update(b).digest();
+  assert.ok(keyMatchesBytes(d.toString('hex'), b));
+  assert.ok(keyMatchesBytes(d.toString('base64url'), b));
+  assert.equal(keyMatchesBytes(d.toString('hex'), Buffer.from('other')), false);
+  assert.equal(keyMatchesBytes('original', b), false);
+});
+
+test('a download name keeps its own letters via filename*', () => {
+  assert.equal(attachmentDisposition('plan.pdf'), `attachment; filename="plan.pdf"; filename*=UTF-8''plan.pdf`);
+  const h = attachmentDisposition('রিপোর্ট "x".pdf');
+  assert.match(h, /filename\*=UTF-8''%E0%A6/);
+  assert.doesNotMatch(h, /"x"/);
+  assert.equal(attachmentDisposition(''), 'attachment');
+});
+
+test('resolving: never a suggestion card; untrusted only its own threads; editors any page thread', () => {
+  const base = { authorId: 'a', userId: 'b', taskId: null, untrusted: false, canEditPage: true };
+  assert.equal(resolveVerdict({ ...base, kind: 'suggestion' }).status, 409);
+  assert.equal(resolveVerdict({ ...base, kind: 'comment' }), null);
+  assert.equal(resolveVerdict({ ...base, kind: 'comment', untrusted: true }).status, 403);
+  assert.equal(resolveVerdict({ ...base, kind: 'comment', untrusted: true, userId: 'a' }), null);
+  assert.equal(resolveVerdict({ ...base, kind: 'comment', canEditPage: false }).status, 403);
+  assert.equal(resolveVerdict({ ...base, kind: 'comment', taskId: 't' }).status, 403);
+  assert.equal(resolveVerdict({ ...base, kind: 'suggestion', userId: 'a' }).status, 409);
+});
+
+test('Ask AI is not offered delete_doc or restore_doc, and cannot call them', async () => {
+  const t = aiTools({ base: 'http://x', headers: {} });
+  try {
+    const names = (await t.specs()).map((s) => s.function.name);
+    assert.ok(names.includes('upload_attachment'));
+    assert.ok(!names.includes('delete_doc') && !names.includes('restore_doc'));
+    assert.match((await t.run('delete_doc', '{"id":"d"}')).error, /not available/);
+  } finally {
+    await t.close();
+  }
+});
+
+test('an oversized body is a 413, not a 500', () => {
+  const res = { statusCode: 0, headersSent: false, status(s) { this.statusCode = s; return this; }, json(b) { this.body = b; } };
+  assert.equal(bodyError({ status: 413, type: 'entity.too.large' }, {}, res, () => assert.fail()), undefined);
+  assert.equal(res.statusCode, 413);
+  let passed = false;
+  bodyError(new Error('boom'), {}, res, () => { passed = true; });
+  assert.ok(passed);
+});
+
+test('a ~2 MB attachment goes through POST /mcp (the global 100 KB parser does not see /mcp)', async (t) => {
+  const express = (await import('express')).default;
+  const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+  const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
+  const { registerMcpRoute } = await import('./mcp-http.js');
+  const app = express();
+  app.use(jsonUnlessMcp);
+  let stored = 0;
+  app.put('/api/blob/:key', express.raw({ type: '*/*', limit: '25mb' }), (req, res) => { stored = req.body.length; res.json({ ok: true }); });
+  app.post('/api/docs/:id/content', (req, res) => res.json({ ok: true }));
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise((r) => server.once('listening', r));
+  const port = server.address().port;
+  registerMcpRoute(app, { requireUser: (req, res, next) => next(), port });
+  app.use(bodyError);
+  t.after(() => new Promise((r) => server.close(r)));
+  const client = new Client({ name: 't', version: '0' }, { capabilities: {} });
+  await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`), { requestInit: { headers: { Authorization: 'Bearer t' } } }));
+  t.after(() => client.close());
+  const bytes = Buffer.alloc(2 * 1024 * 1024, 7);
+  const r = await client.callTool({ name: 'upload_attachment', arguments: { id: 'd1', filename: 'big.bin', mime: 'application/octet-stream', contentBase64: bytes.toString('base64') } });
+  assert.equal(r.isError, undefined, r.content?.[0]?.text);
+  assert.equal(stored, bytes.length);
+  // and other routes keep the small limit
+  const big = await fetch(`http://127.0.0.1:${port}/api/docs/x/content`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ a: 'x'.repeat(200000) }) });
+  assert.equal(big.status, 413);
+});
