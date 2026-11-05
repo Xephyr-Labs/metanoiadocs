@@ -8,7 +8,7 @@
  *       so it is never empty.
  */
 import {
-  ArrowRight, CalendarDays, Clock, Database, FilePlus2, Files, History, Home, Inbox, ListTodo,
+  ArrowRight, BadgeCheck, CalendarDays, Clock, Database, FilePlus2, Files, History, Home, Inbox, ListTodo,
   Keyboard, Loader2, Moon, PanelRight, PenLine, Search, Settings, Share2, Sparkles, Sun, Trash2, Upload,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -27,7 +27,7 @@ import { ProjectIcon } from '../ui/ProjectIcon';
 import { KindIcon } from '../project/TaskBadges';
 
 type Item =
-  | { kind: 'page'; id: string; title: string; sub: string }
+  | { kind: 'page'; id: string; title: string; sub: string; verified?: boolean }
   | { kind: 'task'; id: string; title: string; sub: string; projectId: string; status: string; taskKind?: string }
   | { kind: 'database'; id: string; title: string; icon: string }
   | { kind: 'command'; id: string; title: string; icon: typeof Search; run: () => void };
@@ -158,6 +158,7 @@ export function CommandPalette() {
       id: r.id,
       title: r.title,
       sub: stripMarks(r.snippet || '').replace(/\s+/g, ' ').trim().slice(0, 60),
+      verified: r.verified,
     });
   // Hits in the space you are in first; the heading says where the rest come from.
   const [mine, other] = splitBySpace(results, ws.currentSpaceId, ws.spaces);
@@ -275,6 +276,9 @@ export function CommandPalette() {
                         <span className="mr-1.5 font-mono text-2xs font-semibold tracking-tight text-muted">{named.key}</span>
                       )}
                       {named ? (named.text ? highlight(named.text) : <span className="text-faint">Untitled</span>) : highlight(it.title)}
+                      {it.kind === 'page' && it.verified && (
+                        <BadgeCheck size={12} className="ml-1.5 inline align-[-1px] text-emerald-600 dark:text-emerald-400" aria-label="Verified" />
+                      )}
                     </span>
                     {(it.kind === 'page' || it.kind === 'task') && it.sub && it.sub !== 'Recent' && (
                       <span className="truncate text-2xs text-faint">{it.sub}</span>

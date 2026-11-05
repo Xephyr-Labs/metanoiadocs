@@ -1132,6 +1132,19 @@ export async function initSchema() {
   // by every save so Home's To review need not decode the Yjs state.
   await pool.query(`ALTER TABLE docs ADD COLUMN IF NOT EXISTS pending_suggestions JSONB NOT NULL DEFAULT '[]'`);
 
+  // Verified pages (verify.js). verify_every is days, 0 = never; verify_owner
+  // NULL means the verifier; verify_stale_at is the first save by anyone else
+  // since verifying; verify_notified_at is the claim that the owner was told.
+  await pool.query(`
+    ALTER TABLE docs ADD COLUMN IF NOT EXISTS verified_by TEXT;
+    ALTER TABLE docs ADD COLUMN IF NOT EXISTS verified_at TIMESTAMPTZ;
+    ALTER TABLE docs ADD COLUMN IF NOT EXISTS verify_every INTEGER NOT NULL DEFAULT 90;
+    ALTER TABLE docs ADD COLUMN IF NOT EXISTS verify_owner TEXT;
+    ALTER TABLE docs ADD COLUMN IF NOT EXISTS verify_stale_at TIMESTAMPTZ;
+    ALTER TABLE docs ADD COLUMN IF NOT EXISTS verify_notified_at TIMESTAMPTZ;
+    CREATE INDEX IF NOT EXISTS docs_verified_idx ON docs (verified_at) WHERE verified_at IS NOT NULL;
+  `);
+
   // One private notes page per person per event occurrence ("Start notes").
   await pool.query(`
     CREATE TABLE IF NOT EXISTS meeting_notes (

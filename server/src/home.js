@@ -3,6 +3,7 @@
 import { pool } from './db.js';
 import { dayIn, zoneOf } from './timezone.js';
 import { needsQueries, needsDays } from './needs.js';
+import { verifyState } from './verify.js';
 
 // Docs the caller may see: team-visible, or explicitly granted.
 export const VISIBLE = `(a.user_id IS NOT NULL OR d.visibility = 'team')`;
@@ -88,13 +89,35 @@ const MY_TASKS_SQL = (space) => `
    ORDER BY t.due_at ASC NULLS LAST, t.priority DESC
    LIMIT 60`;
 
+/**
+ * Pages the caller is responsible for (their verify owner, else their verifier)
+ * that have gone to Needs review, longest-waiting first. The SQL only narrows to
+ * the caller's verified pages; whether one needs review is verifyState's call,
+ * so Home, the badge and the notification cannot disagree.
+ */
+export async function reviewPagesFor(userId, space, now = new Date()) {
+  const { rows } = await pool.query(
+    `SELECT d.id, d.title, d.icon, d.verified_by, d.verified_at, d.verify_every, d.verify_stale_at
+       FROM docs d ${VISIBLE_JOIN}
+      WHERE d.deleted_at IS NULL AND ${VISIBLE} AND d.kind IS DISTINCT FROM 'task'
+        AND d.verified_at IS NOT NULL AND coalesce(d.verify_owner, d.verified_by) = $1
+        AND ${IN_SPACE('d.space_id', 2, space)}`,
+    [userId, ...(space ? [space] : [])],
+  );
+  return rows
+    .map((r) => ({ id: r.id, title: r.title, icon: r.icon, verifiedAt: r.verified_at, ...verifyState(r, now) }))
+    .filter((r) => r.state === 'needs_review')
+    .sort((a, b) => new Date(a.verifiedAt) - new Date(b.verifiedAt))
+    .slice(0, 20);
+}
+
 export function registerHomeRoutes(app, { requireUser, wrap }) {
   app.get('/api/home', requireUser, wrap(async (req, res) => {
     const uid = req.user.id;
     const today = dayIn(zoneOf(req.user));
     const space = typeof req.query.spaceId === 'string' && req.query.spaceId ? req.query.spaceId : null;
     const sp = space ? [space] : [];
-    const [activity, myTasks, recentDocs, projects] = await Promise.all([
+    const [activity, myTasks, recentDocs, projects, reviewPages] = await Promise.all([
       pool.query(ACTIVITY_SQL(space), [uid, ...sp]),
       pool.query(MY_TASKS_SQL(space), [uid, today, ...sp]),
       pool.query(
@@ -121,6 +144,7 @@ export function registerHomeRoutes(app, { requireUser, wrap }) {
         // parameter no clause uses, so the space takes $1 when given.
         [space ?? uid, today]
       ),
+      reviewPagesFor(uid, space),
     ]);
 
     const buckets = { overdue: [], today: [], week: [], later: [] };
@@ -131,6 +155,7 @@ export function registerHomeRoutes(app, { requireUser, wrap }) {
       recentDocs: recentDocs.rows,
       activity: activity.rows,
       projects: projects.rows,
+      reviewPages,
     });
   }));
 

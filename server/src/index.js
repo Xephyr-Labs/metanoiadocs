@@ -70,6 +70,7 @@ import { registerPropRoutes } from './props-routes.js';
 import { registerViewRoutes } from './views.js';
 import { registerDocPropRoutes } from './doc-props.js';
 import { registerHomeRoutes } from './home.js';
+import { markStale, markStaleBy, registerVerifyRoutes, startVerifyReviews, verifyView, VERIFY_COLUMNS, VERIFY_JOINS } from './verify.js';
 import { registerPushRoutes, sendPush } from './push.js';
 import { linkFor } from './push-rules.js';
 import { registerFolderRoutes, visibleFolder } from './folders-routes.js';
@@ -723,6 +724,7 @@ app.get('/api/docs', requireUser, async (req, res) => {
             CASE WHEN d.is_template AND coalesce(a.role, d.team_role, 'editor') NOT IN ('editor', 'owner')
                  THEN 'editor' ELSE coalesce(a.role, d.team_role, 'editor') END AS role, d.team_role, d.visibility, d.kind, d.props, d.is_template, d.template_everywhere,
             ub.name AS updated_by_name,
+            ${VERIFY_COLUMNS},
             coalesce(ub.kind, 'person') AS updated_by_kind,
             d.updated_via, d.created_at, cb.name AS created_by_name,
             (lv.doc_id IS NOT NULL) AS loved,
@@ -748,6 +750,7 @@ app.get('/api/docs', requireUser, async (req, res) => {
           WHERE l.from_id = d.id
        ) lk ON true
        LEFT JOIN users ub ON ub.id = d.updated_by
+       ${VERIFY_JOINS}
        LEFT JOIN users cb ON cb.id = d.created_by
        LEFT JOIN doc_loves lv ON lv.doc_id = d.id AND lv.user_id = $1
        LEFT JOIN LATERAL (
@@ -769,7 +772,11 @@ app.get('/api/docs', requireUser, async (req, res) => {
       ORDER BY d.position ASC, d.updated_at DESC`,
     [req.user.id]
   );
-  res.json(rows);
+  const now = new Date();
+  res.json(rows.map(({ verified_by, verified_at, verify_every, verify_owner, verify_stale_at, verified_by_name, verify_owner_name, ...r }) => ({
+    ...r,
+    verify: verifyView({ verified_by, verified_at, verify_every, verify_owner, verify_stale_at, verified_by_name, verify_owner_name }, now),
+  })));
 });
 
 // Manual sidebar order. The client sends the container's full list in its new
@@ -1162,7 +1169,9 @@ app.get('/api/docs/:id/markdown', requireUser, wrap(async (req, res) => {
   );
   // `lossy` names what this markdown leaves out; write_doc refuses a replace
   // while the page holds any of it.
-  res.json({ id: req.params.id, title: d.rows[0].title, markdown, ...(lossy.length ? { lossy } : {}), ...(pendingSuggestion ? { pendingSuggestion } : {}), editors });
+  // Whether a reader can trust this page: the state, and who vouched when.
+  const { rows: [vr] } = await pool.query(`SELECT ${VERIFY_COLUMNS} FROM docs d ${VERIFY_JOINS} WHERE d.id = $1`, [req.params.id]);
+  res.json({ id: req.params.id, title: d.rows[0].title, markdown, verification: verifyView(vr), ...(lossy.length ? { lossy } : {}), ...(pendingSuggestion ? { pendingSuggestion } : {}), editors });
 }));
 
 /** Who reviews this caller's AI edits on a page, as { id, name }; null when anyone who can edit may. */
@@ -1367,7 +1376,7 @@ app.post('/api/docs/:id/content', requireUser, wrap(async (req, res) => {
   // integration is searchable on what it now says.
   try {
     const { text } = extractText(state);
-    await pool.query('UPDATE docs SET search_text = $1, updated_at = now(), updated_by = $3, updated_via = $4 WHERE id = $2', [text.slice(0, 100000), docId, req.user.id, req.via]);
+    await pool.query(`UPDATE docs SET search_text = $1, updated_at = now(), updated_by = $3, updated_via = $4, ${markStale(3)} WHERE id = $2`, [text.slice(0, 100000), docId, req.user.id, req.via]);
   } catch { /* an odd state still saves; only the search text goes stale */ }
   // Backlinks and the sidebar nesting read doc_links, which only an open editor
   // refreshes otherwise.
@@ -1442,7 +1451,7 @@ async function writeSlide(req, res, slideId) {
   if (!id) return res.status(404).json({ error: 'no such slide' });
   try {
     const { text } = extractText(state);
-    await pool.query('UPDATE docs SET search_text = $1, updated_at = now(), updated_by = $3, updated_via = $4 WHERE id = $2', [text.slice(0, 100000), docId, req.user.id, req.via]);
+    await pool.query(`UPDATE docs SET search_text = $1, updated_at = now(), updated_by = $3, updated_via = $4, ${markStale(3)} WHERE id = $2`, [text.slice(0, 100000), docId, req.user.id, req.via]);
   } catch { /* only the search text goes stale */ }
   await storeLinks(docId, pageLinksOf(state));
   res.json({ ok: true, id, slides: listSlides(state).length });
@@ -2492,8 +2501,14 @@ app.get('/api/search', requireUser, wrap(async (req, res) => {
     .map((id) => byId.get(id))
     .sort((a, b) => (prefer ? (b.space_id === prefer) - (a.space_id === prefer) : 0))
     .slice(0, 20);
+  // A small check on pages whose verification is current (verify.js).
+  const { rows: vrows } = await pool.query(
+    'SELECT id, verified_by, verified_at, verify_every, verify_stale_at FROM docs WHERE id = ANY($1) AND verified_at IS NOT NULL',
+    [fused.map((r) => r.id)]);
+  const verifiedIds = new Set(vrows.filter((r) => verifyView(r).state === 'verified').map((r) => r.id));
   const docs = byJoinedFirst(fused, joined).map((r) => ({
     kind: 'doc', id: r.id, title: r.title, snippet: r.snippet, space_id: r.space_id, inJoinedSpace: joined.has(r.space_id),
+    ...(verifiedIds.has(r.id) ? { verified: true } : {}),
   }));
 
   // Tasks are searched in their own statement rather than folded into the CTE
@@ -2976,7 +2991,7 @@ app.post('/api/docs/:id/versions/:vid/restore-in-place', requireUser, wrap(async
      ON CONFLICT (doc_id) DO UPDATE SET state = EXCLUDED.state, updated_at = now()`,
     [docId, state]
   );
-  await pool.query('UPDATE docs SET updated_at = now(), updated_by = $2, updated_via = $3, pending_suggestions = coalesce($4::jsonb, pending_suggestions) WHERE id = $1',
+  await pool.query(`UPDATE docs SET updated_at = now(), updated_by = $2, updated_via = $3, pending_suggestions = coalesce($4::jsonb, pending_suggestions), ${markStale(2)} WHERE id = $1`,
     [docId, req.user.id, req.via, pendingJson(target)]);
   // The sidebar title and the search text are pushed by whichever editor is
   // open (see mountEditor); a headless restore refreshes them here so a page
@@ -3420,7 +3435,7 @@ app.post('/api/comments/:cid/decision', requireUser, wrap(async (req, res) => {
         error: 'The text this suggestion changes has been edited since, so it can no longer be applied. Reject it, or make the change by hand.',
       });
     }
-    await pool.query('UPDATE docs SET updated_at = now(), updated_by = $2, updated_via = $3 WHERE id = $1', [c.doc_id, req.user.id, req.via]);
+    await pool.query(`UPDATE docs SET updated_at = now(), updated_by = $2, updated_via = $3, ${markStale(2)} WHERE id = $1`, [c.doc_id, req.user.id, req.via]);
     // The words now on the page are the suggester's, so they are an editor of
     // it too, not only the person who pressed Accept.
     await recordDocEditors(c.doc_id, [c.author_id]);
@@ -3519,6 +3534,7 @@ registerPropRoutes(app, { requireUser, wrap });
 registerViewRoutes(app, { requireUser, wrap });
 registerDocPropRoutes(app, { requireUser, wrap, grantOn, editGrant });
 registerHomeRoutes(app, { requireUser, wrap });
+registerVerifyRoutes(app, { requireUser, wrap, editGrant, grantOn, untrusted });
 registerPushRoutes(app, { requireUser, wrap });
 registerFolderRoutes(app, { requireUser, wrap });
 registerSpaceMoveRoutes(app, { requireUser, wrap, editGrant });
@@ -3765,8 +3781,8 @@ const hocuspocus = new Hocuspocus({
         // A suggester only suggested: the page's last editor stays who it was.
         const actor = context?.user?.id && context.user.id !== 'public' && context.role !== SUGGESTER ? context.user.id : null;
         await pool.query(
-          'UPDATE docs SET updated_at = now(), updated_by = coalesce($2, updated_by), pending_suggestions = coalesce($3::jsonb, pending_suggestions) WHERE id = $1',
-          [documentName, actor, pendingJson(document)]
+          `UPDATE docs SET updated_at = now(), updated_by = coalesce($2, updated_by), pending_suggestions = coalesce($3::jsonb, pending_suggestions), ${markStaleBy(4)} WHERE id = $1`,
+          [documentName, actor, pendingJson(document), editors ? [...editors] : []]
         );
         notifyDocMentions(documentName, buf, actor).catch((err) =>
           console.error('[notify] doc mention:', err.message));
@@ -3870,6 +3886,7 @@ server.listen(PORT, '0.0.0.0', () => {
   startTrashSweeper();
   startIntegrityScan(pool, { canSee: async (docId, userId) => !!(await grantOn(docId, userId)) });
   startReminders();
+startVerifyReviews(async (docId, userId) => !!(await grantOn(docId, userId)));
 startEmbeddingSweeper();
 startAutomationSweeper();
 });

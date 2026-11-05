@@ -23,7 +23,7 @@ import { placeAt } from '../lib/reorder';
 import { keepExpanded, nestByParent } from '../lib/pageTree';
 import { panelClosed, setPanelClosed } from '../lib/sidebarPrefs';
 import type { Template } from '../data/templates';
-import type { EditorMode, Folder, Page, PageId, Tag } from '../lib/types';
+import type { EditorMode, Folder, Page, PageId, Tag, Verification } from '../lib/types';
 
 export type RightTab = 'intel' | 'comments' | 'outline' | 'details' | 'ai';
 
@@ -155,6 +155,8 @@ interface WorkspaceState {
   toggleExpand: (id: PageId) => void;
   toggleFavorite: (id: PageId) => void;
   toggleLove: (id: PageId) => void;
+  /** Put a page's new verification (from docsApi.verify / unverify) in the sidebar's copy. */
+  setVerification: (id: PageId, v: Verification) => void;
   toggleFolderFavorite: (id: string) => void;
   setVisibility: (id: PageId, visibility: 'team' | 'private') => void;
   rename: (id: PageId, title: string) => void;
@@ -238,6 +240,7 @@ function buildPages(rows: DocRow[]): Record<PageId, Page> {
       updatedAt: r.updated_at,
       createdByName: r.created_by_name ?? null,
       createdAt: r.created_at ?? null,
+      verify: r.verify ?? { state: 'unverified' },
       loveCount: r.love_count ?? 0,
       loved: !!r.loved,
       linkCount: r.link_count ?? 0,
@@ -713,6 +716,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       return { ...p, [id]: { ...cur, loved, loveCount: Math.max(0, cur.loveCount + (loved ? 1 : -1)) } };
     });
   }, [refresh]);
+
+  const setVerification = useCallback((id: PageId, verify: Verification) => {
+    setPages((p) => (p[id] ? { ...p, [id]: { ...p[id], verify } } : p));
+  }, []);
 
   const toggleFolderFavorite = useCallback((id: string) => {
     setFolders((f) => {
@@ -1365,7 +1372,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       view, activeProjectId, activeFolderId, openHome, openTasks, openAllDocs, openCalendar, openProject, createTaskIn, pendingTaskId, clearPendingTask, pendingViewId: activeViewId, clearPendingView, openFolder, activeSpaceId, openSpace, projects, refreshProjects, spaces, refreshSpaces, moveToSpace, joinSpace, leaveSpace, createSpace, spaceTrees, currentSpaceId, switchSpace,
       sidebarCollapsed, panelCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
       settingsOpen, trashOpen, inboxOpen, shortcutsOpen, captureOpen, mode, fullWidth, theme,
-      refresh, select, toggleExpand, toggleFavorite, toggleLove, toggleFolderFavorite, setVisibility, rename, applyTitleFromEditor,
+      refresh, select, toggleExpand, toggleFavorite, toggleLove, setVerification, toggleFolderFavorite, setVisibility, rename, applyTitleFromEditor,
       createPage, createDesign, movePage, createChildPage, reorderPage, linkPage, reorderFolder, moveFolder, createFolder, renameFolder, setFolderColor, setIcon, toggleFolder, deleteFolder, createFromTemplate, docTemplates, createFromPage, setTemplate, importFiles, deletePage, restorePage,
       refreshTags, addTagToPage, removeTagFromPage, deleteTag, setTagFilter,
       setSidebarCollapsed, setPanelCollapsed, setSidebarWidth, setMobileDrawer, setRightPanel, setPaletteOpen, setShortcutsOpen, setCaptureOpen,
@@ -1381,7 +1388,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       view, activeProjectId, activeFolderId, openHome, openTasks, openAllDocs, openCalendar, openProject, createTaskIn, pendingTaskId, clearPendingTask, activeViewId, clearPendingView, openFolder, activeSpaceId, openSpace, projects, refreshProjects, spaces, refreshSpaces, moveToSpace, joinSpace, leaveSpace, createSpace, spaceTrees, currentSpaceId, switchSpace,
       sidebarCollapsed, panelCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
       settingsOpen, trashOpen, inboxOpen, shortcutsOpen, captureOpen, mode, fullWidth, theme,
-      refresh, select, toggleExpand, toggleFavorite, toggleLove, toggleFolderFavorite, setVisibility, rename, applyTitleFromEditor,
+      refresh, select, toggleExpand, toggleFavorite, toggleLove, setVerification, toggleFolderFavorite, setVisibility, rename, applyTitleFromEditor,
       createPage, createDesign, movePage, createChildPage, reorderPage, linkPage, reorderFolder, moveFolder, createFolder, renameFolder, setFolderColor, setIcon, toggleFolder, deleteFolder, createFromTemplate, docTemplates, createFromPage, setTemplate, importFiles, deletePage, restorePage,
       refreshTags, addTagToPage, removeTagFromPage, deleteTag, toggleTheme, routeTick,
     ],

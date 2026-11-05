@@ -439,6 +439,8 @@ export interface HomePayload {
   recentDocs: { id: string; title: string; icon: string; updated_at: string; updated_by_name: string | null }[];
   activity: ActivityRow[];
   projects: ProjectRow[];
+  /** Pages you own (server/src/verify.js) that have gone to Needs review. */
+  reviewPages?: { id: string; title: string; icon: string; reason?: 'expired' | 'edited'; verifiedAt: string }[];
 }
 
 /** GET /api/home/needs (server/src/needs.js). `overdue` counts past-due only;
