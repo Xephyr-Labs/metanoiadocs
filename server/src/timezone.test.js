@@ -62,3 +62,51 @@ test('nothing in gives nothing out, rather than a wrong day', () => {
   assert.equal(isoDate('not a date'), null);
   assert.equal(isoDate(new Date('nonsense')), null);
 });
+
+// ── chart buckets ─────────────────────────────────────────────────────────
+import { bucketOf, nextBucket } from './timezone.js';
+
+test('a week is the Monday it starts on, even across a month or a year', () => {
+  assert.equal(bucketOf('2026-11-04', 'week'), '2026-11-02'); // Wednesday
+  assert.equal(bucketOf('2026-11-02', 'week'), '2026-11-02'); // Monday is its own start
+  assert.equal(bucketOf('2026-11-08', 'week'), '2026-11-02'); // Sunday belongs to the week before
+  assert.equal(bucketOf('2026-10-01', 'week'), '2026-09-28'); // the week starts in September
+  assert.equal(bucketOf('2027-01-01', 'week'), '2026-12-28'); // and in the previous year
+});
+
+test('a month is its first day, a day is itself', () => {
+  assert.equal(bucketOf('2026-02-28', 'month'), '2026-02-01');
+  assert.equal(bucketOf('2026-12-31', 'month'), '2026-12-01');
+  assert.equal(bucketOf('2026-12-31', 'day'), '2026-12-31');
+  assert.equal(bucketOf('2026-12-31T23:00:00Z', 'day'), '2026-12-31'); // a timestamp string reads its date part
+  assert.equal(bucketOf('', 'week'), '');
+  assert.equal(bucketOf(null, 'week'), '');
+});
+
+test('an instant buckets by the day it is where the reader lives', () => {
+  // 19:00 UTC on the last day of September is already October in Dhaka.
+  const at = new Date('2026-09-30T19:00:00Z');
+  assert.equal(bucketOf(at, 'month', 'UTC'), '2026-09-01');
+  assert.equal(bucketOf(at, 'month', 'Asia/Dhaka'), '2026-10-01');
+});
+
+test('daylight saving changes do not move a row into the wrong day or week', () => {
+  // US clocks spring forward on Sunday 2026-03-08 and fall back on 2026-11-01.
+  // 04:30 UTC on the 8th is still 23:30 on Saturday the 7th in New York (EST),
+  // and 05:30 on November 2nd is 00:30 Monday (EST again, after the fall back).
+  assert.equal(bucketOf(new Date('2026-03-08T04:30:00Z'), 'day', 'America/New_York'), '2026-03-07');
+  assert.equal(bucketOf(new Date('2026-03-08T04:30:00Z'), 'week', 'America/New_York'), '2026-03-02');
+  assert.equal(bucketOf(new Date('2026-03-09T03:30:00Z'), 'day', 'America/New_York'), '2026-03-08'); // 23:30 EDT
+  assert.equal(bucketOf(new Date('2026-11-02T04:30:00Z'), 'week', 'America/New_York'), '2026-10-26'); // 23:30 Sunday
+  assert.equal(bucketOf(new Date('2026-11-02T05:30:00Z'), 'week', 'America/New_York'), '2026-11-02'); // 00:30 Monday
+});
+
+test('stepping to the next bucket crosses months, years and short Februaries', () => {
+  assert.equal(nextBucket('2026-10-26', 'week'), '2026-11-02');
+  assert.equal(nextBucket('2026-12-28', 'week'), '2027-01-04');
+  assert.equal(nextBucket('2026-12-01', 'month'), '2027-01-01');
+  assert.equal(nextBucket('2026-02-28', 'day'), '2026-03-01');
+  assert.equal(nextBucket('2028-02-28', 'day'), '2028-02-29');
+  // The spring-forward day is 23 hours long; it is still one step.
+  assert.equal(nextBucket('2026-03-08', 'day'), '2026-03-09');
+});

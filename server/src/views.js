@@ -7,8 +7,9 @@
 // also what lets a database block point at one.
 import crypto from 'node:crypto';
 import { pool } from './db.js';
+import { cleanChart } from './chart.js';
 
-export const VIEW_KINDS = ['backlog', 'board', 'table', 'gantt', 'calendar', 'gallery', 'dashboard'];
+export const VIEW_KINDS = ['backlog', 'board', 'table', 'gantt', 'calendar', 'gallery', 'dashboard', 'chart'];
 
 /** The views a database starts with: the six tabs it has always shown, now as
  *  real rows so each can be filtered, sorted and grouped on its own. A data
@@ -29,6 +30,7 @@ const LABEL = {
   calendar: 'Calendar',
   gallery: 'Gallery',
   dashboard: 'Dashboard',
+  chart: 'Chart',
 };
 
 const isKind = (k) => VIEW_KINDS.includes(k);
@@ -66,6 +68,12 @@ export function cleanConfig(value) {
     out.props = Array.isArray(value.props) ? value.props.filter((p) => typeof p === 'string').slice(0, 200) : null;
   }
   if (value.scope !== undefined) out.scope = str(value.scope) || 'all';
+  // Saved whole: the PATCH merges config one level deep, so a chart's settings
+  // replace each other as a unit rather than leaving a stale stack-by behind.
+  if (value.chart !== undefined) {
+    const chart = cleanChart(value.chart);
+    if (chart) out.chart = chart;
+  }
   return out;
 }
 

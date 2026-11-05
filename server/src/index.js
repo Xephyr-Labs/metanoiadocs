@@ -68,6 +68,7 @@ import { registerTaskRoutes, kindsFor, isStatus, createTaskRow } from './tasks.j
 import { insertTaskComment, registerTaskCommentRoutes } from './task-comments.js';
 import { registerPropRoutes } from './props-routes.js';
 import { registerViewRoutes } from './views.js';
+import { registerChartRoutes } from './chart.js';
 import { registerDocPropRoutes } from './doc-props.js';
 import { registerHomeRoutes } from './home.js';
 import { markStale, markStaleBy, registerVerifyRoutes, startVerifyReviews, verifyView, VERIFY_COLUMNS, VERIFY_JOINS } from './verify.js';
@@ -3595,6 +3596,7 @@ registerTaskRoutes(app, { requireUser, wrap, createDocRow });
 registerTaskCommentRoutes(app, { requireUser, wrap });
 registerPropRoutes(app, { requireUser, wrap });
 registerViewRoutes(app, { requireUser, wrap });
+registerChartRoutes(app, { requireUser, wrap });
 registerDocPropRoutes(app, { requireUser, wrap, grantOn, editGrant });
 registerHomeRoutes(app, { requireUser, wrap });
 registerVerifyRoutes(app, { requireUser, wrap, editGrant, grantOn, untrusted });

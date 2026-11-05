@@ -26,6 +26,10 @@ interface Swatch {
    *  light clears it (yellow needs two — 600 is still 2.7:1); dark mode keeps
    *  the 500s, which measure 4.3–8.2:1 on the dark card. */
   bar: string;
+  /** `bar` for SVG: the same steps as a fill, so a chart drawn in SVG reads
+   *  exactly like the bands drawn in HTML. Spelled out rather than derived
+   *  from `bar`, because Tailwind only generates classes it finds in source. */
+  fill: string;
   /** The filled square behind a task type's glyph. Light mode puts white on a
    *  600-700 step and dark mode puts the canvas colour on a 400 step, because
    *  white on a 400 fails and a 600 square disappears into the dark card.
@@ -35,15 +39,15 @@ interface Swatch {
 }
 
 const MAP: Record<string, Swatch> = {
-  gray:   { chip: 'bg-gray-500/10 text-gray-700 dark:text-gray-300',       dot: 'bg-gray-400',   bar: 'bg-gray-600 dark:bg-gray-400', icon: 'bg-gray-500 dark:bg-gray-400 text-white dark:text-canvas' },
-  red:    { chip: 'bg-red-500/10 text-red-700 dark:text-red-400',          dot: 'bg-red-500',    bar: 'bg-red-600 dark:bg-red-500', icon: 'bg-red-600 dark:bg-red-400 text-white dark:text-canvas' },
-  orange: { chip: 'bg-orange-500/20 text-orange-800 dark:text-orange-400', dot: 'bg-orange-500', bar: 'bg-orange-600 dark:bg-orange-500', icon: 'bg-orange-700 dark:bg-orange-400 text-white dark:text-canvas' },
-  yellow: { chip: 'bg-yellow-500/20 text-yellow-800 dark:text-yellow-400', dot: 'bg-yellow-500', bar: 'bg-yellow-700 dark:bg-yellow-500', icon: 'bg-yellow-700 dark:bg-yellow-400 text-white dark:text-canvas' },
-  green:  { chip: 'bg-green-500/10 text-green-800 dark:text-green-400',    dot: 'bg-green-500',  bar: 'bg-green-600 dark:bg-green-500', icon: 'bg-green-700 dark:bg-green-400 text-white dark:text-canvas' },
-  teal:   { chip: 'bg-teal-500/10 text-teal-800 dark:text-teal-400',       dot: 'bg-teal-500',   bar: 'bg-teal-600 dark:bg-teal-500', icon: 'bg-teal-700 dark:bg-teal-400 text-white dark:text-canvas' },
-  blue:   { chip: 'bg-blue-500/10 text-blue-700 dark:text-blue-400',       dot: 'bg-blue-500',   bar: 'bg-blue-600 dark:bg-blue-500', icon: 'bg-blue-600 dark:bg-blue-400 text-white dark:text-canvas' },
-  purple: { chip: 'bg-purple-500/10 text-purple-700 dark:text-purple-400', dot: 'bg-purple-500', bar: 'bg-purple-600 dark:bg-purple-500', icon: 'bg-purple-600 dark:bg-purple-400 text-white dark:text-canvas' },
-  pink:   { chip: 'bg-pink-500/10 text-pink-700 dark:text-pink-400',       dot: 'bg-pink-500',   bar: 'bg-pink-600 dark:bg-pink-500', icon: 'bg-pink-600 dark:bg-pink-400 text-white dark:text-canvas' },
+  gray:   { chip: 'bg-gray-500/10 text-gray-700 dark:text-gray-300',       dot: 'bg-gray-400',   bar: 'bg-gray-600 dark:bg-gray-400', fill: 'fill-gray-600 dark:fill-gray-400', icon: 'bg-gray-500 dark:bg-gray-400 text-white dark:text-canvas' },
+  red:    { chip: 'bg-red-500/10 text-red-700 dark:text-red-400',          dot: 'bg-red-500',    bar: 'bg-red-600 dark:bg-red-500', fill: 'fill-red-600 dark:fill-red-500', icon: 'bg-red-600 dark:bg-red-400 text-white dark:text-canvas' },
+  orange: { chip: 'bg-orange-500/20 text-orange-800 dark:text-orange-400', dot: 'bg-orange-500', bar: 'bg-orange-600 dark:bg-orange-500', fill: 'fill-orange-600 dark:fill-orange-500', icon: 'bg-orange-700 dark:bg-orange-400 text-white dark:text-canvas' },
+  yellow: { chip: 'bg-yellow-500/20 text-yellow-800 dark:text-yellow-400', dot: 'bg-yellow-500', bar: 'bg-yellow-700 dark:bg-yellow-500', fill: 'fill-yellow-700 dark:fill-yellow-500', icon: 'bg-yellow-700 dark:bg-yellow-400 text-white dark:text-canvas' },
+  green:  { chip: 'bg-green-500/10 text-green-800 dark:text-green-400',    dot: 'bg-green-500',  bar: 'bg-green-600 dark:bg-green-500', fill: 'fill-green-600 dark:fill-green-500', icon: 'bg-green-700 dark:bg-green-400 text-white dark:text-canvas' },
+  teal:   { chip: 'bg-teal-500/10 text-teal-800 dark:text-teal-400',       dot: 'bg-teal-500',   bar: 'bg-teal-600 dark:bg-teal-500', fill: 'fill-teal-600 dark:fill-teal-500', icon: 'bg-teal-700 dark:bg-teal-400 text-white dark:text-canvas' },
+  blue:   { chip: 'bg-blue-500/10 text-blue-700 dark:text-blue-400',       dot: 'bg-blue-500',   bar: 'bg-blue-600 dark:bg-blue-500', fill: 'fill-blue-600 dark:fill-blue-500', icon: 'bg-blue-600 dark:bg-blue-400 text-white dark:text-canvas' },
+  purple: { chip: 'bg-purple-500/10 text-purple-700 dark:text-purple-400', dot: 'bg-purple-500', bar: 'bg-purple-600 dark:bg-purple-500', fill: 'fill-purple-600 dark:fill-purple-500', icon: 'bg-purple-600 dark:bg-purple-400 text-white dark:text-canvas' },
+  pink:   { chip: 'bg-pink-500/10 text-pink-700 dark:text-pink-400',       dot: 'bg-pink-500',   bar: 'bg-pink-600 dark:bg-pink-500', fill: 'fill-pink-600 dark:fill-pink-500', icon: 'bg-pink-600 dark:bg-pink-400 text-white dark:text-canvas' },
 };
 
 export const swatch = (color: string): Swatch => MAP[color] ?? MAP.gray;
