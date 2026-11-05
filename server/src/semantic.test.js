@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chunkText, rrf } from './semantic.js';
+import { chunkText, rrf, retryDelayMs, wantsMeaning } from './semantic.js';
 
 test('chunkText keeps a short page whole', () => {
   assert.deepEqual(chunkText('Pricing\n\nPlus costs 499 BDT.'), ['Pricing\n\nPlus costs 499 BDT.']);
@@ -29,4 +29,20 @@ test('chunkText overlap carries the previous tail from a word boundary', () => {
 test('rrf ranks an id found by both lists above ids found by one', () => {
   assert.deepEqual(rrf([['a', 'b', 'c'], ['x', 'b']]), ['b', 'a', 'x', 'c']);
   assert.deepEqual(rrf([[], ['x']]), ['x']);
+});
+
+test('retryDelayMs backs off from 30 min, doubling, capped at a day', () => {
+  assert.equal(retryDelayMs(1), 30 * 60_000);
+  assert.equal(retryDelayMs(2), 60 * 60_000);
+  assert.equal(retryDelayMs(3), 120 * 60_000);
+  assert.equal(retryDelayMs(30), 24 * 60 * 60_000);
+});
+
+test('wantsMeaning: phrases and non-Latin words, not short keyword stubs', () => {
+  assert.equal(wantsMeaning('pri'), false);
+  assert.equal(wantsMeaning('pricing'), false);
+  assert.equal(wantsMeaning('MD-14'), false);
+  assert.equal(wantsMeaning('pricing tiers'), true);
+  assert.equal(wantsMeaning('what did we decide'), true);
+  assert.equal(wantsMeaning('মূল্য'), true);
 });

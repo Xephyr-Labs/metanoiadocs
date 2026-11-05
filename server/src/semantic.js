@@ -95,7 +95,11 @@ export async function initSemantic() {
         hash       TEXT NOT NULL,
         model      TEXT NOT NULL,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-      );`);
+      );
+      -- A page the provider keeps refusing waits out a backoff instead of
+      -- being retried every sweep ahead of everything older than it.
+      ALTER TABLE doc_embed_state ADD COLUMN IF NOT EXISTS attempts INT NOT NULL DEFAULT 0;
+      ALTER TABLE doc_embed_state ADD COLUMN IF NOT EXISTS retry_at TIMESTAMPTZ;`);
     enabled = true;
   } catch (e) {
     console.warn('[semantic] off — pgvector unavailable:', e.message);
@@ -135,6 +139,11 @@ const hashOf = (title, text) => crypto.createHash('sha256').update(`${title}\n${
 const DOCS_PER_SWEEP = 8;
 const BATCH = 16;
 
+/** How long a page waits after its nth failed embed: 30 min, doubling, at most a day. */
+export function retryDelayMs(attempts) {
+  return Math.min(30 * 60_000 * 2 ** (attempts - 1), 24 * 60 * 60_000);
+}
+
 /** Embed the pages whose text changed since they were last embedded. Returns how many. */
 export async function sweepEmbeddings() {
   if (!enabled) return 0;
@@ -148,16 +157,36 @@ export async function sweepEmbeddings() {
       WHERE d.deleted_at IS NULL
         AND (s.doc_id IS NULL OR s.model <> $1
              OR s.hash <> encode(sha256(convert_to(coalesce(d.title,'') || E'\\n' || coalesce(d.search_text,''), 'UTF8')), 'hex'))
+        AND (s.retry_at IS NULL OR s.retry_at <= now())
       ORDER BY d.updated_at DESC NULLS LAST
       LIMIT $2`,
     [EMBED_MODEL, DOCS_PER_SWEEP],
   );
+  let done = 0;
   for (const d of rows) {
     const title = d.title || '';
     const chunks = chunkText(`${title}\n${d.search_text || ''}`);
     const vectors = [];
-    for (let i = 0; i < chunks.length; i += BATCH) {
-      vectors.push(...(await embed(cfg, chunks.slice(i, i + BATCH), 'passage')));
+    try {
+      for (let i = 0; i < chunks.length; i += BATCH) {
+        vectors.push(...(await embed(cfg, chunks.slice(i, i + BATCH), 'passage')));
+      }
+    } catch (e) {
+      // This page waits out a backoff (an empty hash keeps it due once that
+      // passes), and the sweep stops: a refusing provider is usually refusing
+      // everything, and the next sweep starts with the pages after this one.
+      const { rows: [st] } = await pool.query(
+        `INSERT INTO doc_embed_state (doc_id, hash, model, attempts) VALUES ($1, '', $2, 1)
+         ON CONFLICT (doc_id) DO UPDATE SET attempts = doc_embed_state.attempts + 1
+         RETURNING attempts`,
+        [d.id, EMBED_MODEL],
+      );
+      await pool.query(
+        `UPDATE doc_embed_state SET retry_at = now() + make_interval(secs => $2 / 1000.0) WHERE doc_id = $1`,
+        [d.id, retryDelayMs(st.attempts)],
+      );
+      console.warn(`[semantic] page ${d.id} not embedded (attempt ${st.attempts}): ${e.message}`);
+      break;
     }
     const client = await pool.connect();
     try {
@@ -172,7 +201,8 @@ export async function sweepEmbeddings() {
       }
       await client.query(
         `INSERT INTO doc_embed_state (doc_id, hash, model, updated_at) VALUES ($1, $2, $3, now())
-         ON CONFLICT (doc_id) DO UPDATE SET hash = EXCLUDED.hash, model = EXCLUDED.model, updated_at = now()`,
+         ON CONFLICT (doc_id) DO UPDATE SET hash = EXCLUDED.hash, model = EXCLUDED.model, updated_at = now(),
+           attempts = 0, retry_at = NULL`,
         [d.id, hashOf(title, d.search_text || ''), EMBED_MODEL],
       );
       await client.query('COMMIT');
@@ -182,8 +212,9 @@ export async function sweepEmbeddings() {
     } finally {
       client.release();
     }
+    done++;
   }
-  return rows.length;
+  return done;
 }
 
 const SWEEP_INTERVAL_MS = 30_000;
@@ -211,6 +242,17 @@ const MIN_SIMILARITY = 0.1;
 const QUERY_TIMEOUT_MS = 2_000;
 
 // The palette searches as you type; the same query embedded twice is waste.
+/**
+ * Whether a query is worth a provider round trip. A single Latin word or a key
+ * like "MD-14" is what keyword search is for, and the palette asks on every
+ * pause in typing; a phrase, or a word in a script the English tsvector can't
+ * stem (Bangla), is where meaning earns its wait.
+ */
+export function wantsMeaning(q) {
+  const s = String(q || '').trim();
+  return /\s/.test(s) ? s.length >= 6 : /[^\x00-\x7F]/.test(s);
+}
+
 const queryCache = new Map();
 const QUERY_CACHE_MAX = 200;
 
@@ -219,7 +261,7 @@ const QUERY_CACHE_MAX = 200;
  * [{ id, title, space_id, snippet }]. Empty when the feature is off or slow.
  */
 export async function semanticSearch({ userId, q, spaceId = null, limit = 20 }) {
-  if (!enabled || q.length < 4) return [];
+  if (!enabled || !wantsMeaning(q)) return [];
   try {
     const cfg = await provider();
     if (!cfg) return [];
