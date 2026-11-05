@@ -9,7 +9,7 @@ team/private access.
 
 | Tool | What it does |
 |---|---|
-| `search_docs` | Full-text search → id, title, snippet |
+| `search_docs` | Search pages (words and meaning) and connected Google Drive files → id, title, snippet; Drive hits carry `source: "drive"` for `read_drive_file` |
 | `list_docs` | List accessible docs |
 | `list_folders` | Workspace folders (for `move_doc`) |
 | `move_doc` | Move a doc into a folder, or out to the top level |
@@ -51,6 +51,19 @@ team/private access.
 | `list_agents` | Your workspace agents: trigger, on/off, last run |
 | `run_agent` | Run one of your agents and wait for its answer (two deep at most, no cycles) |
 | `list_skills` | The workspace's reusable instructions |
+
+### Google Drive
+
+An admin connects one shared drive (or one shared folder) in **Settings → Google Drive**;
+its file list is then visible to the whole workspace. Read-only.
+
+| Tool | What it does |
+|---|---|
+| `list_drive_files` | Files by name, folder, or changed `since` a date, newest first |
+| `read_drive_file` | A file's text (Docs, Slides, Sheets as CSV, PDFs, text files) and its tasks |
+| `attach_drive_file` | Link a file to a task, or unlink it with `remove: true` |
+
+A webhook subscribed to `drive.file.changed` hears about every file added, edited or removed.
 
 People and boards are named the way you would say them: `assignee: "sam"`, a
 username, an email, or `board: "Lattu"`. An ambiguous name is refused rather

@@ -78,6 +78,7 @@ import { registerFolderRoutes, visibleFolder } from './folders-routes.js';
 import { registerSpaceMoveRoutes, inTransaction, spaceOf, spaceForNew, reparentInto, OWNED_PAGE } from './space-move.js';
 import { registerSpaceRoutes } from './spaces-routes.js';
 import { registerWebhookRoutes, emit, startWebhookWorker } from './webhooks.js';
+import { registerDriveRoutes, startDriveSync } from './drive.js';
 import { registerGuestCommentRoutes, shareAccess } from './guest-comments.js';
 import { commentAnchors } from './text-match.js';
 import { registerAgentRoutes, enqueueRun } from './agent-runs.js';
@@ -88,7 +89,8 @@ import { registerCsvRoutes } from './csv-import.js';
 import { registerArchiveRoutes, MAX_ARCHIVE_BYTES } from './archive-import.js';
 import { TRASH_RETENTION_DAYS, startTrashSweeper } from './retention.js';
 import { startReminders } from './reminders.js';
-import { initSemantic, startEmbeddingSweeper, semanticSearch, rrf } from './semantic.js';
+import { initSemantic, startEmbeddingSweeper, semanticSearch, fuseRows } from './semantic.js';
+import { initExternal, startExternalSweeper, searchDrive } from './external.js';
 import { dayIn, isZone, zoneOf } from './timezone.js';
 import { byJoinedFirst } from './spaces.js';
 import { ROLE_RANK, rankOf, canEdit, writePolicy, resolveApprover, untrusted, needsPerson, isPerson, pageSyncRole, mintAgentToken } from './approval.js';
@@ -113,6 +115,7 @@ const STALE_MONTHS = Number(process.env.STALE_MONTHS || 6);
 
 await initSchema();
 await initSemantic();
+await initExternal();
 // Before the server listens: see data-migrations.js.
 await runDataMigrations(pool);
 
@@ -2495,6 +2498,9 @@ app.get('/api/search', requireUser, wrap(async (req, res) => {
   const prefer = req.query.prefer ? String(req.query.prefer) : null;
   // Meaning matches, fetched alongside the keyword query and merged below.
   const nearP = semanticSearch({ userId: req.user.id, q, spaceId });
+  // Files in the connected Google Drive, by name, text and meaning. Not in any
+  // space, so a search scoped to one leaves them out.
+  const driveP = spaceId ? { keyword: [], near: [] } : searchDrive(q);
 
   // Co-occurrence query expansion: pull the strongest terms that co-occur with
   // the query's own terms across the corpus, OR them in to widen recall (must
@@ -2553,23 +2559,25 @@ app.get('/api/search', requireUser, wrap(async (req, res) => {
   // Spaces only reorder results (joined first) and flag them; nothing is dropped.
   const joined = new Set((await pool.query('SELECT space_id FROM space_members WHERE user_id = $1', [req.user.id]))
     .rows.map((r) => r.space_id));
-  // Keyword and meaning hits fused into one order; the asker's space still
-  // leads, as the keyword query alone ranked it.
-  const near = await nearP;
-  const byId = new Map([...near, ...rows].map((r) => [r.id, r]));
-  const fused = rrf([rows.map((r) => r.id), near.map((r) => r.id)])
-    .map((id) => byId.get(id))
+  // Keyword and meaning hits, pages and Drive files, fused into one order; the
+  // asker's space still leads, as the keyword query alone ranked it.
+  const asDoc = (r) => ({ ...r, kind: 'doc' });
+  const [near, drive] = await Promise.all([nearP, driveP]);
+  const fused = fuseRows([rows.map(asDoc), drive.keyword, near.map(asDoc), drive.near])
     .sort((a, b) => (prefer ? (b.space_id === prefer) - (a.space_id === prefer) : 0))
     .slice(0, 20);
   // A small check on pages whose verification is current (verify.js).
   const { rows: vrows } = await pool.query(
     'SELECT id, verified_by, verified_at, verify_every, verify_stale_at FROM docs WHERE id = ANY($1) AND verified_at IS NOT NULL',
-    [fused.map((r) => r.id)]);
+    [fused.filter((r) => r.kind === 'doc').map((r) => r.id)]);
   const verifiedIds = new Set(vrows.filter((r) => verifyView(r).state === 'verified').map((r) => r.id));
-  const docs = byJoinedFirst(fused, joined).map((r) => ({
+  // Joined spaces first; the drive belongs to the whole workspace, so it
+  // counts as joined.
+  const hits = fused.map((r) => (r.kind === 'drive' ? { ...r, inJoinedSpace: true } : {
     kind: 'doc', id: r.id, title: r.title, snippet: r.snippet, space_id: r.space_id, inJoinedSpace: joined.has(r.space_id),
     ...(verifiedIds.has(r.id) ? { verified: true } : {}),
   }));
+  const docs = [...hits.filter((r) => r.inJoinedSpace), ...hits.filter((r) => !r.inJoinedSpace)];
 
   // Tasks are searched in their own statement rather than folded into the CTE
   // above. They have no search_text, no tsvector and no per-doc grant, so every
@@ -3663,6 +3671,7 @@ registerFolderRoutes(app, { requireUser, wrap });
 registerSpaceMoveRoutes(app, { requireUser, wrap, editGrant });
 registerSpaceRoutes(app, { requireUser, wrap });
 registerWebhookRoutes(app, { requireUser, requireAdmin, wrap });
+registerDriveRoutes(app, { requireUser, requireAdmin, wrap });
 registerFormRoutes(app, { requireUser, wrap, baseUrl: BASE_URL });
 // Marking or unmarking a template goes by the page's own grant: the template
 // rule must not let someone who was given view access un-template the page.
@@ -4030,4 +4039,6 @@ startVerifyReviews(async (docId, userId) => !!(await grantOn(docId, userId)));
 startEmbeddingSweeper();
 startAutomationSweeper();
   agents.startSweeper().catch((e) => console.error('[agents] sweeper failed to start', e.message));
+  startDriveSync();
+  startExternalSweeper();
 });
