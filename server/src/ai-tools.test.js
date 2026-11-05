@@ -35,7 +35,8 @@ test('the copilot is offered the whole MCP surface, not a second smaller table',
       const tools = aiTools({ base });
       try {
         const specs = await tools.specs();
-        assert.deepEqual(specs.map((s) => s.function.name).sort(), [...MCP_TOOL_NAMES].sort());
+        // all of it, but page removal/restore, which Ask AI may not do (ai-tools.js)
+        assert.deepEqual(specs.map((s) => s.function.name).sort(), MCP_TOOL_NAMES.filter((n) => n !== 'delete_doc' && n !== 'restore_doc').sort());
         const search = specs.find((s) => s.function.name === 'search_docs');
         assert.equal(search.type, 'function');
         assert.equal(search.function.parameters.type, 'object');
