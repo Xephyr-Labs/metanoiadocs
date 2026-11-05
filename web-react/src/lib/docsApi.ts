@@ -264,6 +264,8 @@ export interface VersionDiff {
   to: VersionMeta | { current: true };
   /** The title's word diff, or null when it did not change. */
   title: DiffWord[] | null;
+  /** The title as the newer side reads it — the version's own, not the page's now. */
+  titleText: string;
   blocks: DiffBlock[];
   stats: { added: number; removed: number; changed: number; moved: number };
 }

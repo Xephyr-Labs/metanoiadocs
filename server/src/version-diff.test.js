@@ -262,3 +262,36 @@ test('diffStates: a 2,000-paragraph page, decoded both sides, diffs well under a
   assert.equal(r.stats.changed, 80);
   assert.equal(r.blocks.length, 2000);
 });
+
+// ── work budget ──────────────────────────────────────────────────────────────
+
+test('diffWords: a spent budget falls back to the whole block replaced, both sides intact', () => {
+  const budget = { left: 0 };
+  const w = diffWords('ship it on Monday', 'ship it on Friday', budget);
+  // The common ends are still trimmed for free; only the middle is not searched.
+  assert.deepEqual(sides(w), { before: 'ship it on Monday', after: 'ship it on Friday' });
+  const big = { left: 10 };
+  const a = Array.from({ length: 200 }, (_, i) => `a${i}`).join(' ');
+  const b = Array.from({ length: 200 }, (_, i) => (i % 2 ? `a${i}` : `b${i}`)).join(' ');
+  const r = diffWords(a, b, big);
+  // b0… differs from a0… at once and both end in a199: one del, one ins, the shared tail.
+  assert.deepEqual(r.map((x) => x.op), ['del', 'ins', 'eq']);
+  assert.deepEqual(sides(r), { before: a, after: b });
+});
+
+test('diffBlocks: 500 paragraphs of 600 words, all rewritten, stays under the request budget', () => {
+  const para = (seed, i) => Array.from({ length: 600 }, (_, k) => `${seed}${(k * 7 + i) % 997}`).join(' ');
+  const before = Array.from({ length: 500 }, (_, i) => p(`b${i}`, para('w', i)));
+  const after = before.map((b, i) => ({ ...b, text: para('v', i) }));
+  const t0 = performance.now();
+  const r = diffBlocks(before, after);
+  const ms = performance.now() - t0;
+  assert.ok(ms < 700, `took ${ms.toFixed(0)}ms`);
+  assert.equal(r.stats.changed, 500);
+  assert.deepEqual(sides(r.blocks[499].words), { before: before[499].text, after: after[499].text });
+});
+
+test('diffStates: titleText is the newer side\'s title, set whether or not it changed', () => {
+  const s = buildDocState('Same title', 'x');
+  assert.equal(diffStates(s, s).titleText, 'Same title');
+});

@@ -313,12 +313,14 @@ function HistoryPanel({ docId }: { docId: string }) {
               )}
 
               <div className="scrollarea min-h-0 flex-1 overflow-y-auto">
+                {/* Above the view switch: a failed restore, copy or snapshot is
+                    reported here whichever view is showing. */}
+                {err && !loadingState && <p className="mt-6 px-6 text-sm text-danger-strong">{err}</p>}
                 {view === 'changes' ? (
                   diffErr ? <p className="mt-6 px-6 text-sm text-danger-strong">{diffErr}</p>
                   : !diff ? <div className="px-6 pt-8"><PageSkeleton /></div>
-                  : <VersionDiffView key={`${selectedId}:${against}`} diff={diff} pageTitle={page?.title ?? 'Untitled'} />
+                  : <VersionDiffView key={`${selectedId}:${against}`} diff={diff} />
                 ) : <>
-                {err && !loadingState && <p className="mt-6 px-6 text-sm text-danger-strong">{err}</p>}
                 {loadingState || !state ? (
                   !err && <div className="px-6 pt-8"><PageSkeleton /></div>
                 ) : (

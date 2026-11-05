@@ -143,7 +143,7 @@ export function DiffStats({ stats }: { stats: VersionDiff['stats'] }) {
   );
 }
 
-export function VersionDiffView({ diff, pageTitle }: { diff: VersionDiff; pageTitle: string }) {
+export function VersionDiffView({ diff }: { diff: VersionDiff }) {
   const [open, setOpen] = useState<Set<string>>(() => new Set());
   const rows = foldRows(diff.blocks, open);
   const nothing = !diff.title && diff.blocks.every((b) => b.op === 'same');
@@ -151,7 +151,7 @@ export function VersionDiffView({ diff, pageTitle }: { diff: VersionDiff; pageTi
   return (
     <div className="mx-auto max-w-[720px] px-6 pb-16 pt-6 md:px-10">
       <h1 data-mn-sugg={diff.title ? 'type' : undefined} className="mb-4 whitespace-pre-wrap text-3xl font-bold text-ink">
-        {diff.title ? <Words words={diff.title} /> : pageTitle || 'Untitled'}
+        {diff.title ? <Words words={diff.title} /> : diff.titleText || 'Untitled'}
       </h1>
       {nothing && (
         <p className="mb-4 rounded-md bg-surface px-3 py-2 text-sm text-muted">

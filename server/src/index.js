@@ -2895,6 +2895,23 @@ app.get('/api/docs/:id/versions/:vid/state', requireUser, wrap(async (req, res) 
 // it ("what this save did"), or with ?against=current, from it to the page as it
 // is now ("what has happened since"). The diff is worked out here and sent as
 // rows the History panel only has to paint (version-diff.js).
+//
+// Versions never change, so a version-to-version diff is cached by the pair;
+// the pair's ids are the key (pruning can change which version comes before,
+// and then the key changes with it). Against the live page nothing is cached.
+const versionDiffCache = new Map();
+const VERSION_DIFF_CACHE = 64; // ponytail: entries, not bytes; a 2,000-block diff is ~1 MB
+function cachedDiff(key, compute) {
+  if (versionDiffCache.has(key)) {
+    const hit = versionDiffCache.get(key);
+    versionDiffCache.delete(key); versionDiffCache.set(key, hit); // most recent last
+    return hit;
+  }
+  const diff = compute();
+  versionDiffCache.set(key, diff);
+  if (versionDiffCache.size > VERSION_DIFF_CACHE) versionDiffCache.delete(versionDiffCache.keys().next().value);
+  return diff;
+}
 app.get('/api/docs/:id/versions/:vid/diff', requireUser, wrap(async (req, res) => {
   if (!(await grantOn(req.params.id, req.user.id))) return res.status(403).json({ error: 'forbidden' });
   const docId = req.params.id;
@@ -2907,9 +2924,12 @@ app.get('/api/docs/:id/versions/:vid/diff', requireUser, wrap(async (req, res) =
   let from, to, before, after;
   if (against === 'previous') {
     const prev = (await pool.query(
-      `SELECT ${cols} WHERE v.doc_id = $1 AND (v.created_at, v.id) < ($2, $3)
+      // The timestamp is compared in SQL: a JS Date drops Postgres' microseconds,
+      // and a version saved in the same millisecond would be skipped.
+      `SELECT ${cols} WHERE v.doc_id = $1
+          AND (v.created_at, v.id) < ((SELECT created_at FROM doc_versions WHERE id = $2), $2)
         ORDER BY v.created_at DESC, v.id DESC LIMIT 1`,
-      [docId, v.created_at, v.id]
+      [docId, v.id]
     )).rows[0];
     // The oldest version kept has nothing before it: all of it reads as new.
     from = prev ? meta(prev) : null; before = prev?.state ?? null;
@@ -2924,7 +2944,11 @@ app.get('/api/docs/:id/versions/:vid/diff', requireUser, wrap(async (req, res) =
     to = { current: true }; after = cur;
   }
   let diff;
-  try { diff = diffStates(before, after); }
+  try {
+    diff = against === 'previous'
+      ? cachedDiff(`${v.id}:${from?.id ?? ''}`, () => diffStates(before, after))
+      : diffStates(before, after);
+  }
   catch { return res.status(400).json({ error: 'could not read that version' }); }
   res.json({ against, from, to, ...diff });
 }));

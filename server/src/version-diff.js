@@ -45,22 +45,34 @@ const tokenize = (s) => s.match(/\s+|[\p{L}\p{M}\p{N}_]+|[^\s\p{L}\p{M}\p{N}_]/g
 const MAX_EDITS = 1000;
 
 /**
- * Myers' O(ND) shortest edit script over two token arrays, as a list of
- * ['eq'|'del'|'ins', token] in order, or null when it needs more than `maxD` edits.
+ * Work a whole diff may spend in Myers' inner loops (diagonal steps + snake
+ * steps), shared by every block of one request. Spent, the rest of the
+ * changed blocks read as whole old-then-new: a page rewritten end to end
+ * still answers in a few hundred ms, not seconds.
  */
-function myers(a, b, maxD) {
+export const WORK_BUDGET = 4_000_000;
+
+/**
+ * Myers' O(ND) shortest edit script over two token arrays, as a list of
+ * ['eq'|'del'|'ins', token] in order, or null when it needs more than `maxD`
+ * edits or runs `budget.left` down to nothing.
+ */
+function myers(a, b, maxD, budget) {
   const n = a.length, m = b.length, max = n + m, off = max + 1;
   const v = new Int32Array(2 * max + 3);
   const trace = [];
   let found = -1;
   outer: for (let d = 0; d <= max; d++) {
-    if (d > maxD) return null;
+    if (d > maxD || budget.left < 0) return null;
+    budget.left -= d + 1;
     // Only diagonals -d..d are read on the way back: keep just that slice.
     trace.push(v.slice(off - d, off + d + 1));
     for (let k = -d; k <= d; k += 2) {
       let x = k === -d || (k !== d && v[off + k - 1] < v[off + k + 1]) ? v[off + k + 1] : v[off + k - 1] + 1;
       let y = x - k;
+      const x0 = x;
       while (x < n && y < m && a[x] === b[y]) { x++; y++; }
+      budget.left -= x - x0;
       v[off + k] = x;
       if (x >= n && y >= m) { found = d; break outer; }
     }
@@ -86,14 +98,14 @@ function myers(a, b, maxD) {
  * the deletion comes before the insertion, so a replaced word reads
  * ~~Monday~~ Friday.
  */
-export function diffWords(a, b) {
+export function diffWords(a, b, budget = { left: WORK_BUDGET }) {
   const ta = tokenize(a), tb = tokenize(b);
   let pre = 0;
   while (pre < ta.length && pre < tb.length && ta[pre] === tb[pre]) pre++;
   let suf = 0;
   while (suf < ta.length - pre && suf < tb.length - pre && ta[ta.length - 1 - suf] === tb[tb.length - 1 - suf]) suf++;
   const ma = ta.slice(pre, ta.length - suf), mb = tb.slice(pre, tb.length - suf);
-  const mid = myers(ma, mb, MAX_EDITS) ?? [...ma.map((t) => ['del', t]), ...mb.map((t) => ['ins', t])];
+  const mid = myers(ma, mb, MAX_EDITS, budget) ?? [...ma.map((t) => ['del', t]), ...mb.map((t) => ['ins', t])];
   const edits = [...ta.slice(0, pre).map((t) => ['eq', t]), ...mid, ...ta.slice(ta.length - suf).map((t) => ['eq', t])];
 
   const runs = [];
@@ -158,14 +170,14 @@ function lisIndexes(xs) {
 }
 
 /** One row of the diff, shaped for the client to render as is. */
-function entry(op, b, old = null) {
+function entry(op, b, old, budget) {
   const e = { op, id: b.id, flavour: b.flavour, type: b.type ?? null, checked: !!b.checked };
   if (isText(b)) e.text = b.text;
   else e.label = labelOf(b.flavour);
   if (old && (op === 'changed' || op === 'moved')) {
     // An edited text block always carries its words (all equal on a retype);
     // a move only when the text changed on the way.
-    if (isText(b) && isText(old) && (op === 'changed' || old.text !== b.text)) e.words = diffWords(old.text, b.text);
+    if (isText(b) && isText(old) && (op === 'changed' || old.text !== b.text)) e.words = diffWords(old.text, b.text, budget);
     if (!sameShape(old, b)) e.was = { flavour: old.flavour, type: old.type ?? null, checked: !!old.checked };
   }
   return e;
@@ -178,6 +190,7 @@ function entry(op, b, old = null) {
  * A moved block appears once, at its new place.
  */
 export function diffBlocks(before, after) {
+  const budget = { left: WORK_BUDGET };
   // Match by id. The blocks kept in order form the longest run whose old
   // positions rise along the new page; any other id match was moved.
   const oldAt = new Map();
@@ -250,16 +263,16 @@ export function diffBlocks(before, after) {
     for (let j = cj - 1, upTo = Infinity; j > pj; j--) { if (pairOf.has(j)) upTo = pairOf.get(j); nextPair.set(j, upTo); }
     for (let j = pj + 1; j < cj; j++) {
       const b = after[j];
-      if (matchOf[j] >= 0) { emit(entry('moved', b, before[matchOf[j]])); continue; }
+      if (matchOf[j] >= 0) { emit(entry('moved', b, before[matchOf[j]], budget)); continue; }
       flushRemoved(nextPair.get(j));
       const old = pairOf.has(j) ? before[pairOf.get(j)] : null;
       if (!old) emit(entry('added', b));
-      else emit(sameContent(old, b) ? entry('same', b) : entry('changed', b, old));
+      else emit(sameContent(old, b) ? entry('same', b) : entry('changed', b, old, budget));
     }
     flushRemoved(Infinity);
     if (cj < after.length) {
       const old = before[ci], b = after[cj];
-      emit(sameContent(old, b) ? entry('same', b) : entry('changed', b, old));
+      emit(sameContent(old, b) ? entry('same', b) : entry('changed', b, old, budget));
     }
     pi = ci; pj = cj;
   }
@@ -269,10 +282,15 @@ export function diffBlocks(before, after) {
 /**
  * Diff two doc states (doc_versions.state / doc_states.state). `before` may be
  * null — the first version of a page, where everything is new.
- * Returns diffBlocks' result plus `title`: the title's word diff, or null when it held.
+ * Returns diffBlocks' result plus `title`: the title's word diff, or null when
+ * it held, and `titleText`: the newer side's title as it reads.
  */
 export function diffStates(before, after) {
   const a = before ? extractBlocks(before, { all: true }) : { title: '', blocks: [] };
   const b = extractBlocks(after, { all: true });
-  return { title: a.title === b.title ? null : diffWords(a.title, b.title), ...diffBlocks(a.blocks, b.blocks) };
+  return {
+    title: a.title === b.title ? null : diffWords(a.title, b.title),
+    titleText: b.title,
+    ...diffBlocks(a.blocks, b.blocks),
+  };
 }
