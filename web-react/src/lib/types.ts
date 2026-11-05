@@ -7,6 +7,21 @@ export interface Tag {
   count?: number;
 }
 
+/** server/src/verify.js verifyView: Needs review is an expired interval or a
+ *  save by someone other than the verifier since. */
+export type Verification =
+  | { state: 'unverified' }
+  | {
+      state: 'verified' | 'needs_review';
+      reason?: 'expired' | 'edited';
+      dueAt: string | null;
+      verifiedBy: { id: string; name: string | null };
+      verifiedAt: string;
+      /** Days between reviews; 0 = never. */
+      every: number;
+      owner: { id: string; name: string | null };
+    };
+
 export interface Page {
   id: PageId;
   title: string;
@@ -32,6 +47,8 @@ export interface Page {
   /** Who made the page and when — fixed, unlike the editor above. */
   createdByName: string | null;
   createdAt: string | null;
+  /** Whether someone has vouched for this page, and whether that still holds. */
+  verify: Verification;
   /** Loves from the whole team, and whether one of them is yours. */
   loveCount: number;
   loved: boolean;

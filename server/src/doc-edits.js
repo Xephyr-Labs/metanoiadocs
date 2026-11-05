@@ -11,6 +11,7 @@ import * as Y from 'yjs';
 import { extractText, pageLinksOf } from './blocks.js';
 import { editFields, editMiss } from './ai-drafts.js';
 import { suggestEdits } from './suggest-writer.js';
+import { markStale } from './verify.js';
 
 export function registerDocEditRoutes(app, { requireUser, wrap, editGrant, pool, getHocuspocus, draftWrite, storeLinks }) {
   app.post('/api/docs/:id/edits', requireUser, wrap(async (req, res) => {
@@ -49,7 +50,7 @@ export function registerDocEditRoutes(app, { requireUser, wrap, editGrant, pool,
     // As /content: a headless write refreshes the search text and links itself.
     try {
       const { text } = extractText(state);
-      await pool.query('UPDATE docs SET search_text = $1, updated_at = now(), updated_by = $3, updated_via = $4 WHERE id = $2', [text.slice(0, 100000), docId, req.user.id, req.via]);
+      await pool.query(`UPDATE docs SET search_text = $1, updated_at = now(), updated_by = $3, updated_via = $4, ${markStale(3)} WHERE id = $2`, [text.slice(0, 100000), docId, req.user.id, req.via]);
     } catch { /* an odd state still saves; only the search text goes stale */ }
     await storeLinks(docId, pageLinksOf(state));
     res.json({ ok: true, suggested: false, ...editFields(out) });

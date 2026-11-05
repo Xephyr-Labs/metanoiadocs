@@ -16,6 +16,8 @@ export interface SuggestionCard {
   by: string;
   at: number;
   via?: 'ai';
+  /** The workspace agent whose run made it (with via 'ai'). */
+  agent?: string;
   /** The first block the suggestion touches, in page order. */
   blockId: string;
   /** Every block it touches. */
@@ -32,7 +34,7 @@ export interface SuggestionCard {
 }
 
 interface From { flavour: string; type?: string; checked?: boolean }
-interface Sugg { id: string; kind: string; by: string; at: number; via?: 'ai'; from?: From }
+interface Sugg { id: string; kind: string; by: string; at: number; via?: 'ai'; agent?: string; from?: From }
 interface YBlock { get(k: string): unknown; delete(k: string): void }
 interface Model {
   id: string;
@@ -98,6 +100,7 @@ export function listSuggestions(store: StoreLike): SuggestionCard[] {
     }
     if (!c.blockIds.includes(blockId)) c.blockIds.push(blockId);
     if (s.via) c.via = s.via;
+    if (s.agent) c.agent = s.agent;
     return c;
   };
   for (const m of ordered(store)) {

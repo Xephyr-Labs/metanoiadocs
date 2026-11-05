@@ -13,6 +13,7 @@ import type { Page } from '../../lib/types';
 import { useWorkspace } from '../../store/workspace';
 import { ActorMark } from '../ui/ActorMark';
 import { TagChips } from './TagChips';
+import { VerifyBadge } from './VerifyBadge';
 import { TagSuggestions } from './TagSuggestions';
 
 /** Reading speed for prose, the number every "N min read" uses. */
@@ -100,6 +101,7 @@ export function DocMetaBand({
         <span aria-hidden>·</span>
       </span>
       <span className="flex items-center gap-x-2"><span>{minutes} min read</span><span aria-hidden>·</span></span>
+      {page.kind !== 'task' && <VerifyBadge page={page} />}
       <button
         type="button"
         onClick={() => ws.toggleLove(page.id)}

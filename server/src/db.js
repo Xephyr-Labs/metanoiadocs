@@ -1115,6 +1115,34 @@ export async function initSchema() {
       FOR EACH ROW
       WHEN (NEW.due_at IS DISTINCT FROM OLD.due_at)
       EXECUTE FUNCTION record_task_due_change();
+
+    -- The connected Google shared drive, mirrored as metadata only (see
+    -- drive.js). The bytes stay in Drive; this is what makes the files
+    -- searchable here and visible to agents without a Google call per question.
+    CREATE TABLE IF NOT EXISTS drive_files (
+      id            TEXT PRIMARY KEY,
+      name          TEXT NOT NULL,
+      mime_type     TEXT NOT NULL,
+      parent_id     TEXT,
+      web_view_link TEXT,
+      icon_link     TEXT,
+      size          BIGINT,
+      modified_at   TIMESTAMPTZ,
+      modified_by   TEXT,
+      synced_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS drive_files_parent_idx ON drive_files(parent_id);
+    CREATE INDEX IF NOT EXISTS drive_files_modified_idx ON drive_files(modified_at DESC);
+    -- No foreign key to drive_files on purpose: a resync, or reconnecting the
+    -- same drive, rebuilds that table, and the links a team made must survive it.
+    CREATE TABLE IF NOT EXISTS task_drive_files (
+      task_id    TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      file_id    TEXT NOT NULL,
+      added_by   TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (task_id, file_id)
+    );
+    CREATE INDEX IF NOT EXISTS task_drive_files_file_idx ON task_drive_files(file_id);
   `);
 
   await pool.query(`
@@ -1132,6 +1160,19 @@ export async function initSchema() {
   // by every save so Home's To review need not decode the Yjs state.
   await pool.query(`ALTER TABLE docs ADD COLUMN IF NOT EXISTS pending_suggestions JSONB NOT NULL DEFAULT '[]'`);
 
+  // Verified pages (verify.js). verify_every is days, 0 = never; verify_owner
+  // NULL means the verifier; verify_stale_at is the first save by anyone else
+  // since verifying; verify_notified_at is the claim that the owner was told.
+  await pool.query(`
+    ALTER TABLE docs ADD COLUMN IF NOT EXISTS verified_by TEXT;
+    ALTER TABLE docs ADD COLUMN IF NOT EXISTS verified_at TIMESTAMPTZ;
+    ALTER TABLE docs ADD COLUMN IF NOT EXISTS verify_every INTEGER NOT NULL DEFAULT 90;
+    ALTER TABLE docs ADD COLUMN IF NOT EXISTS verify_owner TEXT;
+    ALTER TABLE docs ADD COLUMN IF NOT EXISTS verify_stale_at TIMESTAMPTZ;
+    ALTER TABLE docs ADD COLUMN IF NOT EXISTS verify_notified_at TIMESTAMPTZ;
+    CREATE INDEX IF NOT EXISTS docs_verified_idx ON docs (verified_at) WHERE verified_at IS NOT NULL;
+  `);
+
   // One private notes page per person per event occurrence ("Start notes").
   await pool.query(`
     CREATE TABLE IF NOT EXISTS meeting_notes (
@@ -1141,6 +1182,57 @@ export async function initSchema() {
       created_at TIMESTAMPTZ DEFAULT now(),
       PRIMARY KEY (user_id, event_id)
     );
+  `);
+
+  // ── workspace agents (workspace-agents.js) ──────────────────────────────────
+  // A saved Ask AI request that runs by itself, as its owner. Not agent_runs:
+  // that queue hands work to an agent account on someone's own machine.
+  // trigger_spec: { kind: 'manual' } | { kind: 'schedule', time, days } |
+  // { kind: 'page_changed', folderId | spaceId }. next_run_at is set for an
+  // enabled schedule only, and moved on by whichever sweep claims the run.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS workspace_skills (
+      id          TEXT PRIMARY KEY,
+      name        TEXT NOT NULL UNIQUE,
+      description TEXT NOT NULL DEFAULT '',
+      body        TEXT NOT NULL DEFAULT '',
+      created_by  TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE TABLE IF NOT EXISTS workspace_agents (
+      id            TEXT PRIMARY KEY,
+      owner_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name          TEXT NOT NULL,
+      instructions  TEXT NOT NULL DEFAULT '',
+      trigger_spec  JSONB NOT NULL DEFAULT '{"kind":"manual"}',
+      target_doc_id TEXT REFERENCES docs(id) ON DELETE SET NULL,
+      output_mode   TEXT NOT NULL DEFAULT 'suggest',  -- suggest | comment
+      -- The attached skills as they were when attached: [{ id, name, body, updated_at }].
+      skills        JSONB NOT NULL DEFAULT '[]',
+      enabled       BOOLEAN NOT NULL DEFAULT true,
+      next_run_at   TIMESTAMPTZ,
+      created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS workspace_agents_owner_idx ON workspace_agents(owner_id);
+    CREATE INDEX IF NOT EXISTS workspace_agents_due_idx ON workspace_agents(next_run_at) WHERE enabled AND next_run_at IS NOT NULL;
+    CREATE TABLE IF NOT EXISTS workspace_agent_runs (
+      id           TEXT PRIMARY KEY,
+      agent_id     TEXT NOT NULL REFERENCES workspace_agents(id) ON DELETE CASCADE,
+      trigger_kind TEXT NOT NULL,                    -- schedule | page_changed | manual | agent
+      doc_ids      JSONB NOT NULL DEFAULT '[]',      -- the pages that set it off
+      status       TEXT NOT NULL DEFAULT 'running',  -- running | done | failed
+      tool_calls   JSONB NOT NULL DEFAULT '[]',      -- [{ name, hint, error? }]
+      output       TEXT NOT NULL DEFAULT '',
+      error        TEXT,
+      started_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+      finished_at  TIMESTAMPTZ
+    );
+    CREATE INDEX IF NOT EXISTS workspace_agent_runs_agent_idx ON workspace_agent_runs(agent_id, started_at DESC);
+    CREATE INDEX IF NOT EXISTS workspace_agent_runs_started_idx ON workspace_agent_runs(started_at);
+    -- One run per agent at a time: the insert is the lock.
+    CREATE UNIQUE INDEX IF NOT EXISTS workspace_agent_runs_one_idx ON workspace_agent_runs(agent_id) WHERE status = 'running';
   `);
 
   await normalizeLegacyFolderImport();

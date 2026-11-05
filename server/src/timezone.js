@@ -98,7 +98,55 @@ function offsetMs(zone, ms) {
 
 /** The instant (ms) at which calendar day 'YYYY-MM-DD' begins in a zone. Two passes settle DST changes. */
 export function startOfDayIn(zone, day) {
+  return wallTimeIn(zone, day, 0);
+}
+
+/** The instant (ms) a zone's clocks read `minutes` past midnight on 'YYYY-MM-DD'.
+ *  Offset from the wall clock, not from midnight, so 09:00 is 09:00 on the day
+ *  DST changes too. A time inside a spring-forward gap lands near it. */
+export function wallTimeIn(zone, day, minutes) {
   const [y, m, d] = day.split('-').map(Number);
-  const utc = Date.UTC(y, m - 1, d);
+  const utc = Date.UTC(y, m - 1, d) + minutes * 60_000;
   return utc - offsetMs(zone, utc - offsetMs(zone, utc));
+}
+
+// ── chart buckets ─────────────────────────────────────────────────────────
+
+/** A calendar day as a UTC midnight, so day arithmetic never meets a DST
+ *  change: a 'YYYY-MM-DD' has no zone of its own, and treating it as local
+ *  time is how a 23-hour day eats a bucket. */
+const utcDay = (day) => new Date(`${day}T00:00:00Z`);
+const asDay = (d) => d.toISOString().slice(0, 10);
+
+/**
+ * The chart bucket a value falls in: its day, the Monday of its week, or the
+ * first of its month, as 'YYYY-MM-DD'.
+ *
+ * `value` is either a calendar day ('YYYY-MM-DD', or a longer string whose
+ * first ten characters are one — a DATE column or a date property), or an
+ * instant (a Date — a created/done timestamp), which is first read as the day
+ * it is *where the reader is*. A task finished at 23:30 on a Sunday in New
+ * York was finished that week, whatever UTC says. '' for no date, which the
+ * chart draws as its own "No date" bucket.
+ *
+ * Weeks start on Monday, the ISO week and what Postgres' date_trunc uses.
+ */
+export function bucketOf(value, unit, zone = DEFAULT_ZONE) {
+  let day;
+  if (value instanceof Date) day = Number.isNaN(value.getTime()) ? '' : dayIn(zone, value);
+  else day = typeof value === 'string' && /^\d{4}-\d{2}-\d{2}/.test(value) ? value.slice(0, 10) : '';
+  if (!day || unit === 'day') return day;
+  if (unit === 'month') return `${day.slice(0, 8)}01`;
+  const d = utcDay(day);
+  // getUTCDay: Sunday 0 … Saturday 6. Monday is 0 steps back, Sunday 6.
+  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+  return asDay(d);
+}
+
+/** The start of the bucket after `day`'s, for drawing the empty ones between. */
+export function nextBucket(day, unit) {
+  const d = utcDay(day);
+  if (unit === 'month') d.setUTCMonth(d.getUTCMonth() + 1, 1);
+  else d.setUTCDate(d.getUTCDate() + (unit === 'week' ? 7 : 1));
+  return asDay(d);
 }

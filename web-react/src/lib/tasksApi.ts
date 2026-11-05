@@ -212,15 +212,39 @@ export const COMPUTED_TYPES: PropType[] = ['formula', 'rollup'];
 
 export const isComputed = (type: PropType) => COMPUTED_TYPES.includes(type);
 
-/** The six shapes a saved view can take. Mirrors VIEW_KINDS in server/src/views.js. */
-export type ViewKind = 'backlog' | 'board' | 'table' | 'gantt' | 'calendar' | 'gallery' | 'dashboard';
+/** The shapes a saved view can take. Mirrors VIEW_KINDS in server/src/views.js. */
+export type ViewKind = 'backlog' | 'board' | 'table' | 'gantt' | 'calendar' | 'gallery' | 'dashboard' | 'chart';
 
-export const VIEW_KINDS: ViewKind[] = ['backlog', 'board', 'table', 'gantt', 'calendar', 'gallery', 'dashboard'];
+export const VIEW_KINDS: ViewKind[] = ['backlog', 'board', 'table', 'gantt', 'calendar', 'gallery', 'dashboard', 'chart'];
 
 export const VIEW_KIND_LABEL: Record<ViewKind, string> = {
   backlog: 'Backlog', board: 'Board', table: 'Table',
-  gantt: 'Gantt', calendar: 'Calendar', gallery: 'Gallery', dashboard: 'Dashboard',
+  gantt: 'Gantt', calendar: 'Calendar', gallery: 'Gallery', dashboard: 'Dashboard', chart: 'Chart',
 };
+
+/** A chart view's settings. Mirrors cleanChart in server/src/chart.js. */
+export interface ChartConfig {
+  type: 'bar' | 'hbar' | 'line' | 'donut';
+  /** A FilterField key — a category, or a date to bucket by `unit`. */
+  x: string;
+  unit: 'day' | 'week' | 'month';
+  measure: 'count' | 'sum' | 'avg';
+  /** The number field a sum or an average reads; null for a count. */
+  of: string | null;
+  /** A second category the bars are split by. */
+  stack: string | null;
+}
+
+/** What the chart route answers: the buckets along the axis, and one series
+ *  per stack value whose `values` line up with them. */
+export interface ChartData {
+  buckets: { key: string; value: number }[];
+  series: { key: string; values: number[] }[];
+  /** Rows the view's filters let through — the count a donut's middle shows. */
+  tasks: number;
+  /** Ids of filters SQL cannot evaluate (formulas, rollups), left out. */
+  ignored: string[];
+}
 
 /**
  * Everything a view remembers. One bag rather than six columns because the
@@ -237,6 +261,7 @@ export interface ViewConfig {
   props?: string[] | null;
   /** 'all', 'backlog', or a sprint id. */
   scope?: string;
+  chart?: ChartConfig;
 }
 
 export interface ViewRow {
@@ -439,6 +464,8 @@ export interface HomePayload {
   recentDocs: { id: string; title: string; icon: string; updated_at: string; updated_by_name: string | null }[];
   activity: ActivityRow[];
   projects: ProjectRow[];
+  /** Pages you own (server/src/verify.js) that have gone to Needs review. */
+  reviewPages?: { id: string; title: string; icon: string; reason?: 'expired' | 'edited'; verifiedAt: string }[];
 }
 
 /** GET /api/home/needs (server/src/needs.js). `overdue` counts past-due only;
@@ -559,6 +586,9 @@ export const tasksApi = {
   patchView: (id: string, b: Partial<{ name: string; kind: ViewKind; position: number; config: ViewConfig }>): Promise<ViewRow> =>
     req(`/views/${id}`, { method: 'PATCH', ...body(b) }),
   deleteView: (id: string) => req(`/views/${id}`, { method: 'DELETE' }),
+  /** Counted server-side; the view's filters and scope go along with it. */
+  chart: (projectId: string, b: { chart: ChartConfig; filters: Filter[]; scope: string }): Promise<ChartData> =>
+    req(`/projects/${projectId}/chart`, { method: 'POST', ...body(b) }),
 
   props: (projectId: string): Promise<PropRow[]> => req(`/projects/${projectId}/props`),
   createProp: (

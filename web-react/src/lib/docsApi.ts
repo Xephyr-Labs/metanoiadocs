@@ -2,6 +2,7 @@
 // so the session cookie authenticates every call.
 import type { Reaction } from './emoji';
 import type { StoredFile } from './uploads';
+import type { Verification } from './types';
 
 async function req(path: string, opts: RequestInit = {}): Promise<any> {
   const res = await fetch(`/api${path}`, {
@@ -60,6 +61,8 @@ export interface DocRow {
    *  team's shelf) — a love says nothing about where the page lives. */
   loved?: boolean;
   love_count?: number;
+  /** Absent from a server that predates verified pages. */
+  verify?: Verification;
   shared: boolean;
   favorite: boolean;
   /** Pinned for everyone. Distinct from `favorite`, which is per person. */
@@ -235,6 +238,41 @@ export interface VersionRow {
   author_email: string | null;
 }
 
+/** One word run of a changed text block: `del` struck through, `ins` underlined. */
+export interface DiffWord { op: 'eq' | 'del' | 'ins'; text: string }
+
+/** One block in a version diff, in the newer page's reading order. */
+export interface DiffBlock {
+  op: 'same' | 'added' | 'removed' | 'changed' | 'moved';
+  id: string;
+  flavour: string;
+  type: string | null;
+  checked: boolean;
+  /** Text blocks: what the block reads (the newer side; the older for `removed`). */
+  text?: string;
+  /** Non-text blocks (image, table…): what to call it — never diffed inside. */
+  label?: string;
+  /** A changed (or moved-and-edited) text block's word diff. */
+  words?: DiffWord[];
+  /** The block's earlier shape when it was retyped or ticked. */
+  was?: { flavour: string; type: string | null; checked: boolean };
+}
+
+export type VersionMeta = Pick<VersionRow, 'id' | 'label' | 'created_at' | 'author' | 'author_email'>;
+
+export interface VersionDiff {
+  against: 'previous' | 'current';
+  /** The older side; null when the version is the first one kept. */
+  from: VersionMeta | null;
+  to: VersionMeta | { current: true };
+  /** The title's word diff, or null when it did not change. */
+  title: DiffWord[] | null;
+  /** The title as the newer side reads it — the version's own, not the page's now. */
+  titleText: string;
+  blocks: DiffBlock[];
+  stats: { added: number; removed: number; changed: number; moved: number };
+}
+
 /**
  * One hit from the palette's search. Pages and tasks come back in one list,
  * ordered by the server — a query that names a task ("MD-14") is answered with
@@ -245,7 +283,7 @@ export interface VersionRow {
  * render every hit as a task. Absent means page.
  */
 export interface SearchRow {
-  kind?: 'doc' | 'task';
+  kind?: 'doc' | 'task' | 'drive';
   id: string;
   title: string;
   /** The matching words for a page; the database's name for a task. */
@@ -259,8 +297,13 @@ export interface SearchRow {
    *  send it yet, in which case the hit shows its status dot instead. */
   taskKind?: string;
   space_id?: string | null;
+  /** Pages only — verified and not due for review. */
+  verified?: boolean;
   /** Tasks only — the task the query's key names (it stays first). */
   named?: boolean;
+  /** Drive files only — where the file opens in Google Drive. */
+  url?: string | null;
+  mimeType?: string;
 }
 
 export interface TrashRow {
@@ -288,7 +331,7 @@ export interface InboxRow {
    *  person, so they carry a body that already reads as a sentence and no
    *  actor to name. See server/src/reminders.js. */
   kind: 'mention' | 'comment' | 'reply' | 'reply_to_you' | 'suggestion' | 'suggestion_accepted' | 'suggestion_rejected'
-    | 'review_requested' | 'review_done' | 'ai_suggestion' | 'page_suggestion' | 'assigned' | 'due_soon' | 'due_today' | 'overdue' | 'digest';
+    | 'review_requested' | 'review_done' | 'ai_suggestion' | 'page_suggestion' | 'assigned' | 'due_soon' | 'due_today' | 'overdue' | 'digest' | 'verify_review' | 'agent_failed' | 'agent_suggested';
   /** The comment that triggered it — null for notifications with no thread. */
   comment_id: string | null;
   /** Null for anything the system raised rather than a person. */
@@ -362,6 +405,57 @@ export interface DeliveryRow {
   created_at: string;
 }
 
+/** When a workspace agent runs. No cron: a time, and the weekdays it runs on. */
+export type AgentTrigger =
+  | { kind: 'manual' }
+  | { kind: 'schedule'; time: string; /** 0 = Sunday; empty = every day. */ days: number[] }
+  | { kind: 'page_changed'; folderId?: string; spaceId?: string };
+
+export interface AgentRunRow {
+  id: string;
+  trigger_kind: 'schedule' | 'page_changed' | 'manual' | 'agent';
+  status: 'running' | 'done' | 'failed';
+  tool_calls: { name: string; hint: string; error?: string }[];
+  output: string;
+  error: string | null;
+  started_at: string;
+  finished_at: string | null;
+}
+
+/** A saved agent, its owner's own (nobody else sees it). */
+export interface AgentRow {
+  id: string;
+  name: string;
+  instructions: string;
+  trigger: AgentTrigger;
+  target_doc_id: string | null;
+  target_title?: string | null;
+  output_mode: 'suggest' | 'comment';
+  /** The attached skills as copied when attached: runs use these, not the live skill. */
+  skills: { id: string; name: string; body: string; updated_at: string }[];
+  enabled: boolean;
+  next_run_at: string | null;
+  last_run?: Pick<AgentRunRow, 'id' | 'status' | 'started_at' | 'finished_at' | 'error'> | null;
+}
+
+export interface AgentInput {
+  name?: string; instructions?: string; trigger?: AgentTrigger; targetDocId?: string | null;
+  outputMode?: 'suggest' | 'comment'; skillIds?: string[]; enabled?: boolean;
+  /** Re-copy attached skills from their current text (after reviewing an edit). */
+  refreshSkills?: boolean;
+}
+
+/** A workspace skill: named instructions agents and Ask AI (`/name`) can use. */
+export interface SkillRow {
+  id: string;
+  name: string;
+  description: string;
+  body: string;
+  created_by: string | null;
+  author_name: string | null;
+  updated_at: string;
+}
+
 export type AdminToken = {
   id: string; name: string; userId: string; userName: string; userKind: 'person' | 'agent';
   trusted: boolean; createdAt: string; lastUsedAt: string | null;
@@ -398,6 +492,17 @@ export const docsApi = {
       // for .md and wrong often enough elsewhere; the server goes by extension.
       headers: { 'Content-Type': 'application/octet-stream' },
     });
+  },
+  /**
+   * Import a zip — a Confluence space export, an Obsidian vault or a folder of
+   * Markdown — as folders and pages. The reply's `warnings` are the summary
+   * (pages, folders, attachments, unresolved links, unknown macros).
+   */
+  importArchive: (file: File, kind: string, folderId: string | null, spaceId?: string): Promise<{ id: string; folderId: string; warnings: string[] }> => {
+    const q = new URLSearchParams({ name: file.name, kind });
+    if (folderId) q.set('folderId', folderId);
+    if (spaceId) q.set('spaceId', spaceId);
+    return req(`/docs/import-archive?${q}`, { method: 'POST', body: file, headers: { 'Content-Type': 'application/octet-stream' } });
   },
   /** `content` is markdown, built into real blocks server-side (used by import). */
   create: (body: { title?: string; icon?: string; folderId?: string | null; content?: string; kind?: 'doc' | 'design'; spaceId?: string }): Promise<DocRow> =>
@@ -498,6 +603,11 @@ export const docsApi = {
     req(`/admin/users/${id}/tokens`, { method: 'POST', body: JSON.stringify({ name }) }),
   removeUser: (id: string) => req(`/users/${id}`, { method: 'DELETE' }),
 
+  /** Vouch for a page (or again). `ownerId` defaults to you; `every` is 30, 90, 180 or 0 (never). */
+  verify: (id: string, body: { every?: number; ownerId?: string }): Promise<Verification> =>
+    req(`/docs/${id}/verify`, { method: 'PUT', body: JSON.stringify(body) }),
+  unverify: (id: string): Promise<Verification> => req(`/docs/${id}/verify`, { method: 'DELETE' }),
+
   love: (id: string, loved: boolean): Promise<{ count: number; loved: boolean }> =>
     req(`/docs/${id}/love`, { method: 'PUT', body: JSON.stringify({ loved }) }),
 
@@ -550,6 +660,9 @@ export const docsApi = {
   /** A snapshot's plain text, for previewing it before restoring. */
   versionText: (id: string, vid: string): Promise<{ id: string; text: string }> =>
     req(`/docs/${id}/versions/${vid}/text`),
+  /** What changed in a version: against the one before it, or from it to the page now. */
+  versionDiff: (id: string, vid: string, against: 'previous' | 'current'): Promise<VersionDiff> =>
+    req(`/docs/${id}/versions/${vid}/diff?against=${against}`),
   /** A snapshot's raw Yjs state — the History view renders it as the real page. */
   versionState: async (id: string, vid: string): Promise<Uint8Array> => {
     const res = await fetch(`/api/docs/${id}/versions/${vid}/state`, { credentials: 'include' });
@@ -587,10 +700,73 @@ export const docsApi = {
     req(`/webhooks/${id}/test`, { method: 'POST' }),
   webhookDeliveries: (id: string): Promise<DeliveryRow[]> => req(`/webhooks/${id}/deliveries`),
 
+  agents: (): Promise<{ aiReady: boolean; agents: AgentRow[] }> => req('/workspace-agents'),
+  createAgent: (b: AgentInput): Promise<AgentRow> => req('/workspace-agents', { method: 'POST', body: JSON.stringify(b) }),
+  patchAgent: (id: string, b: AgentInput): Promise<AgentRow> =>
+    req(`/workspace-agents/${id}`, { method: 'PATCH', body: JSON.stringify(b) }),
+  deleteAgent: (id: string) => req(`/workspace-agents/${id}`, { method: 'DELETE' }),
+  /** Starts a run and returns at once; the run shows in agentRuns. */
+  runAgent: (id: string): Promise<{ runId: string }> => req(`/workspace-agents/${id}/run`, { method: 'POST', body: '{}' }),
+  agentRuns: (id: string): Promise<AgentRunRow[]> => req(`/workspace-agents/${id}/runs`),
+  skills: (): Promise<SkillRow[]> => req('/skills'),
+  createSkill: (b: { name: string; description: string; body: string }): Promise<SkillRow> =>
+    req('/skills', { method: 'POST', body: JSON.stringify(b) }),
+  patchSkill: (id: string, b: { name: string; description: string; body: string }): Promise<SkillRow> =>
+    req(`/skills/${id}`, { method: 'PATCH', body: JSON.stringify(b) }),
+  deleteSkill: (id: string) => req(`/skills/${id}`, { method: 'DELETE' }),
+
   aiConfig: (): Promise<{ baseUrl: string; model: string; enabled: boolean; keySet: boolean }> =>
     req('/settings/ai'),
   saveAiConfig: (body: { baseUrl?: string; model?: string; enabled?: boolean; apiKey?: string }) =>
     req('/settings/ai', { method: 'PUT', body: JSON.stringify(body) }),
+  driveStatus: (): Promise<DriveStatus> => req('/settings/drive'),
+  saveDriveKey: (key: string): Promise<DriveStatus> =>
+    req('/settings/drive/key', { method: 'PUT', body: JSON.stringify({ key }) }),
+  driveRoots: (): Promise<DriveRoot[]> => req('/drive/roots'),
+  connectDrive: (root: DriveRoot): Promise<DriveStatus> =>
+    req('/drive/connect', { method: 'POST', body: JSON.stringify({ driveId: root.id, kind: root.kind }) }),
+  syncDrive: () => req('/drive/sync', { method: 'POST' }),
+  disconnectDrive: (): Promise<DriveStatus> => req('/settings/drive', { method: 'DELETE' }),
+  driveFiles: (p: { q?: string; folder?: string; limit?: number; offset?: number } = {}): Promise<DriveFile[]> => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(p)) if (v !== undefined && v !== '') qs.set(k, String(v));
+    return req(`/drive/files?${qs}`);
+  },
+  taskDriveFiles: (taskId: string): Promise<DriveFile[]> => req(`/tasks/${encodeURIComponent(taskId)}/drive-files`),
+  attachDriveFile: (taskId: string, fileId: string): Promise<DriveFile> =>
+    req(`/tasks/${encodeURIComponent(taskId)}/drive-files`, { method: 'POST', body: JSON.stringify({ fileId }) }),
+  detachDriveFile: (taskId: string, fileId: string) =>
+    req(`/tasks/${encodeURIComponent(taskId)}/drive-files/${encodeURIComponent(fileId)}`, { method: 'DELETE' }),
+};
+
+export type DriveStatus = {
+  keySet: boolean;
+  serviceAccount: string;
+  connected: boolean;
+  driveId: string | null;
+  driveName: string | null;
+  rootKind: 'drive' | 'folder' | null;
+  lastSyncAt: string | null;
+  lastError: string | null;
+  fileCount: number;
+};
+
+/** Something the service account can be connected to. */
+export type DriveRoot = { id: string; name: string; kind: 'drive' | 'folder' };
+
+export type DriveFile = {
+  id: string;
+  name: string;
+  mimeType: string;
+  isFolder: boolean;
+  parentId: string | null;
+  url: string | null;
+  iconLink: string | null;
+  size: number | null;
+  modifiedAt: string | null;
+  modifiedBy: string | null;
+  /** A task link whose file is no longer in the drive. */
+  missing?: boolean;
 };
 
 /**

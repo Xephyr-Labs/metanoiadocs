@@ -16,6 +16,9 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 
 import { createMetanoiaMcpServer } from './mcp-tools.js';
 
+/** Removing and restoring pages is for people and trusted tokens, not Ask AI. */
+const NOT_FOR_AI = new Set(['delete_doc', 'restore_doc']);
+
 /** A doc pasted whole into the prompt is mostly waste past this point. */
 const MAX_TOOL_CHARS = 12000;
 
@@ -34,8 +37,9 @@ function toFunctionParameters(schema) {
  * @param {string} opts.base     Origin to call, no trailing slash.
  * @param {Record<string,string>} opts.headers  Auth headers forwarded on every call.
  * @param {string} [opts.zone]   The caller's IANA zone, for tools that ask what day it is.
+ * @param {AbortSignal} [opts.signal]  Ends every tool's API call in flight (a workspace agent's run timeout).
  */
-export function aiTools({ base, headers = {}, zone }) {
+export function aiTools({ base, headers = {}, zone, signal }) {
   let server = null;
   let client = null;
   let connecting = null;
@@ -43,7 +47,7 @@ export function aiTools({ base, headers = {}, zone }) {
   function connect() {
     if (connecting) return connecting;
     connecting = (async () => {
-      server = createMetanoiaMcpServer({ base, headers, zone });
+      server = createMetanoiaMcpServer({ base, headers, zone, signal });
       const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
       client = new Client({ name: 'metanoiadocs-copilot', version: '1.0.0' });
       await Promise.all([server.connect(serverSide), client.connect(clientSide)]);
@@ -57,7 +61,7 @@ export function aiTools({ base, headers = {}, zone }) {
     async specs() {
       const c = await connect();
       const { tools } = await c.listTools();
-      return tools.map((t) => ({
+      return tools.filter((t) => !NOT_FOR_AI.has(t.name)).map((t) => ({
         type: 'function',
         function: {
           name: t.name,
@@ -73,6 +77,7 @@ export function aiTools({ base, headers = {}, zone }) {
      * stream the user is watching.
      */
     async run(name, argsJson) {
+      if (NOT_FOR_AI.has(name)) return { error: `${name} is not available to Ask AI.` };
       let args;
       try {
         args = argsJson ? JSON.parse(argsJson) : {};

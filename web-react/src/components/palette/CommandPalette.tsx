@@ -3,12 +3,12 @@
  * pre-emit critique: P5 H5 E4 S5 R5 V4
  * states: default · hover · focus (roving, keyboard-owned) · active · loading ·
  *         empty · offline/failed · success (chosen, dismisses)
- * note: one list, three kinds of row. A task carries its key, a database its
+ * note: one list, four kinds of row (a Drive file is drawn with the drive glyph). A task carries its key, a database its
  *       icon, a command its verb — the glyph column is what tells them apart,
  *       so it is never empty.
  */
 import {
-  ArrowRight, CalendarDays, Clock, Database, FilePlus2, Files, History, Home, Inbox, ListTodo,
+  ArrowRight, ArrowUpRight, BadgeCheck, CalendarDays, Clock, Database, FilePlus2, Files, HardDrive, History, Home, Inbox, ListTodo,
   Keyboard, Loader2, Moon, PanelRight, PenLine, Search, Settings, Share2, Sparkles, Sun, Trash2, Upload,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -27,8 +27,9 @@ import { ProjectIcon } from '../ui/ProjectIcon';
 import { KindIcon } from '../project/TaskBadges';
 
 type Item =
-  | { kind: 'page'; id: string; title: string; sub: string }
+  | { kind: 'page'; id: string; title: string; sub: string; verified?: boolean }
   | { kind: 'task'; id: string; title: string; sub: string; projectId: string; status: string; taskKind?: string }
+  | { kind: 'drive'; id: string; title: string; sub: string; url: string | null }
   | { kind: 'database'; id: string; title: string; icon: string }
   | { kind: 'command'; id: string; title: string; icon: typeof Search; run: () => void };
 
@@ -104,6 +105,7 @@ export function CommandPalette() {
         icon: Files,
         run: ws.openAllDocs,
       },
+      { kind: 'command', id: 'drive', title: 'Drive — files in the shared Google drive', icon: HardDrive, run: ws.openDrive },
       { kind: 'command', id: 'share', title: 'Share current page', icon: Share2, run: () => ws.setShareOpen(true) },
       ...(ws.currentId
         ? [{ kind: 'command' as const, id: 'history', title: 'Version history', icon: History, run: () => ws.openHistory(ws.currentId!) }]
@@ -143,7 +145,9 @@ export function CommandPalette() {
       .map((p) => ({ kind: 'database' as const, id: p.id, title: p.name, icon: p.icon }));
   }, [ws.projects, query, ws.currentSpaceId, ws.spaces]);
 
-  const toItem = (r: SearchRow): Item => (r.kind === 'task'
+  const toItem = (r: SearchRow): Item => (r.kind === 'drive'
+    ? { kind: 'drive' as const, id: r.id, title: r.title, sub: stripMarks(r.snippet || '').replace(/\s+/g, ' ').trim().slice(0, 60), url: r.url ?? null }
+    : r.kind === 'task'
     ? {
       kind: 'task' as const,
       id: r.id,
@@ -158,9 +162,13 @@ export function CommandPalette() {
       id: r.id,
       title: r.title,
       sub: stripMarks(r.snippet || '').replace(/\s+/g, ' ').trim().slice(0, 60),
+      verified: r.verified,
     });
   // Hits in the space you are in first; the heading says where the rest come from.
-  const [mine, other] = splitBySpace(results, ws.currentSpaceId, ws.spaces);
+  // A Drive file is in no space: it stays with the hits here, where it ranked.
+  const [, otherRows] = splitBySpace(results.filter((r) => r.kind !== 'drive'), ws.currentSpaceId, ws.spaces);
+  const mine = results.filter((r) => !otherRows.includes(r));
+  const other = otherRows;
   const searchItems: Item[] = query ? mine.map(toItem) : allPages.slice(0, 5);
   const otherItems: Item[] = query ? other.map(toItem) : [];
 
@@ -180,6 +188,9 @@ export function CommandPalette() {
     if (it.kind === 'page') ws.select(it.id);
     else if (it.kind === 'task') ws.openProject(it.projectId, it.id);
     else if (it.kind === 'database') ws.openProject(it.id);
+    // The file opens in Drive; the in-app Drive view lists files, it has no
+    // view of one, so it is only the fallback for a file without a link.
+    else if (it.kind === 'drive') { if (it.url) window.open(it.url, '_blank', 'noopener,noreferrer'); else ws.openDrive(); }
     else it.run();
     ws.setPaletteOpen(false);
   };
@@ -219,7 +230,7 @@ export function CommandPalette() {
           autoFocus
           value={q}
           onChange={(e) => { setQ(e.target.value); setActive(0); }}
-          placeholder="Search pages, tasks (MD-14) or type a command…"
+          placeholder="Search pages, tasks (MD-14), Drive files or type a command…"
           className="h-[52px] flex-1 bg-transparent text-md text-ink outline-none placeholder:text-faint"
         />
         {busy && <Loader2 size={14} className="shrink-0 animate-spin text-faint" aria-label="Searching" />}
@@ -260,6 +271,8 @@ export function CommandPalette() {
                       it.taskKind
                         ? <KindIcon kind={it.taskKind} />
                         : <span className={cn('h-2 w-2 rounded-full', swatch(STATUS_COLOR[it.status] || 'gray').dot)} />
+                    ) : it.kind === 'drive' ? (
+                      <span className="text-faint"><HardDrive size={16} aria-label="Google Drive file" /></span>
                     ) : it.kind === 'database' ? (
                       <ProjectIcon project={{ id: it.id, name: it.title, icon: it.icon }} size={16} />
                     ) : (
@@ -275,13 +288,17 @@ export function CommandPalette() {
                         <span className="mr-1.5 font-mono text-2xs font-semibold tracking-tight text-muted">{named.key}</span>
                       )}
                       {named ? (named.text ? highlight(named.text) : <span className="text-faint">Untitled</span>) : highlight(it.title)}
+                      {it.kind === 'page' && it.verified && (
+                        <BadgeCheck size={12} className="ml-1.5 inline align-[-1px] text-emerald-600 dark:text-emerald-400" aria-label="Verified" />
+                      )}
                     </span>
-                    {(it.kind === 'page' || it.kind === 'task') && it.sub && it.sub !== 'Recent' && (
+                    {(it.kind === 'page' || it.kind === 'task' || it.kind === 'drive') && it.sub && it.sub !== 'Recent' && (
                       <span className="truncate text-2xs text-faint">{it.sub}</span>
                     )}
                   </span>
                   <span className="ml-auto shrink-0">
                     {it.kind === 'page' && it.sub === 'Recent' ? <Clock size={14} className="text-faint" /> : null}
+                    {it.kind === 'drive' ? <ArrowUpRight size={14} className={cn('text-faint transition-opacity', isActive ? 'opacity-100' : 'opacity-0')} /> : null}
                     {it.kind === 'database' ? <Database size={14} className={cn('text-faint transition-opacity', isActive ? 'opacity-100' : 'opacity-0')} /> : null}
                     {it.kind === 'command' ? <ArrowRight size={14} className={cn('text-faint transition-opacity', isActive ? 'opacity-100' : 'opacity-0')} /> : null}
                   </span>

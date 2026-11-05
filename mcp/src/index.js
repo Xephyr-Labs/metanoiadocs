@@ -5,6 +5,7 @@
 //   METANOIA_TOKEN a personal access token (Settings → API tokens)
 // Every tool runs as that token's user, respecting team/private access.
 
+import { createHash } from 'node:crypto';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
@@ -36,7 +37,7 @@ if (!BASE || !TOKEN) {
   process.exit(1);
 }
 
-async function api(path, { method = 'GET', body, headers } = {}) {
+async function api(path, { method = 'GET', body, raw, headers } = {}) {
   const res = await fetch(`${BASE}/api${path}`, {
     method,
     headers: {
@@ -44,7 +45,7 @@ async function api(path, { method = 'GET', body, headers } = {}) {
       ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
       ...headers,
     },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
+    body: raw !== undefined ? raw : body !== undefined ? JSON.stringify(body) : undefined,
   });
   const text = await res.text();
   let data;
@@ -72,6 +73,32 @@ const editMissMessage = (r) => [
   ...(r.skipped || []).map((m) => `- edits[${m.edit}] not applied: "${m.find}" (${m.reason})`),
 ].join('\n');
 
+/** Largest file upload_attachment takes. The server allows 25 MB; an agent's base64 argument is the real limit. */
+export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+
+/** base64 -> bytes, refusing what is too big or not base64 before any request is made. */
+export function decodeAttachment(b64) {
+  const s = String(b64 || '').replace(/\s+/g, '');
+  if (!s || s.length % 4 === 1 || !/^[A-Za-z0-9+/_-]+={0,2}$/.test(s)) throw new Error('contentBase64 is not valid base64.');
+  if (s.length * 0.75 > MAX_ATTACHMENT_BYTES + 3) throw new Error(`The file is over the ${MAX_ATTACHMENT_BYTES / 1048576} MB limit.`);
+  const bytes = Buffer.from(s, 'base64');
+  if (!bytes.length) throw new Error('The file is empty.');
+  if (bytes.length > MAX_ATTACHMENT_BYTES) throw new Error(`The file is over the ${MAX_ATTACHMENT_BYTES / 1048576} MB limit.`);
+  return bytes;
+}
+
+/**
+ * The markdown line that puts an uploaded blob on a page: a picture for an
+ * image (write_doc turns a line of only `![](/api/blob/<key>)` into a real
+ * image block), otherwise a link that downloads under its own name. Brackets
+ * and parentheses are dropped from the name so it cannot end the link early.
+ */
+export function attachmentMarkdown(key, filename, mime) {
+  const name = String(filename).replace(/[[\]()<>\r\n]+/g, ' ').replace(/\s+/g, ' ').trim() || 'file';
+  if (/^image\/(png|jpe?g|gif|webp|svg\+xml)$/i.test(String(mime))) return `![${name}](/api/blob/${key})`;
+  return `[${name}](/api/blob/${key}?name=${encodeURIComponent(name)})`;
+}
+
 const ok = (obj) => ({ content: [{ type: 'text', text: typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2) }] });
 const fail = (e) => ({ isError: true, content: [{ type: 'text', text: `Error: ${e.message || e}` }] });
 
@@ -81,13 +108,16 @@ server.registerTool(
   'search_docs',
   {
     title: 'Search docs',
-    description: 'Full-text search across the docs you can access. Returns id, title, and a snippet for each match.',
+    description: 'Search the docs you can access, by words and by meaning, plus the files in the connected Google Drive. Returns id, title, and a snippet for each match. A Drive file comes back with source "drive": pass its id as fileId to read_drive_file for its text.',
     inputSchema: { query: z.string().describe('Search terms'), spaceId: z.string().optional().describe('Only items in this space (id from list_spaces).'), },
   },
   async ({ query, spaceId }) => {
     try {
       const rows = await api(`/search?q=${encodeURIComponent(query)}${spaceId ? `&spaceId=${encodeURIComponent(spaceId)}` : ''}`);
-      return ok(rows.map((r) => ({ id: r.id, title: r.title, snippet: (r.snippet || '').replace(/<\/?b>/g, '') })));
+      return ok(rows.map((r) => ({
+        ...(r.kind === 'drive' ? { source: 'drive', mimeType: r.mimeType, url: r.url } : {}),
+        id: r.id, title: r.title, snippet: (r.snippet || '').replace(/<\/?b>/g, ''),
+      })));
     } catch (e) { return fail(e); }
   },
 );
@@ -127,7 +157,7 @@ server.registerTool(
   'read_doc',
   {
     title: 'Read a doc',
-    description: 'Get a doc\'s title and its body as markdown (links to other docs as [[Title]]) by id. To change part of a doc, use edit_doc; for a full rewrite, edit that markdown and write it back with write_doc mode=replace. If you have edits waiting for review on the page, you read your draft (with `pendingSuggestion`).',
+    description: 'Get a doc\'s title and its body as markdown (links to other docs as [[Title]]) by id. To change part of a doc, use edit_doc; for a full rewrite, edit that markdown and write it back with write_doc mode=replace. `verification` says whether anyone has vouched for the page (unverified, verified or needs_review). If you have edits waiting for review on the page, you read your draft (with `pendingSuggestion`).',
     inputSchema: { id: z.string().describe('Document id') },
   },
   async ({ id }) => {
@@ -494,6 +524,31 @@ server.registerTool(
 );
 
 server.registerTool(
+  'verify_doc',
+  {
+    title: 'Verify a doc',
+    description:
+      "Vouch that a page is accurate, so readers (and read_doc's `verification`) see Verified by you and the date. A page goes back to Needs review when its interval passes (`every`: 30, 90 or 180 days, or 0 for never; default 90) or when anyone other than the verifier edits it, and its owner is notified once. Calling it again re-verifies and resets the clock. `owner` (name, username or email) is who is responsible for keeping it right; it defaults to the verifier. `remove: true` takes the verification off. Only verify what you have actually checked: an AI assistant or an untrusted agent is refused, and a page you cannot edit is refused.",
+    inputSchema: {
+      id: z.string().describe('Document id'),
+      every: z.union([z.literal(30), z.literal(90), z.literal(180), z.literal(0)]).optional().describe('Days between reviews; 0 = never. Default 90, or the page\'s current setting'),
+      owner: z.string().optional().describe('Who keeps this page right: name, username or email. Default: you'),
+      remove: z.boolean().optional().describe('Remove the verification instead'),
+    },
+  },
+  async ({ id, every, owner, remove }) => {
+    try {
+      const path = `/docs/${encodeURIComponent(id)}/verify`;
+      if (remove) return ok(await api(path, { method: 'DELETE' }));
+      const ownerId = owner ? findPerson(await api('/users'), owner).id : undefined;
+      return ok(await api(path, { method: 'PUT', body: { every, ownerId } }));
+    } catch (e) {
+      return fail(e);
+    }
+  },
+);
+
+server.registerTool(
   'share_doc',
   {
     title: 'Share a doc with a teammate',
@@ -793,6 +848,48 @@ server.registerTool(
 );
 
 server.registerTool(
+  'chart_tasks',
+  {
+    title: 'Chart a board',
+    description:
+      "Count (or sum, or average) one board's tasks grouped by one field — the numbers a chart view draws, counted by the server. `groupBy` is status, assignee, type, sprint, or a date (created, due, done) bucketed by `unit`. A task on two people counts once for each. Returns buckets largest first (dates in order), keyed by status / type key, person name, sprint name or bucket start date; '' is \"not set\" and \"Other\" folds in everything past twenty buckets.",
+    inputSchema: {
+      board: z.string().describe('Board name or id'),
+      groupBy: z.enum(['status', 'assignee', 'type', 'sprint', 'created', 'due', 'done']).optional().describe('Default status'),
+      unit: z.enum(['day', 'week', 'month']).optional().describe('For a date groupBy; default week'),
+      measure: z.enum(['count', 'sum', 'avg']).optional().describe('Default count'),
+      of: z.enum(['points', 'priority', 'progress', 'estimate']).optional().describe('The number a sum or average reads'),
+    },
+  },
+  async ({ board, groupBy, unit, measure, of }) => {
+    try {
+      if (measure && measure !== 'count' && !of) throw new Error(`A ${measure === 'avg' ? 'average' : 'sum'} needs \`of\`: points, priority, progress or estimate.`);
+      const found = await findBoard(board);
+      const X = { status: 'status', assignee: 'assignee_id', type: 'kind', sprint: 'sprint_id', created: 'created_at', due: 'due_at', done: 'done_at' };
+      const OF = { points: 'points', priority: 'priority', progress: 'progress', estimate: 'estimate_h' };
+      const x = X[groupBy ?? 'status'];
+      const data = await api(`/projects/${encodeURIComponent(found.id)}/chart`, {
+        method: 'POST',
+        body: { chart: { type: 'bar', x, unit, measure: of ? measure ?? 'sum' : 'count', of: of ? OF[of] : null } },
+      });
+      // Ids mean nothing to a reader; the names the board shows do.
+      const names = x === 'assignee_id'
+        ? new Map((await api('/users')).map((u) => [u.id, u.name || u.username]))
+        : x === 'sprint_id'
+          ? new Map((await api(`/projects/${encodeURIComponent(found.id)}/sprints`)).map((s) => [s.id, s.name]))
+          : new Map();
+      return ok({
+        board: found.name,
+        tasks: data.tasks,
+        buckets: data.buckets.map((b) => ({ key: b.key === '__other__' ? 'Other' : names.get(b.key) ?? b.key, value: b.value })),
+      });
+    } catch (e) {
+      return fail(e);
+    }
+  },
+);
+
+server.registerTool(
   'create_task',
   {
     title: 'Create a task',
@@ -1072,6 +1169,124 @@ server.registerTool(
   },
 );
 
+// ── comments: close / reopen a thread ──
+const setResolved = (resolved) => async ({ commentId }) => {
+  try {
+    await api(`/comments/${encodeURIComponent(commentId)}/resolve`, { method: 'POST', body: { resolved } });
+    return ok(resolved ? 'Resolved.' : 'Reopened.');
+  } catch (e) {
+    return fail(e);
+  }
+};
+
+server.registerTool(
+  'resolve_comment',
+  {
+    title: 'Resolve a comment thread',
+    description:
+      "Mark a comment thread on a page as resolved (handled), with its replies. Take the id from read_comments. The server decides who may: the thread's author, or anyone who can edit the page. This does not change the page. A suggestion card is decided by accepting or rejecting it, not by this.",
+    inputSchema: { commentId: z.string().describe('Id of the thread root, from read_comments') },
+  },
+  setResolved(true),
+);
+
+server.registerTool(
+  'reopen_comment',
+  {
+    title: 'Reopen a comment thread',
+    description:
+      'Reopen a resolved comment thread (with its replies). Use read_comments with includeResolved to find it. Same permission as resolve_comment.',
+    inputSchema: { commentId: z.string().describe('Id of the thread root, from read_comments') },
+  },
+  setResolved(false),
+);
+
+// ── trash: never a hard delete ──
+server.registerTool(
+  'delete_doc',
+  {
+    title: 'Move a doc to the trash',
+    description:
+      'Move a page to the trash, where it stays recoverable (restore_doc, or the Trash in the app) until the retention window passes. It is never a permanent delete, and there is no tool for that. Works only where you could delete the page in the app (you can edit it). Its sub-pages move to the top level. An AI assistant or an untrusted agent account is refused: removing a page is not a suggestion a person can review.',
+    inputSchema: { id: z.string().describe('Document id') },
+  },
+  async ({ id }) => {
+    try {
+      await api(`/docs/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      return ok('Moved to the trash. restore_doc brings it back.');
+    } catch (e) {
+      return fail(e);
+    }
+  },
+);
+
+server.registerTool(
+  'restore_doc',
+  {
+    title: 'Restore a doc from the trash',
+    description: 'Bring a trashed page back (ids from list_trash). Allowed for anyone who could have deleted it.',
+    inputSchema: { id: z.string().describe('Document id') },
+  },
+  async ({ id }) => {
+    try {
+      await api(`/docs/${encodeURIComponent(id)}/restore`, { method: 'POST' });
+      return ok('Restored.');
+    } catch (e) {
+      return fail(e);
+    }
+  },
+);
+
+server.registerTool(
+  'list_trash',
+  {
+    title: 'List the trash',
+    description: 'Pages in the trash that you could see, newest first: id, title, when deleted and when they will be purged for good.',
+    inputSchema: {},
+  },
+  async () => {
+    try {
+      const t = await api('/docs/trash');
+      return ok({
+        retentionDays: t.retentionDays,
+        pages: (t.rows || []).map((r) => ({ id: r.id, title: r.title, deletedAt: r.deleted_at, purgeAt: r.purge_at })),
+      });
+    } catch (e) {
+      return fail(e);
+    }
+  },
+);
+
+server.registerTool(
+  'upload_attachment',
+  {
+    title: 'Attach a file to a doc',
+    description:
+      `Upload a file (base64 \`contentBase64\`, up to ${MAX_ATTACHMENT_BYTES / 1048576} MB) and add it at the end of a page: an image (png, jpeg, gif, webp, svg) shows as a picture, any other file as a download link. It is added exactly like write_doc mode=append, so on an existing page an AI assistant's or untrusted agent's attachment comes back as a suggestion for a person to review, with a link. The file itself is stored either way; an unreferenced one is cleaned up later.`,
+    inputSchema: {
+      id: z.string().describe('Document id'),
+      filename: z.string().min(1).max(200).describe('File name, e.g. diagram.png'),
+      mime: z.string().describe('Media type, e.g. image/png or application/pdf'),
+      contentBase64: z.string().describe('The file, base64 encoded'),
+    },
+  },
+  async ({ id, filename, mime, contentBase64 }) => {
+    try {
+      const bytes = decodeAttachment(contentBase64);
+      const key = createHash('sha256').update(bytes).digest('hex');
+      await api(`/blob/${key}`, { method: 'PUT', raw: bytes, headers: { 'Content-Type': String(mime).split(';')[0].trim().toLowerCase() || 'application/octet-stream' } });
+      const r = await api(`/docs/${encodeURIComponent(id)}/content`, {
+        method: 'POST',
+        body: { markdown: attachmentMarkdown(key, filename, mime), mode: 'append' },
+      });
+      if (r?.suggested) return ok(suggestedMessage(r, PUBLIC) + notApplied(r));
+      return ok('Done.');
+    } catch (e) {
+      return fail(e);
+    }
+  },
+);
+
 server.registerTool(
   'workspace_overview',
   {
@@ -1083,6 +1298,147 @@ server.registerTool(
   async () => {
     try {
       return ok(await api('/home'));
+    } catch (e) {
+      return fail(e);
+    }
+  },
+);
+
+server.registerTool(
+  'list_drive_files',
+  {
+    title: 'List Drive files',
+    description:
+      "Files in the workspace's connected Google shared drive, newest change first, folders before files. Filter by name, by folder, or by `since` to see what changed recently. Each file has its Drive link and who last changed it.",
+    inputSchema: {
+      query: z.string().optional().describe('Part of the file name'),
+      folderId: z.string().optional().describe('Only files directly inside this folder (a folder id from an earlier result)'),
+      since: z.string().optional().describe('Only files changed at or after this date or timestamp, e.g. 2026-10-14'),
+      limit: z.number().int().min(1).max(500).optional().describe('Default 50'),
+    },
+  },
+  async ({ query, folderId, since, limit }) => {
+    try {
+      const qs = new URLSearchParams();
+      if (query) qs.set('q', query);
+      if (folderId) qs.set('folder', folderId);
+      if (since) qs.set('since', since);
+      if (limit) qs.set('limit', String(limit));
+      return ok(await api(`/drive/files?${qs}`));
+    } catch (e) {
+      return fail(e);
+    }
+  },
+);
+
+server.registerTool(
+  'read_drive_file',
+  {
+    title: 'Read a Drive file',
+    description:
+      'The text of a file in the connected shared drive: Google Docs and Slides as plain text, Sheets as CSV, PDFs and text files as they read. Also lists the tasks the file is attached to. Images and other binary files have no text; their link is returned instead.',
+    inputSchema: { fileId: z.string().describe('File id from list_drive_files') },
+  },
+  async ({ fileId }) => {
+    try {
+      const meta = await api(`/drive/files/${encodeURIComponent(fileId)}`);
+      try {
+        const { text, truncated } = await api(`/drive/files/${encodeURIComponent(fileId)}/text`);
+        return ok({ ...meta, truncated, text });
+      } catch (e) {
+        return ok({ ...meta, text: null, note: e.message });
+      }
+    } catch (e) {
+      return fail(e);
+    }
+  },
+);
+
+server.registerTool(
+  'attach_drive_file',
+  {
+    title: 'Attach a Drive file to a task',
+    description:
+      'Link a file from the connected shared drive to a task, so it shows on the task and the file shows its tasks. Set `remove: true` to unlink it. Leave the file in Drive; this only links it.',
+    inputSchema: {
+      taskId: z.string().describe('Task id'),
+      fileId: z.string().describe('File id from list_drive_files'),
+      remove: z.boolean().optional(),
+    },
+  },
+  async ({ taskId, fileId, remove }) => {
+    try {
+      const path = `/tasks/${encodeURIComponent(taskId)}/drive-files`;
+      if (remove) {
+        await api(`${path}/${encodeURIComponent(fileId)}`, { method: 'DELETE' });
+        return ok('Unlinked.');
+      }
+      const f = await api(path, { method: 'POST', body: { fileId } });
+      return ok({ attached: f.name, url: f.url });
+    } catch (e) {
+      return fail(e);
+    }
+  },
+);
+
+server.registerTool(
+  'list_agents',
+  {
+    title: 'List your agents',
+    description:
+      "Your own workspace agents: saved instructions that run on a schedule, when pages change, or on demand. Returns id, name, trigger, whether each is on, and how its last run went. Use run_agent to run one.",
+    inputSchema: {},
+  },
+  async () => {
+    try {
+      const { agents, aiReady } = await api('/workspace-agents');
+      return ok({
+        aiReady,
+        agents: agents.map((a) => ({
+          id: a.id, name: a.name, trigger: a.trigger, enabled: a.enabled, targetPage: a.target_title ?? null,
+          lastRun: a.last_run ? { status: a.last_run.status, at: a.last_run.started_at, error: a.last_run.error ?? undefined } : null,
+        })),
+      });
+    } catch (e) {
+      return fail(e);
+    }
+  },
+);
+
+server.registerTool(
+  'run_agent',
+  {
+    title: 'Run one of your agents',
+    description:
+      "Run one of your own workspace agents now and wait for its answer. It acts with your access, and its page edits become suggestions. An agent running inside another may not call a third, and none may call itself.",
+    inputSchema: {
+      id: z.string().describe("The agent's id or exact name (from list_agents)"),
+      input: z.string().optional().describe('Anything extra to tell it for this run'),
+    },
+  },
+  async ({ id, input }) => {
+    try {
+      const r = await api(`/workspace-agents/${encodeURIComponent(id)}/run`, { method: 'POST', body: { wait: true, input } });
+      if (!r || r.status === 'failed') return fail(new Error(`The agent failed: ${r?.error ?? 'no result'}`));
+      return ok({ status: r.status, output: r.output, toolCalls: r.tool_calls });
+    } catch (e) {
+      return fail(e);
+    }
+  },
+);
+
+server.registerTool(
+  'list_skills',
+  {
+    title: 'List skills',
+    description:
+      "The workspace's skills: named, reusable instructions (a house style, a review checklist). Returns each one's name, description and text, to follow when asked to use one.",
+    inputSchema: {},
+  },
+  async () => {
+    try {
+      const rows = await api('/skills');
+      return ok(rows.map((s) => ({ name: s.name, description: s.description, body: s.body })));
     } catch (e) {
       return fail(e);
     }

@@ -7,7 +7,7 @@
 import { createElement } from 'react';
 import { useCallback, useEffect, useLayoutEffect, useState, type CSSProperties } from 'react';
 import {
-  CalendarDays, Columns3, ExternalLink, GanttChartSquare, KanbanSquare, LayoutGrid,
+  BarChart3, CalendarDays, Columns3, ExternalLink, GanttChartSquare, KanbanSquare, LayoutGrid,
   ListTodo, Maximize2, Minimize2, MoreHorizontal, PieChart, Table2,
 } from 'lucide-react';
 import { requestOpenProject } from '../../lib/navSignal';
@@ -22,6 +22,7 @@ import { TooltipProvider } from '../ui/Tooltip';
 import { Backlog } from './Backlog';
 import { Board } from './Board';
 import { Calendar } from './Calendar';
+import { ChartView } from './ChartView';
 import { FilterBar } from './FilterBar';
 import { Dashboard } from './Dashboard';
 import { Gallery } from './Gallery';
@@ -39,7 +40,7 @@ import { ProjectIcon } from '../ui/ProjectIcon';
 const VIEW_ICON: Record<ViewKind, typeof Table2> = {
   backlog: ListTodo, board: KanbanSquare, table: Table2,
   gantt: GanttChartSquare, calendar: CalendarDays, gallery: LayoutGrid,
-  dashboard: PieChart,
+  dashboard: PieChart, chart: BarChart3,
 };
 
 interface Props {
@@ -292,7 +293,7 @@ export function EmbeddedDatabase({
         }))}
       />
       <FilterBar fields={d.fields} filters={d.filters} onChange={d.setFilters} />
-      <SortBar fields={d.fields} sort={d.sort} onChange={d.setSort} />
+      {d.kind !== 'dashboard' && d.kind !== 'chart' && <SortBar fields={d.fields} sort={d.sort} onChange={d.setSort} />}
       {(d.kind === 'board' || d.kind === 'table') && (
         <GroupBy fields={d.groupFields} value={d.groupField?.key ?? null} onChange={d.setGroupBy} optional={d.kind === 'table'} />
       )}
@@ -397,6 +398,25 @@ export function EmbeddedDatabase({
             />
           ) : d.kind === 'dashboard' ? (
             <Dashboard tasks={d.tasks} sprints={p.sprints} scope={d.scope} statusColors={d.statusColors} />
+          ) : d.kind === 'chart' ? (
+            // A page of these is a dashboard: each block is one saved chart,
+            // and they all count from the same rows the database screen does.
+            <ChartView
+              projectId={projectId}
+              mode={mode}
+              chart={d.config.chart}
+              filters={d.filters}
+              scope={d.scope}
+              fields={d.fields}
+              props={p.props}
+              kinds={p.kinds}
+              statusColors={d.statusColors}
+              tasks={d.tasks}
+              version={p.tasks}
+              onSave={d.setChart}
+              onOpen={() => requestOpenProject(projectId)}
+              readonly={readonly}
+            />
           ) : d.kind === 'calendar' ? (
             <Calendar
               tasks={d.tasks}

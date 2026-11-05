@@ -15,7 +15,7 @@ import { spacesApi, type MoveType, type SpaceRow } from '../lib/spacesApi';
 import { currentSpaceFrom, groupBySpace, pageSiblings, spaceOf } from '../lib/spaceTree';
 import { setPendingSeed } from '../editor/pendingSeed';
 import { toast } from '../lib/toast';
-import { MAX_IMPORT_BYTES } from '../lib/docFiles';
+import { MAX_ARCHIVE_BYTES, MAX_IMPORT_BYTES, archiveKindOf } from '../lib/docFiles';
 import { readRoute, showDatabase, showDoc, showFolder, showHome, showSpace } from '../lib/route';
 import { folderChain } from '../lib/folderPath';
 import { useDocSaveTick } from '../lib/docSignal';
@@ -23,12 +23,12 @@ import { placeAt } from '../lib/reorder';
 import { keepExpanded, nestByParent } from '../lib/pageTree';
 import { panelClosed, setPanelClosed } from '../lib/sidebarPrefs';
 import type { Template } from '../data/templates';
-import type { EditorMode, Folder, Page, PageId, Tag } from '../lib/types';
+import type { EditorMode, Folder, Page, PageId, Tag, Verification } from '../lib/types';
 
 export type RightTab = 'intel' | 'comments' | 'outline' | 'details' | 'ai';
 
 /** Which surface fills the main column. Cheaper than a router for five screens. */
-export type View = 'home' | 'doc' | 'project' | 'folder' | 'tasks' | 'docs' | 'space' | 'calendar';
+export type View = 'home' | 'doc' | 'project' | 'folder' | 'tasks' | 'docs' | 'space' | 'calendar' | 'drive';
 
 /** What one space's section in the sidebar draws. */
 export interface SpaceTree {
@@ -50,6 +50,7 @@ interface WorkspaceState {
   openAllDocs: () => void;
   /** Your own Google Calendar: day, week and month. */
   openCalendar: () => void;
+  openDrive: () => void;
   /** `taskId` opens that task's panel once the board is up — how a page gets
    *  back to the task it belongs to. */
   openProject: (id: string, taskId?: string, viewId?: string) => void;
@@ -155,6 +156,8 @@ interface WorkspaceState {
   toggleExpand: (id: PageId) => void;
   toggleFavorite: (id: PageId) => void;
   toggleLove: (id: PageId) => void;
+  /** Put a page's new verification (from docsApi.verify / unverify) in the sidebar's copy. */
+  setVerification: (id: PageId, v: Verification) => void;
   toggleFolderFavorite: (id: string) => void;
   setVisibility: (id: PageId, visibility: 'team' | 'private') => void;
   rename: (id: PageId, title: string) => void;
@@ -238,6 +241,7 @@ function buildPages(rows: DocRow[]): Record<PageId, Page> {
       updatedAt: r.updated_at,
       createdByName: r.created_by_name ?? null,
       createdAt: r.created_at ?? null,
+      verify: r.verify ?? { state: 'unverified' },
       loveCount: r.love_count ?? 0,
       loved: !!r.loved,
       linkCount: r.link_count ?? 0,
@@ -566,6 +570,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     showHome();
   }, []);
 
+  const openDrive = useCallback(() => {
+    setView('drive');
+    setMobileDrawer(false);
+    showHome();
+  }, []);
+
   const openProject = useCallback((id: string, taskId?: string, viewId?: string) => {
     setActiveProjectId(id);
     setPendingTaskId(taskId ?? null);
@@ -713,6 +723,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       return { ...p, [id]: { ...cur, loved, loveCount: Math.max(0, cur.loveCount + (loved ? 1 : -1)) } };
     });
   }, [refresh]);
+
+  const setVerification = useCallback((id: PageId, verify: Verification) => {
+    setPages((p) => (p[id] ? { ...p, [id]: { ...p[id], verify } } : p));
+  }, []);
 
   const toggleFolderFavorite = useCallback((id: string) => {
     setFolders((f) => {
@@ -1045,9 +1059,14 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     const warnings: string[] = [];
     for (const file of files) {
       try {
-        if (file.size > MAX_IMPORT_BYTES) throw new Error(`it is bigger than 25 MB`);
-        const row = await docsApi.import(file, folderId, await here(spaceId));
+        const kind = archiveKindOf(file);
+        if (file.size > (kind ? MAX_ARCHIVE_BYTES : MAX_IMPORT_BYTES)) throw new Error(`it is bigger than ${kind ? 100 : 25} MB`);
+        // A zip lands as a new folder of pages; open that folder so they show.
+        const row = kind
+          ? await docsApi.importArchive(file, kind, folderId, await here(spaceId))
+          : await docsApi.import(file, folderId, await here(spaceId));
         warnings.push(...(row.warnings ?? []));
+        if (kind && 'folderId' in row) folderExpandedRef.current.add(row.folderId);
         first ??= row.id;
       } catch (e) {
         failed.push(`${file.name} — ${e instanceof Error ? e.message : 'could not be imported'}`);
@@ -1362,10 +1381,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       pinnedIds, pinnedFolderIds, togglePin, toggleFolderPin,
       currentId, currentPage, loading, error, workspaceId,
       historyDocId, openHistory, closeHistory,
-      view, activeProjectId, activeFolderId, openHome, openTasks, openAllDocs, openCalendar, openProject, createTaskIn, pendingTaskId, clearPendingTask, pendingViewId: activeViewId, clearPendingView, openFolder, activeSpaceId, openSpace, projects, refreshProjects, spaces, refreshSpaces, moveToSpace, joinSpace, leaveSpace, createSpace, spaceTrees, currentSpaceId, switchSpace,
+      view, activeProjectId, activeFolderId, openHome, openTasks, openAllDocs, openCalendar, openDrive, openProject, createTaskIn, pendingTaskId, clearPendingTask, pendingViewId: activeViewId, clearPendingView, openFolder, activeSpaceId, openSpace, projects, refreshProjects, spaces, refreshSpaces, moveToSpace, joinSpace, leaveSpace, createSpace, spaceTrees, currentSpaceId, switchSpace,
       sidebarCollapsed, panelCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
       settingsOpen, trashOpen, inboxOpen, shortcutsOpen, captureOpen, mode, fullWidth, theme,
-      refresh, select, toggleExpand, toggleFavorite, toggleLove, toggleFolderFavorite, setVisibility, rename, applyTitleFromEditor,
+      refresh, select, toggleExpand, toggleFavorite, toggleLove, setVerification, toggleFolderFavorite, setVisibility, rename, applyTitleFromEditor,
       createPage, createDesign, movePage, createChildPage, reorderPage, linkPage, reorderFolder, moveFolder, createFolder, renameFolder, setFolderColor, setIcon, toggleFolder, deleteFolder, createFromTemplate, docTemplates, createFromPage, setTemplate, importFiles, deletePage, restorePage,
       refreshTags, addTagToPage, removeTagFromPage, deleteTag, setTagFilter,
       setSidebarCollapsed, setPanelCollapsed, setSidebarWidth, setMobileDrawer, setRightPanel, setPaletteOpen, setShortcutsOpen, setCaptureOpen,
@@ -1378,10 +1397,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       pinnedIds, pinnedFolderIds, togglePin, toggleFolderPin,
       currentId, currentPage, loading, error, workspaceId,
       historyDocId, openHistory, closeHistory,
-      view, activeProjectId, activeFolderId, openHome, openTasks, openAllDocs, openCalendar, openProject, createTaskIn, pendingTaskId, clearPendingTask, activeViewId, clearPendingView, openFolder, activeSpaceId, openSpace, projects, refreshProjects, spaces, refreshSpaces, moveToSpace, joinSpace, leaveSpace, createSpace, spaceTrees, currentSpaceId, switchSpace,
+      view, activeProjectId, activeFolderId, openHome, openTasks, openAllDocs, openCalendar, openDrive, openProject, createTaskIn, pendingTaskId, clearPendingTask, activeViewId, clearPendingView, openFolder, activeSpaceId, openSpace, projects, refreshProjects, spaces, refreshSpaces, moveToSpace, joinSpace, leaveSpace, createSpace, spaceTrees, currentSpaceId, switchSpace,
       sidebarCollapsed, panelCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
       settingsOpen, trashOpen, inboxOpen, shortcutsOpen, captureOpen, mode, fullWidth, theme,
-      refresh, select, toggleExpand, toggleFavorite, toggleLove, toggleFolderFavorite, setVisibility, rename, applyTitleFromEditor,
+      refresh, select, toggleExpand, toggleFavorite, toggleLove, setVerification, toggleFolderFavorite, setVisibility, rename, applyTitleFromEditor,
       createPage, createDesign, movePage, createChildPage, reorderPage, linkPage, reorderFolder, moveFolder, createFolder, renameFolder, setFolderColor, setIcon, toggleFolder, deleteFolder, createFromTemplate, docTemplates, createFromPage, setTemplate, importFiles, deletePage, restorePage,
       refreshTags, addTagToPage, removeTagFromPage, deleteTag, toggleTheme, routeTick,
     ],

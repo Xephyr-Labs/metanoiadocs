@@ -8,6 +8,7 @@ import { TabBar } from './components/mobile/TabBar';
 const focusOnMount = (el: HTMLElement | null) => el?.focus({ preventScroll: true });
 import { CommandPalette } from './components/palette/CommandPalette';
 import { AllDocsView } from './components/docs/AllDocsView';
+import { DriveView } from './components/drive/DriveView';
 import { EditorArea } from './components/editor/EditorArea';
 import { FolderView } from './components/folder/FolderView';
 import { SpaceView } from './components/spaces/SpaceView';
@@ -18,6 +19,7 @@ import { RightPanel } from './components/panel/RightPanel';
 import { SettingsDialog } from './components/settings/SettingsDialog';
 import { ShareDialog } from './components/share/ShareDialog';
 import { ShortcutsDialog } from './components/shortcuts/ShortcutsDialog';
+import { ImportSourceDialog } from './components/home/ImportSourceDialog';
 import { QuickCapture } from './components/capture/QuickCapture';
 import { TrashDialog } from './components/trash/TrashDialog';
 import { useDesktopNotifications } from './hooks/useDesktopNotifications';
@@ -128,6 +130,7 @@ export default function App() {
           <main id="main" tabIndex={-1} className="min-h-0 flex-1 outline-none">
             {ws.view === 'home' ? <Home />
               : ws.view === 'docs' ? <AllDocsView />
+              : ws.view === 'drive' ? <DriveView />
               : ws.view === 'tasks' ? <TasksView />
               : ws.view === 'calendar' ? <CalendarPage />
               : ws.view === 'project' ? <ProjectView />
@@ -186,6 +189,7 @@ export default function App() {
       <TrashDialog />
       <InboxDialog />
       <ShortcutsDialog open={ws.shortcutsOpen} onOpenChange={ws.setShortcutsOpen} />
+      <ImportSourceDialog />
       <QuickCapture />
       <TagView />
     </TooltipProvider>

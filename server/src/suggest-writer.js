@@ -30,7 +30,7 @@ const kidsOf = (b) => {
 
 /**
  * Write `markdown` into the live `doc` as suggestions by `by` (`via: 'ai'` for
- * Ask AI). 'replace' compares it with the whole body as `by` sees it (their
+ * Ask AI; `agent`, a workspace agent's name, beside it for one of those). 'replace' compares it with the whole body as `by` sees it (their
  * own pending suggestions applied); 'append' adds its blocks at the end.
  * `direct` is a trusted writer's replace: the same comparison against the page
  * with nothing pending accepted, applied as plain edits, so the body changes
@@ -42,14 +42,14 @@ const kidsOf = (b) => {
  *   the page; append: the new ones), in page order; fresh: those this write made;
  *   changes: how many this write made or changed; `skipped`: wishes not written (R14).
  */
-export function suggestMarkdown({ doc, markdown, mode = 'append', by, via, title = '', resolve, direct = false, at = Date.now() }) {
+export function suggestMarkdown({ doc, markdown, mode = 'append', by, via, agent, title = '', resolve, direct = false, at = Date.now() }) {
   const live = doc.getMap('blocks');
   const note = bodyNote(live);
   if (!note) throw new Error('no body');
   const scratchDoc = new Y.Doc();
   Y.applyUpdate(scratchDoc, buildDocState(title, markdown, resolve));
   const scratch = scratchDoc.getMap('blocks');
-  const w = { live, scratch, by: direct ? null : by, via, at, direct, created: [], usedIds: new Set(), skipped: [] };
+  const w = { live, scratch, by: direct ? null : by, via, agent, at, direct, created: [], usedIds: new Set(), skipped: [] };
   const incoming = kidsOf(bodyNote(scratch)).filter((id) => keyOf(scratch, id, null) != null);
   const was = direct ? null : cardsBy(doc, by);
   doc.transact(() => {
@@ -80,7 +80,7 @@ function mark(w, kind, keep = {}) {
   let id = keep.id;
   if (!id || w.usedIds.has(id)) id = crypto.randomUUID();
   w.usedIds.add(id);
-  return { id, kind, by: w.by, at: keep.at ?? w.at, ...(w.via ? { via: w.via } : {}), ...(keep.from ? { from: keep.from } : {}) };
+  return { id, kind, by: w.by, at: keep.at ?? w.at, ...(w.via ? { via: w.via } : {}), ...(w.via && w.agent ? { agent: w.agent } : {}), ...(keep.from ? { from: keep.from } : {}) };
 }
 
 const sugg = (b) => b.get(BLOCK_KEY) || null;
@@ -522,10 +522,10 @@ function overlapped(t, src, by) {
  *   ambiguous: {edit: number, find: string, matches: number}[],
  *   skipped: {edit: number, find: string, blockId: string, reason: string}[] }}
  */
-export function suggestEdits({ doc, edits, by, via, direct = false, at = Date.now() }) {
+export function suggestEdits({ doc, edits, by, via, agent, direct = false, at = Date.now() }) {
   const live = doc.getMap('blocks');
   const viewBy = direct ? null : by;
-  const w = { live, scratch: live, by: viewBy, via, at, direct, created: [], usedIds: new Set(), skipped: [] };
+  const w = { live, scratch: live, by: viewBy, via, agent, at, direct, created: [], usedIds: new Set(), skipped: [] };
   // The text blocks the writer sees, in page order, as units they read.
   const entries = [];
   const walk = (kids) => {

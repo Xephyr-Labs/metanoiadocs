@@ -6,7 +6,7 @@ import { withComputed } from '../../lib/computed';
 import { applyFilters, fieldsFor, pruneUnresolvable, type Filter, type FilterField } from '../../lib/taskFilter';
 import { applySort, pruneSort, type SortRule } from '../../lib/taskSort';
 import { moveInOrder, resolveViewProps } from '../../lib/viewProps';
-import type { PropRow, ProjectRow, SprintRow, TaskKindRow, TaskPatch, TaskRow, TaskStatus, ViewRow } from '../../lib/tasksApi';
+import type { ChartConfig, PropRow, ProjectRow, SprintRow, TaskKindRow, TaskPatch, TaskRow, TaskStatus, ViewRow } from '../../lib/tasksApi';
 
 interface Source {
   tasks: TaskRow[];
@@ -229,13 +229,14 @@ export function useDatabaseView({
       : groupOf(task, groupField)),
     moveToGroup,
     groupSeed,
-    // The five writers the toolbar needs, each saving one facet. The server
+    // The writers the toolbar needs, each saving one facet. The server
     // merges, so a sort change never blanks the filters beside it.
     setFilters: (next: Filter[]) => onSave?.({ filters: next }),
     setSort: (next: SortRule[]) => onSave?.({ sort: next }),
     setGroupBy: (next: string | null) => onSave?.({ groupBy: next }),
     setScope: (next: string) => onSave?.({ scope: next }),
     setProps: (next: string[]) => onSave?.({ props: next }),
+    setChart: (next: ChartConfig) => onSave?.({ chart: next }),
     toggleProp: (id: string) => onSave?.({ props: order.includes(id) ? order.filter((x) => x !== id) : [...order, id] }),
     moveProp: (id: string, by: -1 | 1) => onSave?.({ props: moveInOrder(order, id, by) }),
     showAllProps: () => onSave?.({ props: allProps.map((x) => x.id) }),

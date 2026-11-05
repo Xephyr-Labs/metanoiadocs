@@ -74,7 +74,23 @@ export function rrf(lists, k = 60) {
   return [...score.entries()].sort((a, b) => b[1] - a[1]).map(([id]) => id);
 }
 
+/**
+ * rrf over result rows of more than one kind (pages, Drive files): a page and
+ * a Drive file can share an id string, so each row is keyed by kind + id. The
+ * first list holding a row supplies it — pass the keyword lists first, their
+ * rows carry the highlighted snippet.
+ */
+export function fuseRows(lists, k = 60) {
+  const key = (r) => `${r.kind}:${r.id}`;
+  const byKey = new Map();
+  for (const list of lists) for (const r of list) if (!byKey.has(key(r))) byKey.set(key(r), r);
+  return rrf(lists.map((l) => l.map(key)), k).map((x) => byKey.get(x));
+}
+
 let enabled = false;
+
+/** Whether pgvector is there: what decides if anything may be embedded at all. */
+export const semanticOn = () => enabled;
 
 /** Turn on pgvector and create the tables. Without the extension the feature stays off. */
 export async function initSemantic() {
@@ -95,7 +111,11 @@ export async function initSemantic() {
         hash       TEXT NOT NULL,
         model      TEXT NOT NULL,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-      );`);
+      );
+      -- A page the provider keeps refusing waits out a backoff instead of
+      -- being retried every sweep ahead of everything older than it.
+      ALTER TABLE doc_embed_state ADD COLUMN IF NOT EXISTS attempts INT NOT NULL DEFAULT 0;
+      ALTER TABLE doc_embed_state ADD COLUMN IF NOT EXISTS retry_at TIMESTAMPTZ;`);
     enabled = true;
   } catch (e) {
     console.warn('[semantic] off — pgvector unavailable:', e.message);
@@ -103,7 +123,7 @@ export async function initSemantic() {
 }
 
 /** The provider config, or null when Ask AI is not set up. */
-async function provider() {
+export async function provider() {
   const cfg = (await getSetting('ai')) || {};
   return cfg.enabled && cfg.baseUrl && cfg.apiKey ? cfg : null;
 }
@@ -127,13 +147,18 @@ export async function embed(cfg, texts, inputType, timeoutMs = 60_000) {
   }
 }
 
-const vec = (v) => `[${v.join(',')}]`;
+export const vec = (v) => `[${v.join(',')}]`;
 const hashOf = (title, text) => crypto.createHash('sha256').update(`${title}\n${text}`).digest('hex');
 
 // Pages per sweep and inputs per request. Small: the free NIM tier is rate
 // limited, and a backfill of the whole workspace has all day.
 const DOCS_PER_SWEEP = 8;
-const BATCH = 16;
+export const BATCH = 16;
+
+/** How long a page waits after its nth failed embed: 30 min, doubling, at most a day. */
+export function retryDelayMs(attempts) {
+  return Math.min(30 * 60_000 * 2 ** (attempts - 1), 24 * 60 * 60_000);
+}
 
 /** Embed the pages whose text changed since they were last embedded. Returns how many. */
 export async function sweepEmbeddings() {
@@ -148,16 +173,34 @@ export async function sweepEmbeddings() {
       WHERE d.deleted_at IS NULL
         AND (s.doc_id IS NULL OR s.model <> $1
              OR s.hash <> encode(sha256(convert_to(coalesce(d.title,'') || E'\\n' || coalesce(d.search_text,''), 'UTF8')), 'hex'))
+        AND (s.retry_at IS NULL OR s.retry_at <= now())
       ORDER BY d.updated_at DESC NULLS LAST
       LIMIT $2`,
     [EMBED_MODEL, DOCS_PER_SWEEP],
   );
+  let done = 0;
   for (const d of rows) {
     const title = d.title || '';
     const chunks = chunkText(`${title}\n${d.search_text || ''}`);
     const vectors = [];
-    for (let i = 0; i < chunks.length; i += BATCH) {
-      vectors.push(...(await embed(cfg, chunks.slice(i, i + BATCH), 'passage')));
+    try {
+      vectors.push(...(await embedPassages(cfg, chunks)));
+    } catch (e) {
+      // This page waits out a backoff (an empty hash keeps it due once that
+      // passes), and the sweep stops: a refusing provider is usually refusing
+      // everything, and the next sweep starts with the pages after this one.
+      const { rows: [st] } = await pool.query(
+        `INSERT INTO doc_embed_state (doc_id, hash, model, attempts) VALUES ($1, '', $2, 1)
+         ON CONFLICT (doc_id) DO UPDATE SET attempts = doc_embed_state.attempts + 1
+         RETURNING attempts`,
+        [d.id, EMBED_MODEL],
+      );
+      await pool.query(
+        `UPDATE doc_embed_state SET retry_at = now() + make_interval(secs => $2 / 1000.0) WHERE doc_id = $1`,
+        [d.id, retryDelayMs(st.attempts)],
+      );
+      console.warn(`[semantic] page ${d.id} not embedded (attempt ${st.attempts}): ${e.message}`);
+      break;
     }
     const client = await pool.connect();
     try {
@@ -172,7 +215,8 @@ export async function sweepEmbeddings() {
       }
       await client.query(
         `INSERT INTO doc_embed_state (doc_id, hash, model, updated_at) VALUES ($1, $2, $3, now())
-         ON CONFLICT (doc_id) DO UPDATE SET hash = EXCLUDED.hash, model = EXCLUDED.model, updated_at = now()`,
+         ON CONFLICT (doc_id) DO UPDATE SET hash = EXCLUDED.hash, model = EXCLUDED.model, updated_at = now(),
+           attempts = 0, retry_at = NULL`,
         [d.id, hashOf(title, d.search_text || ''), EMBED_MODEL],
       );
       await client.query('COMMIT');
@@ -182,8 +226,18 @@ export async function sweepEmbeddings() {
     } finally {
       client.release();
     }
+    done++;
   }
-  return rows.length;
+  return done;
+}
+
+/** Embed chunks for storage, BATCH inputs per request. */
+export async function embedPassages(cfg, chunks) {
+  const vectors = [];
+  for (let i = 0; i < chunks.length; i += BATCH) {
+    vectors.push(...(await embed(cfg, chunks.slice(i, i + BATCH), 'passage')));
+  }
+  return vectors;
 }
 
 const SWEEP_INTERVAL_MS = 30_000;
@@ -211,25 +265,51 @@ const MIN_SIMILARITY = 0.1;
 const QUERY_TIMEOUT_MS = 2_000;
 
 // The palette searches as you type; the same query embedded twice is waste.
+/**
+ * Whether a query is worth a provider round trip. A single Latin word or a key
+ * like "MD-14" is what keyword search is for, and the palette asks on every
+ * pause in typing; a phrase, or a word in a script the English tsvector can't
+ * stem (Bangla), is where meaning earns its wait.
+ */
+export function wantsMeaning(q) {
+  const s = String(q || '').trim();
+  return /\s/.test(s) ? s.length >= 6 : /[^\x00-\x7F]/.test(s);
+}
+
+// The cache holds the promise, so the page search and the Drive search that
+// one /api/search starts together share a single embedding call.
 const queryCache = new Map();
 const QUERY_CACHE_MAX = 200;
+
+/** `q` as a pgvector literal, or null when meaning search is off, the query is
+ *  too short to mean anything, or the provider is slow or down. */
+export async function queryVector(q) {
+  if (!enabled || !wantsMeaning(q)) return null;
+  try {
+    const cfg = await provider();
+    if (!cfg) return null;
+    let p = queryCache.get(q);
+    if (!p) {
+      p = embed(cfg, [q], 'query', QUERY_TIMEOUT_MS).then(([v]) => vec(v));
+      p.catch(() => queryCache.delete(q));
+      if (queryCache.size >= QUERY_CACHE_MAX) queryCache.delete(queryCache.keys().next().value);
+      queryCache.set(q, p);
+    }
+    return await p;
+  } catch (e) {
+    console.warn('[semantic] query not embedded:', e.message);
+    return null;
+  }
+}
 
 /**
  * The pages nearest in meaning to `q` that `userId` may open, best first:
  * [{ id, title, space_id, snippet }]. Empty when the feature is off or slow.
  */
 export async function semanticSearch({ userId, q, spaceId = null, limit = 20 }) {
-  if (!enabled || q.length < 4) return [];
+  const qv = await queryVector(q);
+  if (!qv) return [];
   try {
-    const cfg = await provider();
-    if (!cfg) return [];
-    let qv = queryCache.get(q);
-    if (!qv) {
-      [qv] = await embed(cfg, [q], 'query', QUERY_TIMEOUT_MS);
-      qv = vec(qv);
-      if (queryCache.size >= QUERY_CACHE_MAX) queryCache.delete(queryCache.keys().next().value);
-      queryCache.set(q, qv);
-    }
     // ponytail: exact scan over every chunk, no ANN index — milliseconds at a
     // few thousand chunks; add HNSW on halfvec when it is tens of thousands.
     const { rows } = await pool.query(

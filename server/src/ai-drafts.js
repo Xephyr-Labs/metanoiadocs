@@ -149,11 +149,12 @@ export function editMiss(out) {
  * authored by the writer (Ask AI: the asker, via 'ai'); a writer that still has
  * an open legacy draft here keeps writing into it, so it closes the old way.
  * `approver()` resolves who reviews, as `{ id, name }`, or null for any editor.
+ * `agent` names the workspace agent whose run this is, on each mark it makes.
  * `edits` (edit_doc, POST /api/docs/:id/edits) in place of markdown: targeted
  * edits, decided the same way; they touch only what they match, so a page
  * markdown cannot fully carry is no reason to refuse them.
  */
-export async function draftEdit({ policy, kind, via, pageState, approver, pool, hocuspocus, docId, title, authorId, markdown, mode, edits, resolve, notify }) {
+export async function draftEdit({ policy, kind, via, agent, pageState, approver, pool, hocuspocus, docId, title, authorId, markdown, mode, edits, resolve, notify }) {
   if (policy === 'direct' || kind === 'task') return null;
   const state = await pageState(docId);
   if (!state || !docFromState(state).getMap('blocks').size) return null;
@@ -192,8 +193,8 @@ export async function draftEdit({ policy, kind, via, pageState, approver, pool, 
       await conn.transact((doc) => {
         const aiVia = via === 'ai' ? 'ai' : undefined;
         out = edits
-          ? suggestEdits({ doc, edits, by: authorId, via: aiVia })
-          : suggestMarkdown({ doc, markdown, mode, by: authorId, via: aiVia, title, resolve });
+          ? suggestEdits({ doc, edits, by: authorId, via: aiVia, agent })
+          : suggestMarkdown({ doc, markdown, mode, by: authorId, via: aiVia, agent, title, resolve });
       });
     } finally {
       await conn.disconnect();

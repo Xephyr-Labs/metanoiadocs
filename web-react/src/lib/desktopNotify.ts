@@ -103,6 +103,7 @@ export function notifyText(row: InboxRow, selfId?: string | null): { title: stri
   // whole sentence, so the title is only the heading it belongs under — and it
   // matches the one the server's push uses, so a device that gets both shows
   // one notification rather than two that disagree.
+  if (row.kind === 'verify_review') return { title: 'Page needs review', body: row.body || '' };
   if (row.kind === 'digest') return { title: 'Your tasks today', body: row.body || '' };
   if (row.kind === 'overdue') return { title: 'Overdue', body: row.body || '' };
   if (row.kind === 'due_today') return { title: 'Due today', body: row.body || '' };

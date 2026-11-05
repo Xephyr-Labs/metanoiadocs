@@ -35,7 +35,8 @@ test('the copilot is offered the whole MCP surface, not a second smaller table',
       const tools = aiTools({ base });
       try {
         const specs = await tools.specs();
-        assert.deepEqual(specs.map((s) => s.function.name).sort(), [...MCP_TOOL_NAMES].sort());
+        // all of it, but page removal/restore, which Ask AI may not do (ai-tools.js)
+        assert.deepEqual(specs.map((s) => s.function.name).sort(), MCP_TOOL_NAMES.filter((n) => n !== 'delete_doc' && n !== 'restore_doc').sort());
         const search = specs.find((s) => s.function.name === 'search_docs');
         assert.equal(search.type, 'function');
         assert.equal(search.function.parameters.type, 'object');
@@ -114,4 +115,20 @@ test('a failing call comes back as a result the model can read, not a throw', as
       }
     },
   );
+});
+
+test('a run’s abort signal ends a tool call that never answers', async () => {
+  const server = http.createServer(() => { /* never answers */ });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const ac = new AbortController();
+  const tools = aiTools({ base: `http://127.0.0.1:${server.address().port}`, signal: ac.signal });
+  try {
+    setTimeout(() => ac.abort(), 50);
+    const out = await tools.run('search_docs', JSON.stringify({ query: 'x' }));
+    assert.ok(out.error, 'the hung call comes back as an error');
+  } finally {
+    await tools.close();
+    server.closeAllConnections();
+    server.close();
+  }
 });
