@@ -145,6 +145,31 @@ test('a trusted writer edits directly and leaves everyone\'s pending suggestions
   assert.equal(read(code), '```javascript\nconst a = 2;\n```');
 });
 
+const TABLE = 'Before.\n\n| Document | Issuer |\n| --- | --- |\n| Articles | to confirm |\n| TIN | NBR |\n\nAfter.\n';
+
+test('a trusted writer edits text inside a table cell, and only that cell changes', () => {
+  const doc = page(TABLE);
+  const out = edit(doc, [{ find: 'to confirm', replace: 'RJSC Bangladesh' }], { by: 'owner', direct: true });
+  assert.equal(out.applied, 1);
+  assert.equal(read(doc), 'Before.\n\n| Document | Issuer |\n| --- | --- |\n| Articles | RJSC Bangladesh |\n| TIN | NBR |\n\nAfter.');
+});
+
+test('table cells are searched in row order, so occurrence and ambiguity count them', () => {
+  const doc = page('| a | x |\n| --- | --- |\n| x | b |\n');
+  assert.equal(edit(doc, [{ find: 'x', replace: 'y' }], { by: 'owner', direct: true }).ambiguous.length, 1);
+  edit(doc, [{ find: 'x', replace: 'y', occurrence: 2 }], { by: 'owner', direct: true });
+  assert.equal(read(doc), '| a | x |\n| --- | --- |\n| y | b |');
+});
+
+test('a reviewed writer\'s edit inside a table cell is skipped with a reason, and nothing is written', () => {
+  const doc = page(TABLE);
+  const before = snapshot(doc);
+  const out = edit(doc, [{ find: 'to confirm', replace: 'RJSC' }]);
+  assert.equal(out.applied, 0);
+  assert.match(out.skipped[0].reason, /table cell/);
+  assert.deepEqual(snapshot(doc), before);
+});
+
 test('a trusted writer\'s edit that would cut through someone\'s pending del or ins is skipped, and nothing is written', () => {
   const doc = page('Alpha beta gamma delta.\n\nOther line.\n');
   const t = textOf(doc, /Alpha/);

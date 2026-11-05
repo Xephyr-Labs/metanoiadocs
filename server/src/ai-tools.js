@@ -17,7 +17,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { createMetanoiaMcpServer } from './mcp-tools.js';
 
 /** Removing and restoring pages is for people and trusted tokens, not Ask AI. */
-const NOT_FOR_AI = new Set(['delete_doc', 'restore_doc']);
+const NOT_FOR_AI = new Set(['delete_doc', 'restore_doc', 'restore_version']);
 
 /** A doc pasted whole into the prompt is mostly waste past this point. */
 const MAX_TOOL_CHARS = 12000;

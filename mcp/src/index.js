@@ -213,7 +213,7 @@ server.registerTool(
   {
     title: 'Edit part of a doc',
     description:
-      "Change part of a doc without rewriting it: each edit replaces one exact passage (`find`) with `replace`, and nothing else on the page changes. Use this for any change to part of a page, and change only what you were asked to. `find` is the text as it reads on the page (as read_doc shows it, without markdown syntax such as ** or #) inside one block: a paragraph, heading, list item or code block. It must occur exactly once; if it occurs more than once, include more of the surrounding text, or pass `occurrence` (1 = first match, in page order) or `under` (a heading's text, to search only that heading's section). `replace` is plain text and takes the formatting of the text it replaces; an empty `replace` deletes the passage. Edits apply in order, each to the text the earlier ones left. If any find is missing or found more than once, or an edit would cut through someone else's pending suggestion, nothing is changed and the result lists which edits to fix. To add or remove whole blocks or change formatting, use write_doc. Works on pages that write_doc mode=replace refuses. An edit to an existing page may come back as a suggestion instead: a person reviews it before it lands, and you get a review link — share it with whoever asked.",
+      "Change part of a doc without rewriting it: each edit replaces one exact passage (`find`) with `replace`, and nothing else on the page changes. Use this for any change to part of a page, and change only what you were asked to. `find` is the text as it reads on the page (as read_doc shows it, without markdown syntax such as ** or #) inside one block: a paragraph, heading, list item, code block or table cell. It must occur exactly once; if it occurs more than once, include more of the surrounding text, or pass `occurrence` (1 = first match, in page order) or `under` (a heading's text, to search only that heading's section). `replace` is plain text and takes the formatting of the text it replaces; an empty `replace` deletes the passage. Edits apply in order, each to the text the earlier ones left. If any find is missing or found more than once, or an edit would cut through someone else's pending suggestion, nothing is changed and the result lists which edits to fix. To add or remove whole blocks or change formatting, use write_doc. Works on pages that write_doc mode=replace refuses. An edit to an existing page may come back as a suggestion instead: a person reviews it before it lands, and you get a review link — share it with whoever asked.",
     inputSchema: {
       id: z.string().describe('Document id'),
       edits: z
@@ -239,6 +239,44 @@ server.registerTool(
 );
 
 const slideBody = z.string().optional().describe('Slide body as markdown: bullet/numbered lists (indent to nest), paragraphs, sub-headings (##), quotes, code. Inline **bold**, *italic*, `code`, links. Keep it to a few short bullets.');
+
+server.registerTool(
+  'list_versions',
+  {
+    title: "List a doc's saved versions",
+    description:
+      "A page's history, newest first: each saved version's id, label (an autosave, 'Before replace' taken before a write_doc mode=replace, 'Before restore', or a name someone gave it), when it was saved and by whom. Use it with restore_version to undo a change to a page, including your own.",
+    inputSchema: { id: z.string().describe('Document id') },
+  },
+  async ({ id }) => {
+    try {
+      return ok(await api(`/docs/${encodeURIComponent(id)}/versions`));
+    } catch (e) {
+      return fail(e);
+    }
+  }
+);
+
+server.registerTool(
+  'restore_version',
+  {
+    title: 'Put a saved version of a doc back',
+    description:
+      "Roll a page back to one of its saved versions (ids from list_versions), in place: same page, same link, everything after that version undone. The page as it was just before is saved first as a 'Before restore' version, so this is itself undoable. To undo a change you made to a page, restore the version from just before it instead of rewriting the page. Needs edit access; an AI assistant or untrusted agent is refused.",
+    inputSchema: {
+      id: z.string().describe('Document id'),
+      versionId: z.string().describe('Version id from list_versions'),
+    },
+  },
+  async ({ id, versionId }) => {
+    try {
+      const r = await api(`/docs/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}/restore-in-place`, { method: 'POST' });
+      return ok(`Restored. The page as it was before is version ${r.undoVersionId}; restore that to undo this.`);
+    } catch (e) {
+      return fail(e);
+    }
+  }
+);
 
 server.registerTool(
   'create_slides',

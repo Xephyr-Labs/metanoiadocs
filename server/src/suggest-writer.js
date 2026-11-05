@@ -6,7 +6,7 @@
 // else's are left exactly as they are.
 import crypto from 'node:crypto';
 import * as Y from 'yjs';
-import { blocksToMarkdown, bodyNote, buildDocState, copyTree, dropTree } from './blocks.js';
+import { blocksToMarkdown, bodyNote, buildDocState, copyTree, dropTree, tableAxes } from './blocks.js';
 import { blockView, listSuggestions } from './inline-suggest.js';
 import { renumberLists } from './suggestions.js';
 
@@ -534,6 +534,14 @@ export function suggestEdits({ doc, edits, by, via, agent, direct = false, at = 
       if (!(b instanceof Y.Map) || !blockView(b, viewBy)) continue;
       const t = b.get('prop:text');
       if (t instanceof Y.Text) entries.push({ id, b, t, kids, units: unitsOf(t).filter((u) => visible(u.s, viewBy)) });
+      // A table keeps each cell's text on the table block itself, row by row.
+      if (b.get('sys:flavour') === 'affine:table') {
+        const { rows, cols } = tableAxes(b);
+        for (const r of rows) for (const c of cols) {
+          const ct = b.get(`prop:cells.${r.id}:${c.id}.text`);
+          if (ct instanceof Y.Text) entries.push({ id, b, t: ct, kids, cell: true, units: unitsOf(ct).filter((u) => visible(u.s, viewBy)) });
+        }
+      }
       const k = b.get('sys:children');
       if (k instanceof Y.Array) walk(k);
     }
@@ -596,6 +604,14 @@ export function suggestEdits({ doc, edits, by, via, agent, direct = false, at = 
   const plans = [];
   for (const e of entries) {
     if (!changed.has(e)) continue;
+    // A cell has no block of its own to hold a remove-and-add, and the editor
+    // shows no inline marks inside a table: only a direct write can change it.
+    if (e.cell && !direct) {
+      for (const k of changed.get(e)) {
+        skipped.push({ edit: k, find: edits[k].find, blockId: e.id, reason: 'inside a table cell, which only a direct edit can change; comment instead' });
+      }
+      continue;
+    }
     const s = sugg(e.b);
     // The writer's own added block is all theirs already: edited as it stands.
     const ownAdd = s?.kind === 'add' && own(w, s);
