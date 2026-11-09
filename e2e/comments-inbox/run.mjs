@@ -143,6 +143,12 @@ await step('edited passage shows old and new', async () => {
   check('card strikes the old words', del === TARGET, String(del));
   check('card shows what they say now', ins === 'The quarterly target is ten or twelve new clients.', String(ins));
   check('card says the text changed', await page.getByText('The text has changed since this comment.').isVisible());
+  const marks = await page.evaluate(() => ({
+    changed: [...(CSS.highlights.get('mn-comment-changed') ?? [])].map((r) => r.toString()),
+    plain: [...(CSS.highlights.get('mn-comment') ?? [])].map((r) => r.toString()),
+  }));
+  check('edited passage stays marked, in orange', marks.changed.length === 1 && marks.changed[0] === 'The quarterly target is ten or twelve new clients.', JSON.stringify(marks.changed));
+  check('and not also in yellow', !marks.plain.some((t) => t.includes('twelve')), JSON.stringify(marks.plain));
   await page.screenshot({ path: `${OUT}/e2e-comment-changed.png` });
 });
 
