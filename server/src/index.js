@@ -1201,7 +1201,16 @@ app.get('/api/docs/:id/markdown', requireUser, wrap(async (req, res) => {
   // while the page holds any of it.
   // Whether a reader can trust this page: the state, and who vouched when.
   const { rows: [vr] } = await pool.query(`SELECT ${VERIFY_COLUMNS} FROM docs d ${VERIFY_JOINS} WHERE d.id = $1`, [req.params.id]);
-  res.json({ id: req.params.id, title: d.rows[0].title, markdown, verification: verifyView(vr), ...(lossy.length ? { lossy } : {}), ...(pendingSuggestion ? { pendingSuggestion } : {}), editors });
+  // Voice notes in the page, with what was said: markdown carries only their
+  // links, and an agent reading the page should hear them too.
+  const keys = [...new Set([...markdown.matchAll(/\/api\/blob\/([^)\s?#]+)/g)].map((m) => { try { return decodeURIComponent(m[1]); } catch { return m[1]; } }))];
+  const { rows: sounds } = keys.length
+    ? await pool.query(`SELECT key FROM blobs WHERE key = ANY($1::text[]) AND mime LIKE 'audio/%'`, [keys])
+    : { rows: [] };
+  const audio = await Promise.all(sounds.map(async ({ key }) => ({
+    url: `/api/blob/${encodeURIComponent(key)}`, transcript: await transcriptFor(key).catch(() => ({ status: 'failed' })),
+  })));
+  res.json({ id: req.params.id, title: d.rows[0].title, markdown, verification: verifyView(vr), ...(lossy.length ? { lossy } : {}), ...(audio.length ? { audio } : {}), ...(pendingSuggestion ? { pendingSuggestion } : {}), editors });
 }));
 
 /** Who reviews this caller's AI edits on a page, as { id, name }; null when anyone who can edit may. */

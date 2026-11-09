@@ -18,7 +18,7 @@ import { commentText } from './comment-input.js';
 import { CLOSED, STATUSES } from './task-writes.js';
 
 /** A comment's files as an agent can use them: what each is, and where to
- *  fetch it with the same token. A voice note is not transcribed. */
+ *  fetch it with the same token. withTranscripts adds a voice note's words. */
 const agentFiles = (files) =>
   files?.length ? files.map((f) => ({ name: f.name, mime: f.mime, url: `/api/blob/${f.key}` })) : undefined;
 
@@ -131,6 +131,16 @@ const fieldsInput = z
 
 export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZONE, signal }) {
   const origin = String(base || '').replace(/\/+$/, '');
+
+  /** A comment's files with each voice note's transcript ({ status, text }),
+   *  so an agent acts on what was said without fetching and transcribing it. */
+  const withTranscripts = (files) =>
+    files?.length
+      ? Promise.all(agentFiles(files).map(async (f, i) =>
+        /^audio\//i.test(f.mime)
+          ? { ...f, transcript: await api(`/blob/${files[i].key}/transcript`).catch(() => ({ status: 'failed' })) }
+          : f))
+      : undefined;
 
   async function api(path, { method = 'GET', body, raw, headers: extra } = {}) {
     const res = await fetch(`${origin}/api${path}`, {
@@ -246,7 +256,7 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
     {
       title: 'Read a doc',
       description:
-        "Get a doc's title and its body as markdown, by id — the same markdown write_doc and create_doc take, formatting included, with links to other docs as [[Title]] (or [[id|Title]] where two docs share the title). To change part of a doc, use edit_doc. For a full rewrite, change this markdown and write it back with write_doc mode=replace: text, formatting, lists, tables, panels, images and links you leave as they were come back unchanged. If the result has `lossy`, the page also holds things markdown cannot carry (database, canvas, attachment, equation, embed) and replace is refused — append or comment instead. `verification` says whether anyone has vouched for the page — state unverified, verified or needs_review (its interval passed or someone edited it since), and who verified it when — so you know how far to trust it. If you have edits waiting for review on the page, you read your draft (with `pendingSuggestion`), so a further replace builds on it.",
+        "Get a doc's title and its body as markdown, by id — the same markdown write_doc and create_doc take, formatting included, with links to other docs as [[Title]] (or [[id|Title]] where two docs share the title). To change part of a doc, use edit_doc. For a full rewrite, change this markdown and write it back with write_doc mode=replace: text, formatting, lists, tables, panels, images and links you leave as they were come back unchanged. If the result has `lossy`, the page also holds things markdown cannot carry (database, canvas, attachment, equation, embed) and replace is refused — append or comment instead. `verification` says whether anyone has vouched for the page — state unverified, verified or needs_review (its interval passed or someone edited it since), and who verified it when — so you know how far to trust it. Voice notes recorded into the page come back in `audio`, each with its url and `transcript` ({ status, text }; pending means ask again shortly): act on what they say. If you have edits waiting for review on the page, you read your draft (with `pendingSuggestion`), so a further replace builds on it.",
       inputSchema: { id: z.string().describe('Document id') },
     },
     async ({ id }) => {
@@ -508,7 +518,7 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
     {
       title: 'Read a doc\'s comments',
       description:
-        'The comment threads on a doc, oldest first. Each row carries the author, the body, the quoted text it is anchored to, whether it is resolved, `suggestion` when the comment proposes new text for the quote ({ text, status: pending | accepted | rejected }), and `parentId` — null for a thread root, otherwise the comment it replies to. Reach for this whenever you are told you were mentioned on a doc: the notification only says which doc, so the request itself lives here.',
+        'The comment threads on a doc, oldest first. Each row carries the author, the body, the quoted text it is anchored to, whether it is resolved, `suggestion` when the comment proposes new text for the quote ({ text, status: pending | accepted | rejected }), and `parentId` — null for a thread root, otherwise the comment it replies to. Each voice note file carries its `transcript` ({ status, text }; pending means ask again shortly): act on what it says. Reach for this whenever you are told you were mentioned on a doc: the notification only says which doc, so the request itself lives here.',
       inputSchema: {
         id: z.string().describe('Document id'),
         includeResolved: z
@@ -522,17 +532,17 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
         const rows = await api(`/docs/${encodeURIComponent(id)}/comments`);
         const kept = (rows || []).filter((c) => includeResolved || !c.resolved);
         return ok(
-          kept.map((c) => ({
+          await Promise.all(kept.map(async (c) => ({
             id: c.id,
             author: c.author_name,
             body: commentText(c.body, c.attachments),
-            files: agentFiles(c.attachments),
+            files: await withTranscripts(c.attachments),
             quote: c.quote || null,
             suggestion: commentSuggestion(c),
             parentId: c.parent_id,
             resolved: c.resolved,
             createdAt: c.created_at,
-          })),
+          }))),
         );
       } catch (e) {
         return fail(e);
@@ -592,14 +602,14 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
       try {
         const rows = await api(`/tasks/${encodeURIComponent(taskId)}/comments`);
         return ok(
-          (rows || []).map((c) => ({
+          await Promise.all((rows || []).map(async (c) => ({
             id: c.id,
             author: c.author_name,
             body: commentText(c.body, c.attachments),
-            files: agentFiles(c.attachments),
+            files: await withTranscripts(c.attachments),
             parentId: c.parent_id,
             createdAt: c.created_at,
-          })),
+          }))),
         );
       } catch (e) {
         return fail(e);
