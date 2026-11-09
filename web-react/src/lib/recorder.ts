@@ -9,11 +9,12 @@
  * Chromium without the AAC encoder, record webm instead; any mp4 is the last
  * resort. The stored type is kept bare ("audio/webm", not "audio/webm;codecs=opus"):
  * the blob endpoint plays a fixed list of exact types and downloads the rest.
- * 32 kbps is plenty for speech — about 240 KB a minute — and ten minutes is
- * the cap, so one note stays a couple of megabytes in a Postgres row.
+ * 32 kbps is plenty for speech — about 240 KB a minute — and thirty minutes
+ * is the cap: about 7 MB, under the 10 MB transcription limit (transcribe.js)
+ * and the 25 MB upload limit. Ten minutes cut real meetings short (9 Nov 2026).
  */
 
-export const MAX_VOICE_MS = 10 * 60 * 1000;
+export const MAX_VOICE_MS = 30 * 60 * 1000;
 const BITRATE = 32000;
 
 const AAC = 'audio/mp4;codecs=mp4a.40.2';
