@@ -161,3 +161,17 @@ test('a ~2 MB attachment goes through POST /mcp (the global 100 KB parser does n
   const big = await fetch(`http://127.0.0.1:${port}/api/docs/x/content`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ a: 'x'.repeat(200000) }) });
   assert.equal(big.status, 413);
 });
+
+test('read_comments hands an agent each voice note with its transcript, other files as they are', async () => {
+  const voice = { key: 'a'.repeat(64), name: 'Voice note.webm', mime: 'audio/webm', size: 9 };
+  const pdf = { key: 'b'.repeat(64), name: 'plan.pdf', mime: 'application/pdf', size: 9 };
+  const r = await call('read_comments', { id: 'd1' }, (url) =>
+    url.endsWith('/transcript')
+      ? { status: 'done', text: 'Move the launch to Friday.' }
+      : [{ id: 'c1', author_name: 'Ana', body: '', attachments: [voice, pdf], resolved: false }]);
+  const [c] = JSON.parse(r.text);
+  assert.equal(c.body, '🎤 Voice note');
+  assert.deepEqual(c.files[0].transcript, { status: 'done', text: 'Move the launch to Friday.' });
+  assert.equal(c.files[1].transcript, undefined);
+  assert.deepEqual(r.seen.map((s) => s.url), ['http://x/api/docs/d1/comments', `http://x/api/blob/${voice.key}/transcript`]);
+});

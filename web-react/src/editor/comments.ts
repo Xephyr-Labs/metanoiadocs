@@ -31,6 +31,8 @@ export interface CommentAnchor {
 
 const HL_NAME = 'mn-comment';
 const HL_SUGGESTION = 'mn-suggestion';
+/** A thread whose passage was edited since: still marked, in orange. */
+const HL_CHANGED = 'mn-comment-changed';
 /** The passage a card was just clicked to, flashed so the eye lands on it. */
 const HL_ACTIVE = 'mn-comment-active';
 const supported = typeof CSS !== 'undefined' && 'highlights' in CSS;
@@ -244,6 +246,16 @@ function readsNow(root: Element, c: HighlightRow): string | null {
   const s = c.anchor_start && c.anchor_end ? anchoredText(t, c.anchor_start, c.anchor_end) : undefined;
   return s ?? t.toString();
 }
+/** Where an edited passage is now: the text between its anchors, found the
+ *  way an unedited quote is. Null without anchors or once the text is gone. */
+function changedRange(root: Element, c: HighlightRow): Range | null {
+  if (!c.block_id || !c.anchor_start || !c.anchor_end) return null;
+  const el = root.querySelector(`[data-block-id="${CSS.escape(c.block_id)}"]`);
+  const t = yTextOf(el);
+  const now = t ? normalizeQuote(anchoredText(t, c.anchor_start, c.anchor_end) ?? '') : '';
+  if (!now) return null;
+  return rangeForThread(root, c.block_id, now, 0, { start: c.anchor_start, end: c.anchor_end });
+}
 let lastRows: HighlightRow[] = [];
 
 export function applyCommentHighlights(rows: HighlightRow[]) {
@@ -255,6 +267,7 @@ export function applyCommentHighlights(rows: HighlightRow[]) {
   applied = [];
   const nextDetached = new Map<string, string | null>();
   const suggestionRanges: Range[] = [];
+  const changedRanges: Range[] = [];
   authors = new Map(rows.map((c) => [c.id, c.author_name ?? '']));
   hlRoot.querySelectorAll(`[${MARK_ATTR}]`).forEach((el) => el.removeAttribute(MARK_ATTR));
   for (const c of rows) {
@@ -277,15 +290,21 @@ export function applyCommentHighlights(rows: HighlightRow[]) {
     if (!quote) continue;
     const r = rangeForThread(hlRoot, c.block_id, quote, c.quote_occurrence ?? 0,
       c.anchor_start && c.anchor_end ? { start: c.anchor_start, end: c.anchor_end } : null);
-    if (!r) { nextDetached.set(c.id, readsNow(hlRoot, c)); continue; }
+    if (!r) {
+      nextDetached.set(c.id, readsNow(hlRoot, c));
+      const moved = changedRange(hlRoot, c);
+      if (moved) { applied.push({ range: moved, id: c.id }); changedRanges.push(moved); }
+      continue;
+    }
     applied.push({ range: r, id: c.id });
     if (c.kind === 'suggestion' && !c.suggestion_status) suggestionRanges.push(r);
   }
   detached = nextDetached;
   const Highlight = (window as unknown as { Highlight: new (...r: Range[]) => unknown }).Highlight;
   const registry = (CSS as unknown as { highlights: Map<string, unknown> }).highlights;
-  const suggested = new Set(suggestionRanges);
-  registry.set(HL_NAME, new Highlight(...applied.flatMap((a) => (a.range && !suggested.has(a.range) ? [a.range] : []))));
+  const own = new Set([...suggestionRanges, ...changedRanges]);
+  registry.set(HL_NAME, new Highlight(...applied.flatMap((a) => (a.range && !own.has(a.range) ? [a.range] : []))));
+  registry.set(HL_CHANGED, new Highlight(...changedRanges));
   registry.set(HL_SUGGESTION, new Highlight(...suggestionRanges));
   markerListeners.forEach((l) => l());
 }

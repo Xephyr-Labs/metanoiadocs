@@ -87,6 +87,8 @@
   --comment: #fdfaee;
   --comment-mark: rgba(250, 204, 21, 0.32);
   --comment-mark-active: rgba(250, 204, 21, 0.62);
+  /* A commented passage edited since the comment: orange, not yellow. */
+  --comment-changed: rgba(249, 115, 22, 0.30);
   /* Suggested edits: green insert, red delete (editor/suggest). */
   --sugg-ins-fg: #137333;
   --sugg-ins-bg: #e6f4ea;
@@ -226,6 +228,7 @@ html.dark {
   --comment: #26241c;
   --comment-mark: rgba(214, 178, 66, 0.30);
   --comment-mark-active: rgba(214, 178, 66, 0.55);
+  --comment-changed: rgba(234, 120, 50, 0.32);
 
   --table-tint: 30%;
   --highlight-ink-mix: 34%;
@@ -245,6 +248,11 @@ html.dark {
 /* Commented text in the editor (CSS Custom Highlight API, set by editor/comments.ts). */
 ::highlight(mn-comment) {
   background-color: var(--comment-mark);
+}
+/* A commented passage edited since (editor/comments.ts changedRange); its card
+   shows what it said before. */
+::highlight(mn-comment-changed) {
+  background-color: var(--comment-changed);
 }
 /* The passage a comment card was just clicked to (revealComment): a beat
    stronger than the mark, so the eye finds it after the scroll. */

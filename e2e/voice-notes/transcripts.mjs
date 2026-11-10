@@ -226,6 +226,13 @@ await step('page', async () => {
   await ctx.close();
 });
 
+await step('agent', async () => {
+  // read_doc returns this body: an agent reading the page gets each voice note's words.
+  const md = await until(async () => { const r = await maya.get(`/api/docs/${doc.id}/markdown`); return r.audio?.[0]?.transcript?.status === 'done' && r; });
+  check('agent: the page read lists its voice note with the transcript', /^Stub transcript of \d+ bytes\.$/.test(md?.audio?.[0]?.transcript?.text ?? '') && md.audio.length === 1, JSON.stringify(md?.audio));
+  check('agent: the markdown still links it', md?.markdown?.includes(md?.audio?.[0]?.url));
+});
+
 await step('turned-off', async () => {
   await maya.call('PUT', '/api/settings/transcription', { enabled: false });
   const ctx = await ctxFor(maya);
