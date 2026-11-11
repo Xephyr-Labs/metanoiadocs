@@ -26,10 +26,11 @@ export function DriveView() {
   const [files, setFiles] = useState<DriveFile[] | null>(null);
   const [error, setError] = useState('');
   const seq = useRef(0);
+  const [retry, setRetry] = useState(0);
 
   useEffect(() => {
-    docsApi.driveStatus().then(setStatus).catch((e) => setError(e.message));
-  }, []);
+    docsApi.driveStatus().then((s) => { setStatus(s); setError(''); }).catch((e) => setError(e.message));
+  }, [retry]);
 
   const folder = trail.at(-1)?.id ?? status?.driveId ?? undefined;
   const q = query.trim();
@@ -41,11 +42,11 @@ export function DriveView() {
     const t = setTimeout(() => {
       docsApi
         .driveFiles(q ? { q, limit: LIMIT } : { folder, limit: LIMIT })
-        .then((rows) => n === seq.current && setFiles(rows))
+        .then((rows) => { if (n === seq.current) { setFiles(rows); setError(''); } })
         .catch((e) => n === seq.current && setError(e.message));
     }, q ? 200 : 0);
     return () => clearTimeout(t);
-  }, [status?.connected, folder, q]);
+  }, [status?.connected, folder, q, retry]);
 
   const header = (
     <header className="mb-5">
@@ -121,7 +122,10 @@ export function DriveView() {
       )}
 
       {error ? (
-        <p className="text-sm text-danger-strong">{error}</p>
+        <div role="alert" className="flex flex-col items-start gap-2">
+          <p className="text-sm text-danger-strong">{error}</p>
+          <Button onClick={() => setRetry((n) => n + 1)}>Try again</Button>
+        </div>
       ) : files === null ? (
         <p className="text-sm text-muted">Loading…</p>
       ) : files.length === 0 ? (

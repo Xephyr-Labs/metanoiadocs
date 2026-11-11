@@ -14,7 +14,9 @@ import { useDocMenu } from '../../hooks/useDocMenu';
 import { useWorkspace } from '../../store/workspace';
 import type { Page } from '../../lib/types';
 import { EmptyState } from '../ui/EmptyState';
+import { Button } from '../ui/Button';
 import { IconButton } from '../ui/IconButton';
+import { pickImportFiles } from '../../lib/docFiles';
 import { Menu } from '../ui/Menu';
 import { Pager, usePaged } from '../ui/Pager';
 import { PageIcon } from '../ui/PageIcon';
@@ -130,6 +132,12 @@ export function AllDocsView() {
 
         {rows.length === 0 ? (
           <EmptyState
+            action={!query && scope === 'all' ? (
+              <div className="flex gap-2">
+                <Button onClick={() => { pickImportFiles().then((f) => { if (f.length) ws.importFiles(f, null); }); }}>Import</Button>
+                <Button variant="primary" onClick={() => ws.createPage(null)}>New page</Button>
+              </div>
+            ) : undefined}
             icon={FileText}
             title={query ? 'Nothing matches' : scope === 'unfiled' ? 'Everything is filed' : 'No documents yet'}
             hint={

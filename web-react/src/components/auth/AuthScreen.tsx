@@ -29,13 +29,16 @@ function Field({
   ...props
 }: { icon: typeof User } & React.InputHTMLAttributes<HTMLInputElement>) {
   return (
-    <div className="flex h-10 items-center gap-2.5 rounded-lg bg-surface px-3 ring-1 ring-inset ring-line transition-shadow focus-within:bg-canvas focus-within:ring-2 focus-within:ring-accent">
-      <Icon size={16} className="shrink-0 text-faint" />
-      <input
-        {...props}
-        className="h-full flex-1 bg-transparent text-base text-ink outline-none placeholder:text-faint"
-      />
-    </div>
+    <label className="block text-sm text-muted">
+      <span className="mb-1 block">{props.placeholder}</span>
+      <div className="flex h-10 items-center gap-2.5 rounded-lg bg-surface px-3 ring-1 ring-inset ring-line transition-shadow focus-within:bg-canvas focus-within:ring-2 focus-within:ring-accent">
+        <Icon size={16} className="shrink-0 text-faint" />
+        <input
+          {...props}
+          className="h-full flex-1 bg-transparent text-base text-ink outline-none placeholder:text-faint"
+        />
+      </div>
+    </label>
   );
 }
 
@@ -58,23 +61,28 @@ export function AuthScreen() {
     if (busy) return;
     setError(null);
     setBusy(true);
-    const res =
-      mode === 'login'
-        ? await login(username, password)
-        : mode === 'forgot'
-          ? await requestLink(email)
-          : mode === 'setup'
-            ? await setup(name, username, email, password)
-            : await signup(name, username, email, password);
-    setBusy(false);
-    if (!res.ok) {
-      setError(res.error ?? 'Something went wrong.');
-      return;
+    try {
+      const res =
+        mode === 'login'
+          ? await login(username, password)
+          : mode === 'forgot'
+            ? await requestLink(email)
+            : mode === 'setup'
+              ? await setup(name, username, email, password)
+              : await signup(name, username, email, password);
+      if (!res.ok) {
+        setError(res.error ?? 'Something went wrong.');
+        return;
+      }
+      // Whether or not that address has an account, the answer is the same one —
+      // a sign-in screen that confirms which addresses exist is a list of who to
+      // go after.
+      if (mode === 'forgot') setSent(true);
+    } catch {
+      setError('Could not connect. Check your connection and try again.');
+    } finally {
+      setBusy(false);
     }
-    // Whether or not that address has an account, the answer is the same one —
-    // a sign-in screen that confirms which addresses exist is a list of who to
-    // go after.
-    if (mode === 'forgot') setSent(true);
     // Otherwise the app swaps to the workspace automatically (user is set).
   };
 
@@ -170,25 +178,29 @@ export function AuthScreen() {
           )}
 
           {mode !== 'forgot' && (
-          <div className="flex h-10 items-center gap-2.5 rounded-lg bg-surface px-3 ring-1 ring-inset ring-line transition-shadow focus-within:bg-canvas focus-within:ring-2 focus-within:ring-accent">
-            <Lock size={16} className="shrink-0 text-faint" />
-            <input
-              type={showPw ? 'text' : 'password'}
-              placeholder="Password"
-              autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="h-full flex-1 bg-transparent text-base text-ink outline-none placeholder:text-faint"
-            />
-            <button
-              type="button"
-              onClick={() => setShowPw((s) => !s)}
-              className="text-faint transition-colors hover:text-muted"
-              aria-label={showPw ? 'Hide password' : 'Show password'}
-            >
-              {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
-            </button>
-          </div>
+            <div>
+              <label htmlFor="auth-password" className="mb-1 block text-sm text-muted">Password</label>
+              <div className="flex h-10 items-center gap-2.5 rounded-lg bg-surface px-3 ring-1 ring-inset ring-line transition-shadow focus-within:bg-canvas focus-within:ring-2 focus-within:ring-accent">
+                <Lock size={16} className="shrink-0 text-faint" />
+                <input
+                  type={showPw ? 'text' : 'password'}
+                  id="auth-password"
+                  placeholder="Password"
+                  autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="h-full flex-1 bg-transparent text-base text-ink outline-none placeholder:text-faint"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPw((s) => !s)}
+                  className="text-faint transition-colors hover:text-muted"
+                  aria-label={showPw ? 'Hide password' : 'Show password'}
+                >
+                  {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+            </div>
           )}
 
           <AnimatePresence>
@@ -197,6 +209,7 @@ export function AuthScreen() {
                 initial={{ opacity: 0, y: -4 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -4 }}
+                role="alert"
                 className="flex items-center gap-2 rounded-md bg-danger-soft px-3 py-2 text-sm text-danger-strong"
               >
                 <AlertCircle size={16} className="shrink-0" />
