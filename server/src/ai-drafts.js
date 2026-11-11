@@ -3,7 +3,7 @@
 // an agent's draft anyone who can edit the page, reviews it block by block.
 import crypto from 'node:crypto';
 import * as Y from 'yjs';
-import { appendMarkdownToDoc, lossyBlocks, replaceBodyKeepingIds } from './blocks.js';
+import { appendMarkdownToDoc, blockAfter, lossyBlocks, replaceBodyKeepingIds } from './blocks.js';
 import { computeChanges, docFromState, draftName, pending } from './suggestions.js';
 import { suggestEdits, suggestMarkdown } from './suggest-writer.js';
 
@@ -46,7 +46,7 @@ export async function draftToRead({ pool, docId, authorId, approverId, writerVia
  * @returns {{ sid: string, created: boolean, changes: number, edited?: object }}
  *   changes = still undecided; edited = suggestEdits' result, for `edits`.
  */
-export async function writeToDraft({ pool, hocuspocus, pageState, docId, title, authorId, approverId, writerVia, markdown, mode, edits, resolve, notify }) {
+export async function writeToDraft({ pool, hocuspocus, pageState, docId, title, authorId, approverId, writerVia, markdown, mode, after, edits, resolve, notify }) {
   const key = { pool, docId, authorId, approverId, writerVia };
   let row = await openDraftFor(key);
   let created = false;
@@ -79,7 +79,7 @@ export async function writeToDraft({ pool, hocuspocus, pageState, docId, title, 
         if (edits) { edited = suggestEdits({ doc, edits, by: authorId, direct: true }); wrote = true; return; }
         wrote = mode === 'replace'
           ? replaceBodyKeepingIds(doc, title, markdown, resolve)
-          : appendMarkdownToDoc(doc, markdown, resolve) || replaceBodyKeepingIds(doc, title, markdown, resolve);
+          : appendMarkdownToDoc(doc, markdown, resolve, after && blockAfter(doc.getMap('blocks'), after)) || replaceBodyKeepingIds(doc, title, markdown, resolve);
       });
       if (!wrote) throw new Error('no body');
       draftState = Y.encodeStateAsUpdate(conn.document);
@@ -154,7 +154,7 @@ export function editMiss(out) {
  * edits, decided the same way; they touch only what they match, so a page
  * markdown cannot fully carry is no reason to refuse them.
  */
-export async function draftEdit({ policy, kind, via, agent, pageState, approver, pool, hocuspocus, docId, title, authorId, markdown, mode, edits, resolve, notify }) {
+export async function draftEdit({ policy, kind, via, agent, pageState, approver, pool, hocuspocus, docId, title, authorId, markdown, mode, after, edits, resolve, notify }) {
   if (policy === 'direct' || kind === 'task') return null;
   const state = await pageState(docId);
   if (!state || !docFromState(state).getMap('blocks').size) return null;
@@ -168,7 +168,7 @@ export async function draftEdit({ policy, kind, via, agent, pageState, approver,
     let out;
     try {
       out = await writeToDraft({
-        pool, hocuspocus, pageState, docId, title, authorId, approverId: who?.id ?? null, writerVia, markdown, mode, edits, resolve, notify,
+        pool, hocuspocus, pageState, docId, title, authorId, approverId: who?.id ?? null, writerVia, markdown, mode, after, edits, resolve, notify,
       });
     } catch (e) {
       if (e.message === 'no body') return noBody;
@@ -194,7 +194,7 @@ export async function draftEdit({ policy, kind, via, agent, pageState, approver,
         const aiVia = via === 'ai' ? 'ai' : undefined;
         out = edits
           ? suggestEdits({ doc, edits, by: authorId, via: aiVia, agent })
-          : suggestMarkdown({ doc, markdown, mode, by: authorId, via: aiVia, agent, title, resolve });
+          : suggestMarkdown({ doc, markdown, mode, after, by: authorId, via: aiVia, agent, title, resolve });
       });
     } finally {
       await conn.disconnect();
