@@ -1015,6 +1015,35 @@ export function bodyNote(blocks) {
     ?? null;
 }
 
+/** A write's `after` anchor that matched no block, or more than one. */
+export class AnchorError extends Error {}
+
+const foldText = (s) => String(s).replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/[‐‑‒–—―]/g, '-').replace(/\s+/g, ' ').trim();
+
+/**
+ * The top-level body block whose text holds `text`, as read on the page: where
+ * a write with `after` puts its blocks. A passage inside a list or panel
+ * anchors on the whole list or panel, so nothing lands inside one. Throws
+ * AnchorError unless exactly one block matches.
+ */
+export function blockAfter(blocks, text) {
+  const want = foldText(text);
+  if (!want) throw new AnchorError('after is empty');
+  const note = bodyNote(blocks);
+  const textOf = (id, depth = 0) => {
+    const b = blocks.get(id);
+    if (!(b instanceof Y.Map) || depth > 20) return '';
+    const t = b.get('prop:text');
+    const own = t instanceof Y.Text ? t.toString() : '';
+    return [own, ...kidsOf(b).map((k) => textOf(k, depth + 1))].join(' ');
+  };
+  const hits = (note ? kidsOf(note) : []).filter((id) => foldText(textOf(id)).includes(want));
+  if (hits.length === 1) return hits[0];
+  throw new AnchorError(hits.length
+    ? `after "${text}" matches ${hits.length} blocks; quote more of the passage`
+    : `after "${text}" is not on the page; quote it as read_doc shows it, without markdown syntax`);
+}
+
 /**
  * Append a paragraph holding one page reference to a LIVE Yjs document.
  *

@@ -299,18 +299,19 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
     {
       title: 'Write to a doc',
       description:
-        "Append or replace a doc's content with markdown. mode=append (default) adds to the end; mode=replace overwrites. Same markdown as create_doc — panels (`> [!NOTE]`), text colour and highlight (`<span style=\"color: red\">`, `<mark>`), `<u>` and `<small>`/`<big>` line sizes included, and `[[Doc title]]` / `[[doc id]]` links to other docs. To change part of a doc, use edit_doc instead: it changes only the passages you name. Use mode=replace only to rewrite the whole page: read_doc it, change that markdown and send all of it back — never rewrite from memory or from plain text, which drops formatting and links. Any [[link]] that matched no doc is listed back in unresolvedLinks. Changes appear when the doc is next opened. An edit to an existing page may come back as a suggestion instead: a person reviews it before it lands, and you get a review link — share it with whoever asked.",
+        "Append or replace a doc's content with markdown. mode=append (default) adds to the end, or, with `after` (a passage on the page, as read_doc shows it without markdown syntax), right after the block holding it: the way to add a heading, paragraph or list mid-page without rewriting the page, so comments and everything else stay. A passage inside a list or panel puts the new blocks after the whole list or panel. To turn an existing paragraph into a heading, add the heading after the block before it, then delete the old text with edit_doc. mode=replace overwrites. Same markdown as create_doc — panels (`> [!NOTE]`), text colour and highlight (`<span style=\"color: red\">`, `<mark>`), `<u>` and `<small>`/`<big>` line sizes included, and `[[Doc title]]` / `[[doc id]]` links to other docs. To change part of a doc, use edit_doc instead: it changes only the passages you name. Use mode=replace only to rewrite the whole page: read_doc it, change that markdown and send all of it back — never rewrite from memory or from plain text, which drops formatting and links. Any [[link]] that matched no doc is listed back in unresolvedLinks. Changes appear when the doc is next opened. An edit to an existing page may come back as a suggestion instead: a person reviews it before it lands, and you get a review link — share it with whoever asked.",
       inputSchema: {
         id: z.string().describe('Document id'),
         markdown: z.string().describe('Markdown content'),
         mode: z.enum(['append', 'replace']).optional(),
+        after: z.string().optional().describe('mode=append only: a passage on the page; the markdown goes right after its block'),
       },
     },
-    async ({ id, markdown, mode }) => {
+    async ({ id, markdown, mode, after }) => {
       try {
         const r = await api(`/docs/${encodeURIComponent(id)}/content`, {
           method: 'POST',
-          body: { markdown, mode },
+          body: { markdown, mode, after },
         });
         if (r?.suggested) return ok(suggestedMessage(r, PUBLIC) + notApplied(r));
         return ok(r?.unresolvedLinks ? { done: true, unresolvedLinks: r.unresolvedLinks } : 'Done.');
@@ -325,7 +326,7 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
     {
       title: 'Edit part of a doc',
       description:
-        "Change part of a doc without rewriting it: each edit replaces one exact passage (`find`) with `replace`, and nothing else on the page changes. Use this for any change to part of a page, and change only what you were asked to. `find` is the text as it reads on the page (as read_doc shows it, without markdown syntax such as ** or #) inside one block: a paragraph, heading, list item, code block or table cell. It must occur exactly once; if it occurs more than once, include more of the surrounding text, or pass `occurrence` (1 = first match, in page order) or `under` (a heading's text, to search only that heading's section). `replace` is plain text and takes the formatting of the text it replaces; an empty `replace` deletes the passage. Edits apply in order, each to the text the earlier ones left. If any find is missing or found more than once, or an edit would cut through someone else's pending suggestion, nothing is changed and the result lists which edits to fix. To add or remove whole blocks or change formatting, use write_doc. Works on pages that write_doc mode=replace refuses. An edit to an existing page may come back as a suggestion instead: a person reviews it before it lands, and you get a review link — share it with whoever asked.",
+        "Change part of a doc without rewriting it: each edit replaces one exact passage (`find`) with `replace`, and nothing else on the page changes. Use this for any change to part of a page, and change only what you were asked to. `find` is the text as it reads on the page (as read_doc shows it, without markdown syntax such as ** or #) inside one block: a paragraph, heading, list item, code block or table cell. It must occur exactly once; if it occurs more than once, include more of the surrounding text, or pass `occurrence` (1 = first match, in page order) or `under` (a heading's text, to search only that heading's section). `replace` is plain text and takes the formatting of the text it replaces; an empty `replace` deletes the passage. Edits apply in order, each to the text the earlier ones left. If any find is missing or found more than once, or an edit would cut through someone else's pending suggestion, nothing is changed and the result lists which edits to fix. To add whole blocks, such as a new heading, use write_doc mode=append with `after` (mid-page, nothing else rewritten); to change formatting, write_doc. Works on pages that write_doc mode=replace refuses. An edit to an existing page may come back as a suggestion instead: a person reviews it before it lands, and you get a review link — share it with whoever asked.",
       inputSchema: {
         id: z.string().describe('Document id'),
         edits: z

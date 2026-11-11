@@ -44,7 +44,7 @@ import { baseMime } from './media.js';
 import { commentInput } from './comment-input.js';
 import { deleteUnusedAudio } from './blob-cleanup.js';
 import { docCommentRecipients } from './comment-recipients.js';
-import { buildDocState, appendMarkdownToDoc, appendPageReference, extractText, extractBlocks, docToMarkdown, fixTableOrderKeys, stateWithValidTableKeys, linkResolver, linkLabeler, pageLinksOf, lossyBlocks, buildDeckState, addSlideToDoc, updateSlideInDoc, listSlides, looseCanvasMarkdown } from './blocks.js';
+import { buildDocState, appendMarkdownToDoc, appendPageReference, extractText, extractBlocks, docToMarkdown, fixTableOrderKeys, stateWithValidTableKeys, linkResolver, linkLabeler, pageLinksOf, lossyBlocks, buildDeckState, addSlideToDoc, updateSlideInDoc, listSlides, looseCanvasMarkdown, blockAfter, AnchorError } from './blocks.js';
 import { rewriteDoc } from './restore.js';
 import { registerCalendarRoutes } from './calendar.js';
 import { registerCalendarWriteRoutes } from './calendar-write.js';
@@ -1362,13 +1362,26 @@ app.post('/api/docs/:id/content', requireUser, wrap(async (req, res) => {
   if (!(await editGrant(docId, req.user.id))) return res.status(403).json({ error: 'forbidden' });
   const markdown = String(req.body?.markdown || '');
   const mode = req.body?.mode === 'replace' ? 'replace' : 'append';
+  // `after`: a passage on the page; an append lands right after its block
+  // instead of at the end, so a heading can go mid-page without a rewrite.
+  const after = req.body?.after ? String(req.body.after).slice(0, 2000) : undefined;
+  if (after && mode !== 'append') return res.status(400).json({ error: 'after works with mode=append only' });
   const d = await pool.query('SELECT title, kind FROM docs WHERE id = $1 AND deleted_at IS NULL', [docId]);
   if (!d.rows[0]) return res.status(404).json({ error: 'not found' });
   const { resolve } = await docLinkContext(req.user.id);
+  try {
+    await writeContent(req, res, { docId, markdown, mode, after, resolve, d });
+  } catch (e) {
+    if (e instanceof AnchorError) return res.status(409).json({ error: e.message });
+    throw e;
+  }
+}));
 
+/** /content's write, once the request is checked; an unmatched `after` throws AnchorError. */
+async function writeContent(req, res, { docId, markdown, mode, after, resolve, d }) {
   // An untrusted writer's edit to a page with a body lands in a draft for a
   // person to review, never on the page (see ai-drafts.js).
-  const drafted = await draftWrite(req, docId, d.rows[0], { markdown, mode, resolve });
+  const drafted = await draftWrite(req, docId, d.rows[0], { markdown, mode, after, resolve });
   if (drafted) return res.status(drafted.status).json(drafted.body);
 
   // A replace swaps the whole body, which is what restoring a version does —
@@ -1396,7 +1409,7 @@ app.post('/api/docs/:id/content', requireUser, wrap(async (req, res) => {
     // it will be is only known inside the write, so the state is kept now.
     const before = mode === 'append' && had ? Buffer.from(Y.encodeStateAsUpdate(conn.document)) : null;
     await conn.transact((doc) => {
-      if (mode === 'append' && appendMarkdownToDoc(doc, markdown, resolve)) {
+      if (mode === 'append' && appendMarkdownToDoc(doc, markdown, resolve, after && blockAfter(doc.getMap('blocks'), after))) {
         // appended in place
       } else if (mode === 'replace' && listSuggestions(doc).length) {
         // A rebuild would drop everyone's pending suggestions with the old
@@ -1439,7 +1452,7 @@ app.post('/api/docs/:id/content', requireUser, wrap(async (req, res) => {
   const prose = markdown.replace(/^```[^\n]*\n[\s\S]*?^```\s*$/gm, '').replace(/`[^`\n]+`/g, '');
   const unresolved = [...prose.matchAll(/(?<!\\)\[\[([^\]\n]+)\]\]/g)].map((m) => m[1]).filter((k) => !resolve(k));
   res.json({ ok: true, ...(unresolved.length ? { unresolvedLinks: [...new Set(unresolved)] } : {}) });
-}));
+}
 
 registerDocEditRoutes(app, {
   requireUser, wrap, editGrant, pool, draftWrite, storeLinks,

@@ -6,7 +6,7 @@
 // else's are left exactly as they are.
 import crypto from 'node:crypto';
 import * as Y from 'yjs';
-import { blocksToMarkdown, bodyNote, buildDocState, copyTree, dropTree, tableAxes } from './blocks.js';
+import { blockAfter, blocksToMarkdown, bodyNote, buildDocState, copyTree, dropTree, tableAxes } from './blocks.js';
 import { blockView, listSuggestions } from './inline-suggest.js';
 import { renumberLists } from './suggestions.js';
 
@@ -42,7 +42,7 @@ const kidsOf = (b) => {
  *   the page; append: the new ones), in page order; fresh: those this write made;
  *   changes: how many this write made or changed; `skipped`: wishes not written (R14).
  */
-export function suggestMarkdown({ doc, markdown, mode = 'append', by, via, agent, title = '', resolve, direct = false, at = Date.now() }) {
+export function suggestMarkdown({ doc, markdown, mode = 'append', after: anchor, by, via, agent, title = '', resolve, direct = false, at = Date.now() }) {
   const live = doc.getMap('blocks');
   const note = bodyNote(live);
   if (!note) throw new Error('no body');
@@ -57,7 +57,8 @@ export function suggestMarkdown({ doc, markdown, mode = 'append', by, via, agent
     if (!(kids instanceof Y.Array)) { kids = new Y.Array(); note.set('sys:children', kids); }
     if (mode === 'replace') reconcileBlocks(w, kids, incoming);
     else {
-      let after = kids.length ? kids.get(kids.length - 1) : null;
+      // `anchor`: the passage to add after (blockAfter), else the end.
+      let after = anchor ? blockAfter(live, anchor) : kids.length ? kids.get(kids.length - 1) : null;
       for (const id of incoming) after = addBlock(w, kids, after, id);
       renumberLists(live, kids.toArray());
     }
