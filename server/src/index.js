@@ -44,7 +44,7 @@ import { baseMime } from './media.js';
 import { commentInput } from './comment-input.js';
 import { deleteUnusedAudio } from './blob-cleanup.js';
 import { docCommentRecipients } from './comment-recipients.js';
-import { buildDocState, appendMarkdownToDoc, appendPageReference, extractText, extractBlocks, docToMarkdown, fixTableOrderKeys, stateWithValidTableKeys, linkResolver, linkLabeler, pageLinksOf, lossyBlocks, buildDeckState, addSlideToDoc, updateSlideInDoc, listSlides } from './blocks.js';
+import { buildDocState, appendMarkdownToDoc, appendPageReference, extractText, extractBlocks, docToMarkdown, fixTableOrderKeys, stateWithValidTableKeys, linkResolver, linkLabeler, pageLinksOf, lossyBlocks, buildDeckState, addSlideToDoc, updateSlideInDoc, listSlides, looseCanvasMarkdown } from './blocks.js';
 import { rewriteDoc } from './restore.js';
 import { registerCalendarRoutes } from './calendar.js';
 import { registerCalendarWriteRoutes } from './calendar-write.js';
@@ -1184,11 +1184,19 @@ app.get('/api/docs/:id/markdown', requireUser, wrap(async (req, res) => {
   }
   let markdown = '';
   let lossy = [];
+  // What the canvas holds, which the page markdown leaves out: a deck read
+  // back as an empty page (11 Nov), and the agent had no way to know to ask.
+  let slides = [];
+  let canvas = '';
   if (state) {
     const { label } = await docLinkContext(req.user.id);
     try {
       markdown = docToMarkdown(state, { resolveTitle: label, escape: true, withPendingFor }).markdown;
       lossy = lossyBlocks(state);
+      if (lossy.includes('canvas')) {
+        slides = listSlides(state);
+        canvas = looseCanvasMarkdown(state, { resolveTitle: label });
+      }
     } catch { /* empty */ }
   }
   const { rows: editors } = await pool.query(
@@ -1210,7 +1218,7 @@ app.get('/api/docs/:id/markdown', requireUser, wrap(async (req, res) => {
   const audio = await Promise.all(sounds.map(async ({ key }) => ({
     url: `/api/blob/${encodeURIComponent(key)}`, transcript: await transcriptFor(key).catch(() => ({ status: 'failed' })),
   })));
-  res.json({ id: req.params.id, title: d.rows[0].title, markdown, verification: verifyView(vr), ...(lossy.length ? { lossy } : {}), ...(audio.length ? { audio } : {}), ...(pendingSuggestion ? { pendingSuggestion } : {}), editors });
+  res.json({ id: req.params.id, title: d.rows[0].title, markdown, verification: verifyView(vr), ...(lossy.length ? { lossy } : {}), ...(slides.length ? { slides } : {}), ...(canvas ? { canvas } : {}), ...(audio.length ? { audio } : {}), ...(pendingSuggestion ? { pendingSuggestion } : {}), editors });
 }));
 
 /** Who reviews this caller's AI edits on a page, as { id, name }; null when anyone who can edit may. */

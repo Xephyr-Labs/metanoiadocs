@@ -1621,6 +1621,30 @@ export function listSlides(existing) {
 }
 
 /**
+ * Text on the canvas that no slide carries — free text boxes and notes set to
+ * edgeless-only — as markdown, top to bottom then left to right. Page markdown
+ * skips the canvas, so without this a doc built on it reads back empty.
+ */
+export function looseCanvasMarkdown(existing, opts = {}) {
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, new Uint8Array(existing));
+  const blocks = doc.getMap('blocks');
+  const onSlide = new Set(framesOf(blocks).flatMap((f) => {
+    const owned = f.get('prop:childElementIds');
+    return owned instanceof Y.Map ? [...owned.keys()] : [];
+  }));
+  const at = (b) => xywhOf(b.get('prop:xywh')) ?? [0, 0];
+  return [...blocks.values()]
+    .filter((b) => b instanceof Y.Map && blockView(b) && (
+      (b.get('sys:flavour') === 'affine:edgeless-text' && !onSlide.has(b.get('sys:id'))) ||
+      (b.get('sys:flavour') === 'affine:note' && b.get('prop:displayMode') === 'edgeless')))
+    .sort((a, b) => at(a)[1] - at(b)[1] || at(a)[0] - at(b)[0])
+    .map((b) => blocksToMarkdown(blocks, kidsOf(b), opts))
+    .filter(Boolean)
+    .join('\n\n');
+}
+
+/**
  * Change a slide's title and/or body in a LIVE doc. A title goes to the frame
  * (what the deck rail shows) and its title box; a body replaces every other
  * text box the slide owns. False when `slideId` is not a slide.
