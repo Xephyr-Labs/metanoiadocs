@@ -59,17 +59,20 @@ function MyDocRow({ doc, onOpen }: { doc: MyDocRow; onOpen: () => void }) {
 /** Paginated list of everything the signed-in user created. */
 function MyDocsCard({ onOpen, spaceId }: { onOpen: (id: string) => void; spaceId?: string }) {
   const [page, setPage] = useState(0);
+  const [error, setError] = useState(false);
+  const [retry, setRetry] = useState(0);
   // A new space starts at its own first page.
   useEffect(() => setPage(0), [spaceId]);
   const [data, setData] = useState<{ total: number; rows: MyDocRow[] } | null>(null);
 
   useEffect(() => {
     let stale = false;
+    setError(false);
     docsApi.myDocs(page * MY_DOCS_PAGE, MY_DOCS_PAGE, spaceId)
       .then((d) => { if (!stale) setData(d); })
-      .catch(() => { if (!stale) setData({ total: 0, rows: [] }); });
+      .catch(() => { if (!stale) setError(true); });
     return () => { stale = true; };
-  }, [page, spaceId]);
+  }, [page, spaceId, retry]);
 
   const pages = data ? Math.max(1, Math.ceil(data.total / MY_DOCS_PAGE)) : 1;
 
@@ -86,7 +89,14 @@ function MyDocsCard({ onOpen, spaceId }: { onOpen: (id: string) => void; spaceId
         ) : undefined
       }
     >
-      {!data ? (
+      {/* A failed load is not an empty account: say so, keep any rows already shown. */}
+      {error && (
+        <div role="alert" className="mb-2 flex items-center justify-between gap-3 text-sm text-danger-strong">
+          Could not load your documents.
+          <Button onClick={() => setRetry((n) => n + 1)}>Try again</Button>
+        </div>
+      )}
+      {!data && error ? null : !data ? (
         <Skeleton className="h-40 w-full" />
       ) : data.rows.length === 0 ? (
         <EmptyState compact icon={FileText} title="No documents yet" hint="Pages you create show up here." />
@@ -247,7 +257,7 @@ export function Home() {
                   <h2 className="text-sm font-semibold text-ink">Jump back in</h2>
                   <span className="text-2xs text-faint">Recently opened</span>
                 </div>
-                <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
                   {recents.map((d) => <DocCard key={d.id} doc={d} onOpen={() => ws.select(d.id)} />)}
                 </div>
               </section>

@@ -14,6 +14,7 @@ import { useWorkspace, type RightTab } from '../../store/workspace';
 import { cn } from '../../lib/cn';
 import { EmptyState } from '../ui/EmptyState';
 import { IconButton } from '../ui/IconButton';
+import { SideDrawer } from '../ui/SideDrawer';
 import { Tooltip } from '../ui/Tooltip';
 
 const TABS: { id: RightTab; label: string; icon: typeof Info }[] = [
@@ -33,32 +34,17 @@ export function RightPanel() {
   // Only for the page this panel is about — a task peek over it answers its own.
   useEffect(() => onCommentRequest((id) => { if (id === ws.currentId) ws.setRightPanel('comments'); }), [ws]);
 
+  if (isMobile) {
+    return (
+      <SideDrawer open={open} onOpenChange={(v) => { if (!v) ws.setRightPanel(null); }} title="Page panel" side="right">
+        <PanelInner />
+      </SideDrawer>
+    );
+  }
+
   return (
     <AnimatePresence>
-      {open && isMobile && (
-        <motion.div
-          key="rp-backdrop"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.15 }}
-          onClick={() => ws.setRightPanel(null)}
-          className="fixed inset-0 z-40 bg-overlay backdrop-blur-[1px]"
-        />
-      )}
-      {open && isMobile && (
-        <motion.aside
-          key="rp-mobile"
-          initial={{ x: '100%' }}
-          animate={{ x: 0 }}
-          exit={{ x: '100%' }}
-          transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
-          className="fixed right-0 top-0 z-50 h-full w-full max-w-[420px] border-l border-line bg-canvas shadow-modal"
-        >
-          <PanelInner />
-        </motion.aside>
-      )}
-      {open && !isMobile && (
+      {open && (
         <motion.aside
           key="rp-desktop"
           initial={{ width: 0, opacity: 0 }}
@@ -141,19 +127,22 @@ function IntelligenceTab({ docId }: { docId: string }) {
 }
 
 function OutlineTab() {
-  const [items, setItems] = useState<{ level: number; text: string }[]>([]);
+  const ws = useWorkspace();
+  // On a phone the panel covers the page: close it so the jump is visible.
+  const isMobile = useMediaQuery('(max-width: 767px)');
+  const [items, setItems] = useState<{ level: number; text: string; element: HTMLElement }[]>([]);
   useEffect(() => {
     const scan = () => {
       const host = document.querySelector('affine-editor-container');
       if (!host) return;
-      const out: { level: number; text: string }[] = [];
+      const out: { level: number; text: string; element: HTMLElement }[] = [];
       // BlockSuite marks the heading level as a class (h1…h6) on the paragraph's
       // rich-text wrapper — there is no data-type attribute to read.
       host.querySelectorAll('affine-paragraph').forEach((el) => {
         const wrapper = el.querySelector('.affine-paragraph-rich-text-wrapper');
         const lvl = Number(wrapper?.className.match(/\bh([1-6])\b/)?.[1] || 0);
         const text = (el as HTMLElement).innerText.trim();
-        if (lvl >= 1 && lvl <= 3 && text) out.push({ level: lvl, text });
+        if (lvl >= 1 && lvl <= 3 && text) out.push({ level: lvl, text, element: el as HTMLElement });
       });
       setItems(out);
     };
@@ -166,9 +155,18 @@ function OutlineTab() {
   return (
     <nav className="p-2">
       {items.map((o, i) => (
-        <div key={i} className="flex w-full items-center rounded-md px-2 py-1.5 text-left text-sm text-muted" style={{ paddingLeft: 8 + (o.level - 1) * 14 }}>
+        <button
+          key={i}
+          type="button"
+          onClick={() => {
+            o.element.scrollIntoView({ block: 'center', behavior: 'smooth' });
+            if (isMobile) ws.setRightPanel(null);
+          }}
+          className="flex w-full items-center rounded-md px-2 py-1.5 text-left text-sm text-muted hover:bg-hover hover:text-ink"
+          style={{ paddingLeft: 8 + (o.level - 1) * 14 }}
+        >
           <span className="truncate">{o.text}</span>
-        </div>
+        </button>
       ))}
     </nav>
   );

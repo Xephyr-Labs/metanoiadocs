@@ -1,11 +1,9 @@
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, motion, MotionConfig } from 'framer-motion';
 import { useEffect, useRef } from 'react';
 import { isNativeApp, minimizeApp, onBackButton, startPush, syncStatusBar } from './lib/nativeApp';
 import { TabBar } from './components/mobile/TabBar';
+import { SideDrawer } from './components/ui/SideDrawer';
 
-// Stable, so it runs when the drawer mounts, not on every App render (which
-// pulled focus, and the keyboard, out of fields inside the drawer).
-const focusOnMount = (el: HTMLElement | null) => el?.focus({ preventScroll: true });
 import { CommandPalette } from './components/palette/CommandPalette';
 import { AllDocsView } from './components/docs/AllDocsView';
 import { DriveView } from './components/drive/DriveView';
@@ -98,6 +96,8 @@ export default function App() {
   const sidebarWidth = ws.panelCollapsed ? railWidth : ws.sidebarWidth;
 
   return (
+    // Framer animations ignore the CSS reduced-motion rule; this makes them honor it.
+    <MotionConfig reducedMotion="user">
     <TooltipProvider delayDuration={700} skipDelayDuration={300}>
       <div className="flex h-dvh w-full overflow-hidden bg-canvas text-ink">
         {/* The sidebar is some thirty Tab stops; a keyboard has to get past
@@ -147,38 +147,11 @@ export default function App() {
         {(ws.view === 'doc' || ws.rightPanel === 'ai') && <RightPanel />}
 
         {/* mobile drawer */}
-        <AnimatePresence>
-          {isMobile && ws.mobileDrawerOpen && (
-            <>
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                onClick={() => ws.setMobileDrawer(false)}
-                className="fixed inset-0 z-40 bg-overlay backdrop-blur-[1px]"
-              />
-              <motion.div
-                initial={{ x: '-100%' }}
-                animate={{ x: 0 }}
-                exit={{ x: '-100%' }}
-                transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
-                role="dialog"
-                aria-modal="true"
-                aria-label="Navigation"
-                tabIndex={-1}
-                ref={focusOnMount}
-                onKeyDown={(e) => { if (e.key === 'Escape') ws.setMobileDrawer(false); }}
-                // 300, not 280: the drawer holds the same rail as the inline sidebar, and a
-                // 72px rail inside 280 left the tree 208px to draw folder names in.
-                // Capped against the viewport so a 320px phone still shows the backdrop
-                // it has to tap to get out.
-                className="fixed left-0 top-0 z-50 h-full w-[300px] max-w-[88vw] shadow-modal outline-none"
-              >
-                <Sidebar />
-              </motion.div>
-            </>
-          )}
-        </AnimatePresence>
+        {isMobile && (
+          <SideDrawer open={ws.mobileDrawerOpen} onOpenChange={ws.setMobileDrawer} title="Navigation" side="left">
+            <Sidebar />
+          </SideDrawer>
+        )}
       </div>
 
       {/* Full-screen, so it sits outside the app shell rather than in it. */}
@@ -193,5 +166,6 @@ export default function App() {
       <QuickCapture />
       <TagView />
     </TooltipProvider>
+    </MotionConfig>
   );
 }
