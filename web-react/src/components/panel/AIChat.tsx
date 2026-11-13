@@ -1,3 +1,4 @@
+import { contextualPrompt, takeContextualAi, type ContextualRequest } from '../../lib/contextualAi';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   ArrowUp,
@@ -34,11 +35,14 @@ import { Markdown } from '../ui/Markdown';
 import { IconButton } from '../ui/IconButton';
 import { Tooltip } from '../ui/Tooltip';
 
+interface EvidenceStep extends AiToolStep { sources?: { kind: string; id: string; title: string; url: string; excerpt: string }[]; partial?: boolean; insufficientEvidence?: boolean }
+
 interface Msg {
   role: 'user' | 'assistant';
   content: string;
   /** What the copilot did before answering. Assistant turns only. */
-  steps?: AiToolStep[];
+  steps?: EvidenceStep[];
+  source?: ContextualRequest;
 }
 
 /**
@@ -47,6 +51,8 @@ interface Msg {
  * still shows, under its own name, rather than vanishing.
  */
 const TOOL_UI: Record<string, { icon: typeof Search; running: string; done: string; quote?: boolean }> = {
+  workspace_evidence: { icon: Search, running: 'Finding source evidence', done: 'Retrieved source evidence' },
+  edit_doc: { icon: PenLine, running: 'Proposing an edit', done: 'Proposed an edit for review' },
   search_docs: { icon: Search, running: 'Searching for', done: 'Searched for', quote: true },
   list_docs: { icon: Files, running: 'Listing pages', done: 'Listed pages' },
   read_doc: { icon: FileText, running: 'Reading a page', done: 'Read' },
@@ -73,6 +79,7 @@ const TOOL_UI: Record<string, { icon: typeof Search; running: string; done: stri
 const MUTATING = new Set([
   'create_doc',
   'write_doc',
+  'edit_doc',
   'comment_on_doc',
   'set_visibility',
   'add_tag',
@@ -141,12 +148,21 @@ function Answer({ m, streaming }: { m: Msg; streaming: boolean }) {
   };
   return (
     <div className="group/answer">
+      {m.source && <div className="mb-2 rounded-md bg-surface p-2 text-xs text-muted"><a href={`/d/${encodeURIComponent(m.source.docId)}`} className="text-accent-strong underline underline-offset-2">Source: {m.source.title || 'Untitled'}</a><blockquote className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap">{m.source.selection}</blockquote></div>}
       {!!m.steps?.length && <ToolSteps steps={m.steps} />}
       {m.content ? (
         <Markdown text={m.content} className="mt-1.5 text-sm text-ink" />
       ) : (
         !m.steps?.length && <Thinking />
       )}
+      {m.steps?.some(step => step.sources?.length || step.insufficientEvidence) && <div className="mt-3 space-y-1.5 border-t border-line pt-2 text-xs text-muted" aria-label="Answer sources">
+        <p className="font-medium text-ink">Sources</p>
+        {m.steps.filter(step => step.sources || step.insufficientEvidence).map(step => <div key={step.i} className="space-y-1.5">
+          {step.insufficientEvidence && <p>No supporting evidence found. Try a specific project or page name.</p>}
+          {step.partial && <p>Some sources could not be read or results were limited.</p>}
+          {step.sources?.map((source, i) => <details key={`${source.kind}-${source.id}-${i}`}><summary className="cursor-pointer"><a href={source.url} className="text-accent-strong underline underline-offset-2">{source.title || 'Source'}</a><span className="ml-1 text-faint">· {source.kind}</span></summary><blockquote className="mt-1 whitespace-pre-wrap pl-3">{source.excerpt}</blockquote></details>)}
+        </div>)}
+      </div>}
       {m.content && !streaming && (
         <button
           type="button"
@@ -184,6 +200,13 @@ export function AIChat() {
   const page = ws.view === 'doc' ? ws.currentPage : null;
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState('');
+  const [contextual, setContextual] = useState<ContextualRequest | null>(null);
+  useEffect(() => {
+    const receive = () => { const request = takeContextualAi(); if (request) { setContextual(request); setInput(contextualPrompt(request.action)); } };
+    receive(); window.addEventListener('mn-contextual-ai', receive);
+    return () => window.removeEventListener('mn-contextual-ai', receive);
+  }, []);
+  useEffect(() => { if (contextual && page?.id !== contextual.docId) setContextual(null); }, [page?.id, contextual]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [attached, setAttached] = useState(true);
@@ -222,7 +245,7 @@ export function AIChat() {
     setErr(null);
     setInput('');
     const history = [...messages.map((m) => ({ role: m.role, content: m.content })), { role: 'user' as const, content: text }];
-    setMessages([...messages, { role: 'user', content: text }, { role: 'assistant', content: '', steps: [] }]);
+    setMessages([...messages, { role: 'user', content: text }, { role: 'assistant', content: '', steps: [], source: contextual ?? undefined }]);
     setBusy(true);
     const ctl = new AbortController();
     abortRef.current = ctl;
@@ -233,7 +256,7 @@ export function AIChat() {
 
     try {
       await aiStream(
-        { messages: history, docId },
+        { messages: history, docId: contextual?.docId ?? docId, selection: contextual?.selection },
         (delta) => patchLast((m) => ({ ...m, content: m.content + delta })),
         ctl.signal,
         (step) => {
@@ -254,6 +277,7 @@ export function AIChat() {
         setMessages((m) => m.slice(0, -1));
       }
     } finally {
+      setContextual(null);
       setBusy(false);
       abortRef.current = null;
       if (touched.current) {
@@ -265,7 +289,7 @@ export function AIChat() {
 
   const suggestions = page
     ? ['Summarise this page', 'What are the action items?', 'Find related pages']
-    : ['What pages can I see?', 'Search for the launch plan', 'Draft a meeting agenda'];
+    : ['What is blocking our work? Cite the sources.', 'Find unresolved decisions', 'What pages can I see?'];
 
   return (
     <div className="flex h-full flex-col">
@@ -290,8 +314,8 @@ export function AIChat() {
             </p>
             <p className="mt-1 text-sm leading-relaxed text-muted">
               {page && attached
-                ? 'It can read this page, search the workspace, and make changes you ask for.'
-                : 'It can search the workspace, read pages, and make changes you ask for.'}
+                ? 'Ask with source citations, or select text to propose changes for review.'
+                : 'Find answers across pages, tasks and discussions with source citations.'}
             </p>
             <div className="mt-3 flex flex-col items-start gap-1.5">
               {suggestions.map((s) => (
@@ -325,6 +349,7 @@ export function AIChat() {
       </div>
 
       <div className="shrink-0 border-t border-line p-2.5">
+        {contextual && <div className="mb-2 rounded-md bg-surface p-2 text-xs text-muted"><div className="flex items-center justify-between"><a className="text-accent-strong underline underline-offset-2" href={`/d/${encodeURIComponent(contextual.docId)}`}>Source: {contextual.title || 'Untitled'}</a><button aria-label="Remove selected text" onClick={() => setContextual(null)}><X size={12} /></button></div><blockquote className="mt-1 max-h-20 overflow-auto whitespace-pre-wrap">{contextual.selection}</blockquote><p className="mt-1">Proposals are reviewed before page edits land.</p></div>}
         <div className="rounded-xl bg-canvas ring-1 ring-inset ring-line transition-shadow focus-within:ring-2 focus-within:ring-accent">
           <AnimatePresence initial={false}>
             {page && attached && (

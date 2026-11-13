@@ -1866,3 +1866,14 @@ affine-list[data-mn-size='small'] > .affine-block-component > .affine-list-block
     }
   }
 }
+
+/* Inbox triage: clear row boundaries and a quiet, always discoverable action rail. */
+.mn-inbox-item {
+  border-bottom: 1px solid var(--line);
+  padding-top: 4px;
+}
+.mn-inbox-item:last-child { border-bottom: 0; }
+.mn-inbox-item > button { padding: 12px 8px 8px; }
+.mn-inbox-actions { gap: 4px; }
+.mn-inbox-actions > button { min-height: 28px; background: var(--surface); }
+.mn-inbox-actions > button:hover { background: var(--hover); }

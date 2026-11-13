@@ -5,6 +5,7 @@
 //   METANOIA_TOKEN a personal access token (Settings → API tokens)
 // Every tool runs as that token's user, respecting team/private access.
 
+import { retrieveWorkspaceEvidence } from './workspace-evidence.js';
 import { createHash } from 'node:crypto';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -103,6 +104,8 @@ const ok = (obj) => ({ content: [{ type: 'text', text: typeof obj === 'string' ?
 const fail = (e) => ({ isError: true, content: [{ type: 'text', text: `Error: ${e.message || e}` }] });
 
 const server = new McpServer({ name: 'metanoiadocs', version: '1.0.0' });
+
+server.registerTool('workspace_evidence', { title: 'Find workspace evidence', description: 'Retrieve accessible matching pages, tasks and unresolved discussions with source links. Start here for workspace blockers; partial or insufficient evidence requires abstention.', inputSchema: { query: z.string().min(1).max(1000) } }, async ({ query }) => { try { return ok(await retrieveWorkspaceEvidence(api, query)); } catch (e) { return fail(e); } });
 
 server.registerTool(
   'search_docs',

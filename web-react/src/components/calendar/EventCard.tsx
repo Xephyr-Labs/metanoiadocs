@@ -11,6 +11,7 @@ import { cn } from '../../lib/cn';
 import { useWorkspace } from '../../store/workspace';
 import { Avatar } from '../ui/Avatar';
 import { Button } from '../ui/Button';
+import { MeetingFollowthrough } from './MeetingFollowthrough';
 import { Modal } from '../ui/Modal';
 
 const ANSWERS: { value: 'accepted' | 'tentative' | 'declined'; label: string }[] = [
@@ -225,9 +226,11 @@ export function EventCard({ event, zone, canWrite, names, onClose, onChanged, on
                 </div>
               </div>
             )}
+            <p className="text-xs text-muted">Private preparation includes attendees, linked pages you can access and open tasks.</p>
+            {e.notesDocId && <MeetingFollowthrough key={e.notesDocId} docId={e.notesDocId} />}
             <div className="flex flex-wrap items-center gap-2">
               <Button size="sm" disabled={busy !== null} onClick={notes}>
-                {busy === 'notes' ? 'Starting…' : e.notesDocId ? 'Open notes' : 'Start notes'}
+                {busy === 'notes' ? 'Preparing…' : e.notesDocId ? 'Open prep & notes' : 'Prepare private notes'}
               </Button>
               {e.organizerSelf && showWrite && (
                 <>

@@ -42,6 +42,9 @@ services:
       AGENT_RUN_STALE_MIN: ${AGENT_RUN_STALE_MIN:-30}
       # Google Calendar: unset keeps the feature hidden (docs/GOOGLE-CALENDAR.md).
       CALENDAR_TOKEN_KEY: ${CALENDAR_TOKEN_KEY:-}
+      # Optional private GitHub metadata; only these repositories may use the token.
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      GITHUB_REPOSITORIES: ${GITHUB_REPOSITORIES:-}
     ports:
       - "8092:3000"
     depends_on:

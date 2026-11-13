@@ -1,5 +1,7 @@
 import { BadgeCheck, Bell, Bot, CalendarClock, Inbox, ListChecks, Loader2, TriangleAlert, X, type LucideIcon } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { inboxShortcut, triageInbox } from '../../lib/inboxActions';
+import { tasksApi } from '../../lib/tasksApi';
 import { cn } from '../../lib/cn';
 import { docsApi, type InboxRow } from '../../lib/docsApi';
 import { avatarFor } from '../../lib/avatar';
@@ -132,29 +134,50 @@ const PAGE = 50;
 export function InboxDialog() {
   const ws = useWorkspace();
   const auth = useAuth();
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState<string | null>(null);
+  const [active, setActive] = useState(0);
+  const [undo, setUndo] = useState<InboxRow | null>(null);
+  const [replyTo, setReplyTo] = useState<string | null>(null);
+  const [reply, setReply] = useState('');
+  const listRef = useRef<HTMLDivElement>(null);
+  const cursorRef = useRef<string | undefined>(undefined);
+  const sessionRef = useRef(0);
   const [items, setItems] = useState<InboxRow[] | null>(null);
   // A full page means there may be older rows; the feed used to stop at 50.
   const [more, setMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
 
   useEffect(() => {
+    const session = ++sessionRef.current;
     if (!ws.inboxOpen) return;
+    let alive = true;
     setItems(null);
+    cursorRef.current = undefined;
+    setLoadingMore(false);
+    setBusy(null);
+    setError('');
+    setUndo(null);
+    setReplyTo(null);
+    setReply('');
+    setActive(0);
     setMore(false);
     // Load the feed (its read_at snapshot drives the unread dots), then mark
     // everything read so the sidebar badge clears.
-    docsApi.inbox().then((rows) => { setItems(rows); setMore(rows.length === PAGE); ws.markInboxRead(); }).catch(() => setItems([]));
+    docsApi.inbox().then((rows) => { if (!alive) return; cursorRef.current = rows.at(-1)?.id; setItems(rows); setMore(rows.length === PAGE); ws.markInboxRead(); }).catch(() => { if (alive) setError('Could not load your inbox. Close it and try again.'); });
+    return () => { alive = false; if (sessionRef.current === session) sessionRef.current++; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ws.inboxOpen]);
 
   const loadOlder = () => {
-    const last = items?.[items.length - 1];
+    const last = cursorRef.current;
     if (!last || loadingMore) return;
+    const session = sessionRef.current;
     setLoadingMore(true);
-    docsApi.inbox(last.id)
-      .then((rows) => { setItems((cur) => [...(cur ?? []), ...rows]); setMore(rows.length === PAGE); })
-      .catch(() => {})
-      .finally(() => setLoadingMore(false));
+    docsApi.inbox(last)
+      .then((rows) => { if (sessionRef.current !== session) return; cursorRef.current = rows.at(-1)?.id; setItems((cur) => [...(cur ?? []), ...rows]); setMore(rows.length === PAGE); })
+      .catch(() => { if (sessionRef.current === session) setError('Could not load older items. Try again.'); })
+      .finally(() => { if (sessionRef.current === session) setLoadingMore(false); });
   };
 
   // A mention or comment lands on a document with a thread to read; anything
@@ -203,30 +226,98 @@ export function InboxDialog() {
     if (it.comment_id) focusCommentOnPage(it.doc_id, it.comment_id);
   };
 
+  const act = async (it: InboxRow, action: 'archive' | 'snooze' | 'complete' | 'reply') => {
+    if (busy) return;
+    const session = sessionRef.current;
+    setBusy(it.id); setError('');
+    try {
+      if (action === 'complete' && it.task_id) await tasksApi.patchTask(it.task_id, { status: 'done' });
+      if (action === 'reply') {
+        if (!reply.trim()) return;
+        // Resolve the root thread first: a notification can point at a reply.
+        if (it.task_id) {
+          const comments = await tasksApi.comments(it.task_id);
+          const comment = comments.find(c => c.id === it.comment_id);
+          if (!comment) throw new Error('This comment is no longer available. Open the item to continue.');
+          await tasksApi.addComment(it.task_id, { body: reply.trim(), parentId: comment.parent_id || comment.id });
+        } else if (it.doc_id) {
+          const comments = await docsApi.comments(it.doc_id);
+          const comment = comments.find(c => c.id === it.comment_id);
+          if (!comment) throw new Error('This comment is no longer available. Open the item to continue.');
+          await docsApi.addComment(it.doc_id, reply.trim(), { parentId: comment.parent_id || comment.id });
+        }
+        if (sessionRef.current !== session) return;
+        setReply(''); setReplyTo(null);
+        return;
+      }
+      await triageInbox(it.id, action === 'snooze' ? 'snooze' : 'archive', action === 'snooze' ? new Date(Date.now() + 86400000).toISOString() : undefined);
+      if (sessionRef.current !== session) return;
+      setItems(cur => cur?.filter(row => row.id !== it.id) ?? []);
+      setUndo(it);
+      setActive(i => Math.max(0, Math.min(i, (items?.length ?? 1) - 2)));
+    } catch (err) { if (sessionRef.current === session) setError(err instanceof Error ? err.message : 'Could not save. Try again.'); }
+    finally { if (sessionRef.current === session) setBusy(null); }
+  };
+  const restore = async () => {
+    if (!undo || busy) return;
+    const session = sessionRef.current;
+    setBusy(undo.id); setError('');
+    try {
+      await triageInbox(undo.id, 'restore');
+      if (sessionRef.current !== session) return;
+      setItems(cur => [undo, ...(cur ?? [])].sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id)));
+      setUndo(null);
+    } catch { if (sessionRef.current === session) setError('Could not undo. Try again.'); }
+    finally { if (sessionRef.current === session) setBusy(null); }
+  };
+  const actions = (it: InboxRow) => <div className="mn-inbox-actions mb-3 ml-11 flex flex-wrap items-center gap-1">
+    {it.task_id && <button type="button" disabled={!!busy} onClick={() => act(it, 'complete')} className={actionClass}>Mark done</button>}
+    {it.comment_id && ['mention', 'comment', 'reply', 'reply_to_you'].includes(it.kind) && (it.task_id || it.doc_id) && <button type="button" disabled={!!busy} onClick={() => { setReplyTo(replyTo === it.id ? null : it.id); setReply(''); }} className={actionClass}>Reply</button>}
+    <button type="button" disabled={!!busy} onClick={() => act(it, 'archive')} className={actionClass}>Archive</button>
+    <button type="button" disabled={!!busy} onClick={() => act(it, 'snooze')} className={actionClass}>Snooze 1 day</button>
+    {busy === it.id && <Loader2 size={12} className="animate-spin text-muted" aria-label="Saving" />}
+    {replyTo === it.id && <form className="mt-1 flex w-full gap-2" onSubmit={e => { e.preventDefault(); void act(it, 'reply'); }}>
+      <textarea autoFocus aria-label="Reply to comment" maxLength={4000} value={reply} onChange={e => setReply(e.target.value)} className="min-h-20 min-w-0 flex-1 rounded-md border border-line bg-canvas p-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent" />
+      <button type="submit" disabled={!!busy || !reply.trim()} className={actionClass}>Send reply</button>
+    </form>}
+  </div>;
+
   return (
     <Modal
       open={ws.inboxOpen}
       onOpenChange={ws.setInboxOpen}
       placement="top"
       focusPanel
-      width={720}
-      className="max-h-[70vh]"
+      width={680}
+      className="mn-inbox max-h-[82dvh]"
       title={<><Inbox size={16} className="text-muted" /> Inbox</>}
     >
       <ModalBody>
         <NotifyNudge />
-        {items === null ? (
-          <div className="flex justify-center py-10"><Loader2 size={18} className="animate-spin text-faint" /></div>
+        <p className="mb-4 flex flex-wrap justify-between gap-2 text-xs text-muted">Act here and keep your place. <span className="hidden sm:inline">J / K to move · Enter to open</span></p>
+        {error && <p role="alert" className="mb-2 rounded-md bg-danger-soft p-2 text-sm text-danger-strong">{error}</p>}
+        {undo && <div role="status" className="mb-2 flex items-center justify-between gap-2 rounded-md bg-accent-soft p-2 text-xs text-ink"><span>Item moved out of your inbox.{undo.task_id ? ' Task changes remain saved.' : ''}</span><button type="button" disabled={!!busy} onClick={restore} className={actionClass}>Undo</button></div>}
+        <div ref={listRef} onKeyDown={e => {
+          if (e.altKey || e.ctrlKey || e.metaKey) return;
+          const target = e.target as HTMLElement;
+          const result = inboxShortcut(e.key, !!target.closest('input, textarea, select, [contenteditable="true"]') || (e.key === 'Enter' && !target.hasAttribute('data-inbox-open')), active, items?.length ?? 0);
+          if (result === null) return;
+          e.preventDefault();
+          if (result === 'open') { if (items?.[active]) open(items[active]); }
+          else { setActive(result); listRef.current?.querySelector<HTMLButtonElement>(`[data-inbox-index="${result}"]`)?.focus(); }
+        }}>
+        {items === null && error ? null : items === null ? (
+          <div role="status" aria-label="Loading inbox" className="flex justify-center py-10"><Loader2 size={18} className="animate-spin text-faint" /></div>
         ) : items.length === 0 ? (
-          <EmptyState icon={Inbox} title="You're all caught up" hint="@-mentions, comments on your pages, tasks assigned to you and your daily task summary show up here." />
+          <EmptyState icon={Inbox} title={more ? "This page is clear" : "You're all caught up"} hint="@-mentions, comments on your pages, tasks assigned to you and your daily task summary show up here." />
         ) : (
-          items.map((it) => {
+          items.map((it, index) => {
             const unread = !it.read_at;
             const sys = SYSTEM[it.kind];
             if (sys) {
               const Icon = sys.icon;
               return (
-                <button key={it.id} onClick={() => open(it)} className="flex w-full items-start gap-2.5 rounded-md px-2 py-2.5 text-left transition-colors hover:bg-hover">
+                <div key={it.id} className="mn-inbox-item"><button data-inbox-open data-inbox-index={index} onFocus={() => setActive(index)} onClick={() => open(it)} className="focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent flex w-full items-start gap-2.5 rounded-md px-2 py-2.5 text-left transition-colors hover:bg-hover">
                   <span className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-surface">
                     <Icon size={14} className={sys.tone} />
                     {unread && <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-canvas bg-accent" />}
@@ -237,7 +328,7 @@ export function InboxDialog() {
                     </p>
                     <p className="mt-0.5 text-2xs text-faint">{relativeTime(it.created_at)}</p>
                   </div>
-                </button>
+                </button>{actions(it)}</div>
               );
             }
             const a = avatarFor(it.actor_name);
@@ -245,7 +336,7 @@ export function InboxDialog() {
             // in the third person to do it reads like a stranger wrote it.
             const self = !!it.actor_id && it.actor_id === auth.user?.id;
             return (
-              <button key={it.id} onClick={() => open(it)} className="flex w-full items-start gap-2.5 rounded-md px-2 py-2.5 text-left transition-colors hover:bg-hover">
+              <div key={it.id} className="mn-inbox-item"><button data-inbox-open data-inbox-index={index} onFocus={() => setActive(index)} onClick={() => open(it)} className="focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent flex w-full items-start gap-2.5 rounded-md px-2 py-2.5 text-left transition-colors hover:bg-hover">
                 <span className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-2xs font-semibold text-white" style={{ background: a.color }}>
                   {a.initials}
                   {unread && <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-canvas bg-accent" />}
@@ -273,7 +364,7 @@ export function InboxDialog() {
                   )}
                   <p className="mt-0.5 text-2xs text-faint">{relativeTime(it.created_at)}</p>
                 </div>
-              </button>
+              </button>{actions(it)}</div>
             );
           })
         )}
@@ -288,7 +379,10 @@ export function InboxDialog() {
             Show older
           </button>
         )}
+        </div>
       </ModalBody>
     </Modal>
   );
 }
+
+const actionClass = 'min-h-8 rounded px-2 text-xs font-medium text-muted hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50';
