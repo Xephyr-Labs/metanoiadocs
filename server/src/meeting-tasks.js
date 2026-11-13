@@ -13,6 +13,7 @@ import * as Y from 'yjs';
 import { appendMarkdownToDoc, bodyNote, docToMarkdown } from './blocks.js';
 import { pageStateFrom } from './suggestions.js';
 import { dayIn, zoneOf } from './timezone.js';
+import { summarize, extractSignals, blocksFromText } from './intelligence.js';
 
 const MAX_PROPOSALS = 20;
 const MAX_TITLE = 200;
@@ -308,6 +309,26 @@ function appendTaskLinks(doc, projectId, created) {
  * `aiComplete({ messages, maxTokens })` → text, throwing errors with a `status`
  * (ai-complete.js); `calendarReady()` → whether the calendar feature is on.
  */
+/** Extract only meeting outcomes, leaving preparation snapshots out of the shareable draft. */
+export function meetingRecap(markdown, sourceUrl) {
+  const sections = new Map();
+  let section = 'discussion';
+  for (const line of String(markdown || '').split('\n')) {
+    const heading = /^#{1,6}\s+(.+?)\s*$/.exec(line);
+    if (heading) { section = heading[1].toLowerCase(); continue; }
+    if (!sections.has(section)) sections.set(section, []);
+    sections.get(section).push(line);
+  }
+  const content = (...names) => names.flatMap(name => sections.get(name) || []).join('\n').trim();
+  const discussion = content('discussion', 'notes', 'meeting notes');
+  const signals = extractSignals(blocksFromText(discussion));
+  const summary = summarize(discussion, 3) || discussion.split('\n').filter(line => line.trim()).slice(0, 3).join('\n');
+  const decisions = content('decisions', 'decision') || signals.decisions.map(item => `- ${item.text}`).join('\n');
+  const actions = content('action items', 'actions', 'next steps', 'tasks from this meeting') || signals.tasks.filter(item => !item.checked).map(item => `- [ ] ${item.text}`).join('\n');
+  const risks = content('risks', 'blockers') || signals.risks.map(item => `- ${item.text}`).join('\n');
+  return ['## Summary', summary || 'No discussion recorded.', '', '## Decisions', decisions || 'No decisions recorded.', '', '## Action items', actions || 'No action items recorded.', ...(risks ? ['', '## Risks and blockers', risks] : []), '', `[Source notes](${sourceUrl})`].join('\n');
+}
+
 export function registerMeetingTaskRoutes(app, {
   requireUser, needsPerson, wrap, pool, editGrant, getHocuspocus, createTask, taskPage, aiComplete, calendarReady,
   baseUrl = process.env.BASE_URL,
@@ -418,6 +439,16 @@ export function registerMeetingTaskRoutes(app, {
   }));
 
   // Ask AI proposes; nothing is written here — the person accepts first.
+  app.post('/api/docs/:id/meeting-recap', requireUser, needsPerson, wrap(async (req, res) => {
+    if (await refused(req, res, { needProject: false })) return;
+    const state = await pageState(req.params.id);
+    if (!state) return res.status(404).json({ error: 'not found' });
+    // Extractive summary from this permitted page only; never an inferred decision or send.
+    const { markdown } = docToMarkdown(new Uint8Array(state));
+    const sourceUrl = `/d/${encodeURIComponent(req.params.id)}`;
+    res.json({ markdown: meetingRecap(markdown, sourceUrl), sourceUrl });
+  }));
+
   app.post('/api/docs/:id/suggest-tasks', requireUser, needsPerson, wrap(async (req, res) => {
     if (await refused(req, res, { needProject: false })) return;
     // Read only: a direct connection would store the page again on disconnect.

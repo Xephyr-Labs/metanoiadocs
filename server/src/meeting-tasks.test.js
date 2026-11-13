@@ -482,3 +482,29 @@ test('openTodos reads a pending tick or untick as not yet made (R13b)', () => {
   assert.deepEqual(out.todos.map((t) => t.text), ['tick pending']);
   assert.equal(out.skipped, 1);
 });
+
+test('recap review reads current notes without AI, writes or task creation', async () => {
+  const h = harness({ doc: page('## Decisions\nShip next week\n\n## Action items\n- [ ] Send deck') });
+  const r = await h.call({}, '/api/docs/:id/meeting-recap');
+  assert.equal(r.status, 200);
+  assert.match(r.out.markdown, /Ship next week/);
+  assert.equal(r.out.sourceUrl, '/d/d1');
+  assert.equal(h.io.opened, 0); assert.equal(h.made.length, 0); assert.equal(h.asked.length, 0);
+});
+test('recap refuses inaccessible notes before reading their content', async () => {
+  const h = harness({ grant: null });
+  assert.equal((await h.call({}, '/api/docs/:id/meeting-recap')).status, 403);
+});
+
+test('recap summarizes discussion, preserves full decisions and task links, omits preparation snapshot', async () => {
+  const doc = page('## Attendees\nExternal private attendee\n\n## Open tasks\nPreparation only secret\n\n## Notes\nWe discussed launch readiness. The rollout is on track.\n\n## Decisions\nShip next week with [release brief](/d/brief1).\n\n## Action items\n- [ ] @farhanaj send [deck](/d/deck1) by Friday\n\n## Tasks from this meeting\n- [Review launch](/db/p1?task=t1)');
+  const h = harness({ doc });
+  const r = await h.call({}, '/api/docs/:id/meeting-recap');
+  assert.match(r.out.markdown, /## Summary/);
+  assert.match(r.out.markdown, /## Decisions\n.*Ship next week/);
+  assert.match(r.out.markdown, /\/d\/brief1/);
+  assert.match(r.out.markdown, /\/d\/deck1/);
+  assert.match(r.out.markdown, /\/db\/p1\?task=t1/);
+  assert.match(r.out.markdown, /\[Source notes\]\(\/d\/d1\)/);
+  assert.doesNotMatch(r.out.markdown, /External private attendee|Preparation only secret/);
+});

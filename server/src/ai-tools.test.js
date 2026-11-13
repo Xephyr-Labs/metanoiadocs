@@ -132,3 +132,24 @@ test('a run’s abort signal ends a tool call that never answers', async () => {
     server.close();
   }
 });
+
+test('workspace evidence uses caller access for documents, tasks and their discussions and cites returned sources', async () => {
+  await withServer((req, res) => {
+    if (req.url.startsWith('/api/search?')) return json(res, [{ id: 'visible', title: 'Launch', snippet: 'Legal review pending' }]);
+    if (req.url === '/api/tasks?spaces=all') return json(res, { tasks: [{ id: 'task1', title: 'Launch QA', status: 'blocked', doc_id: 'task-page', project_id: 'board1' }] });
+    if (req.url === '/api/docs/visible/comments') return json(res, [{ id: 'comment1', body: 'Waiting for approval', resolved: false }, { id: 'closed', body: 'Already handled', resolved: true }]);
+    return json(res, { error: 'forbidden' }, 403);
+  }, async (base, seen) => {
+    const tools = aiTools({ base, headers: { Cookie: 'md_session=reader' } });
+    try {
+      const result = await tools.run('workspace_evidence', JSON.stringify({ query: 'launch' }));
+      assert.equal(result.partial, true, 'a forbidden discussion is explicitly partial');
+      assert.equal(result.insufficientEvidence, false);
+      assert.equal(result.sources.length, 3);
+      assert.equal(result.sources.find(s => s.kind === 'document').url, '/d/visible');
+      assert.equal(result.sources.find(s => s.kind === 'task').url, '/db/board1?task=task1');
+      assert.ok(!JSON.stringify(result).includes('Already handled'));
+      assert.ok(seen.every(r => r.cookie === 'md_session=reader' && r.method === 'GET'));
+    } finally { await tools.close(); }
+  });
+});

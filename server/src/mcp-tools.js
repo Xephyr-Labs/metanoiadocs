@@ -1,3 +1,4 @@
+import { retrieveWorkspaceEvidence } from './workspace-evidence.js';
 // The MetanoiaDocs tool surface, shared by every MCP transport.
 //
 // Tools call the workspace's own REST API rather than the database, so a tool
@@ -168,6 +169,8 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
 
   // Public origin, for links a person can click.
   const PUBLIC = process.env.BASE_URL || '';
+
+  server.registerTool('workspace_evidence', { title: 'Find workspace evidence', description: 'Retrieve accessible matching pages, tasks and unresolved discussions with direct source links. Start here for sourced workspace answers and blockers. Reports partial or insufficient evidence; verify source context before conclusions.', inputSchema: { query: z.string().min(1).max(1000) } }, async ({ query }) => { try { return ok(await retrieveWorkspaceEvidence(api, query)); } catch (e) { return fail(e); } });
 
   server.registerTool(
     'search_docs',
@@ -1821,6 +1824,7 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
 
 /** Tool names this server registers, in registration order. Used by the drift test. */
 export const MCP_TOOL_NAMES = [
+  'workspace_evidence',
   'search_docs',
   'list_spaces',
   'list_docs',

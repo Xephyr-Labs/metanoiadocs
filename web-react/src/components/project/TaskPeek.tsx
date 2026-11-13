@@ -31,6 +31,7 @@ import { KindIcon } from './TaskChip';
 import { PropertyCell } from './props/PropertyCell';
 import { TaskAgents } from './TaskAgents';
 import { TaskDriveFiles } from './TaskDriveFiles';
+import { TaskGitHub } from './TaskGitHub';
 import { TaskComments } from './TaskComments';
 import { CommentsTab } from '../panel/CommentsTab';
 import { onCommentRequest, useOpenCommentCount } from '../../editor/comments';
@@ -554,6 +555,7 @@ export function TaskPeek({
             and the page under it is one thing the row happens to have. A data
             database's records are not work and have nobody to discuss them
             with, so they get the same silence they get from the agent rail. */}
+        {mode !== 'data' && <TaskGitHub key={`github-${task.id}`} taskId={task.id} />}
         {mode !== 'data' && <TaskDriveFiles key={`drive-${task.id}`} taskId={task.id} />}
 
         {mode !== 'data' && <TaskComments key={task.id} taskId={task.id} users={users} />}

@@ -3,6 +3,8 @@
  * (pressed) · disabled (no editor / no selection) · loading (n/a) · error (n/a)
  * · success (n/a — formatting is its own feedback)
  */
+import { CONTEXTUAL_ACTIONS, requestContextualAi } from '../../lib/contextualAi';
+import { useWorkspace } from '../../store/workspace';
 import * as DM from '@radix-ui/react-dropdown-menu';
 import { updateBlockType } from '@blocksuite/affine/blocks/note';
 import { toggleLink } from '@blocksuite/affine/inlines/link';
@@ -105,6 +107,9 @@ interface Props {
  * command chain the floating toolbar does, so the two never disagree.
  */
 export function EditorBar({ editor, mode, design, onMode, fullWidth, onFullWidth, toc }: Props) {
+  const ws = useWorkspace();
+  const [selectedText, setSelectedText] = useState('');
+  useEffect(() => setSelectedText(''), [editor, ws.currentPage?.id]);
   const [marks, setMarks] = useState<Record<string, boolean>>({});
   const [blockLabel, setBlockLabel] = useState<string | null>(null);
   // The selection's body-text size; null when it is mixed, or nothing sizable
@@ -155,6 +160,10 @@ export function EditorBar({ editor, mode, design, onMode, fullWidth, onFullWidth
     const read = () => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
+        const selection = document.getSelection();
+        const inside = selection?.anchorNode && editor.contains(selection.anchorNode) && selection.focusNode && editor.contains(selection.focusNode);
+        if (inside) setSelectedText(selection?.toString().slice(0, 20000) || '');
+        else if (selection?.toString().trim()) setSelectedText('');
         const s = std();
         if (!s) return;
         const table = tableMarkActive(s, 'bold') !== null;
@@ -246,6 +255,17 @@ export function EditorBar({ editor, mode, design, onMode, fullWidth, onFullWidth
   // is ever clipped off the right edge, which is what used to happen.
   return (
     <div className="mn-editor-bar flex h-9 shrink-0 items-center gap-0.5 px-3 md:px-4">
+      {!edgeless && ws.view === 'doc' && ws.currentPage && (
+        <DM.Root>
+          <DM.Trigger asChild><button type="button" disabled={!selectedText.trim()} className="flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-xs text-muted hover:bg-hover hover:text-ink disabled:opacity-40" aria-label="AI actions for selected text">Ask AI<ChevronDown size={12} /></button></DM.Trigger>
+          <DM.Portal><DM.Content sideOffset={5} className="z-50 min-w-40 rounded-lg border border-line bg-panel p-1 shadow-lg">
+            {CONTEXTUAL_ACTIONS.map(action => <DM.Item key={action.id} onSelect={() => {
+              requestContextualAi({ action: action.id, selection: selectedText, docId: ws.currentPage!.id, title: ws.currentPage!.title });
+              ws.setRightPanel('ai'); ws.setPanelCollapsed(false);
+            }} className="cursor-pointer rounded-md px-2.5 py-1.5 text-sm text-ink outline-none focus:bg-hover">{action.label}</DM.Item>)}
+          </DM.Content></DM.Portal>
+        </DM.Root>
+      )}
       {!edgeless && (
         <>
           <DM.Root>

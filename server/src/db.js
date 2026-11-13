@@ -1184,6 +1184,24 @@ export async function initSchema() {
     );
   `);
 
+  // Personal triage survives sessions and does not alter other recipients' feeds.
+  await pool.query(`
+    ALTER TABLE notifications ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
+    ALTER TABLE notifications ADD COLUMN IF NOT EXISTS snoozed_until TIMESTAMPTZ;
+    CREATE INDEX IF NOT EXISTS notifications_triage_idx ON notifications(user_id, snoozed_until)
+      WHERE archived_at IS NULL;
+    CREATE TABLE IF NOT EXISTS task_github_links (
+      id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      url TEXT NOT NULL,
+      metadata JSONB NOT NULL DEFAULT '{}',
+      created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      refreshed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE(task_id, url)
+    );
+  `);
+
   // ── workspace agents (workspace-agents.js) ──────────────────────────────────
   // A saved Ask AI request that runs by itself, as its owner. Not agent_runs:
   // that queue hands work to an agent account on someone's own machine.

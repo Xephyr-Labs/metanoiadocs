@@ -16,6 +16,7 @@ import { Skeleton } from '../ui/Skeleton';
 import { inCurrentSpace } from '../../lib/spaceTree';
 import { ActivityLine, Card, DocCard, TaskBucket } from './cards';
 import { NeedsYou } from './NeedsYou';
+import { WorkflowStarter } from './WorkflowStarter';
 import { TodaysMeetings } from './TodaysMeetings';
 
 const BUCKETS: MyTask['bucket'][] = ['overdue', 'today', 'week', 'later'];
@@ -221,6 +222,8 @@ export function Home() {
         {needs && <NeedsYou needs={needs} onChanged={reload} />}
 
         <TodaysMeetings />
+
+        <WorkflowStarter />
 
         {!data ? (
           <div className="space-y-4">
