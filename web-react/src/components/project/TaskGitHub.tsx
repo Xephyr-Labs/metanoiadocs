@@ -36,18 +36,18 @@ export function TaskGitHub({ taskId }: { taskId: string }) {
     finally { if (current.current === taskId) setBusy(null); }
   };
   return (
-    <section className="border-t border-line px-4 py-4" aria-label="GitHub">
-      <h3 className="mb-2 flex items-center gap-2 text-sm font-medium text-ink"><Github size={15} className="text-muted" />GitHub</h3>
+    <section className="border-t border-line px-4 py-5" aria-label="GitHub">
+      <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-ink"><Github size={15} className="text-muted" />GitHub</h3>
       {loading ? <p role="status" className="py-2 text-xs text-muted">Loading linked work…</p> : (
         <>
           {links.length === 0 && !error && <p className="mb-3 text-xs leading-relaxed text-muted">Connect an issue or pull request to keep its status beside the task.</p>}
           <ul className="mb-3 space-y-3">
             {links.map((link) => (
-              <li key={link.id} className="flex min-w-0 items-start gap-2">
+              <li key={link.id} className="flex min-w-0 items-start gap-2 rounded-lg bg-surface p-3">
                 {link.kind === 'pull' ? <GitPullRequest size={15} className="mt-0.5 shrink-0 text-muted" /> : <CircleDot size={15} className="mt-0.5 shrink-0 text-muted" />}
                 <div className="min-w-0 flex-1">
                   <a href={link.url} target="_blank" rel="noreferrer" className="block break-words text-sm font-medium text-ink underline-offset-2 hover:underline">{link.title}</a>
-                  <p className="mt-0.5 break-words text-xs text-muted">{link.owner}/{link.repo} #{link.number} · {link.state}</p>
+                  <p className="mt-1 break-words text-xs text-muted">{link.owner}/{link.repo} #{link.number} · {link.state}</p>
                   {link.reviews && <p className="mt-1 text-xs leading-relaxed text-muted">
                     {link.reviews.partial ? 'First 100 reviews: ' : 'Submitted reviews: '}
                     {link.reviews.approved} approved · {link.reviews.changesRequested} changes requested
