@@ -16,7 +16,6 @@ import { Skeleton } from '../ui/Skeleton';
 import { inCurrentSpace } from '../../lib/spaceTree';
 import { ActivityLine, Card, DocCard, TaskBucket } from './cards';
 import { NeedsYou } from './NeedsYou';
-import { WorkflowStarter } from './WorkflowStarter';
 import { TodaysMeetings } from './TodaysMeetings';
 
 const BUCKETS: MyTask['bucket'][] = ['overdue', 'today', 'week', 'later'];
@@ -188,8 +187,8 @@ export function Home() {
 
   return (
     <div className="scrollarea h-full overflow-y-auto bg-canvas">
-      <div className="mx-auto max-w-[1240px] px-5 py-8 sm:px-8 lg:px-12 lg:py-12">
-        <header className="mb-10 flex flex-col items-start gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
+      <div className="mx-auto max-w-[1440px] px-6 py-8 md:px-10">
+        <header className="mb-6 flex flex-col items-start gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
           <div>
             <h1 className="font-display text-2xl font-semibold leading-7 tracking-[-0.03em] text-ink md:text-4xl md:leading-9">
               {greeting(new Date().getHours())}, {(auth.user?.name || auth.user?.username || 'there').split(' ')[0]}
@@ -223,7 +222,6 @@ export function Home() {
 
         <TodaysMeetings />
 
-        <WorkflowStarter />
 
         {!data ? (
           <div className="space-y-4">

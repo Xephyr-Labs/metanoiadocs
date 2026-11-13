@@ -97,7 +97,7 @@ function NavItem({ icon, label, onClick, trailing, active, alert }: { icon: Reac
       onClick={onClick}
       className={cn(
         'group flex h-7 coarse:h-11 w-full items-center gap-2 rounded-md px-2 text-sm leading-5 transition-colors duration-120',
-        active ? 'bg-selected font-medium text-ink' : alert ? 'font-medium text-accent-strong hover:bg-hover' : 'text-ink hover:bg-hover',
+        active ? 'bg-accent-soft font-medium text-accent-strong' : alert ? 'font-medium text-accent-strong hover:bg-hover' : 'text-ink hover:bg-hover',
       )}
     >
       <span className={cn('flex h-5 w-5 shrink-0 items-center justify-center', alert ? 'text-accent-strong' : active ? 'text-ink' : 'text-muted group-hover:text-ink')}>{icon}</span>
@@ -819,6 +819,7 @@ export function Sidebar() {
             </span>
           ) : undefined}
         />
+        <NavItem icon={<CheckSquare size={16} />} label="Workflows" active={ws.view === 'workflows'} onClick={ws.openWorkflows} />
         <NavItem icon={<CheckSquare size={16} />} label="Tasks" active={ws.view === 'tasks'} onClick={ws.openTasks} />
         {hasCalendar && (
           <NavItem icon={<CalendarDays size={16} />} label="Calendar" active={ws.view === 'calendar'} onClick={ws.openCalendar} />
