@@ -12,6 +12,7 @@ import { FolderView } from './components/folder/FolderView';
 import { SpaceView } from './components/spaces/SpaceView';
 import { HistoryView } from './components/history/HistoryView';
 import { Home } from './components/home/Home';
+import { WorkflowsPage } from './components/workflows/WorkflowsPage';
 import { ProjectView } from './components/project/ProjectView';
 import { RightPanel } from './components/panel/RightPanel';
 import { SettingsDialog } from './components/settings/SettingsDialog';
@@ -129,6 +130,7 @@ export default function App() {
           <TopBar />
           <main id="main" tabIndex={-1} className="min-h-0 flex-1 outline-none">
             {ws.view === 'home' ? <Home />
+              : ws.view === 'workflows' ? <WorkflowsPage />
               : ws.view === 'docs' ? <AllDocsView />
               : ws.view === 'drive' ? <DriveView />
               : ws.view === 'tasks' ? <TasksView />

@@ -1,4 +1,4 @@
-import { BadgeCheck, Bell, Bot, CalendarClock, Inbox, ListChecks, Loader2, TriangleAlert, X, type LucideIcon } from 'lucide-react';
+import { Archive, BadgeCheck, Bell, Bot, CalendarClock, CheckCircle2, Clock3, Inbox, ListChecks, Loader2, MessageSquare, TriangleAlert, X, type LucideIcon } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { inboxShortcut, triageInbox } from '../../lib/inboxActions';
 import { tasksApi } from '../../lib/tasksApi';
@@ -270,17 +270,20 @@ export function InboxDialog() {
     } catch { if (sessionRef.current === session) setError('Could not undo. Try again.'); }
     finally { if (sessionRef.current === session) setBusy(null); }
   };
-  const actions = (it: InboxRow) => <div className="mn-inbox-actions mb-3 ml-11 flex flex-wrap items-center gap-1">
-    {it.task_id && <button type="button" disabled={!!busy} onClick={() => act(it, 'complete')} className={actionClass}>Mark done</button>}
-    {it.comment_id && ['mention', 'comment', 'reply', 'reply_to_you'].includes(it.kind) && (it.task_id || it.doc_id) && <button type="button" disabled={!!busy} onClick={() => { setReplyTo(replyTo === it.id ? null : it.id); setReply(''); }} className={actionClass}>Reply</button>}
-    <button type="button" disabled={!!busy} onClick={() => act(it, 'archive')} className={actionClass}>Archive</button>
-    <button type="button" disabled={!!busy} onClick={() => act(it, 'snooze')} className={actionClass}>Snooze 1 day</button>
-    {busy === it.id && <Loader2 size={12} className="animate-spin text-muted" aria-label="Saving" />}
-    {replyTo === it.id && <form className="mt-1 flex w-full gap-2" onSubmit={e => { e.preventDefault(); void act(it, 'reply'); }}>
+  const actions = (it: InboxRow) => <>
+    <div className="mn-inbox-actions" aria-label="Notification actions">
+      {it.task_id && <button type="button" disabled={!!busy} onClick={() => act(it, 'complete')} aria-label="Mark task done" title="Mark task done"><CheckCircle2 size={16} /></button>}
+      {it.comment_id && ['mention', 'comment', 'reply', 'reply_to_you'].includes(it.kind) && (it.task_id || it.doc_id) && <button type="button" disabled={!!busy} onClick={() => { setReplyTo(replyTo === it.id ? null : it.id); setReply(''); }} aria-label="Reply" title="Reply"><MessageSquare size={16} /></button>}
+      <button type="button" disabled={!!busy} onClick={() => act(it, 'archive')} aria-label="Archive" title="Archive"><Archive size={16} /></button>
+      <button type="button" disabled={!!busy} onClick={() => act(it, 'snooze')} aria-label="Snooze one day" title="Snooze one day"><Clock3 size={16} /></button>
+      {busy === it.id && <Loader2 size={14} className="animate-spin text-muted" aria-label="Saving" />}
+    </div>
+    {replyTo === it.id && <form className="mx-3 mb-3 flex gap-2" onSubmit={e => { e.preventDefault(); void act(it, 'reply'); }}>
       <textarea autoFocus aria-label="Reply to comment" maxLength={4000} value={reply} onChange={e => setReply(e.target.value)} className="min-h-20 min-w-0 flex-1 rounded-md border border-line bg-canvas p-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent" />
       <button type="submit" disabled={!!busy || !reply.trim()} className={actionClass}>Send reply</button>
     </form>}
-  </div>;
+  </>;
+
 
   return (
     <Modal
@@ -317,7 +320,7 @@ export function InboxDialog() {
             if (sys) {
               const Icon = sys.icon;
               return (
-                <div key={it.id} className="mn-inbox-item"><button data-inbox-open data-inbox-index={index} onFocus={() => setActive(index)} onClick={() => open(it)} className="focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent flex w-full items-start gap-2.5 rounded-md px-2 py-2.5 text-left transition-colors hover:bg-hover">
+                <div key={it.id} className={cn("mn-inbox-item rounded-lg", active === index && "bg-accent-soft")}><button data-inbox-open data-inbox-index={index} onFocus={() => setActive(index)} onClick={() => open(it)} className="focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent flex w-full items-start gap-2.5 rounded-md px-2 py-2.5 text-left transition-colors hover:bg-accent-soft">
                   <span className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-surface">
                     <Icon size={14} className={sys.tone} />
                     {unread && <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-canvas bg-accent" />}
@@ -336,7 +339,7 @@ export function InboxDialog() {
             // in the third person to do it reads like a stranger wrote it.
             const self = !!it.actor_id && it.actor_id === auth.user?.id;
             return (
-              <div key={it.id} className="mn-inbox-item"><button data-inbox-open data-inbox-index={index} onFocus={() => setActive(index)} onClick={() => open(it)} className="focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent flex w-full items-start gap-2.5 rounded-md px-2 py-2.5 text-left transition-colors hover:bg-hover">
+              <div key={it.id} className={cn("mn-inbox-item rounded-lg", active === index && "bg-accent-soft")}><button data-inbox-open data-inbox-index={index} onFocus={() => setActive(index)} onClick={() => open(it)} className="focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent flex w-full items-start gap-2.5 rounded-md px-2 py-2.5 text-left transition-colors hover:bg-accent-soft">
                 <span className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-2xs font-semibold text-white" style={{ background: a.color }}>
                   {a.initials}
                   {unread && <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-canvas bg-accent" />}

@@ -28,7 +28,7 @@ import type { EditorMode, Folder, Page, PageId, Tag, Verification } from '../lib
 export type RightTab = 'intel' | 'comments' | 'outline' | 'details' | 'ai';
 
 /** Which surface fills the main column. Cheaper than a router for five screens. */
-export type View = 'home' | 'doc' | 'project' | 'folder' | 'tasks' | 'docs' | 'space' | 'calendar' | 'drive';
+export type View = 'home' | 'doc' | 'project' | 'folder' | 'tasks' | 'docs' | 'space' | 'calendar' | 'drive' | 'workflows';
 
 /** What one space's section in the sidebar draws. */
 export interface SpaceTree {
@@ -50,6 +50,7 @@ interface WorkspaceState {
   openAllDocs: () => void;
   /** Your own Google Calendar: day, week and month. */
   openCalendar: () => void;
+  openWorkflows: () => void;
   openDrive: () => void;
   /** `taskId` opens that task's panel once the board is up — how a page gets
    *  back to the task it belongs to. */
@@ -569,6 +570,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setMobileDrawer(false);
     showHome();
   }, []);
+
+  const openWorkflows = useCallback(() => { setView('workflows'); setMobileDrawer(false); showHome(); }, []);
 
   const openDrive = useCallback(() => {
     setView('drive');
@@ -1381,7 +1384,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       pinnedIds, pinnedFolderIds, togglePin, toggleFolderPin,
       currentId, currentPage, loading, error, workspaceId,
       historyDocId, openHistory, closeHistory,
-      view, activeProjectId, activeFolderId, openHome, openTasks, openAllDocs, openCalendar, openDrive, openProject, createTaskIn, pendingTaskId, clearPendingTask, pendingViewId: activeViewId, clearPendingView, openFolder, activeSpaceId, openSpace, projects, refreshProjects, spaces, refreshSpaces, moveToSpace, joinSpace, leaveSpace, createSpace, spaceTrees, currentSpaceId, switchSpace,
+      view, activeProjectId, activeFolderId, openHome, openTasks, openAllDocs, openCalendar, openWorkflows, openDrive, openProject, createTaskIn, pendingTaskId, clearPendingTask, pendingViewId: activeViewId, clearPendingView, openFolder, activeSpaceId, openSpace, projects, refreshProjects, spaces, refreshSpaces, moveToSpace, joinSpace, leaveSpace, createSpace, spaceTrees, currentSpaceId, switchSpace,
       sidebarCollapsed, panelCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
       settingsOpen, trashOpen, inboxOpen, shortcutsOpen, captureOpen, mode, fullWidth, theme,
       refresh, select, toggleExpand, toggleFavorite, toggleLove, setVerification, toggleFolderFavorite, setVisibility, rename, applyTitleFromEditor,
@@ -1397,7 +1400,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       pinnedIds, pinnedFolderIds, togglePin, toggleFolderPin,
       currentId, currentPage, loading, error, workspaceId,
       historyDocId, openHistory, closeHistory,
-      view, activeProjectId, activeFolderId, openHome, openTasks, openAllDocs, openCalendar, openDrive, openProject, createTaskIn, pendingTaskId, clearPendingTask, activeViewId, clearPendingView, openFolder, activeSpaceId, openSpace, projects, refreshProjects, spaces, refreshSpaces, moveToSpace, joinSpace, leaveSpace, createSpace, spaceTrees, currentSpaceId, switchSpace,
+      view, activeProjectId, activeFolderId, openHome, openTasks, openAllDocs, openCalendar, openWorkflows, openDrive, openProject, createTaskIn, pendingTaskId, clearPendingTask, activeViewId, clearPendingView, openFolder, activeSpaceId, openSpace, projects, refreshProjects, spaces, refreshSpaces, moveToSpace, joinSpace, leaveSpace, createSpace, spaceTrees, currentSpaceId, switchSpace,
       sidebarCollapsed, panelCollapsed, sidebarWidth, mobileDrawerOpen, rightPanel, paletteOpen, shareOpen,
       settingsOpen, trashOpen, inboxOpen, shortcutsOpen, captureOpen, mode, fullWidth, theme,
       refresh, select, toggleExpand, toggleFavorite, toggleLove, setVerification, toggleFolderFavorite, setVisibility, rename, applyTitleFromEditor,

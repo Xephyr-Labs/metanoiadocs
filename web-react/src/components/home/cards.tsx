@@ -20,9 +20,9 @@ export function Card({ title, action, children, className }: {
     // min-w-0: a card is always a grid/flex item, and a grid item's automatic
     // minimum is its min-content — one long doc title would push the card wider
     // than its column and slide it under the neighbouring one.
-    <section className={cn('min-w-0 border-t border-line bg-canvas pt-5', className)}>
+    <section className={cn('min-w-0 rounded-lg border border-line bg-canvas p-4', className)}>
       {(title || action) && (
-        <header className="mb-4 flex items-center justify-between">
+        <header className="mb-3 flex items-center justify-between">
           <h2 className="text-sm font-semibold text-ink">{title}</h2>
           {action}
         </header>
@@ -44,7 +44,7 @@ export function DocCard({ doc, onOpen }: {
       <button
         type="button"
         onClick={onOpen}
-        className="flex h-full w-full items-start gap-2.5 rounded-lg bg-surface p-4 pr-9 text-left transition-colors duration-120 hover:bg-hover"
+        className="flex h-full w-full items-start gap-2.5 rounded-lg border border-line bg-canvas p-3 pr-8 text-left transition-colors duration-120 hover:border-line-strong hover:bg-hover"
       >
         {/* Icon inline with the name, not floating above it: a 132px-tall box
             holding one line of text and an emoji was mostly empty space. It

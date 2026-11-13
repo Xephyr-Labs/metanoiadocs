@@ -1867,13 +1867,16 @@ affine-list[data-mn-size='small'] > .affine-block-component > .affine-list-block
   }
 }
 
-/* Inbox triage: clear row boundaries and a quiet, always discoverable action rail. */
-.mn-inbox-item {
-  border-bottom: 1px solid var(--line);
-  padding-top: 4px;
-}
+/* Notification controls sit beside the item and remain available to touch and keyboard. */
+.mn-inbox-item { position: relative; border-bottom: 1px solid var(--line); }
 .mn-inbox-item:last-child { border-bottom: 0; }
-.mn-inbox-item > button { padding: 12px 8px 8px; }
-.mn-inbox-actions { gap: 4px; }
-.mn-inbox-actions > button { min-height: 28px; background: var(--surface); }
-.mn-inbox-actions > button:hover { background: var(--hover); }
+.mn-inbox-item > button { padding: 12px 140px 12px 8px; }
+.mn-inbox-actions { position: absolute; right: 8px; top: 10px; display: flex; align-items: center; gap: 2px; opacity: 0; pointer-events: none; transition: opacity 120ms; }
+.mn-inbox-item:hover .mn-inbox-actions, .mn-inbox-item:focus-within .mn-inbox-actions { opacity: 1; pointer-events: auto; }
+.mn-inbox-actions button { display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 6px; background: var(--canvas); color: var(--accent-strong); }
+.mn-inbox-actions button:hover { background: var(--accent-fill); color: white; }
+.mn-inbox-actions button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.mn-inbox-actions button:disabled { opacity: .5; }
+@media (hover: none) { .mn-inbox-actions { opacity: 1; pointer-events: auto; } }
+@media (max-width: 500px) { .mn-inbox-item > button { padding-right: 108px; } .mn-inbox-actions { right: 2px; gap: 0; } .mn-inbox-actions button { width: 26px; height: 36px; } }
+@media (prefers-reduced-motion: reduce) { .mn-inbox-actions { transition: none; } }
