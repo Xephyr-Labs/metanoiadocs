@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as Y from 'yjs';
-import { appendMarkdownToDoc, blobVideo, appendPageReference, buildDocState, collectMarkdownLinks, docToMarkdown, extractText, fixTableOrderKeys, validOrderKey } from './blocks.js';
+import { appendMarkdownToDoc, blobVideo, replaceBodyKeepingIds, parseMarkdown, appendPageReference, buildDocState, collectMarkdownLinks, docToMarkdown, extractText, fixTableOrderKeys, validOrderKey } from './blocks.js';
 
 // The editor's own key generator, when the web app's dependencies are installed
 // alongside — the real proof that a table built here takes new rows.
@@ -537,4 +537,31 @@ test('blobVideo: the type comes from the name; foreign urls and non-videos stay 
   assert.equal(blobVideo('Screen.MOV', 'https://docs.example/api/blob/k').type, 'video/quicktime');
   assert.equal(blobVideo('a.mp4', 'https://youtube.com/a.mp4'), null);
   assert.equal(blobVideo('a.png', '/api/blob/k'), null);
+});
+
+test('a page with a video stays replaceable: its link reads back into the same video', () => {
+  assert.deepEqual(lossyBlocks(buildDocState('V', '[a.mp4](/api/blob/A?name=a.mp4)')), []);
+});
+
+test('a video link inside a panel stays its link, not an empty line', () => {
+  const [panel] = parseMarkdown('> [!NOTE]\n> [clip.mp4](/api/blob/abc?name=clip.mp4)');
+  assert.match(panel.children[0].text, /\[clip\.mp4\]\(\/api\/blob\/abc\?name=clip\.mp4\)/);
+});
+
+test('a name with parentheses or brackets reads back as a link that is still the video', () => {
+  const md = '[x](/api/blob/abc?name=clip%20%281%29%20%5Bv2%5D.mp4)';
+  const out = docToMarkdown(buildDocState('V', md)).markdown;
+  assert.equal(out, '[clip (1) v2.mp4](/api/blob/abc?name=clip%20%281%29%20%5Bv2%5D.mp4)');
+  assert.equal(parseMarkdown(out)[0].flavour, 'affine:attachment');
+});
+
+test('swapping one video for another takes the new name too', () => {
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, buildDocState('V', '[a.mp4](/api/blob/A?name=a.mp4)'));
+  replaceBodyKeepingIds(doc, 'V', '[b.mp4](/api/blob/B?name=b.mp4)');
+  assert.match(docToMarkdown(Y.encodeStateAsUpdate(doc)).markdown, /\[b\.mp4\]\(\/api\/blob\/B\?name=b\.mp4\)/);
+});
+
+test('a video is found by its file name', () => {
+  assert.match(extractText(buildDocState('V', '[demo clip.mp4](/api/blob/A?name=demo%20clip.mp4)')).text, /demo clip\.mp4/);
 });

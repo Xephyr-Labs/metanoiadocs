@@ -676,11 +676,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     const id = currentId;
     const seen = () => {
       docsApi.markOpened(id).catch(() => {});
-      // Stamp the visit here too, so Recent moves now rather than on the next
-      // load. Tasks are not documents (the server skips them as well).
-      setPages((p) => (p[id] ? { ...p, [id]: { ...p[id], unseen: false,
-        lastVisitedAt: p[id].kind === 'task' ? p[id].lastVisitedAt : new Date().toISOString() } } : p));
+      setPages((p) => (p[id]?.unseen ? { ...p, [id]: { ...p[id], unseen: false } } : p));
     };
+    // Stamp the arrival locally too, so Recent moves now rather than on the
+    // next load. Tasks are not documents (the server skips them as well).
+    const at = new Date().toISOString();
+    setPages((p) => (p[id] && p[id].kind !== 'task' ? { ...p, [id]: { ...p[id], lastVisitedAt: at } } : p));
     seen();
     return seen;
   }, [view, currentId]);

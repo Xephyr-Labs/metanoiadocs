@@ -718,7 +718,7 @@ export function Sidebar() {
   const space = useCurrentSpace();
   const pageHere = (id: string) => inCurrentSpace(ws.pages[id]?.spaceId, ws.currentSpaceId, ws.spaces);
   const folderHere = (id: string) => inCurrentSpace(ws.folders[id]?.spaceId, ws.currentSpaceId, ws.spaces);
-  const recentIds = ws.recentIds.filter(pageHere);
+  const recentIds = ws.recentIds.filter(pageHere).slice(0, 5);
   const favoriteIds = ws.favoriteIds.filter(pageHere);
   const favoriteFolderIds = ws.favoriteFolderIds.filter(folderHere);
   const privateRootIds = ws.privateRootIds.filter(pageHere);
