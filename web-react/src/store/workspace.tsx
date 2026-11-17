@@ -230,6 +230,7 @@ function buildPages(rows: DocRow[]): Record<PageId, Page> {
       favorite: !!r.favorite,
       pinned: !!r.pinned,
       unseen: !!r.unseen,
+      lastVisitedAt: r.my_last_at ?? null,
       isTemplate: !!r.is_template,
       templateEverywhere: !!r.template_everywhere,
       role: r.role,
@@ -387,16 +388,6 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   // Page property definitions are workspace-wide, so they load once with the
   // rest of the boot payload rather than per page.
   const [docProps, setDocProps] = useState<DocPropRow[]>([]);
-  const [recentIds, setRecentIds] = useState<PageId[]>(() => {
-    // Same trap as the project filters: parsing succeeding does not make the
-    // value a list of ids, and everything downstream calls .map on it.
-    try {
-      const parsed = JSON.parse(localStorage.getItem('mn-recents') || '[]');
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  });
   const [mode, setMode] = useState<EditorMode>('page');
   // Remembered across sessions: someone who widens the measure means it for
   // more than the page they happened to be on.
@@ -674,11 +665,6 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     localStorage.setItem('mn-last-doc', id);
     setMobileDrawer(false);
     showDoc(id);
-    setRecentIds((prev) => {
-      const r = [id, ...prev.filter((x) => x !== id)].slice(0, 8);
-      localStorage.setItem('mn-recents', JSON.stringify(r));
-      return r;
-    });
   }, []);
 
   // Record arrival, not the click: cold loads, shared links, back/forward and
@@ -690,7 +676,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     const id = currentId;
     const seen = () => {
       docsApi.markOpened(id).catch(() => {});
-      setPages((p) => (p[id]?.unseen ? { ...p, [id]: { ...p[id], unseen: false } } : p));
+      // Stamp the visit here too, so Recent moves now rather than on the next
+      // load. Tasks are not documents (the server skips them as well).
+      setPages((p) => (p[id] ? { ...p, [id]: { ...p[id], unseen: false,
+        lastVisitedAt: p[id].kind === 'task' ? p[id].lastVisitedAt : new Date().toISOString() } } : p));
     };
     seen();
     return seen;
@@ -1320,7 +1309,15 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     () => Object.values(folders).filter((f) => f.favorite).map((f) => f.id),
     [folders],
   );
-  const liveRecentIds = useMemo(() => recentIds.filter((id) => pages[id]).slice(0, 5), [recentIds, pages]);
+  // Recent comes from the server's record of what you opened or edited
+  // (doc_opens, doc_editors), so it follows you across devices and counts
+  // every way into a page, not only sidebar clicks. Callers filter by space
+  // and cap what they show, so keep enough for that.
+  const liveRecentIds = useMemo(
+    () => Object.values(pages).filter((p) => p.lastVisitedAt && p.kind !== 'task')
+      .sort((a, b) => b.lastVisitedAt!.localeCompare(a.lastVisitedAt!)).slice(0, 30).map((p) => p.id),
+    [pages],
+  );
   const currentPage = currentId ? pages[currentId] ?? null : null;
   const folderRootIds = useMemo(
     () => Object.values(folders).filter((folder) => !folder.parentId).sort((a, b) => a.position - b.position || a.name.localeCompare(b.name)).map((folder) => folder.id),

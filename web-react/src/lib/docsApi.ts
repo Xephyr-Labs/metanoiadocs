@@ -69,6 +69,8 @@ export interface DocRow {
   pinned: boolean;
   /** Someone else saved it since you last opened or edited it. */
   unseen?: boolean;
+  /** When you last opened or edited it, on any device; null if never. */
+  my_last_at?: string | null;
   /** How many pages this one @-references. 0 = no disclosure arrow in the sidebar. */
   link_count: number;
   tags: TagRow[];

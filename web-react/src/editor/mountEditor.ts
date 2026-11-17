@@ -54,6 +54,7 @@ import { watchFlavours } from './suggest/model';
 import { attachSuggestingInput, type SuggestingOptions } from './suggest/suggestingInput';
 import { stripSuggestionsOnCopyExtension, suggestInlineExtensions } from './suggest/inlineSpec';
 import { cancelVoiceNote, voiceNoteExtensions } from './voiceNote';
+import { attachVideoEmbed, uploadLimitExtension } from './videoEmbed';
 import { closeTranscriptCard, voiceTranscriptExtensions } from './voiceTranscript';
 import { attachTextSize } from './textSize';
 import { chartEffects, chartViewExtensions } from './chart';
@@ -577,6 +578,7 @@ export async function mountEditor(
     ...suggestInlineExtensions(),
     stripSuggestionsOnCopyExtension,
     ...voiceNoteExtensions(),
+    uploadLimitExtension,
     ...voiceTranscriptExtensions(),
     noLinkedDocConvertCanvasExtension(),
     // Phones: bold/italic/link… on the bar over the keyboard, not behind "Aa".
@@ -716,6 +718,9 @@ export async function mountEditor(
     ? null
     : attachFileDrop(editor as unknown as Parameters<typeof attachFileDrop>[0]);
 
+  // A video someone adds plays in place rather than as a file card (videoEmbed.ts).
+  const detachVideoEmbed = noWrite ? null : attachVideoEmbed(store as never);
+
   // Paint each callout's stored panel type onto the DOM (see callout.ts).
   const detachCalloutPanels = attachCalloutPanels({
     store: store as unknown as Parameters<typeof attachCalloutPanels>[0]['store'],
@@ -842,6 +847,7 @@ export async function mountEditor(
       try { detachSelectAll(); } catch { /* noop */ }
       try { detachFileDrop?.(); } catch { /* noop */ }
       try { detachCalloutPanels(); } catch { /* noop */ }
+      detachVideoEmbed?.();
       try { cancelVoiceNote(editor as unknown as Element); } catch { /* noop */ }
       try { closeTranscriptCard(); } catch { /* noop */ }
       try { detachTextSize(); } catch { /* noop */ }

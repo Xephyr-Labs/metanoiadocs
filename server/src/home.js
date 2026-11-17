@@ -124,11 +124,16 @@ export function registerHomeRoutes(app, { requireUser, wrap }) {
         `SELECT d.id, d.title, d.icon, d.updated_at, u.name AS updated_by_name
            FROM docs d ${VISIBLE_JOIN}
            LEFT JOIN users u ON u.id = d.updated_by
+           LEFT JOIN doc_opens o ON o.doc_id = d.id AND o.user_id = $1
+           LEFT JOIN doc_editors ed ON ed.doc_id = d.id AND ed.user_id = $1
           WHERE d.deleted_at IS NULL AND ${VISIBLE} AND ${IN_SPACE('d.space_id', 2, space)}
             -- A task's page lives behind its row (see tasks.js); opening the row
             -- creates it, which is not the same as working on a document.
             AND d.kind IS DISTINCT FROM 'task'
-          ORDER BY d.updated_at DESC LIMIT 12`,
+          -- What I opened or edited, newest first; the team's latest edits
+            -- only fill the row after that (an agent saving forty pages a day
+            -- otherwise pushed everything I worked on off it).
+          ORDER BY greatest(o.opened_at, ed.last_edit_at) DESC NULLS LAST, d.updated_at DESC LIMIT 12`,
         [uid, ...sp]
       ),
       pool.query(

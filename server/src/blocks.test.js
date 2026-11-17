@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as Y from 'yjs';
-import { appendMarkdownToDoc, appendPageReference, buildDocState, collectMarkdownLinks, docToMarkdown, extractText, fixTableOrderKeys, validOrderKey } from './blocks.js';
+import { appendMarkdownToDoc, blobVideo, appendPageReference, buildDocState, collectMarkdownLinks, docToMarkdown, extractText, fixTableOrderKeys, validOrderKey } from './blocks.js';
 
 // The editor's own key generator, when the web app's dependencies are installed
 // alongside — the real proof that a table built here takes new rows.
@@ -517,4 +517,24 @@ test('pageLinksOf mirrors the editor: no links from a pending insertion or add b
   keep.insert(0, ' ', ref('ins-ref', { id: 'i', kind: 'ins', by: 'u1', at: 1 }));
   bs.find((b) => b.get('prop:text')?.toString() === 'ADDED').get('prop:text').insert(0, ' ', ref('add-ref'));
   assert.deepEqual(pageLinksOf(Y.encodeStateAsUpdate(doc)).sort(), ['del-ref', 'kept']);
+});
+
+test('a line linking a stored video becomes an embedded player and reads back as the same link', () => {
+  const md = 'Intro\n\n[demo clip.mp4](/api/blob/abc?name=demo%20clip.mp4)\n\n[notes.pdf](/api/blob/def?name=notes.pdf)';
+  const state = buildDocState('V', md);
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, state);
+  const att = [...doc.getMap('blocks').values()].filter((b) => b.get('sys:flavour') === 'affine:attachment');
+  assert.equal(att.length, 1, 'only the video, not the pdf');
+  assert.equal(att[0].get('prop:type'), 'video/mp4');
+  assert.equal(att[0].get('prop:embed'), true);
+  assert.equal(att[0].get('prop:sourceId'), 'abc');
+  assert.match(docToMarkdown(state).markdown, /\[demo clip\.mp4\]\(\/api\/blob\/abc\?name=demo%20clip\.mp4\)/);
+});
+
+test('blobVideo: the type comes from the name; foreign urls and non-videos stay links', () => {
+  assert.equal(blobVideo('', '/api/blob/k?name=a.webm').type, 'video/webm');
+  assert.equal(blobVideo('Screen.MOV', 'https://docs.example/api/blob/k').type, 'video/quicktime');
+  assert.equal(blobVideo('a.mp4', 'https://youtube.com/a.mp4'), null);
+  assert.equal(blobVideo('a.png', '/api/blob/k'), null);
 });

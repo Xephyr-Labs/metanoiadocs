@@ -123,10 +123,9 @@ export function CommandPalette() {
 
   const recentItems: Item[] = useMemo(() => {
     if (query) return [];
-    const ids = JSON.parse(localStorage.getItem('mn-recents') || '[]') as string[];
-    return ids.map((id) => ws.pages[id]).filter((p) => p && inCurrentSpace(p.spaceId, ws.currentSpaceId, ws.spaces)).slice(0, 4)
+    return ws.recentIds.map((id) => ws.pages[id]).filter((p) => p && inCurrentSpace(p.spaceId, ws.currentSpaceId, ws.spaces)).slice(0, 4)
       .map((p) => ({ kind: 'page' as const, id: p.id, title: p.title, sub: 'Recent' }));
-  }, [query, ws.pages, ws.currentSpaceId, ws.spaces]);
+  }, [query, ws.recentIds, ws.pages, ws.currentSpaceId, ws.spaces]);
 
   const allPages: Item[] = useMemo(
     () => Object.values(ws.pages).filter((p) => inCurrentSpace(p.spaceId, ws.currentSpaceId, ws.spaces))
