@@ -1636,7 +1636,7 @@ export function createMetanoiaMcpServer({ base, headers = {}, zone = DEFAULT_ZON
     {
       title: 'Attach a file to a doc',
       description:
-        `Upload a file (base64 \`contentBase64\`, up to ${MAX_ATTACHMENT_BYTES / 1048576} MB) and add it at the end of a page: an image (png, jpeg, gif, webp, svg) shows as a picture, any other file as a download link. It is added exactly like write_doc mode=append, so on an existing page an AI assistant's or untrusted agent's attachment comes back as a suggestion for a person to review, with a link. The file itself is stored either way; an unreferenced one is cleaned up later.`,
+        `Upload a file (base64 \`contentBase64\`, up to ${MAX_ATTACHMENT_BYTES / 1048576} MB) and add it at the end of a page: an image (png, jpeg, gif, webp, svg) shows as a picture, a video (a filename ending .mp4, .m4v, .mov, .webm or .ogv) as a player in the page, any other file as a download link. A page can also show a video already uploaded with PUT /api/blob: put \`[clip.mp4](/api/blob/<key>?name=clip.mp4)\` on a line of its own. It is added exactly like write_doc mode=append, so on an existing page an AI assistant's or untrusted agent's attachment comes back as a suggestion for a person to review, with a link. The file itself is stored either way; an unreferenced one is cleaned up later.`,
       inputSchema: {
         id: z.string().describe('Document id'),
         filename: z.string().min(1).max(200).describe('File name, e.g. diagram.png'),

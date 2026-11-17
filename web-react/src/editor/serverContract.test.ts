@@ -65,6 +65,8 @@ const a = 1;
 
 ![An image](/api/blob/abc123)
 
+[clip.mp4](/api/blob/def456?name=clip.mp4)
+
 See [[Another page]].
 `;
 
@@ -83,7 +85,7 @@ describe('server-built pages fit the editor', () => {
   it('builds every kind of block the server knows', () => {
     const flavours = new Set(blocks.map(([, b]) => b.get('sys:flavour')));
     for (const f of ['affine:page', 'affine:surface', 'affine:note', 'affine:paragraph', 'affine:list', 'affine:code',
-      'affine:divider', 'affine:table', 'affine:callout', 'affine:image']) {
+      'affine:divider', 'affine:table', 'affine:callout', 'affine:image', 'affine:attachment']) {
       expect(flavours, f).toContain(f);
     }
   });

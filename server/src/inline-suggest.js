@@ -110,7 +110,8 @@ export function listSuggestions(doc) {
     const bs = b.get(BLOCK_KEY);
     if (bs?.id) {
       const c = card(bs, blockId, bs.kind);
-      const here = t ? t.toString() : '';
+      // A file (an attachment, a video) has no text; its name is what a reviewer reads.
+      const here = t ? t.toString() : String(b.get('prop:name') || '');
       if (bs.kind === 'add') c.after = here;
       else if (bs.kind === 'remove') c.before = here;
       else {

@@ -57,6 +57,8 @@ export interface Page {
   tags: Tag[];
   /** Someone else changed it since you last opened it — bold in your sidebar. */
   unseen: boolean;
+  /** When you last opened or edited it, on any device. Orders Recent. */
+  lastVisitedAt: string | null;
   /** Pinned for the whole workspace, as opposed to `favorite`, which is yours. */
   pinned: boolean;
   /** Offered as a starting point for new pages. A template is an ordinary page

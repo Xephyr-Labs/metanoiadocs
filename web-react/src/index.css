@@ -316,6 +316,28 @@ body {
   overflow-x: clip;
 }
 
+/* Radix sets `pointer-events: none` on <body> while a modal dialog or menu is
+ * open, and clears it on close. pointer-events is inherited, so each flip makes
+ * the browser restyle the whole page: on a large document that was ~0.5s per
+ * flip (and per menu), which is the freeze after closing Settings. Keeping the
+ * computed value fixed makes the flip free, and a Radix layer that forgets to
+ * clear it (its known bug with a dialog opened from a menu) can no longer leave
+ * the app unclickable. Dialogs still block the page: their overlay covers it. */
+body {
+  pointer-events: auto !important;
+}
+
+/* The same dialogs lock scrolling (react-remove-scroll-bar), which sets this
+ * custom property on <body>. Custom properties inherit, so setting and
+ * clearing it restyled every element on the page too, another ~0.4s each on a
+ * large document. Nothing here reads it below <body>; not inheriting makes the
+ * change stop at <body>. */
+@property --removed-body-scroll-bar-size {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+
 body {
   margin: 0;
   background: var(--canvas);

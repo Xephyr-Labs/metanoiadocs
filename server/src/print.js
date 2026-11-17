@@ -180,7 +180,7 @@ a { color: #1b64da; text-decoration: none; }
 /** Just the page's body, rendered the same safe way: the editor shows it while
  *  BlockSuite is still starting, so a page can be read before it is editable. */
 // Panels render as panels here; only images go through the paragraph form.
-const forHtml = (md) => parseMarkdown(md).map((d) => (d.flavour === 'affine:image' ? imageDescAsParagraph(d) : d));
+const forHtml = (md) => parseMarkdown(md).map((d) => (d.flavour === 'affine:image' || d.flavour === 'affine:attachment' ? imageDescAsParagraph(d) : d));
 
 export function bodyHtml(markdown) {
   return blocksToHtml(forHtml(markdown));

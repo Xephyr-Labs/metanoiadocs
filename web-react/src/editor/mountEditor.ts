@@ -19,7 +19,7 @@ import {
 import { ColorScheme } from '@blocksuite/affine/model';
 import { IS_ANDROID, IS_MOBILE } from '@blocksuite/affine/global/env';
 import { HocuspocusProvider } from '@hocuspocus/provider';
-import { applyUpdate } from 'yjs';
+import { applyUpdate, type YMapEvent } from 'yjs';
 import { IndexeddbPersistence } from 'y-indexeddb';
 import { Signal } from '@preact/signals-core';
 import { avatarFor } from '../lib/avatar';
@@ -54,6 +54,7 @@ import { watchFlavours } from './suggest/model';
 import { attachSuggestingInput, type SuggestingOptions } from './suggest/suggestingInput';
 import { stripSuggestionsOnCopyExtension, suggestInlineExtensions } from './suggest/inlineSpec';
 import { cancelVoiceNote, voiceNoteExtensions } from './voiceNote';
+import { attachVideoEmbed, uploadLimitExtension } from './videoEmbed';
 import { closeTranscriptCard, voiceTranscriptExtensions } from './voiceTranscript';
 import { attachTextSize } from './textSize';
 import { chartEffects, chartViewExtensions } from './chart';
@@ -299,10 +300,33 @@ export async function mountEditor(
   provider?.on('close', ({ event }: { event: { code?: number } }) => {
     if (refused && event?.code === 4403) void (idb?.clearData() ?? Promise.resolve()).finally(() => location.reload());
   });
+  // A wholesale rewrite (a markdown replace, a version restore: restore.js
+  // rewriteDoc) clears the blocks map and fills it from a fresh build, page
+  // block included, under new ids. The editor keeps rendering the page block
+  // it was built on, which is now gone: the data is right and the page is
+  // empty. Open editors are told with `doc-restored`, but a page mounted from
+  // this device's cache before the server's copy arrived gets the rewrite as
+  // ordinary sync and never hears it — blank until a reload. So the rewrite is
+  // also recognised by what it does: a remote change deletes the page block
+  // this editor shows (or sets a block again under an id it already had).
+  // Only once the editor is built from the store; before that its models come
+  // from the merged state anyway. Once per mount.
+  let builtFromStore = false;
+  let shownRoot: string | null = null;
+  let rewriteSeen = false;
+  const remoteRewrite = () => { if (!rewriteSeen) { rewriteSeen = true; onRemoteRewrite?.(); } };
+  const blocksMap = doc.spaceDoc.getMap('blocks');
+  const onBlocksChanged = (e: YMapEvent<unknown>) => {
+    if (!builtFromStore || e.transaction.local) return;
+    for (const [key, change] of e.changes.keys) {
+      if (change.action === 'update' || (change.action === 'delete' && key === shownRoot)) { remoteRewrite(); return; }
+    }
+  };
+  if (!snapshot) blocksMap.observe(onBlocksChanged);
   provider?.on('stateless', ({ payload }: { payload: string }) => {
     try {
       const type = JSON.parse(payload)?.type;
-      if (type === 'doc-restored') onRemoteRewrite?.();
+      if (type === 'doc-restored') remoteRewrite();
       // Someone added, answered, resolved or decided a comment on this page.
       else if (type === 'comments-changed') notifyCommentsChanged();
       // This Suggesting-mode draft was reviewed or discarded: leave it (reviewMode.ts).
@@ -355,6 +379,7 @@ export async function mountEditor(
   // sync connection kept reconnecting and publishing this reader's presence on
   // a page they had left, and the observer above stayed on the body.
   const abandon = () => {
+    try { blocksMap.unobserve(onBlocksChanged); } catch { /* noop */ }
     try { tooltipKiller.disconnect(); } catch { /* noop */ }
     try { detachPresence(); } catch { /* noop */ }
     try { provider?.destroy(); } catch { /* noop */ }
@@ -387,6 +412,8 @@ export async function mountEditor(
   // Before anything below writes to the document (seed, title, surface).
   stillWanted();
   store.load();
+  builtFromStore = true;
+  shownRoot = store.root?.id ?? null;
 
   // Public viewer and version preview alike: read-only. Set before the editor
   // mounts so no caret or tools show.
@@ -577,6 +604,7 @@ export async function mountEditor(
     ...suggestInlineExtensions(),
     stripSuggestionsOnCopyExtension,
     ...voiceNoteExtensions(),
+    uploadLimitExtension,
     ...voiceTranscriptExtensions(),
     noLinkedDocConvertCanvasExtension(),
     // Phones: bold/italic/link… on the bar over the keyboard, not behind "Aa".
@@ -716,6 +744,9 @@ export async function mountEditor(
     ? null
     : attachFileDrop(editor as unknown as Parameters<typeof attachFileDrop>[0]);
 
+  // A video someone adds plays in place rather than as a file card (videoEmbed.ts).
+  const detachVideoEmbed = noWrite ? null : attachVideoEmbed(store as never);
+
   // Paint each callout's stored panel type onto the DOM (see callout.ts).
   const detachCalloutPanels = attachCalloutPanels({
     store: store as unknown as Parameters<typeof attachCalloutPanels>[0]['store'],
@@ -842,6 +873,8 @@ export async function mountEditor(
       try { detachSelectAll(); } catch { /* noop */ }
       try { detachFileDrop?.(); } catch { /* noop */ }
       try { detachCalloutPanels(); } catch { /* noop */ }
+      detachVideoEmbed?.();
+      try { blocksMap.unobserve(onBlocksChanged); } catch { /* noop */ }
       try { cancelVoiceNote(editor as unknown as Element); } catch { /* noop */ }
       try { closeTranscriptCard(); } catch { /* noop */ }
       try { detachTextSize(); } catch { /* noop */ }

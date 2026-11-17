@@ -228,6 +228,8 @@ export function lossyBlocks(existing) {
   for (const [, b] of doc.getMap('blocks')) {
     if (!(b instanceof Y.Map) || !blockView(b)) continue;
     const fl = b.get('sys:flavour');
+    // A video reads back as a link that parses into the same video block.
+    if (fl === 'affine:attachment' && blobVideo(String(b.get('prop:name') || ''), '/api/blob/k')) continue;
     if (LOSSY[fl]) out.add(LOSSY[fl]);
     else if (/^affine:embed-/.test(fl) && fl !== 'affine:embed-linked-doc' && fl !== 'affine:embed-synced-doc') out.add('embed');
     else if (fl === 'affine:note' && b.get('prop:displayMode') === 'edgeless') out.add('canvas');
@@ -328,6 +330,13 @@ export function parseMarkdown(md) {
         continue;
       }
     }
+    // A line that is only a link to a stored video becomes a video player
+    // (an attachment block shown embedded), as the editor makes one on upload.
+    // The type comes from the file name; there is no other on a markdown line.
+    if ((m = line.match(/^\s*\[([^\]]*)\]\(([^)\s]+)\)\s*$/))) {
+      const v = blobVideo(m[1], m[2]);
+      if (v) { out.push(v); blank = false; continue; }
+    }
     if ((m = line.match(/^(#{1,6})\s+(.*)$/))) { out.push({ flavour: 'affine:paragraph', type: 'h' + m[1].length, text: m[2] }); blank = false; continue; }
     if ((m = line.match(/^(\s*)[-*]\s+\[([ xX])\]\s+(.*)$/))) { out.push({ flavour: 'affine:list', type: 'todo', checked: m[2].toLowerCase() === 'x', text: m[3], depth: indentDepth(m[1]) }); blank = false; continue; }
     if ((m = line.match(/^(\s*)\d+\.\s+(.*)$/))) { out.push({ flavour: 'affine:list', type: 'numbered', text: m[2], depth: indentDepth(m[1]) }); blank = false; continue; }
@@ -348,7 +357,10 @@ export function parseMarkdown(md) {
           ? [d]
           : d.flavour === 'affine:callout'
             ? d.children
-            : [{ flavour: 'affine:paragraph', type: 'text', text: d.text ?? (d.rows || []).map((r) => r.join(' | ')).join(' ') }]);
+            // A panel holds text only; a video in one stays its link.
+            : d.flavour === 'affine:attachment'
+              ? [imageAsParagraph(d)]
+              : [{ flavour: 'affine:paragraph', type: 'text', text: d.text ?? (d.rows || []).map((r) => r.join(' | ')).join(' ') }]);
       // An empty panel still needs a line to type into.
       if (!children.length) children.push({ flavour: 'affine:paragraph', type: 'text', text: '' });
       out.push({ flavour: 'affine:callout', panel, emoji: m[2] || PANEL_EMOJI[panel] || CALLOUT_EMOJI, children });
@@ -403,7 +415,31 @@ const calloutAsQuote = (d) => ({
 const imageAsParagraph = (d) =>
   d.flavour === 'affine:image'
     ? { flavour: 'affine:paragraph', type: 'text', text: `![${d.caption || ''}](/api/blob/${d.sourceId})` }
-    : d;
+    : d.flavour === 'affine:attachment'
+      ? { flavour: 'affine:paragraph', type: 'text', text: `[${linkText(d.name)}](${blobFileUrl(d.sourceId, d.name)})` }
+      : d;
+
+const VIDEO_TYPES = { mp4: 'video/mp4', m4v: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm', ogv: 'video/ogg' };
+// Parentheses too: `clip (1).mp4` would otherwise close the markdown link early.
+export const encodeName = (name) => encodeURIComponent(name).replace(/[()]/g, (c) => (c === '(' ? '%28' : '%29'));
+// Brackets would end the link text the same way.
+export const linkText = (name) => String(name).replace(/[[\]]/g, '');
+const blobFileUrl = (key, name) => `/api/blob/${encodeURIComponent(key)}?name=${encodeName(name)}`;
+
+/** `[name](/api/blob/<key>?name=clip.mp4)` → a video attachment desc, else null.
+ *  The name is the link text or, failing that, the url's `?name=`. */
+export function blobVideo(text, href) {
+  const u = /^(?:[a-z]+:\/\/[^/]+)?\/api\/blob\/([^?#/]+)(?:\?([^#]*))?$/i.exec(href);
+  if (!u) return null;
+  let qname = '';
+  try { qname = new URLSearchParams(u[2] || '').get('name') || ''; } catch { /* keep '' */ }
+  const name = (qname || text).trim();
+  const type = VIDEO_TYPES[/\.([a-z0-9]+)$/i.exec(name || qname)?.[1]?.toLowerCase()];
+  if (!type) return null;
+  let sourceId;
+  try { sourceId = decodeURIComponent(u[1]); } catch { return null; }
+  return { flavour: 'affine:attachment', name: name || qname, type, sourceId };
+}
 
 /** A body line's text without its `<small>`/`<big>` wrapper, and the size the
  *  wrapper asked for. Headings keep their own scale and take no size. */
@@ -477,6 +513,19 @@ function makeBlock(blocks, desc, resolveLink, pending) {
     b.set('prop:meta:createdBy', desc.by || 'migration');
     b.set('prop:meta:updatedAt', desc.now || 0);
     b.set('prop:meta:updatedBy', desc.by || 'migration');
+  } else if (desc.flavour === 'affine:attachment') {
+    // Embedded, so the editor plays it in place instead of showing a file card.
+    b.set('prop:name', desc.name);
+    b.set('prop:type', desc.type);
+    b.set('prop:sourceId', desc.sourceId);
+    b.set('prop:size', -1);
+    b.set('prop:embed', true);
+    b.set('prop:style', 'horizontalThin');
+    b.set('prop:index', 'a0');
+    b.set('prop:xywh', '[0,0,0,0]');
+    b.set('prop:lockedBySelf', false);
+    b.set('prop:rotate', 0);
+    b.set('prop:footnoteIdentifier', null);
   } else if (desc.flavour === 'affine:image') {
     // width/height 0 tells the editor to render the image at its natural size,
     // so we never have to decode the bytes just to learn how big they are.
@@ -692,6 +741,8 @@ export function extractText(existing, opts = {}) {
     if (fl === 'affine:paragraph' || fl === 'affine:list' || fl === 'affine:code') {
       const txt = textOf(b);
       if (txt) lines.push(txt);
+    } else if (fl === 'affine:attachment' && b.get('prop:name')) {
+      lines.push(String(b.get('prop:name')));
     }
     const kids = b.get('sys:children');
     if (kids instanceof Y.Array) for (const c of kids.toArray()) walk(c);
@@ -931,7 +982,8 @@ export function blocksToMarkdown(blocks, rootIds, opts = {}) {
       case 'affine:attachment': {
         const src = b.get('prop:sourceId');
         const name = b.get('prop:name') || 'attachment';
-        if (src) parts.push({ text: `[${name}](${imageUrl(String(src))})` });
+        // `?name=` keeps the file's name (and so its type) on the way back in.
+        if (src) parts.push({ text: `[${linkText(name)}](${imageUrl(String(src))}?name=${encodeName(name)})` });
         break;
       }
       case 'affine:callout': {
@@ -1144,7 +1196,7 @@ export function copyTree(from, to, id) {
 // width, xywh, textAlign, meta:*…) — those are only builder defaults in the
 // scratch doc and must survive an edit. prop:order is set by renumberLists.
 const CONTENT_PROPS = new Set(['prop:text', 'prop:type', 'prop:checked', 'prop:language', 'prop:mnSize',
-  'prop:mnPanel', 'prop:sourceId', 'prop:latex', 'prop:url', 'prop:emoji']);
+  'prop:mnPanel', 'prop:sourceId', 'prop:name', 'prop:latex', 'prop:url', 'prop:emoji']);
 // Markdown carries a caption only for images, bookmarks and embeds; a code
 // block's caption is editor-only and the builder's '' would wipe it.
 const captioned = (fl) => fl === 'affine:image' || fl === 'affine:bookmark' || /^affine:embed-/.test(fl || '');
@@ -1546,7 +1598,7 @@ function makeEdgelessText(blocks, surface, xywh, index, childIds, hasMaxWidth) {
 const slideBodyDescs = (markdown) => parseMarkdown(markdown).flatMap((d) => {
   if (d.flavour === 'affine:paragraph' || d.flavour === 'affine:list' || d.flavour === 'affine:code') return [d];
   if (d.flavour === 'affine:callout') return [calloutAsQuote(d)];
-  if (d.flavour === 'affine:image') return [imageAsParagraph(d)];
+  if (d.flavour === 'affine:image' || d.flavour === 'affine:attachment') return [imageAsParagraph(d)];
   if (d.flavour === 'affine:table') return d.rows.map((r) => ({ flavour: 'affine:paragraph', type: 'text', text: r.join(' | ') }));
   return []; // a divider has no place in a text box
 });

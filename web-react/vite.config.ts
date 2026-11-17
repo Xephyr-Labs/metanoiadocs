@@ -98,6 +98,22 @@ export default defineConfig({
         this.emitFile({ type: 'asset', fileName: 'version.json', source: JSON.stringify({ build: BUILD }) });
       },
     },
+    {
+      // BlockSuite's linked/synced-doc card styles have `affine-paragraph:has(.h1) *`.
+      // A `:has()` followed by a descendant selector makes Chrome treat ANY node
+      // added or removed anywhere in <body> as possibly restyling every element:
+      // opening or closing a dialog or menu restyled all ~23k elements of a large
+      // page, three times — the freeze after closing Settings. `.hN` sits on the
+      // paragraph's own container, so its descendants are what the rule meant.
+      name: 'blocksuite-no-has-descendant',
+      transform(code, id) {
+        if (!id.includes('embed-note-content-styles')) return null;
+        return code.replace(
+          /\.affine-embed-doc-content-note-blocks affine-paragraph:has\(\.(h[1-6])\) \*/g,
+          '.affine-embed-doc-content-note-blocks affine-paragraph .$1, .affine-embed-doc-content-note-blocks affine-paragraph .$1 *',
+        );
+      },
+    },
     wasm(),
     vanillaExtractPlugin(),
     VitePWA({

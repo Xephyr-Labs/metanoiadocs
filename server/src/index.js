@@ -772,7 +772,10 @@ app.get('/api/docs', requireUser, async (req, res) => {
             -- skeleton save is not a change (as in needs.js).
             (d.kind <> 'task' AND d.updated_by IS NOT NULL AND d.updated_by <> $1
              AND d.updated_at > d.created_at + interval '1 minute'
-             AND d.updated_at > greatest(o.opened_at, ed.last_edit_at, since.applied_at)) IS TRUE AS unseen
+             AND d.updated_at > greatest(o.opened_at, ed.last_edit_at, since.applied_at)) IS TRUE AS unseen,
+            -- When I last opened it, on any device: drives Recent.
+            -- Opens only: doc_editors also moves on renames, moves and restores.
+            o.opened_at AS my_last_at
        FROM docs d
        LEFT JOIN doc_opens o ON o.doc_id = d.id AND o.user_id = $1
        LEFT JOIN doc_editors ed ON ed.doc_id = d.id AND ed.user_id = $1
