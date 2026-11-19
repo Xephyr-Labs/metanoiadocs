@@ -119,3 +119,18 @@ test('admin token mint: agent accounts only (a person would be impersonated)', a
   const agent = await run('agent');
   assert.equal(agent.status, 200); assert.match(agent.body.token, /^mtn_/); assert.equal(agent.inserts[0][3], 'h:' + agent.body.token);
 });
+
+// Turning a page's public link on or off: anyone who can edit it, so pages an
+// agent created can still be shared by the people working on them (19 Nov 2026).
+// Never Ask AI or an untrusted agent: publishing a page is not a suggestion.
+test('public link on/off: editors, not owner-only; untrusted callers refused', () => {
+  const src = readFileSync(new URL('./index.js', import.meta.url), 'utf8');
+  for (const r of ["app.post('/api/docs/:id/public'", "app.delete('/api/docs/:id/public'"]) {
+    const start = src.indexOf(r);
+    assert.ok(start !== -1, `${r} missing`);
+    const body = src.slice(start, src.indexOf('\n});', start));
+    assert.match(body, /\buntrusted\(req\)/, `${r} must refuse untrusted callers`);
+    assert.match(body, /\beditGrant\(/, `${r} must allow editors`);
+    assert.doesNotMatch(body, /!== 'owner'/, `${r} must not be owner-only`);
+  }
+});

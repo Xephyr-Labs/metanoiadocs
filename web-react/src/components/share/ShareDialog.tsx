@@ -112,10 +112,14 @@ export function ShareDialog() {
   const togglePublic = async () => {
     if (!docId || busyLink) return;
     setBusyLink(true);
+    setMsg(null);
     try {
       if (token) { await docsApi.publicDisable(docId); setToken(null); }
       else { const r = await docsApi.publicEnable(docId); setToken(r.token); }
       ws.refresh();
+    } catch (e) {
+      // Without this a refused call left the switch where it was, with no word why.
+      setMsg({ ok: false, text: (e instanceof Error && e.message) || (token ? 'Could not turn the link off.' : 'Could not turn the link on.') });
     } finally {
       setBusyLink(false);
     }

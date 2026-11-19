@@ -2001,9 +2001,12 @@ app.delete('/api/docs/:id', requireUser, async (req, res) => {
   res.json({ ok: true });
 });
 
-// Public read-only share. Owner-gated. GET reads current token; POST mints (or
-// returns) one; DELETE revokes it. The token is the whole capability — anyone
-// with the link reads.
+// Public read-only share. GET reads current token; POST mints (or returns) one;
+// DELETE revokes it. The token is the whole capability — anyone with the link
+// reads. Anyone who can edit the page may turn it on or off, not only the owner:
+// a page an agent created was otherwise unshareable by the people working on it,
+// and the dialog's switch just sat there (19 Nov 2026). Publishing is never a
+// suggestion, so Ask AI and untrusted agents are refused.
 app.get('/api/docs/:id/public', requireUser, async (req, res) => {
   if (!(await grantOn(req.params.id, req.user.id)))
     return res.status(403).json({ error: 'forbidden' });
@@ -2012,8 +2015,9 @@ app.get('/api/docs/:id/public', requireUser, async (req, res) => {
 });
 
 app.post('/api/docs/:id/public', requireUser, async (req, res) => {
-  if ((await grantOn(req.params.id, req.user.id)) !== 'owner')
-    return res.status(403).json({ error: 'forbidden' });
+  if (untrusted(req)) return res.status(403).json({ error: 'This needs a person or a trusted agent: an AI assistant or untrusted agent cannot share a page with a link.' });
+  if (!(await editGrant(req.params.id, req.user.id)))
+    return res.status(403).json({ error: 'Only people who can edit this page can share it with a link.' });
   const cur = await pool.query('SELECT share_token, share_access FROM docs WHERE id = $1', [req.params.id]);
   let token = cur.rows[0]?.share_token;
   if (!token) {
@@ -2031,8 +2035,9 @@ app.post('/api/docs/:id/public', requireUser, async (req, res) => {
 });
 
 app.delete('/api/docs/:id/public', requireUser, async (req, res) => {
-  if ((await grantOn(req.params.id, req.user.id)) !== 'owner')
-    return res.status(403).json({ error: 'forbidden' });
+  if (untrusted(req)) return res.status(403).json({ error: 'This needs a person or a trusted agent: an AI assistant or untrusted agent cannot share a page with a link.' });
+  if (!(await editGrant(req.params.id, req.user.id)))
+    return res.status(403).json({ error: 'Only people who can edit this page can share it with a link.' });
   await pool.query('UPDATE docs SET share_token = NULL WHERE id = $1', [req.params.id]);
   res.json({ ok: true });
 });
