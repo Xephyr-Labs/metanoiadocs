@@ -47,3 +47,18 @@ export const rowAction =
  * stay put for it to hang from). Pair with `group/row` on the row. */
 export const rowActionsAtRest =
   'hidden group-focus-within/row:flex group-has-[[data-state=open]]/row:flex';
+
+/**
+ * The frame of a top-level page (Home, All documents, Drive, a space,
+ * Workflows): one width, one inset, one top margin. Each page carried its own
+ * copy, and they had drifted to 1000, 1100 and 1440px — so the title jumped
+ * 60px sideways and 18px down as you went down the sidebar.
+ *
+ *   <div className="scrollarea h-full overflow-y-auto bg-canvas">
+ *     <div className={pageFrame}>…</div>
+ *   </div>
+ */
+export const pageFrame = 'mx-auto max-w-[1440px] px-6 py-8 md:px-10';
+
+/** The title those pages open with. Home's greeting is the one larger one. */
+export const pageTitle = 'font-display text-2xl font-semibold leading-7 tracking-[-0.03em] text-ink md:text-3xl';

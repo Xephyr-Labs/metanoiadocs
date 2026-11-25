@@ -24,6 +24,7 @@ import { inCurrentSpace, splitBySpace } from '../../lib/spaceTree';
 import { DocIcon } from '../ui/DocIcon';
 import { Modal } from '../ui/Modal';
 import { ProjectIcon } from '../ui/ProjectIcon';
+import { PageIcon } from '../ui/PageIcon';
 import { KindIcon } from '../project/TaskBadges';
 
 type Item =
@@ -265,7 +266,11 @@ export function CommandPalette() {
                       row is a page, a task, a database or a verb. */}
                   <span className="flex h-6 w-6 shrink-0 items-center justify-center">
                     {it.kind === 'page' ? (
-                      <span className="text-faint"><DocIcon hasChildren={(ws.pages[it.id]?.children.length ?? 0) > 0} size={16} className="" /></span>
+                      // The page's own emoji, as the sidebar and the path draw it;
+                      // the outline glyph only for a page that has none.
+                      ws.pages[it.id]?.icon && ws.pages[it.id]?.icon !== '📄'
+                        ? <PageIcon icon={ws.pages[it.id]?.icon} size={16} />
+                        : <span className="text-faint"><DocIcon hasChildren={(ws.pages[it.id]?.children.length ?? 0) > 0} size={16} className="" /></span>
                     ) : it.kind === 'task' ? (
                       it.taskKind
                         ? <KindIcon kind={it.taskKind} />

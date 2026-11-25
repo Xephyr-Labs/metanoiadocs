@@ -22,7 +22,7 @@ export function EmptyState({ icon: Icon, title, hint, action, compact }: Props) 
       </div>
       <div className="space-y-0.5">
         <p className="text-base font-medium text-ink">{title}</p>
-        {hint && <p className="max-w-[240px] text-sm text-muted">{hint}</p>}
+        {hint && <p className="mx-auto max-w-[36ch] text-sm text-muted [text-wrap:balance]">{hint}</p>}
       </div>
       {action}
     </div>

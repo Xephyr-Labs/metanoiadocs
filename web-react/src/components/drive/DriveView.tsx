@@ -6,6 +6,7 @@ import { useAuth } from '../../store/auth';
 import { useWorkspace } from '../../store/workspace';
 import { Button } from '../ui/Button';
 import { EmptyState } from '../ui/EmptyState';
+import { pageFrame, pageTitle } from '../ui/styles';
 
 /** Rows asked for at once. A folder bigger than this is what search is for. */
 const LIMIT = 200;
@@ -50,7 +51,7 @@ export function DriveView() {
 
   const header = (
     <header className="mb-5">
-      <h1 className="font-display text-2xl font-semibold leading-7 tracking-[-0.03em] text-ink md:text-3xl">
+      <h1 className={pageTitle}>
         {status?.driveName || 'Drive'}
       </h1>
       {status?.connected && (
@@ -153,7 +154,7 @@ export function DriveView() {
 function Shell({ children }: { children: React.ReactNode }) {
   return (
     <div className="scrollarea h-full overflow-y-auto bg-canvas">
-      <div className="mx-auto max-w-[1100px] px-6 py-8 md:px-10">{children}</div>
+      <div className={pageFrame}>{children}</div>
     </div>
   );
 }
