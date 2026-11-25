@@ -1,6 +1,8 @@
 // POST /api/docs/:id/edits — edit_doc's targeted edits:
 // `{ edits: [{ find, replace, occurrence?, under? }] }`, each replacing one
-// passage of text inside one block (suggest-writer.js suggestEdits). Decided
+// passage of text inside one block (suggest-writer.js suggestEdits), or, with
+// `image: "/api/blob/<key>"`, swapping the picture `find` names for that
+// uploaded one (`replace`, when not empty, its new caption). Decided
 // like /content (`draftWrite`, i.e. draftEdit): a reviewed writer's edits
 // become suggestions (or go into their open legacy draft); a trusted writer's
 // land directly, through a live direct connection, so open editors see them.
@@ -10,7 +12,7 @@
 import * as Y from 'yjs';
 import { extractText, pageLinksOf } from './blocks.js';
 import { editFields, editMiss } from './ai-drafts.js';
-import { suggestEdits } from './suggest-writer.js';
+import { blobKeyOf, suggestEdits } from './suggest-writer.js';
 import { markStale } from './verify.js';
 
 export function registerDocEditRoutes(app, { requireUser, wrap, editGrant, pool, getHocuspocus, draftWrite, storeLinks }) {
@@ -26,8 +28,16 @@ export function registerDocEditRoutes(app, { requireUser, wrap, editGrant, pool,
       replace: String(e?.replace ?? ''),
       ...(Number.isInteger(e?.occurrence) && e.occurrence > 0 ? { occurrence: e.occurrence } : {}),
       ...(e?.under ? { under: String(e.under) } : {}),
+      ...(e?.image ? { image: String(e.image) } : {}),
     }));
     if (edits.some((e) => !e.find)) return res.status(400).json({ error: 'every edit needs a non-empty find' });
+    const keys = [...new Set(edits.filter((e) => e.image).map((e) => blobKeyOf(e.image)))];
+    if (keys.includes(null)) return res.status(400).json({ error: 'image must be an uploaded image\'s /api/blob/<key> url' });
+    if (keys.length) {
+      const have = await pool.query('SELECT key FROM blobs WHERE key = ANY($1)', [keys]);
+      const missing = keys.filter((k) => !have.rows.some((r) => r.key === k));
+      if (missing.length) return res.status(400).json({ error: `no uploaded file with key ${missing.join(', ')}: upload the image first` });
+    }
     const d = await pool.query('SELECT title, kind FROM docs WHERE id = $1 AND deleted_at IS NULL', [docId]);
     if (!d.rows[0]) return res.status(404).json({ error: 'not found' });
 

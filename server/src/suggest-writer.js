@@ -464,6 +464,33 @@ function reconcileText(w, t, src) {
 /** A find copied from read_doc's markdown may carry its backslash escapes. */
 const unescapeMd = (s) => s.replace(/\\([\\`*_{}\[\]()#+\-.!|<>~])/g, '$1');
 
+/** The blob key in `/api/blob/<key>` (bare, absolute or inside `![..](..)`), or null. */
+export function blobKeyOf(s) {
+  const m = /(?:^|\/)api\/blob\/([^?#)\s]+)/i.exec(String(s ?? ''));
+  if (!m) return null;
+  try { return decodeURIComponent(m[1]); } catch { return null; }
+}
+
+/** Whether an image edit's `find` names image block `b`: its blob url or key, or its caption. */
+function imageMatches(b, find) {
+  const f = String(find).trim();
+  const src = String(b.get('prop:sourceId') || '');
+  const key = blobKeyOf(f);
+  if (key) return key === src;
+  if (f === src) return true;
+  const cap = fold(String(b.get('prop:caption') || ''));
+  return !!cap && cap === fold(f);
+}
+
+/** Point image block `b` at blob `key`; size 0 renders the new picture at its natural size. */
+function setImage(b, key, caption) {
+  b.set('prop:sourceId', key);
+  if (caption) b.set('prop:caption', caption);
+  b.set('prop:width', 0);
+  b.set('prop:height', 0);
+  b.set('prop:size', -1);
+}
+
 /** Whether a unit with mark `s` is on the page as `by` reads it (null: nothing pending accepted). */
 const visible = (s, by) => !(s?.kind === 'ins' && s.by !== by) && !(s?.kind === 'del' && by != null && s.by === by);
 
@@ -535,6 +562,8 @@ export function suggestEdits({ doc, edits, by, via, agent, direct = false, at = 
       if (!(b instanceof Y.Map) || !blockView(b, viewBy)) continue;
       const t = b.get('prop:text');
       if (t instanceof Y.Text) entries.push({ id, b, t, kids, units: unitsOf(t).filter((u) => visible(u.s, viewBy)) });
+      // An image has no text to search; it is listed (in page order) for `image` edits.
+      if (b.get('sys:flavour') === 'affine:image') entries.push({ id, b, kids, img: true, units: [] });
       // A table keeps each cell's text on the table block itself, row by row.
       if (b.get('sys:flavour') === 'affine:table') {
         const { rows, cols } = tableAxes(b);
@@ -581,8 +610,22 @@ export function suggestEdits({ doc, edits, by, via, agent, direct = false, at = 
   const notFound = [];
   const ambiguous = [];
   const changed = new Map(); // entry → indices of the edits that changed it
+  const swaps = new Map(); // image entry → { k, key, caption }
+  const early = [];
   edits.forEach((ed, k) => {
     const sc = scope(ed.under);
+    if (ed.image) {
+      const hits = sc.filter((e) => e.img && imageMatches(e.b, ed.find));
+      const n = ed.occurrence;
+      const hit = n ? hits[n - 1] : hits.length === 1 ? hits[0] : null;
+      if (!hit) {
+        if (hits.length > 1 && !n) ambiguous.push({ edit: k, find: ed.find, matches: hits.length });
+        else notFound.push({ edit: k, find: ed.find, ...(ed.under ? { under: ed.under } : {}) });
+      } else if (swaps.has(hit)) {
+        early.push({ edit: k, find: ed.find, blockId: hit.id, reason: 'an earlier edit already swaps this image' });
+      } else swaps.set(hit, { k, key: blobKeyOf(ed.image) ?? String(ed.image), caption: String(ed.replace ?? '') });
+      return;
+    }
     let needle = String(ed.find ?? '');
     let hits = needle ? search(sc, needle) : [];
     if (!hits.length && unescapeMd(needle) !== needle) { needle = unescapeMd(needle); hits = search(sc, needle); }
@@ -601,7 +644,7 @@ export function suggestEdits({ doc, edits, by, via, agent, direct = false, at = 
   });
 
   // Plan each changed block; a direct write must not cut through anyone's pending text.
-  const skipped = [];
+  const skipped = [...early];
   const plans = [];
   for (const e of entries) {
     if (!changed.has(e)) continue;
@@ -643,6 +686,19 @@ export function suggestEdits({ doc, edits, by, via, agent, direct = false, at = 
         const t = new Y.Text();
         live.get(copy).set('prop:text', t);
         fill(t, e.units);
+        touched.add(copy);
+      }
+    }
+    for (const [e, { key, caption }] of swaps) {
+      touched.add(e.id);
+      const s = sugg(e.b);
+      // A trusted writer, or the writer's own added image, swaps it in place: the block id stays.
+      if (direct || (s?.kind === 'add' && own(w, s))) setImage(e.b, key, caption);
+      else {
+        // Reviewed: the old image suggested removed, the new one suggested added after it.
+        removeBlock(w, e.kids, e.id);
+        const copy = addBlock(w, e.kids, e.id, e.id);
+        setImage(live.get(copy), key, caption);
         touched.add(copy);
       }
     }

@@ -369,7 +369,7 @@ test('edit_doc: a direct edit is Done, and a 409 lists every miss for the agent'
 
 // ── the route, with a fake app (the doc-opens.test.js pattern) ──────────────
 
-async function route(body, { grant = true, drafted = null, md = 'Alpha beta.\n' } = {}) {
+async function route(body, { grant = true, drafted = null, md = 'Alpha beta.\n', blobs = [] } = {}) {
   const { registerDocEditRoutes } = await import('./doc-edits.js');
   const live = page(md);
   const routes = {};
@@ -377,7 +377,11 @@ async function route(body, { grant = true, drafted = null, md = 'Alpha beta.\n' 
   registerDocEditRoutes({ post: (path, ...h) => { routes[path] = h[h.length - 1]; } }, {
     requireUser: () => {}, wrap: (fn) => fn,
     editGrant: async () => grant,
-    pool: { async query(sql, p) { calls.sql.push(sql); return { rows: /SELECT/.test(sql) ? [{ title: 'T', kind: 'doc' }] : [] }; } },
+    pool: { async query(sql, p) {
+      calls.sql.push(sql);
+      if (/FROM blobs/.test(sql)) return { rows: p[0].filter((k) => blobs.includes(k)).map((key) => ({ key })) };
+      return { rows: /SELECT/.test(sql) ? [{ title: 'T', kind: 'doc' }] : [] };
+    } },
     getHocuspocus: () => ({ async openDirectConnection() { return { document: live, async transact(fn) { live.transact(() => fn(live)); }, async disconnect() {} }; } }),
     draftWrite: async (req, docId, doc, write) => { calls.draft = write; return drafted; },
     storeLinks: async (id, links) => { calls.links = links; },
@@ -413,4 +417,67 @@ test('route: a reviewed writer gets draftEdit\'s answer as it is', async () => {
   const { res, live } = await route({ edits: [{ find: 'beta', replace: 'x' }] }, { drafted: { status: 200, body } });
   assert.deepEqual(res.body, body);
   assert.equal(read(live), 'Alpha beta.');
+});
+
+// ── image swaps ─────────────────────────────────────────────────────────────
+
+const OLD = 'a'.repeat(64);
+const NEW = 'b'.repeat(64);
+const IMG_PAGE = `## Shots\n\nIntro text.\n\n![Home screen](/api/blob/${OLD})\n\nAfter the picture.\n`;
+const imageBlocks = (doc) => [...doc.getMap('blocks').entries()].filter(([, b]) => b.get('sys:flavour') === 'affine:image');
+
+test('a trusted image edit swaps the picture in place: same block id, every other block byte-identical', () => {
+  const doc = page(IMG_PAGE);
+  const before = snapshot(doc);
+  const [[id]] = imageBlocks(doc);
+  const out = edit(doc, [{ find: `![Home screen](/api/blob/${OLD})`, replace: '', image: `/api/blob/${NEW}` }], { direct: true });
+  assert.equal(out.applied, 1);
+  const imgs = imageBlocks(doc);
+  assert.equal(imgs.length, 1);
+  assert.equal(imgs[0][0], id, 'the block id stays');
+  assert.equal(imgs[0][1].get('prop:sourceId'), NEW);
+  assert.equal(imgs[0][1].get('prop:caption'), 'Home screen', 'empty replace keeps the caption');
+  const after = snapshot(doc);
+  assert.deepEqual(Object.keys(before).filter((k) => before[k] !== after[k]), [id]);
+});
+
+test('an image edit finds the picture by caption or bare url, and replace sets a new caption', () => {
+  const doc = page(IMG_PAGE);
+  edit(doc, [{ find: 'Home screen', replace: 'New home', image: `https://docs.example/api/blob/${NEW}` }], { direct: true });
+  assert.match(read(doc), new RegExp(`!\\[New home\\]\\(/api/blob/${NEW}\\)`));
+  edit(doc, [{ find: `/api/blob/${NEW}`, replace: '', image: `/api/blob/${OLD}` }], { direct: true });
+  assert.equal(imageBlocks(doc)[0][1].get('prop:sourceId'), OLD);
+});
+
+test('an image edit that names no picture, or two, writes nothing; a text find never matches a picture', () => {
+  const two = page(`![Shot](/api/blob/${OLD})\n\n![Shot](/api/blob/${OLD})\n`);
+  let out;
+  assert.equal(updates(two, () => { out = edit(two, [{ find: 'Shot', replace: '', image: `/api/blob/${NEW}` }], { direct: true }); }), 0);
+  assert.deepEqual(out.ambiguous, [{ edit: 0, find: 'Shot', matches: 2 }]);
+  edit(two, [{ find: 'Shot', replace: '', image: `/api/blob/${NEW}`, occurrence: 2 }], { direct: true });
+  assert.deepEqual(imageBlocks(two).map(([, b]) => b.get('prop:sourceId')), [OLD, NEW]);
+  const doc = page(IMG_PAGE);
+  assert.deepEqual(edit(doc, [{ find: 'Nope', replace: '', image: `/api/blob/${NEW}` }], { direct: true }).notFound, [{ edit: 0, find: 'Nope' }]);
+  assert.deepEqual(edit(doc, [{ find: 'Home screen', replace: 'x' }], { direct: true }).notFound, [{ edit: 0, find: 'Home screen' }]);
+});
+
+test('a reviewed image edit suggests the old picture removed and the new one added; accepting it shows the new one', () => {
+  const doc = page(IMG_PAGE);
+  const md = read(doc);
+  const out = edit(doc, [{ find: 'Home screen', replace: '', image: `/api/blob/${NEW}` }, { find: 'Intro', replace: 'Opening' }]);
+  assert.equal(out.applied, 2);
+  assert.equal(read(doc), md, 'everyone else still reads the page as it was');
+  assert.equal(read(doc, 'andy'), md.replace(OLD, NEW).replace('Intro', 'Opening'));
+  for (const c of listSuggestions(doc)) decide(doc, c.id, 'accept', 'owner');
+  assert.equal(read(doc), md.replace(OLD, NEW).replace('Intro', 'Opening'));
+});
+
+test('route: an image edit needs an uploaded /api/blob/<key>; with one, the picture is swapped', async () => {
+  const md = `![Shot](/api/blob/${OLD})\n`;
+  const swap = { edits: [{ find: 'Shot', replace: '', image: `/api/blob/${NEW}` }] };
+  assert.equal((await route(swap, { md })).res.code, 400, 'not uploaded');
+  assert.equal((await route({ edits: [{ find: 'Shot', replace: '', image: 'https://x/pic.png' }] }, { md })).res.code, 400, 'not a blob url');
+  const { res, live } = await route(swap, { md, blobs: [NEW] });
+  assert.equal(res.code, 200);
+  assert.equal(read(live), `![Shot](/api/blob/${NEW})`);
 });
