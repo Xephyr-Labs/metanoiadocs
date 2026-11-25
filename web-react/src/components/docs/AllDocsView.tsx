@@ -23,6 +23,7 @@ import { PageIcon } from '../ui/PageIcon';
 import { SegmentedControl } from '../ui/SegmentedControl';
 import { SpaceChip } from '../spaces/SpaceChip';
 import { inSpacePick, type SpaceFilter } from '../../lib/spaceTree';
+import { pageFrame, pageTitle } from '../ui/styles';
 
 type Sort = 'updated' | 'title' | 'folder';
 
@@ -89,9 +90,9 @@ export function AllDocsView() {
 
   return (
     <div ref={scroller} className="scrollarea h-full overflow-y-auto bg-canvas">
-      <div className="mx-auto max-w-[1440px] px-6 py-8 md:px-10">
+      <div className={pageFrame}>
         <header className="mb-5">
-          <h1 className="font-display text-2xl font-semibold leading-7 tracking-[-0.03em] text-ink md:text-3xl">
+          <h1 className={pageTitle}>
             All documents
           </h1>
           <p className="mt-0.5 text-sm text-muted">

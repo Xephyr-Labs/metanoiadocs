@@ -45,6 +45,7 @@ import {
   Tag as TagIcon,
   Trash2,
   Upload,
+  Workflow,
 } from 'lucide-react';
 import { Children, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { calendarConnected } from '../../lib/calendar';
@@ -819,7 +820,7 @@ export function Sidebar() {
             </span>
           ) : undefined}
         />
-        <NavItem icon={<CheckSquare size={16} />} label="Workflows" active={ws.view === 'workflows'} onClick={ws.openWorkflows} />
+        <NavItem icon={<Workflow size={16} />} label="Workflows" active={ws.view === 'workflows'} onClick={ws.openWorkflows} />
         <NavItem icon={<CheckSquare size={16} />} label="Tasks" active={ws.view === 'tasks'} onClick={ws.openTasks} />
         {hasCalendar && (
           <NavItem icon={<CalendarDays size={16} />} label="Calendar" active={ws.view === 'calendar'} onClick={ws.openCalendar} />

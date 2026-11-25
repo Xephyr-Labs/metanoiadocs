@@ -336,6 +336,8 @@ export function TopBar() {
           <Crumb current>Calendar</Crumb>
         ) : ws.view === 'drive' ? (
           <Crumb current>Drive</Crumb>
+        ) : ws.view === 'workflows' ? (
+          <Crumb current>Workflows</Crumb>
         ) : ws.view === 'home' ? (
           <Crumb current>Home</Crumb>
         ) : null}
@@ -374,12 +376,14 @@ export function TopBar() {
           'transition-colors duration-120 ease-out hover:border-line-strong hover:text-ink',
           // With the side panel open the bar has ~700px for path + search +
           // actions; the search collapses to its icon so the path keeps its words.
-          ws.rightPanel ? 'w-7 justify-center px-0' : 'w-7 justify-center px-0 sm:w-[188px] sm:justify-start sm:px-2',
+          // A page's bar carries its own actions too, and the pill squeezed the
+          // folder crumb to "M…" at 1440; ⌘K still opens it.
+          ws.rightPanel || page ? 'w-7 justify-center px-0' : 'w-7 justify-center px-0 sm:w-[188px] sm:justify-start sm:px-2',
         )}
       >
         <Search size={14} className="shrink-0 text-faint" />
-        <span className={cn('flex-1 text-left', ws.rightPanel ? 'hidden' : 'hidden sm:inline')}>Search</span>
-        <kbd className={cn('shrink-0 font-sans text-3xs tracking-wide text-faint', ws.rightPanel ? 'hidden' : 'hidden sm:inline')}>{MOD_LABEL === '⌘' ? '⌘K' : 'Ctrl K'}</kbd>
+        <span className={cn('flex-1 text-left', ws.rightPanel || page ? 'hidden' : 'hidden sm:inline')}>Search</span>
+        <kbd className={cn('shrink-0 font-sans text-3xs tracking-wide text-faint', ws.rightPanel || page ? 'hidden' : 'hidden sm:inline')}>{MOD_LABEL === '⌘' ? '⌘K' : 'Ctrl K'}</kbd>
       </button>
 
       {/* Non-doc views keep a small global cluster: Ask AI + theme. Without it

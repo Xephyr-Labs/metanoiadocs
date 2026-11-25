@@ -17,6 +17,7 @@ import { inCurrentSpace } from '../../lib/spaceTree';
 import { ActivityLine, Card, DocCard, TaskBucket } from './cards';
 import { NeedsYou } from './NeedsYou';
 import { TodaysMeetings } from './TodaysMeetings';
+import { pageFrame } from '../ui/styles';
 
 const BUCKETS: MyTask['bucket'][] = ['overdue', 'today', 'week', 'later'];
 
@@ -187,7 +188,7 @@ export function Home() {
 
   return (
     <div className="scrollarea h-full overflow-y-auto bg-canvas">
-      <div className="mx-auto max-w-[1440px] px-6 py-8 md:px-10">
+      <div className={pageFrame}>
         <header className="mb-6 flex flex-col items-start gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
           <div>
             <h1 className="font-display text-2xl font-semibold leading-7 tracking-[-0.03em] text-ink md:text-4xl md:leading-9">

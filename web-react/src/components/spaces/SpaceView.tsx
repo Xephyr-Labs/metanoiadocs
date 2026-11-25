@@ -8,6 +8,7 @@ import { Avatar } from '../ui/Avatar';
 import { Button } from '../ui/Button';
 import { SpaceAvatar } from './SpaceAvatar';
 import { EmptyState } from '../ui/EmptyState';
+import { pageFrame, pageTitle } from '../ui/styles';
 
 const heading = 'mb-2 text-2xs font-semibold uppercase tracking-wide text-faint';
 
@@ -58,11 +59,11 @@ export function SpaceView() {
 
   return (
     <div className="scrollarea h-full overflow-y-auto bg-canvas">
-      <div className="mx-auto max-w-[1100px] px-6 py-8 md:px-10">
+      <div className={pageFrame}>
         <header className="mb-8 flex items-start gap-4">
           <SpaceAvatar space={space} size={40} className="rounded-lg" />
           <div className="min-w-0 flex-1">
-            <h1 className="font-display text-2xl font-semibold leading-7 tracking-[-0.03em] text-ink md:text-3xl">{space.name}</h1>
+            <h1 className={pageTitle}>{space.name}</h1>
             <p className="mt-1 text-sm text-muted">{space.description || 'No description yet.'}</p>
           </div>
           {/* Your only space cannot be left: you would be in none. */}

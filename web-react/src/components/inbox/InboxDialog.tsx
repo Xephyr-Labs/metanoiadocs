@@ -297,7 +297,8 @@ export function InboxDialog() {
     >
       <ModalBody>
         <NotifyNudge />
-        <p className="mb-4 flex flex-wrap justify-between gap-2 text-xs text-muted">Act here and keep your place. <span className="hidden sm:inline">J / K to move · Enter to open</span></p>
+        {/* px-2: the rows below inset their avatar 8px, and this line sat out of their column. */}
+        <p className="mb-4 flex flex-wrap justify-between gap-2 px-2 text-xs text-muted">Act here and keep your place. <span className="hidden sm:inline">J / K to move · Enter to open</span></p>
         {error && <p role="alert" className="mb-2 rounded-md bg-danger-soft p-2 text-sm text-danger-strong">{error}</p>}
         {undo && <div role="status" className="mb-2 flex items-center justify-between gap-2 rounded-md bg-accent-soft p-2 text-xs text-ink"><span>Item moved out of your inbox.{undo.task_id ? ' Task changes remain saved.' : ''}</span><button type="button" disabled={!!busy} onClick={restore} className={actionClass}>Undo</button></div>}
         <div ref={listRef} onKeyDown={e => {

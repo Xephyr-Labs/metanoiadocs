@@ -22,11 +22,16 @@ const EMPTY: Record<NeedsTab, string> = {
 
 function Row({ icon, children, meta, actions }: { icon: ReactNode; children: ReactNode; meta?: string; actions: ReactNode }) {
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-md px-2 py-2 hover:bg-hover">
-      <span className="shrink-0 text-faint">{icon}</span>
-      <p className="min-w-0 flex-1 basis-48 text-sm text-ink">{children}</p>
-      {meta && <span className="shrink-0 text-2xs text-faint">{meta}</span>}
-      <span className="flex shrink-0 gap-1">{actions}</span>
+    // Top-aligned, with the text dropped 4px to the middle of the 28px buttons:
+    // centred, the icon floated halfway down a row whose actions had wrapped
+    // under a two-line title on a phone.
+    <div className="flex items-start gap-3 rounded-md px-2 py-2 hover:bg-hover">
+      <span className="mt-1.5 shrink-0 text-faint">{icon}</span>
+      <div className="flex min-w-0 flex-1 flex-wrap items-start gap-x-3 gap-y-1.5">
+        <p className="min-w-0 flex-1 basis-48 py-1 text-sm text-ink">{children}</p>
+        {meta && <span className="mt-1.5 shrink-0 text-2xs text-faint">{meta}</span>}
+        <span className="flex shrink-0 gap-1">{actions}</span>
+      </div>
     </div>
   );
 }
@@ -77,10 +82,14 @@ export function NeedsYou({ needs, onChanged }: { needs: NeedsPayload; onChanged:
               {action('Mark done', () => act(() => tasksApi.patchTask(t.taskId, { status: 'done' })), true)}
               {action('Tomorrow', () => act(() => tasksApi.patchTask(t.taskId, { dueAt: needs.tomorrow })))}
             </>}>
+            {/* The dot rides inside the button (a button lays out as an
+                inline block, so nothing outside it can hold to its last word):
+                a wrapped title ends "for ·" instead of opening its second line
+                with "· Website relaunch". */}
             <button type="button" className="text-left hover:underline" onClick={() => ws.openProject(t.projectId, t.taskId)}>
-              <b className="font-medium">{t.title || 'Untitled'}</b>
+              <b className="font-medium">{t.title || 'Untitled'}</b><span aria-hidden className="text-muted">{'\u00a0·'}</span>
             </button>
-            <span className="text-muted"> · {t.projectName}</span>
+            <span className="text-muted"> {t.projectName}</span>
             {t.today
               ? <span className="ml-2 rounded bg-accent-soft px-1.5 py-0.5 text-2xs text-accent-strong">Today</span>
               : <span className="ml-2 text-2xs text-danger-strong">
@@ -138,11 +147,13 @@ export function NeedsYou({ needs, onChanged }: { needs: NeedsPayload; onChanged:
       <p className="text-base text-ink">
         You have{' '}
         {parts.map((p, i) => (
-          <span key={p.text}>
+          // The last part keeps its full stop: on a phone the "." wrapped onto
+          // a line of its own.
+          <span key={p.text} className={i === parts.length - 1 ? 'whitespace-nowrap' : undefined}>
             <button type="button" onClick={() => setPicked(p.tab)} className="font-medium text-accent-strong hover:underline">{p.text}</button>
-            {joiner(i, parts.length)}
+            {i === parts.length - 1 ? '.' : joiner(i, parts.length)}
           </span>
-        ))}.
+        ))}
       </p>
       <div role="tablist" className="mt-3 flex flex-wrap gap-1.5">
         {NEEDS_TABS.map((t) => {
